@@ -343,7 +343,10 @@ function NormalItem({
 }) {
   return (
     <Item onClick={onClick} selected={selected}>
-      <Search className="text-muted-foreground" />
+      <div className="flex flex-col items-center gap-0.5">
+        <Search className="text-muted-foreground" />
+        <span className="text-[10px] text-muted-foreground/70 uppercase leading-none">FULL TEXT</span>
+      </div>
       <div className="font-semibold truncate">{search}</div>
     </Item>
   )
@@ -360,7 +363,10 @@ function HashtagItem({
 }) {
   return (
     <Item onClick={onClick} selected={selected}>
-      <Hash className="text-muted-foreground" />
+      <div className="flex flex-col items-center gap-0.5">
+        <Hash className="text-muted-foreground" />
+        <span className="text-[10px] text-muted-foreground/70 uppercase leading-none">HASHTAG</span>
+      </div>
       <div className="font-semibold truncate">{hashtag}</div>
     </Item>
   )
@@ -377,7 +383,10 @@ function NoteItem({
 }) {
   return (
     <Item onClick={onClick} selected={selected}>
-      <Notebook className="text-muted-foreground" />
+      <div className="flex flex-col items-center gap-0.5">
+        <Notebook className="text-muted-foreground" />
+        <span className="text-[10px] text-muted-foreground/70 uppercase leading-none">NOTE</span>
+      </div>
       <div className="font-semibold truncate">{id}</div>
     </Item>
   )
@@ -413,7 +422,10 @@ function DTagItem({
 }) {
   return (
     <Item onClick={onClick} selected={selected}>
-      <FileText className="text-muted-foreground" />
+      <div className="flex flex-col items-center gap-0.5">
+        <FileText className="text-muted-foreground" />
+        <span className="text-[10px] text-muted-foreground/70 uppercase leading-none">D-TAG</span>
+      </div>
       <div className="font-semibold truncate">{dtag}</div>
     </Item>
   )
@@ -430,7 +442,10 @@ function RelayItem({
 }) {
   return (
     <Item onClick={onClick} selected={selected}>
-      <Server className="text-muted-foreground" />
+      <div className="flex flex-col items-center gap-0.5">
+        <Server className="text-muted-foreground" />
+        <span className="text-[10px] text-muted-foreground/70 uppercase leading-none">RELAY</span>
+      </div>
       <div className="font-semibold truncate">{url}</div>
     </Item>
   )

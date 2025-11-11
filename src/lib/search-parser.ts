@@ -2,18 +2,20 @@
  * Advanced search parser for Nostr events
  * Supports multiple search parameters:
  * - Date ranges: YYYY-MM-DD to YYYY-MM-DD, from:YYYY-MM-DD, to:YYYY-MM-DD, before:YYYY-MM-DD, after:YYYY-MM-DD
- * - Title: title:"text" or title:text
- * - Subject: subject:"text" or subject:text
- * - Description: description:"text" or description:text
- * - Author: author:"name" (author tag, not pubkey)
- * - Pubkey: pubkey:npub... or pubkey:hex...
- * - Type: type:value
+ * - Hashtag: t:hashtag or hashtag:hashtag (filters by #t tag)
+ * - Pubkey: pubkey:npub... or pubkey:hex... (filters by authors field)
+ * - Events: events:hex, events:note1..., events:nevent1..., events:naddr1... (filters by ids field)
  * - Kind: kind:30023 (filter by event kind)
- * - Plain text: becomes d-tag search for replaceable events
+ * - Plain text: becomes d-tag search for replaceable events (uses #d tag)
+ * 
+ * Note: Nostr only supports single-letter tag indexes (#d, #t, #p, #e, #a, etc.)
+ * Multi-letter tags like title, subject, description, author, type are parsed but
+ * not used in filters as relays don't index them.
  */
 
 export interface AdvancedSearchParams {
   dtag?: string
+  hashtag?: string | string[] // t-tag/hashtag (uses #t tag)
   title?: string | string[]
   subject?: string | string[]
   description?: string | string[]
@@ -81,8 +83,8 @@ export function parseAdvancedSearch(query: string): AdvancedSearchParams {
   // Support both 4-digit (YYYY) and 2-digit (YY) years, date ranges (DATE to DATE)
   const dateRangePattern = /(\d{2,4}-\d{2}-\d{2})\s+to\s+(\d{2,4}-\d{2}-\d{2})/gi
   const datePattern = /(?:from|to|before|after):(\d{2,4}-\d{2}-\d{2})/gi
-  const quotedPattern = /(title|subject|description|author|type|pubkey|events):"([^"]+)"/gi
-  const unquotedPattern = /(title|subject|description|author|pubkey|type|kind|events):([^\s]+)/gi
+  const quotedPattern = /(title|subject|description|author|type|pubkey|events|hashtag|t):"([^"]+)"/gi
+  const unquotedPattern = /(title|subject|description|author|pubkey|type|kind|events|hashtag|t):([^\s]+)/gi
   
   // Pattern to detect bare nip19 IDs (nevent, note, naddr) or hex event IDs
   // These start with the prefix and are base32 encoded (use word boundary to avoid partial matches)
@@ -167,6 +169,10 @@ export function parseAdvancedSearch(query: string): AdvancedSearchParams {
 
     const values = parseValues(value)
     switch (param) {
+      case 'hashtag':
+      case 't':
+        params.hashtag = values.length === 1 ? values[0] : values
+        break
       case 'title':
         params.title = values.length === 1 ? values[0] : values
         break
@@ -209,6 +215,13 @@ export function parseAdvancedSearch(query: string): AdvancedSearchParams {
     lastIndex = Math.max(lastIndex, end)
 
     switch (param) {
+      case 'hashtag':
+      case 't':
+        if (!params.hashtag) {
+          const values = parseValues(value)
+          params.hashtag = values.length === 1 ? values[0] : values
+        }
+        break
       case 'title':
         if (!params.title) {
           const values = parseValues(value)

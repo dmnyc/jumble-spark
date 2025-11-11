@@ -36,17 +36,13 @@ export default function SearchInfo() {
             </ul>
           </div>
           <div>
-            <strong>Metadata fields:</strong>
+            <strong>Filters:</strong>
             <ul className="ml-4 mt-1 space-y-1 list-disc">
-              <li><code className="text-xs">title:"text"</code> or <code className="text-xs">title:text</code> - Search in title tag</li>
-              <li><code className="text-xs">subject:"text"</code> or <code className="text-xs">subject:text</code> - Search in subject tag</li>
-              <li><code className="text-xs">description:"text"</code> - Search in description tag</li>
-              <li><code className="text-xs">author:"name"</code> - Search by author tag (not pubkey)</li>
+              <li><code className="text-xs">t:hashtag</code> or <code className="text-xs">hashtag:hashtag</code> - Filter by hashtag (t-tag)</li>
               <li><code className="text-xs">pubkey:npub...</code>, <code className="text-xs">pubkey:hex</code>, <code className="text-xs">pubkey:nprofile...</code>, or <code className="text-xs">pubkey:user@domain.com</code> - Filter by pubkey (accepts npub, nprofile, hex, or NIP-05)</li>
               <li><code className="text-xs">events:hex</code>, <code className="text-xs">events:note1...</code>, <code className="text-xs">events:nevent1...</code>, or <code className="text-xs">events:naddr1...</code> - Filter by specific events (accepts hex, note, nevent, or naddr)</li>
-              <li><code className="text-xs">type:value</code> - Filter by type tag</li>
               <li><code className="text-xs">kind:30023</code> - Filter by event kind (e.g., 1=notes, 30023=articles, 30817/30818=wiki)</li>
-              <li>Multiple values supported: <code className="text-xs">author:Aristotle,Plato</code> or <code className="text-xs">kind:30023,2018</code></li>
+              <li>Multiple values supported: <code className="text-xs">t:bitcoin,nostr</code>, <code className="text-xs">pubkey:npub1...,npub2...</code> or <code className="text-xs">kind:30023,2018</code></li>
             </ul>
           </div>
           <div className="pt-2 border-t">
@@ -55,8 +51,9 @@ export default function SearchInfo() {
             </p>
             <ul className="ml-4 mt-1 space-y-1 list-disc text-xs text-muted-foreground">
               <li><code>jumble search</code> → searches d-tag</li>
-              <li><code>title:"My Article" from:2024-01-01</code></li>
-              <li><code>author:"John Doe" type:wiki</code></li>
+              <li><code>t:bitcoin from:2024-01-01</code></li>
+              <li><code>pubkey:npub1abc... from:2024-01-01</code></li>
+              <li><code>kind:30023 from:2024-01-01</code></li>
               <li><code>2025-10-23 to 2025-10-30</code> → date range</li>
             </ul>
           </div>

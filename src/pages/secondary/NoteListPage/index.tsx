@@ -185,28 +185,18 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
       }
       
       // Advanced search parameters (support multiple values)
-      const title = searchParams.getAll('title')
-      const subject = searchParams.getAll('subject')
-      const description = searchParams.getAll('description')
-      const author = searchParams.getAll('author')
+      // Note: Nostr only supports single-letter tag indexes, so we can't filter by
+      // multi-letter tags like title, subject, description, author, type
       const searchPubkey = searchParams.getAll('pubkey')
       const searchEvents = searchParams.getAll('events')
-      const type = searchParams.getAll('type')
       const from = searchParams.get('from')
       const to = searchParams.get('to')
       const before = searchParams.get('before')
       const after = searchParams.get('after')
       
       // Check if we have any advanced search parameters
-      if (title.length > 0 || subject.length > 0 || description.length > 0 || author.length > 0 || searchPubkey.length > 0 || searchEvents.length > 0 || type.length > 0 || from || to || before || after) {
+      if (searchPubkey.length > 0 || searchEvents.length > 0 || from || to || before || after) {
         const filter: any = {}
-        
-        // Tag-based filters (support multiple values - use OR logic)
-        if (title.length > 0) filter['#title'] = title
-        if (subject.length > 0) filter['#subject'] = subject
-        if (description.length > 0) filter['#description'] = description
-        if (author.length > 0) filter['#author'] = author
-        if (type.length > 0) filter['#type'] = type
         
         // Pubkey filter (support multiple pubkeys: hex, npub, nprofile, NIP-05)
         if (searchPubkey.length > 0) {
@@ -315,16 +305,16 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
         
         // Build title from search params
         const titleParts: string[] = []
-        if (title.length > 0) titleParts.push(`title:${title.join(',')}`)
-        if (subject.length > 0) titleParts.push(`subject:${subject.join(',')}`)
-        if (author.length > 0) titleParts.push(`author:${author.join(',')}`)
+        // Note: hashtag is handled separately via 't' parameter earlier in the function
         if (searchPubkey.length > 0) {
           const pubkeyDisplay = searchPubkey.length === 1 
             ? `${searchPubkey[0].substring(0, 16)}...` 
             : `${searchPubkey.length} pubkeys`
           titleParts.push(`pubkey:${pubkeyDisplay}`)
         }
-        if (type.length > 0) titleParts.push(`type:${type.join(',')}`)
+        if (searchEvents.length > 0) {
+          titleParts.push(`${searchEvents.length} event${searchEvents.length > 1 ? 's' : ''}`)
+        }
         if (from || to || before || after) {
           const dateParts: string[] = []
           if (from) dateParts.push(`from:${from}`)

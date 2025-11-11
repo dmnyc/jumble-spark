@@ -46,44 +46,39 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
         const searchParams = parseAdvancedSearch(params.search)
         
         // Check if we have advanced search parameters (not just plain text)
+        // Exclude unsupported multi-letter tag params (title, subject, description, author, type)
         const hasAdvancedParams = Object.keys(searchParams).some(key => 
-          key !== 'dtag' && searchParams[key as keyof typeof searchParams]
+          key !== 'dtag' && 
+          key !== 'title' && 
+          key !== 'subject' && 
+          key !== 'description' && 
+          key !== 'author' && 
+          key !== 'type' &&
+          searchParams[key as keyof typeof searchParams]
         )
+        
+        // Handle hashtag search - route to hashtag page
+        if (searchParams.hashtag) {
+          const hashtag = Array.isArray(searchParams.hashtag) ? searchParams.hashtag[0] : searchParams.hashtag
+          const urlParams = new URLSearchParams()
+          urlParams.set('t', hashtag)
+          if (searchParams.kinds) {
+            searchParams.kinds.forEach(k => urlParams.append('k', k.toString()))
+          }
+          push(`/notes?${urlParams.toString()}`)
+          return
+        }
         
         if (hasAdvancedParams || searchParams.dtag) {
           // Route to NoteListPage with advanced search
+          // Note: Only include parameters that Nostr relays actually support
+          // (single-letter tag indexes: #d, #t, #p, #e, #a, etc.)
           const urlParams = new URLSearchParams()
           if (searchParams.dtag) {
             urlParams.set('d', searchParams.dtag)
           }
-          if (searchParams.title) {
-            if (Array.isArray(searchParams.title)) {
-              searchParams.title.forEach(t => urlParams.append('title', t))
-            } else {
-              urlParams.set('title', searchParams.title)
-            }
-          }
-          if (searchParams.subject) {
-            if (Array.isArray(searchParams.subject)) {
-              searchParams.subject.forEach(s => urlParams.append('subject', s))
-            } else {
-              urlParams.set('subject', searchParams.subject)
-            }
-          }
-          if (searchParams.description) {
-            if (Array.isArray(searchParams.description)) {
-              searchParams.description.forEach(d => urlParams.append('description', d))
-            } else {
-              urlParams.set('description', searchParams.description)
-            }
-          }
-          if (searchParams.author) {
-            if (Array.isArray(searchParams.author)) {
-              searchParams.author.forEach(a => urlParams.append('author', a))
-            } else {
-              urlParams.set('author', searchParams.author)
-            }
-          }
+          // Skip title, subject, description, author, type - these use multi-letter tags
+          // that Nostr relays don't index
           if (searchParams.pubkey) {
             if (Array.isArray(searchParams.pubkey)) {
               searchParams.pubkey.forEach(p => urlParams.append('pubkey', p))
@@ -96,13 +91,6 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
               searchParams.events.forEach(e => urlParams.append('events', e))
             } else {
               urlParams.set('events', searchParams.events)
-            }
-          }
-          if (searchParams.type) {
-            if (Array.isArray(searchParams.type)) {
-              searchParams.type.forEach(t => urlParams.append('type', t))
-            } else {
-              urlParams.set('type', searchParams.type)
             }
           }
           if (searchParams.from) urlParams.set('from', searchParams.from)
