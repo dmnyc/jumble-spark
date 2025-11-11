@@ -5,12 +5,10 @@ import logger from '@/lib/logger'
 import HighlightSourcePreview from '@/components/UniversalContent/HighlightSourcePreview'
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
-import { useTranslation } from 'react-i18next'
 import { useSmartNoteNavigation } from '@/PageManager'
 import { toNote } from '@/lib/link'
 import { useFetchEvent } from '@/hooks'
 import { useEffect, useState, useMemo } from 'react'
-import client from '@/services/client.service'
 import { ExtendedKind } from '@/constants'
 
 /**
@@ -63,7 +61,6 @@ function HighlightAuthorCard({
   eventId?: string
   onClick?: () => void
 }) {
-  const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigation()
   
   const handleNoteClick = (e: React.MouseEvent) => {
@@ -182,7 +179,6 @@ export default function Highlight({
             const decoded = nip19.decode(sourceTag[1])
             if (decoded.type === 'naddr') {
               // For naddr, we have the pubkey directly
-              nostrSourceAuthor = decoded.data.pubkey
               source = {
                 type: 'url' as const,
                 value: sourceTag[1],
@@ -199,15 +195,6 @@ export default function Highlight({
               }
             } else if (decoded.type === 'note') {
               // For note, we can fetch the event to get the author
-              tempSourceEventId = sourceTag[1] // Store bech32 for fetching
-              tempSourceBech32 = sourceTag[1] // Store bech32 for navigation
-              source = {
-                type: 'url' as const,
-                value: sourceTag[1],
-                bech32: sourceTag[1]
-              }
-            } else if (decoded.type === 'naddr') {
-              // For naddr, we have the pubkey directly, but also fetch the event for consistency
               tempSourceEventId = sourceTag[1] // Store bech32 for fetching
               tempSourceBech32 = sourceTag[1] // Store bech32 for navigation
               source = {

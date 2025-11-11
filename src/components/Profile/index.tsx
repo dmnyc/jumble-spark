@@ -67,8 +67,8 @@ export default function Profile({ id }: { id?: string }) {
         ? [parseInt(articleKindFilter)] 
         : undefined
       
-      // Combine filter kinds with search param kinds
-      const allKinds = kinds || searchParams.kinds || undefined
+      // Note: Kind filter only available as URL parameter k=, not from search parser
+      const allKinds = kinds
       
       // Build URL with search parameters
       // For now, if we have a d-tag, use that. Otherwise use advanced search
@@ -109,13 +109,6 @@ export default function Profile({ id }: { id?: string }) {
             urlParams.set('author', searchParams.author)
           }
         }
-        if (searchParams.pubkey) {
-          if (Array.isArray(searchParams.pubkey)) {
-            searchParams.pubkey.forEach(p => urlParams.append('pubkey', p))
-          } else {
-            urlParams.set('pubkey', searchParams.pubkey)
-          }
-        }
         if (searchParams.type) {
           if (Array.isArray(searchParams.type)) {
             searchParams.type.forEach(t => urlParams.append('type', t))
@@ -123,12 +116,9 @@ export default function Profile({ id }: { id?: string }) {
             urlParams.set('type', searchParams.type)
           }
         }
-        if (searchParams.from) urlParams.set('from', searchParams.from)
-        if (searchParams.to) urlParams.set('to', searchParams.to)
-        if (searchParams.before) urlParams.set('before', searchParams.before)
-        if (searchParams.after) urlParams.set('after', searchParams.after)
+        // Note: Date searches, pubkey filters, and event filters removed - not supported
         if (allKinds) {
-          allKinds.forEach(k => urlParams.append('k', k.toString()))
+          allKinds.forEach((k: number) => urlParams.append('k', k.toString()))
         }
         
         const url = `/notes?${urlParams.toString()}`

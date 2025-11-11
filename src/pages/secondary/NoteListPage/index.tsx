@@ -12,7 +12,6 @@ import { useInterestList } from '@/providers/InterestListProvider'
 import client from '@/services/client.service'
 import { TFeedSubRequest } from '@/types'
 import { UserRound, Plus } from 'lucide-react'
-import { nip19 } from 'nostr-tools'
 import React, { forwardRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 

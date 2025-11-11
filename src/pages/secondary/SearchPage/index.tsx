@@ -63,9 +63,7 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
           const hashtag = Array.isArray(searchParams.hashtag) ? searchParams.hashtag[0] : searchParams.hashtag
           const urlParams = new URLSearchParams()
           urlParams.set('t', hashtag)
-          if (searchParams.kinds) {
-            searchParams.kinds.forEach(k => urlParams.append('k', k.toString()))
-          }
+          // Note: Kind filter only available as URL parameter k=, not from search parser
           push(`/notes?${urlParams.toString()}`)
           return
         }
