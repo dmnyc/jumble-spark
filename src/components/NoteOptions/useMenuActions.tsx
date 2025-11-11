@@ -1,7 +1,7 @@
 import { ExtendedKind } from '@/constants'
 import { getNoteBech32Id, isProtectedEvent, getRootEventHexId } from '@/lib/event'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
-import { toNjump } from '@/lib/link'
+import { toNjump, toAlexandria } from '@/lib/link'
 import logger from '@/lib/logger'
 import { pubkeyToNpub } from '@/lib/pubkey'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
@@ -455,9 +455,17 @@ export function useMenuActions({
       },
       {
         icon: Link,
-        label: t('Copy share link'),
+        label: t('Share with Njump'),
         onClick: () => {
           navigator.clipboard.writeText(toNjump(getNoteBech32Id(event)))
+          closeDrawer()
+        }
+      },
+      {
+        icon: BookOpen,
+        label: t('Share with Alexandria'),
+        onClick: () => {
+          navigator.clipboard.writeText(toAlexandria(getNoteBech32Id(event)))
           closeDrawer()
         }
       }

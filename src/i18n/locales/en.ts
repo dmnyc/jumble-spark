@@ -66,6 +66,8 @@ export default {
     'n relays': '{{n}} relays',
     Rename: 'Rename',
     'Copy share link': 'Copy share link',
+    'Share with Njump': 'Share with Njump',
+    'Share with Alexandria': 'Share with Alexandria',
     Delete: 'Delete',
     'Relay already exists': 'Relay already exists',
     'invalid relay URL': 'invalid relay URL',
