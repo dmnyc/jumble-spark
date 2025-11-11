@@ -470,6 +470,110 @@ export function useMenuActions({
         label: t('Create Highlight'),
         onClick: () => {
           try {
+            // Get selected text and paragraph context
+            const selection = window.getSelection()
+            let selectedText = ''
+            let paragraphContext = ''
+            
+            if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+              // Get the selected text
+              selectedText = selection.toString().trim()
+              
+              // Find the paragraph element containing the selection
+              const range = selection.getRangeAt(0)
+              let container = range.commonAncestorContainer
+              
+              // Walk up the DOM tree to find a paragraph element
+              while (container && container.nodeType !== Node.ELEMENT_NODE) {
+                container = container.parentNode
+              }
+              
+              let paragraphElement: Element | null = null
+              if (container) {
+                let current: Element | null = container as Element
+                while (current) {
+                  // Check if it's a paragraph or a div that might contain paragraph content
+                  const tagName = current.tagName?.toLowerCase()
+                  // Look for paragraph tags, or divs/articles that contain the selection
+                  // Also check for common markdown/article container classes
+                  if (tagName === 'p') {
+                    // Found a paragraph tag - this is ideal
+                    if (current.contains(range.startContainer) && current.contains(range.endContainer)) {
+                      paragraphElement = current
+                      break
+                    }
+                  } else if (tagName === 'div' || tagName === 'article' || tagName === 'section') {
+                    // Check if this div/article/section contains the selection
+                    // and doesn't have nested paragraph-like structures
+                    if (current.contains(range.startContainer) && current.contains(range.endContainer)) {
+                      // Check if this element has direct paragraph children
+                      const hasParagraphChildren = Array.from(current.children).some(
+                        child => child.tagName?.toLowerCase() === 'p'
+                      )
+                      // If it doesn't have paragraph children, it might be a paragraph container itself
+                      if (!hasParagraphChildren || !paragraphElement) {
+                        paragraphElement = current
+                        // Don't break here - continue looking for a p tag
+                      }
+                    }
+                  }
+                  current = current.parentElement
+                }
+              }
+              
+              // If we found a paragraph element, get its text content
+              if (paragraphElement) {
+                paragraphContext = paragraphElement.textContent?.trim() || ''
+              } else {
+                // Fallback: try to get text from a larger context around the selection
+                // Clone the range and expand it to include surrounding text
+                const expandedRange = range.cloneRange()
+                const startContainer = range.startContainer
+                const endContainer = range.endContainer
+                
+                // Try to expand backwards to find sentence/paragraph boundaries
+                if (startContainer.nodeType === Node.TEXT_NODE && startContainer.textContent) {
+                  const textBefore = startContainer.textContent.substring(0, range.startOffset)
+                  // Look for paragraph breaks (double newlines) or sentence endings
+                  const lastParagraphBreak = textBefore.lastIndexOf('\n\n')
+                  const lastSentenceEnd = Math.max(
+                    textBefore.lastIndexOf('. '),
+                    textBefore.lastIndexOf('.\n'),
+                    textBefore.lastIndexOf('! '),
+                    textBefore.lastIndexOf('?\n')
+                  )
+                  if (lastParagraphBreak > 0) {
+                    expandedRange.setStart(startContainer, lastParagraphBreak + 2)
+                  } else if (lastSentenceEnd > 0) {
+                    expandedRange.setStart(startContainer, lastSentenceEnd + 2)
+                  } else {
+                    expandedRange.setStart(startContainer, 0)
+                  }
+                }
+                
+                // Try to expand forwards
+                if (endContainer.nodeType === Node.TEXT_NODE && endContainer.textContent) {
+                  const textAfter = endContainer.textContent.substring(range.endOffset)
+                  const nextParagraphBreak = textAfter.indexOf('\n\n')
+                  const nextSentenceEnd = Math.min(
+                    textAfter.indexOf('. ') !== -1 ? textAfter.indexOf('. ') + 2 : Infinity,
+                    textAfter.indexOf('.\n') !== -1 ? textAfter.indexOf('.\n') + 2 : Infinity,
+                    textAfter.indexOf('! ') !== -1 ? textAfter.indexOf('! ') + 2 : Infinity,
+                    textAfter.indexOf('?\n') !== -1 ? textAfter.indexOf('?\n') + 2 : Infinity
+                  )
+                  if (nextParagraphBreak !== -1 && nextParagraphBreak < nextSentenceEnd) {
+                    expandedRange.setEnd(endContainer, range.endOffset + nextParagraphBreak)
+                  } else if (nextSentenceEnd < Infinity) {
+                    expandedRange.setEnd(endContainer, range.endOffset + nextSentenceEnd)
+                  } else {
+                    expandedRange.setEnd(endContainer, endContainer.textContent.length)
+                  }
+                }
+                
+                paragraphContext = expandedRange.toString().trim()
+              }
+            }
+            
             // For addressable events (publications, long-form articles with d-tag), use naddr
             // For regular events, use nevent
             let sourceValue: string
@@ -512,11 +616,13 @@ export function useMenuActions({
             const highlightData: import('../PostEditor/HighlightEditor').HighlightData = {
               sourceType: 'nostr',
               sourceValue,
-              sourceHexId
-              // context field is left empty - user can add it later if needed
+              sourceHexId,
+              context: paragraphContext || undefined
             }
-            // Pass the event content as defaultContent for the main editor field
-            openHighlightEditor(highlightData, event.content)
+            
+            // Use selected text as content if available, otherwise use event content
+            const content = selectedText || event.content
+            openHighlightEditor(highlightData, content)
           } catch (error) {
             logger.error('Error creating highlight from event', { error, eventId: event.id })
             toast.error(t('Failed to create highlight'))

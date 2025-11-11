@@ -133,7 +133,7 @@ export default function Highlight({
         <div className="flex-1 min-w-0">
             {/* Full quoted text with highlighted portion */}
             {context && (
-              <div className="text-base font-normal mb-3 whitespace-pre-wrap break-words border-l-4 border-green-500 pl-4">
+              <div className="text-base font-normal mb-4 whitespace-pre-wrap break-words border-l-4 border-green-500 pl-5 py-4 leading-relaxed bg-green-50/30 dark:bg-green-950/20 rounded-r-lg">
                 {contextTag && highlightedText ? (
                   // If we have both context and highlighted text, show the highlight within the context
                   <div>
@@ -152,7 +152,7 @@ export default function Highlight({
                         <span key={index}>
                           {part}
                           {index < cleanContext.split(cleanHighlightedText).length - 1 && (
-                            <mark className="bg-green-200 dark:bg-green-800 px-1 rounded">
+                            <mark className="bg-green-200 dark:bg-green-600 dark:text-white px-1 rounded font-medium">
                               {cleanHighlightedText}
                             </mark>
                           )}
