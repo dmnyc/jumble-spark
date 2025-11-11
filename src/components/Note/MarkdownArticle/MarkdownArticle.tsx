@@ -698,45 +698,142 @@ function parseMarkdownContent(
   
   // Build React nodes from patterns
   filteredPatterns.forEach((pattern, patternIdx) => {
+    // Skip if this pattern was already merged (check early to avoid processing)
+    // This is critical to prevent duplicate rendering
+    if (mergedPatterns.has(patternIdx)) {
+      return
+    }
+    
+    // Additional safety check: if pattern index is before lastIndex, it was already processed
+    // (unless it's a block-level pattern that should be rendered)
+    if (pattern.index < lastIndex && 
+        pattern.type !== 'header' && 
+        pattern.type !== 'horizontal-rule' && 
+        pattern.type !== 'bullet-list-item' && 
+        pattern.type !== 'numbered-list-item' && 
+        pattern.type !== 'table' && 
+        pattern.type !== 'blockquote' &&
+        pattern.type !== 'footnote-definition') {
+      // This pattern was already processed as part of merged text
+      // Skip it to avoid duplicate rendering
+      return
+    }
+    
     // Store original line for list items
     if ((pattern.type === 'bullet-list-item' || pattern.type === 'numbered-list-item') && pattern.data.originalLine) {
       listItemOriginalLines.set(patternIdx, pattern.data.originalLine)
     }
     
     // Add text before pattern
-    if (pattern.index > lastIndex) {
-      let text = content.slice(lastIndex, pattern.index)
+    // Handle both cases: pattern.index > lastIndex (normal) and pattern.index === lastIndex (pattern at start)
+    if (pattern.index >= lastIndex) {
+      let text = pattern.index > lastIndex ? content.slice(lastIndex, pattern.index) : ''
       let textEndIndex = pattern.index
       
-      // Check if this pattern is an inline markdown link that should be included in the paragraph
-      // If so, extend the text to include the link markdown so it gets processed as part of the paragraph
-      // This ensures links stay inline with their surrounding text instead of being separated
-      if (pattern.type === 'markdown-link') {
-        // Get the line containing the link
+      // Check if this pattern is an inline markdown link or hashtag that should be included in the paragraph
+      // If so, extend the text to include the pattern so it gets processed as part of the paragraph
+      // This ensures links and hashtags stay inline with their surrounding text instead of being separated
+      if (pattern.type === 'markdown-link' || pattern.type === 'hashtag') {
+        // Get the line containing the pattern
         const lineStart = content.lastIndexOf('\n', pattern.index) + 1
         const lineEnd = content.indexOf('\n', pattern.end)
         const lineEndIndex = lineEnd === -1 ? content.length : lineEnd
+        const line = content.substring(lineStart, lineEndIndex)
         
-        // Check if there's text on the same line before the link (indicates it's part of a sentence)
+        // Check if there's text on the same line before the pattern (indicates it's part of a sentence)
         const textBeforeOnSameLine = content.substring(lineStart, pattern.index)
         const hasTextOnSameLine = textBeforeOnSameLine.trim().length > 0
         
-        // Check if there's text before the link (even on previous lines, as long as no paragraph break)
+        // Check if there's text before the pattern (even on previous lines, as long as no paragraph break)
         const hasTextBefore = text.trim().length > 0 && !text.includes('\n\n')
         
+        // For hashtags: check if the line contains only hashtags (and spaces)
+        // This handles cases like "#orly #devstr #progressreport" on one line
+        // Hashtags should ALWAYS be merged if they're part of text or on a line with other hashtags
+        let shouldMergeHashtag = false
+        if (pattern.type === 'hashtag') {
+          // Check if line contains only hashtags and whitespace
+          const lineWithoutHashtags = line.replace(/#[a-zA-Z0-9_]+/g, '').trim()
+          const lineHasOnlyHashtags = lineWithoutHashtags.length === 0 && line.trim().length > 0
+          
+          // Also check if there are other hashtags on the same line (after this one)
+          const hasOtherHashtagsOnLine = filteredPatterns.some((p, idx) => 
+            idx > patternIdx && 
+            p.type === 'hashtag' && 
+            p.index >= lineStart && 
+            p.index < lineEndIndex
+          )
+          
+          // Merge hashtag if:
+          // 1. Line has only hashtags (so they stay together)
+          // 2. There are other hashtags on the same line
+          // 3. There's text on the same line before it (part of a sentence)
+          // 4. There's text before it (even on previous lines, as long as no paragraph break)
+          shouldMergeHashtag = lineHasOnlyHashtags || hasOtherHashtagsOnLine || hasTextOnSameLine || hasTextBefore
+          
+          // If none of the above, but there's text after the hashtag on the same line, also merge
+          // This handles cases where hashtag is at start of line but followed by text
+          if (!shouldMergeHashtag) {
+            const textAfterOnSameLine = content.substring(pattern.end, lineEndIndex)
+            if (textAfterOnSameLine.trim().length > 0) {
+              shouldMergeHashtag = true
+            }
+          }
+        }
+        
         // Merge if:
-        // 1. There's text on the same line before the link (e.g., "via [TFTC](url)")
-        // 2. OR there's text before the link and no double newline (paragraph break)
-        // This ensures links in sentences stay together with their text
-        if (hasTextOnSameLine || hasTextBefore) {
-          // Get the original markdown link syntax from the content
-          const linkMarkdown = content.substring(pattern.index, pattern.end)
+        // 1. There's text on the same line before the pattern (e.g., "via [TFTC](url)" or "things that #AI")
+        // 2. OR there's text before the pattern and no double newline (paragraph break)
+        // 3. OR (for hashtags) the line contains only hashtags, so they should stay together
+        // This ensures links and hashtags in sentences stay together with their text
+        if (pattern.type === 'hashtag' && shouldMergeHashtag) {
+          // For hashtags on a line with only hashtags, merge the entire line
+          if (line.replace(/#[a-zA-Z0-9_]+/g, '').trim().length === 0 && line.trim().length > 0) {
+            // Line contains only hashtags - merge the entire line
+            // Reconstruct text to include everything from lastIndex to the end of the line
+            const textBeforeLine = content.slice(lastIndex, lineStart)
+            const lineContent = content.substring(lineStart, lineEndIndex)
+            text = textBeforeLine + lineContent
+            textEndIndex = lineEndIndex === content.length ? content.length : lineEndIndex + 1
+            
+            // Mark all hashtags on this line as merged (so they don't render separately)
+            // Do this BEFORE processing text to ensure they're skipped in subsequent iterations
+            filteredPatterns.forEach((p, idx) => {
+              if (p.type === 'hashtag' && p.index >= lineStart && p.index < lineEndIndex) {
+                const tag = p.data
+                const tagLower = tag.toLowerCase()
+                hashtagsInContent.add(tagLower)
+                mergedPatterns.add(idx)
+              }
+            })
+            
+            // Also update lastIndex immediately to prevent processing of patterns on this line
+            // This ensures that when we check pattern.index < lastIndex, it will be true
+            // Note: We still need to process the text below to render it, but lastIndex is updated
+            // so subsequent patterns on this line will be skipped
+            lastIndex = textEndIndex
+          } else if (hasTextOnSameLine || hasTextBefore) {
+            // Hashtag is part of text - merge just this hashtag and text after it
+            const patternMarkdown = content.substring(pattern.index, pattern.end)
+            const textAfterPattern = content.substring(pattern.end, lineEndIndex)
+            text = text + patternMarkdown + textAfterPattern
+            textEndIndex = lineEndIndex === content.length ? content.length : lineEndIndex + 1
+            
+            const tag = pattern.data
+            const tagLower = tag.toLowerCase()
+            hashtagsInContent.add(tagLower)
+            // Mark as merged BEFORE processing text to ensure it's skipped
+            mergedPatterns.add(patternIdx)
+          }
+        } else if (pattern.type === 'markdown-link' && (hasTextOnSameLine || hasTextBefore)) {
+          // Get the original pattern syntax from the content
+          const patternMarkdown = content.substring(pattern.index, pattern.end)
           
-          // Get text after the link on the same line
-          const textAfterLink = content.substring(pattern.end, lineEndIndex)
+          // Get text after the pattern on the same line
+          const textAfterPattern = content.substring(pattern.end, lineEndIndex)
           
-          // Extend the text to include the link and any text after it on the same line
-          text = text + linkMarkdown + textAfterLink
+          // Extend the text to include the pattern and any text after it on the same line
+          text = text + patternMarkdown + textAfterPattern
           textEndIndex = lineEndIndex === content.length ? content.length : lineEndIndex + 1
           
           // Mark this pattern as merged so we don't render it separately later
@@ -782,21 +879,38 @@ function parseMarkdownContent(
           })
           
           // Update lastIndex to the end of the processed text (including link if merged)
-          lastIndex = textEndIndex
+          // Only update if we haven't already updated it (e.g., for hashtag-only lines)
+          if (textEndIndex > lastIndex) {
+            lastIndex = textEndIndex
+          }
         } else {
           // Still update lastIndex even if in table
           lastIndex = textEndIndex
         }
       } else {
-        // No text, but still update lastIndex if we merged a link
+        // No text before pattern, but still update lastIndex if we merged a pattern
         if (mergedPatterns.has(patternIdx)) {
-          lastIndex = textEndIndex
+          // textEndIndex should have been set during the merge logic above
+          if (textEndIndex > lastIndex) {
+            lastIndex = textEndIndex
+          }
+          // Skip rendering since it was merged
+          return
         }
+      }
+    } else {
+      // Pattern starts at or before lastIndex - check if it was merged
+      // This can happen if a previous pattern's merge extended past this pattern
+      if (mergedPatterns.has(patternIdx)) {
+        // This pattern was already merged (e.g., as part of a hashtag-only line)
+        // Skip it and don't update lastIndex (it was already updated)
+        return
       }
     }
     
     // Skip rendering if this pattern was merged into a paragraph
     // (lastIndex was already updated when we merged it above)
+    // This is a final safety check
     if (mergedPatterns.has(patternIdx)) {
       return
     }
@@ -1698,6 +1812,28 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
     }
   })
   
+  // Hashtags: #tag (process after code/bold/italic/links to avoid conflicts)
+  const hashtagRegex = /#([a-zA-Z0-9_]+)/g
+  const hashtagMatches = Array.from(text.matchAll(hashtagRegex))
+  hashtagMatches.forEach(match => {
+    if (match.index !== undefined) {
+      // Skip if already in code, bold, italic, strikethrough, or link
+      const isInOther = inlinePatterns.some(p => 
+        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag') &&
+        match.index! >= p.index && 
+        match.index! < p.end
+      )
+      if (!isInOther) {
+        inlinePatterns.push({
+          index: match.index,
+          end: match.index + match[0].length,
+          type: 'hashtag',
+          data: match[1] // The tag without the #
+        })
+      }
+    }
+  })
+  
   // Sort by index
   inlinePatterns.sort((a, b) => a.index - b.index)
   
@@ -1756,6 +1892,19 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
           rel="noopener noreferrer"
         >
           {linkContent}
+        </a>
+      )
+    } else if (pattern.type === 'hashtag') {
+      // Render hashtags as inline links (green to match theme)
+      const tag = pattern.data
+      const tagLower = tag.toLowerCase()
+      parts.push(
+        <a
+          key={`${keyPrefix}-hashtag-${i}`}
+          href={`/notes?t=${tagLower}`}
+          className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+        >
+          #{tag}
         </a>
       )
     }
