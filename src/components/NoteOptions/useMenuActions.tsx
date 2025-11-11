@@ -476,102 +476,481 @@ export function useMenuActions({
             let paragraphContext = ''
             
             if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
-              // Get the selected text
-              selectedText = selection.toString().trim()
-              
-              // Find the paragraph element containing the selection
               const range = selection.getRangeAt(0)
-              let container = range.commonAncestorContainer
               
-              // Walk up the DOM tree to find a paragraph element
+              // Helper function to check if an element is a UI element that should be excluded
+              const isUIElement = (element: Element | null): boolean => {
+                if (!element) return false
+                
+                const tagName = element.tagName?.toLowerCase()
+                const className = element.className || ''
+                const id = element.id || ''
+                
+                // Exclude common UI elements
+                const uiTags = ['nav', 'header', 'footer', 'aside', 'button', 'menu', 'dialog', 'form', 'input', 'select', 'textarea']
+                if (uiTags.includes(tagName)) return true
+                
+                // Exclude elements with UI-related classes
+                const uiClassPatterns = [
+                  /sidebar/i,
+                  /navbar/i,
+                  /menu/i,
+                  /header/i,
+                  /footer/i,
+                  /titlebar/i,
+                  /button/i,
+                  /dialog/i,
+                  /modal/i,
+                  /drawer/i,
+                  /toolbar/i,
+                  /action/i,
+                  /control/i
+                ]
+                if (uiClassPatterns.some(pattern => pattern.test(className) || pattern.test(id))) return true
+                
+                // Exclude elements with role attributes that indicate UI
+                const role = element.getAttribute('role')
+                if (role && ['navigation', 'banner', 'contentinfo', 'complementary', 'dialog', 'button', 'menubar', 'menu'].includes(role)) {
+                  return true
+                }
+                
+                return false
+              }
+              
+              // Find the article content container (element with 'prose' class)
+              // This is where the actual article content is rendered
+              let articleContainer: Element | null = null
+              let container: Node | null = range.commonAncestorContainer
+              
+              // Walk up the DOM tree to find the article container
               while (container && container.nodeType !== Node.ELEMENT_NODE) {
                 container = container.parentNode
               }
               
-              let paragraphElement: Element | null = null
               if (container) {
                 let current: Element | null = container as Element
                 while (current) {
-                  // Check if it's a paragraph or a div that might contain paragraph content
-                  const tagName = current.tagName?.toLowerCase()
-                  // Look for paragraph tags, or divs/articles that contain the selection
-                  // Also check for common markdown/article container classes
-                  if (tagName === 'p') {
-                    // Found a paragraph tag - this is ideal
-                    if (current.contains(range.startContainer) && current.contains(range.endContainer)) {
-                      paragraphElement = current
+                  // Check if this element is the article content container
+                  const className = current.className || ''
+                  if (typeof className === 'string' && className.includes('prose')) {
+                    articleContainer = current
+                    break
+                  }
+                  // Also check parent elements
+                  current = current.parentElement
+                }
+              }
+              
+              // If we couldn't find the article container, try to find it by looking for the event's note container
+              if (!articleContainer) {
+                // Try to find the note container by searching for elements that might contain the event
+                const allElements = document.querySelectorAll('[data-event-id], [data-note-id], .note-content, article')
+                for (const el of allElements) {
+                  if (el.contains(range.startContainer) && el.contains(range.endContainer)) {
+                    // Check if this element has prose class or contains prose elements
+                    const hasProse = el.classList.contains('prose') || el.querySelector('.prose')
+                    if (hasProse) {
+                      articleContainer = el.querySelector('.prose') || el
                       break
                     }
-                  } else if (tagName === 'div' || tagName === 'article' || tagName === 'section') {
-                    // Check if this div/article/section contains the selection
-                    // and doesn't have nested paragraph-like structures
-                    if (current.contains(range.startContainer) && current.contains(range.endContainer)) {
-                      // Check if this element has direct paragraph children
-                      const hasParagraphChildren = Array.from(current.children).some(
-                        child => child.tagName?.toLowerCase() === 'p'
-                      )
-                      // If it doesn't have paragraph children, it might be a paragraph container itself
-                      if (!hasParagraphChildren || !paragraphElement) {
-                        paragraphElement = current
-                        // Don't break here - continue looking for a p tag
-                      }
-                    }
+                  }
+                }
+              }
+              
+              // Verify that the selection is within the article content and not in UI elements
+              let startElement: Element | null = null
+              let endElement: Element | null = null
+              
+              if (range.startContainer.nodeType === Node.ELEMENT_NODE) {
+                startElement = range.startContainer as Element
+              } else {
+                startElement = range.startContainer.parentElement
+              }
+              
+              if (range.endContainer.nodeType === Node.ELEMENT_NODE) {
+                endElement = range.endContainer as Element
+              } else {
+                endElement = range.endContainer.parentElement
+              }
+              
+              // Check if selection includes UI elements
+              let current: Element | null = startElement
+              let hasUIElements = false
+              while (current && current !== articleContainer?.parentElement) {
+                if (isUIElement(current)) {
+                  hasUIElements = true
+                  break
+                }
+                current = current.parentElement
+              }
+              
+              if (!hasUIElements && endElement) {
+                current = endElement
+                while (current && current !== articleContainer?.parentElement) {
+                  if (isUIElement(current)) {
+                    hasUIElements = true
+                    break
                   }
                   current = current.parentElement
                 }
               }
               
-              // If we found a paragraph element, get its text content
-              if (paragraphElement) {
-                paragraphContext = paragraphElement.textContent?.trim() || ''
-              } else {
-                // Fallback: try to get text from a larger context around the selection
-                // Clone the range and expand it to include surrounding text
-                const expandedRange = range.cloneRange()
-                const startContainer = range.startContainer
-                const endContainer = range.endContainer
-                
-                // Try to expand backwards to find sentence/paragraph boundaries
-                if (startContainer.nodeType === Node.TEXT_NODE && startContainer.textContent) {
-                  const textBefore = startContainer.textContent.substring(0, range.startOffset)
-                  // Look for paragraph breaks (double newlines) or sentence endings
-                  const lastParagraphBreak = textBefore.lastIndexOf('\n\n')
-                  const lastSentenceEnd = Math.max(
-                    textBefore.lastIndexOf('. '),
-                    textBefore.lastIndexOf('.\n'),
-                    textBefore.lastIndexOf('! '),
-                    textBefore.lastIndexOf('?\n')
-                  )
-                  if (lastParagraphBreak > 0) {
-                    expandedRange.setStart(startContainer, lastParagraphBreak + 2)
-                  } else if (lastSentenceEnd > 0) {
-                    expandedRange.setStart(startContainer, lastSentenceEnd + 2)
-                  } else {
-                    expandedRange.setStart(startContainer, 0)
-                  }
-                }
-                
-                // Try to expand forwards
-                if (endContainer.nodeType === Node.TEXT_NODE && endContainer.textContent) {
-                  const textAfter = endContainer.textContent.substring(range.endOffset)
-                  const nextParagraphBreak = textAfter.indexOf('\n\n')
-                  const nextSentenceEnd = Math.min(
-                    textAfter.indexOf('. ') !== -1 ? textAfter.indexOf('. ') + 2 : Infinity,
-                    textAfter.indexOf('.\n') !== -1 ? textAfter.indexOf('.\n') + 2 : Infinity,
-                    textAfter.indexOf('! ') !== -1 ? textAfter.indexOf('! ') + 2 : Infinity,
-                    textAfter.indexOf('?\n') !== -1 ? textAfter.indexOf('?\n') + 2 : Infinity
-                  )
-                  if (nextParagraphBreak !== -1 && nextParagraphBreak < nextSentenceEnd) {
-                    expandedRange.setEnd(endContainer, range.endOffset + nextParagraphBreak)
-                  } else if (nextSentenceEnd < Infinity) {
-                    expandedRange.setEnd(endContainer, range.endOffset + nextSentenceEnd)
-                  } else {
-                    expandedRange.setEnd(endContainer, endContainer.textContent.length)
-                  }
-                }
-                
-                paragraphContext = expandedRange.toString().trim()
+              // If selection includes UI elements, show error
+              if (hasUIElements) {
+                toast.error(t('Please select text only from the article content, not from menus or UI elements'))
+                return
               }
+              
+              // If we found an article container, verify selection is within it
+              if (articleContainer && !articleContainer.contains(range.startContainer)) {
+                toast.error(t('Please select text only from the article content, not from menus or UI elements'))
+                return
+              }
+              
+              // Create a new range that only includes content from the article
+              const contentRange = range.cloneRange()
+              
+              // If we have an article container, try to constrain the range to it
+              // This helps ensure we only capture article content, not UI elements
+              if (articleContainer) {
+                try {
+                  // Verify both start and end are within article container
+                  const rangeStart = range.startContainer
+                  const rangeEnd = range.endContainer
+                  
+                  // If start is not in article container, try to adjust it
+                  if (!articleContainer.contains(rangeStart)) {
+                    // This shouldn't happen if our check above worked, but handle it anyway
+                    logger.warn('Selection start is outside article container', { 
+                      hasArticleContainer: !!articleContainer 
+                    })
+                    // Try to find the first text node in the article container
+                    const walker = document.createTreeWalker(
+                      articleContainer,
+                      NodeFilter.SHOW_TEXT,
+                      null
+                    )
+                    let node = walker.nextNode()
+                    if (node) {
+                      contentRange.setStart(node, 0)
+                    } else {
+                      // No text nodes in article container, reject selection
+                      toast.error(t('Please select text from the article content'))
+                      return
+                    }
+                  }
+                  
+                  // If end is not in article container, try to adjust it
+                  if (!articleContainer.contains(rangeEnd)) {
+                    logger.warn('Selection end is outside article container', { 
+                      hasArticleContainer: !!articleContainer 
+                    })
+                    // Try to find the last text node in the article container
+                    const walker = document.createTreeWalker(
+                      articleContainer,
+                      NodeFilter.SHOW_TEXT,
+                      null
+                    )
+                    let lastNode: Node | null = null
+                    let node = walker.nextNode()
+                    while (node) {
+                      lastNode = node
+                      node = walker.nextNode()
+                    }
+                    if (lastNode && lastNode.textContent) {
+                      contentRange.setEnd(lastNode, lastNode.textContent.length)
+                    }
+                  }
+                } catch (e) {
+                  // If range manipulation fails, log and continue with original range
+                  // But we've already validated it's not in UI elements
+                  logger.warn('Failed to constrain range to article container', { error: e })
+                }
+              }
+              
+              // Get the selected text from the constrained range
+              selectedText = contentRange.toString().trim()
+              
+              // Filter out common UI text patterns that might have been captured
+              const uiTextPatterns = [
+                /^(Home|Explore|Discussions|Notifications|Search|Profile|Settings|Post|Back|Follow|Following|Relays|Posts|Articles|Media|Pins|Bookmarks|Interests|All Types|Translate)$/i,
+                /^(@|#|wss?:\/\/)/, // Usernames, hashtags, relay URLs at start
+                /^(npub1|note1|nevent1|naddr1)/i // Nostr identifiers at start
+              ]
+              
+              // Check if selected text looks like UI text
+              if (uiTextPatterns.some(pattern => pattern.test(selectedText))) {
+                toast.error(t('Please select text from the article content, not from UI elements'))
+                return
+              }
+              
+              // Find the actual paragraph element (<p> tag) containing the selection
+              // We want the specific paragraph, not a parent container
+              let container2: Node | null = contentRange.commonAncestorContainer
+              
+              // Walk up the DOM tree to find a paragraph element
+              while (container2 && container2.nodeType !== Node.ELEMENT_NODE) {
+                container2 = container2.parentNode
+              }
+              
+              let paragraphElement: Element | null = null
+              if (container2) {
+                let current: Element | null = container2 as Element
+                // First pass: look specifically for a <p> tag or header
+                while (current) {
+                  // Skip UI elements
+                  if (isUIElement(current)) {
+                    current = current.parentElement
+                    continue
+                  }
+                  
+                  const tagName = current.tagName?.toLowerCase()
+                  // Prioritize finding actual paragraph tags or headers
+                  if (tagName === 'p' || (tagName?.startsWith('h') && /^h[1-6]$/.test(tagName))) {
+                    // Found a paragraph or header tag - this is what we want
+                    if (current.contains(contentRange.startContainer) && current.contains(contentRange.endContainer)) {
+                      paragraphElement = current
+                      break
+                    }
+                  }
+                  current = current.parentElement
+                }
+                
+                // If we didn't find a <p> or header tag, try to find the closest text-containing element
+                // but only as a last resort, and make sure it's not a large container
+                if (!paragraphElement && container2) {
+                  current = container2 as Element
+                  while (current) {
+                    if (isUIElement(current)) {
+                      current = current.parentElement
+                      continue
+                    }
+                    
+                    const tagName = current.tagName?.toLowerCase()
+                    // Only use div/article/section if it's small and doesn't have many paragraph children
+                    if ((tagName === 'div' || tagName === 'article' || tagName === 'section') &&
+                        current.contains(contentRange.startContainer) && current.contains(contentRange.endContainer)) {
+                      // Make sure it's within the article container
+                      if (!articleContainer || articleContainer.contains(current)) {
+                        // Count how many paragraph children it has
+                        const paragraphChildren = Array.from(current.children).filter(
+                          child => {
+                            const childTag = child.tagName?.toLowerCase()
+                            return (childTag === 'p' || childTag?.startsWith('h')) && !isUIElement(child)
+                          }
+                        )
+                        
+                        // Only use this as paragraph element if it has very few paragraph children (1-2)
+                        // This prevents using large containers that hold the entire article
+                        if (paragraphChildren.length <= 2) {
+                          paragraphElement = current
+                          break
+                        }
+                      }
+                    }
+                    current = current.parentElement
+                  }
+                }
+              }
+              
+              // If we found a paragraph element, get its text content and the paragraph above/below it
+              // But filter out any UI elements from the paragraph context
+              if (paragraphElement) {
+                const tagName = paragraphElement.tagName?.toLowerCase()
+                const isHeader = tagName?.startsWith('h') && /^h[1-6]$/.test(tagName)
+                
+                // Get text content of current element (paragraph or header), but exclude UI elements
+                const walker = document.createTreeWalker(
+                  paragraphElement,
+                  NodeFilter.SHOW_TEXT,
+                  {
+                    acceptNode: (node) => {
+                      // Check if the text node's parent is a UI element
+                      let parent = node.parentElement
+                      while (parent && parent !== paragraphElement) {
+                        if (isUIElement(parent)) {
+                          return NodeFilter.FILTER_REJECT
+                        }
+                        parent = parent.parentElement
+                      }
+                      return NodeFilter.FILTER_ACCEPT
+                    }
+                  }
+                )
+                
+                const textNodes: string[] = []
+                let node = walker.nextNode()
+                while (node) {
+                  if (node.textContent) {
+                    textNodes.push(node.textContent)
+                  }
+                  node = walker.nextNode()
+                }
+                const currentElementText = textNodes.join('').trim()
+                
+                // For headers, get the following paragraph. For paragraphs, get the one above.
+                let contextParagraphText = ''
+                
+                if (articleContainer) {
+                  // Get all content elements (p, h1-h6) within the article container, in DOM order
+                  const allElements = Array.from(articleContainer.querySelectorAll('p, h1, h2, h3, h4, h5, h6'))
+                    .filter(el => {
+                      // Filter out UI elements
+                      if (isUIElement(el)) return false
+                      // Only include elements that are within the article container
+                      return articleContainer.contains(el)
+                    })
+                  
+                  // Find the index of the current element
+                  const currentIndex = allElements.indexOf(paragraphElement)
+                  
+                  if (isHeader) {
+                    // For headers: get the next paragraph after the header
+                    if (currentIndex >= 0 && currentIndex < allElements.length - 1) {
+                      // Look for the next paragraph (not header) after this header
+                      for (let i = currentIndex + 1; i < allElements.length; i++) {
+                        const nextElement = allElements[i]
+                        const nextTagName = nextElement.tagName?.toLowerCase()
+                        if (nextTagName === 'p' && !isUIElement(nextElement)) {
+                          // Found the next paragraph
+                          const nextWalker = document.createTreeWalker(
+                            nextElement,
+                            NodeFilter.SHOW_TEXT,
+                            {
+                              acceptNode: (node) => {
+                                let parent = node.parentElement
+                                while (parent && parent !== nextElement) {
+                                  if (isUIElement(parent)) {
+                                    return NodeFilter.FILTER_REJECT
+                                  }
+                                  parent = parent.parentElement
+                                }
+                                return NodeFilter.FILTER_ACCEPT
+                              }
+                            }
+                          )
+                          
+                          const nextTextNodes: string[] = []
+                          let nextNode = nextWalker.nextNode()
+                          while (nextNode) {
+                            if (nextNode.textContent) {
+                              nextTextNodes.push(nextNode.textContent)
+                            }
+                            nextNode = nextWalker.nextNode()
+                          }
+                          contextParagraphText = nextTextNodes.join('').trim()
+                          break
+                        }
+                        // If we hit another header before a paragraph, stop looking
+                        if (nextTagName?.startsWith('h')) {
+                          break
+                        }
+                      }
+                    }
+                  } else {
+                    // For paragraphs: get the previous paragraph or header
+                    if (currentIndex > 0) {
+                      const previousElement = allElements[currentIndex - 1]
+                      if (previousElement && !isUIElement(previousElement)) {
+                        // Get text from previous element, excluding UI elements
+                        const prevWalker = document.createTreeWalker(
+                          previousElement,
+                          NodeFilter.SHOW_TEXT,
+                          {
+                            acceptNode: (node) => {
+                              let parent = node.parentElement
+                              while (parent && parent !== previousElement) {
+                                if (isUIElement(parent)) {
+                                  return NodeFilter.FILTER_REJECT
+                                }
+                                parent = parent.parentElement
+                              }
+                              return NodeFilter.FILTER_ACCEPT
+                            }
+                          }
+                        )
+                        
+                        const prevTextNodes: string[] = []
+                        let prevNode = prevWalker.nextNode()
+                        while (prevNode) {
+                          if (prevNode.textContent) {
+                            prevTextNodes.push(prevNode.textContent)
+                          }
+                          prevNode = prevWalker.nextNode()
+                        }
+                        contextParagraphText = prevTextNodes.join('').trim()
+                      }
+                    }
+                  }
+                } else {
+                  // Fallback: if no article container, use sibling elements
+                  if (isHeader) {
+                    // For headers: find next sibling paragraph
+                    let nextSibling = paragraphElement.nextElementSibling
+                    while (nextSibling) {
+                      if (isUIElement(nextSibling)) {
+                        nextSibling = nextSibling.nextElementSibling
+                        continue
+                      }
+                      const nextTagName = nextSibling.tagName?.toLowerCase()
+                      if (nextTagName === 'p') {
+                        const nextText = nextSibling.textContent?.trim() || ''
+                        if (nextText) {
+                          contextParagraphText = nextText
+                        }
+                        break
+                      }
+                      // Stop if we hit another header
+                      if (nextTagName?.startsWith('h')) {
+                        break
+                      }
+                      nextSibling = nextSibling.nextElementSibling
+                    }
+                  } else {
+                    // For paragraphs: find previous sibling
+                    let prevSibling = paragraphElement.previousElementSibling
+                    while (prevSibling) {
+                      if (isUIElement(prevSibling)) {
+                        prevSibling = prevSibling.previousElementSibling
+                        continue
+                      }
+                      const prevTagName = prevSibling.tagName?.toLowerCase()
+                      if (prevTagName === 'p' || prevTagName?.startsWith('h')) {
+                        const prevText = prevSibling.textContent?.trim() || ''
+                        if (prevText) {
+                          contextParagraphText = prevText
+                        }
+                        break
+                      }
+                      prevSibling = prevSibling.previousElementSibling
+                    }
+                  }
+                }
+                
+                // Combine context paragraph and current element
+                if (contextParagraphText) {
+                  if (isHeader) {
+                    // Header followed by paragraph
+                    paragraphContext = `${currentElementText}\n\n${contextParagraphText}`
+                  } else {
+                    // Previous paragraph/header followed by current paragraph
+                    paragraphContext = `${contextParagraphText}\n\n${currentElementText}`
+                  }
+                } else {
+                  // Just the current element
+                  paragraphContext = currentElementText
+                }
+              } else {
+                // Fallback: if we couldn't find a paragraph element, just use the selected text
+                // Don't try to expand too much - just use what was selected
+                paragraphContext = selectedText
+              }
+            }
+            
+            // Final validation: ensure we have valid selected text
+            if (!selectedText || selectedText.length === 0) {
+              toast.error(t('Please select some text from the article to highlight'))
+              return
             }
             
             // For addressable events (publications, long-form articles with d-tag), use naddr
