@@ -1,5 +1,5 @@
 import LoginDialog from '@/components/LoginDialog'
-import { ApplicationDataKey, BIG_RELAY_URLS, ExtendedKind, PROFILE_FETCH_RELAY_URLS } from '@/constants'
+import { ApplicationDataKey, BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS } from '@/constants'
 import {
   createDeletionRequestDraftEvent,
   createFollowListDraftEvent,
@@ -60,6 +60,7 @@ type TNostrContext = {
   favoriteRelaysEvent: Event | null
   blockedRelaysEvent: Event | null
   userEmojiListEvent: Event | null
+  rssFeedListEvent: Event | null
   notificationsSeenAt: number
   account: TAccountPointer | null
   accounts: TAccountPointer[]
@@ -167,6 +168,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   const [favoriteRelaysEvent, setFavoriteRelaysEvent] = useState<Event | null>(null)
   const [blockedRelaysEvent, setBlockedRelaysEvent] = useState<Event | null>(null)
   const [userEmojiListEvent, setUserEmojiListEvent] = useState<Event | null>(null)
+  const [rssFeedListEvent, setRssFeedListEvent] = useState<Event | null>(null)
   const [notificationsSeenAt, setNotificationsSeenAt] = useState(-1)
   const [isInitialized, setIsInitialized] = useState(false)
 
@@ -209,6 +211,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       setFollowListEvent(null)
       setMuteListEvent(null)
       setBookmarkListEvent(null)
+      setRssFeedListEvent(null)
       setNotificationsSeenAt(-1)
       if (!account) {
         return
@@ -239,7 +242,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         storedBookmarkListEvent,
         storedFavoriteRelaysEvent,
         storedBlockedRelaysEvent,
-        storedUserEmojiListEvent
+        storedUserEmojiListEvent,
+        storedRssFeedListEvent
       ] = await Promise.all([
         indexedDb.getReplaceableEvent(account.pubkey, kinds.RelayList),
         indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.CACHE_RELAYS),
@@ -249,7 +253,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         indexedDb.getReplaceableEvent(account.pubkey, kinds.BookmarkList),
         indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.FAVORITE_RELAYS),
         indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.BLOCKED_RELAYS),
-        indexedDb.getReplaceableEvent(account.pubkey, kinds.UserEmojiList)
+        indexedDb.getReplaceableEvent(account.pubkey, kinds.UserEmojiList),
+        indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.RSS_FEED_LIST)
       ])
       
       // Extract blocked relays from event
@@ -320,6 +325,61 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       }
       if (storedUserEmojiListEvent) {
         setUserEmojiListEvent(storedUserEmojiListEvent)
+      }
+      if (storedRssFeedListEvent) {
+        setRssFeedListEvent(storedRssFeedListEvent)
+        logger.info('[NostrProvider] Loaded RSS feed list event from cache', {
+          eventId: storedRssFeedListEvent.id,
+          created_at: storedRssFeedListEvent.created_at
+        })
+      }
+
+      // Fetch RSS feed list from relays if cache is missing or stale (older than 1 hour)
+      const rssFeedListStale = !storedRssFeedListEvent || 
+        (dayjs().unix() - storedRssFeedListEvent.created_at > 3600) // 1 hour
+      
+      if (rssFeedListStale) {
+        logger.info('[NostrProvider] RSS feed list cache is missing or stale, fetching from relays', {
+          hasCache: !!storedRssFeedListEvent,
+          cacheAge: storedRssFeedListEvent ? dayjs().unix() - storedRssFeedListEvent.created_at : 'N/A'
+        })
+        
+        // Fetch in background - don't block initialization
+        client.fetchEvents(FAST_WRITE_RELAY_URLS.concat(PROFILE_RELAY_URLS), {
+          kinds: [ExtendedKind.RSS_FEED_LIST],
+          authors: [account.pubkey],
+          limit: 1
+        }).then(events => {
+          const latestEvent = getLatestEvent(events)
+          if (latestEvent) {
+            // Only update if the fetched event is newer than cached
+            if (!storedRssFeedListEvent || latestEvent.created_at > storedRssFeedListEvent.created_at) {
+              logger.info('[NostrProvider] Found newer RSS feed list event from relays', {
+                eventId: latestEvent.id,
+                created_at: latestEvent.created_at,
+                wasCached: !!storedRssFeedListEvent
+              })
+              indexedDb.putReplaceableEvent(latestEvent).then(() => {
+                setRssFeedListEvent(latestEvent)
+                logger.info('[NostrProvider] Updated RSS feed list event in cache and state')
+              }).catch(err => {
+                logger.error('[NostrProvider] Failed to cache RSS feed list event', { error: err })
+              })
+            } else {
+              logger.info('[NostrProvider] Cached RSS feed list event is up to date', {
+                cachedCreatedAt: storedRssFeedListEvent.created_at,
+                fetchedCreatedAt: latestEvent.created_at
+              })
+            }
+          } else if (!storedRssFeedListEvent) {
+            logger.info('[NostrProvider] No RSS feed list event found on relays (user may not have created one yet)')
+          }
+        }).catch(err => {
+          logger.error('[NostrProvider] Failed to fetch RSS feed list from relays', { error: err })
+          // Don't clear cache on fetch error - use cached value
+        })
+      } else {
+        logger.info('[NostrProvider] RSS feed list cache is fresh, using cached value')
       }
 
       const [relayListEvents, cacheRelayListEvents] = await Promise.all([
@@ -825,10 +885,19 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    console.log('🔵 [Publish] Determining target relays...', { kind: event.kind, pubkey: event.pubkey?.substring(0, 8) })
     const relays = await client.determineTargetRelays(event, options)
+    console.log('✅ [Publish] Target relays determined', { relayCount: relays.length, relays: relays.slice(0, 5) })
 
     try {
+      console.log('🔵 [Publish] Calling client.publishEvent()...', { relayCount: relays.length, eventId: event.id?.substring(0, 8) })
       const publishResult = await client.publishEvent(relays, event)
+      console.log('✅ [Publish] publishEvent completed', {
+        success: publishResult.success,
+        successCount: publishResult.successCount,
+        totalCount: publishResult.totalCount,
+        relayStatuses: publishResult.relayStatuses
+      })
       
       // Store relay status temporarily for display (but don't persist it on the event)
       // This metadata is only for logging/feedback, not part of the actual event
@@ -836,6 +905,9 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       
       // If publishing failed completely, throw an error so the form doesn't close
       if (!publishResult.success) {
+        console.error('❌ [Publish] Publishing failed to all relays!', {
+          relayStatuses: publishResult.relayStatuses
+        })
         const error = new AggregateError(
           publishResult.relayStatuses
             .filter(s => !s.success)
@@ -846,6 +918,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         throw error
       }
       
+      console.log('✅ [Publish] Publishing successful, attaching relayStatuses to event')
       // Attach relayStatuses only temporarily for UI feedback, then remove it
       // This prevents it from being included in the event when serialized
       // Use a longer delay to ensure UI components can read it before deletion
@@ -858,6 +931,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         }, 100)
       }
       
+      console.log('✅ [Publish] Returning event', { eventId: event.id?.substring(0, 8), hasRelayStatuses: !!relayStatuses })
       return event
     } catch (error) {
       // Check for authentication-related errors
@@ -1058,6 +1132,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         favoriteRelaysEvent,
         blockedRelaysEvent,
         userEmojiListEvent,
+        rssFeedListEvent,
         notificationsSeenAt,
         account,
         accounts,

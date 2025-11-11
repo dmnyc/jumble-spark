@@ -2,15 +2,14 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
 import rssFeedService, { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
-import { ExtendedKind, DEFAULT_RSS_FEEDS } from '@/constants'
-import indexedDb from '@/services/indexed-db.service'
+import { DEFAULT_RSS_FEEDS } from '@/constants'
 import RssFeedItem from '../RssFeedItem'
 import { Loader, AlertCircle } from 'lucide-react'
 import logger from '@/lib/logger'
 
 export default function RssFeedList() {
   const { t } = useTranslation()
-  const { pubkey } = useNostr()
+  const { pubkey, rssFeedListEvent } = useNostr()
   const [items, setItems] = useState<TRssFeedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -24,24 +23,44 @@ export default function RssFeedList() {
         // Get feed URLs from event or use default
         let feedUrls: string[] = DEFAULT_RSS_FEEDS
 
-        if (pubkey) {
+        if (pubkey && rssFeedListEvent) {
           try {
-            const event = await indexedDb.getReplaceableEvent(pubkey, ExtendedKind.RSS_FEED_LIST)
-            if (event && event.content) {
-              try {
-                const urls = JSON.parse(event.content) as string[]
-                if (Array.isArray(urls) && urls.length > 0) {
-                  feedUrls = urls
+            // Extract URLs from "u" tags
+            const urls = rssFeedListEvent.tags
+              .filter(tag => tag[0] === 'u' && tag[1])
+              .map(tag => tag[1] as string)
+              .filter((url): url is string => {
+                if (typeof url !== 'string') {
+                  logger.warn('[RssFeedList] Invalid RSS feed URL (not a string)', { url, type: typeof url })
+                  return false
                 }
-              } catch (e) {
-                logger.error('[RssFeedList] Failed to parse RSS feed list', { error: e })
-                // Use default feeds on parse error
-              }
+                const trimmed = url.trim()
+                if (trimmed.length === 0) {
+                  logger.warn('[RssFeedList] Empty RSS feed URL found')
+                  return false
+                }
+                return true
+              })
+            
+            if (urls.length > 0) {
+              feedUrls = urls
+              logger.info('[RssFeedList] Loaded RSS feed list from context', { 
+                feedCount: urls.length,
+                eventId: rssFeedListEvent.id,
+                urls
+              })
+            } else {
+              logger.info('[RssFeedList] RSS feed list is empty or contains no valid URLs, using default feeds')
             }
           } catch (e) {
-            logger.error('[RssFeedList] Failed to load RSS feed list event', { error: e })
-            // Use default feeds on error
+            logger.error('[RssFeedList] Failed to parse RSS feed list from tags', { 
+              error: e,
+              tags: rssFeedListEvent.tags
+            })
+            // Use default feeds on parse error
           }
+        } else if (pubkey) {
+          logger.info('[RssFeedList] No RSS feed list event in context, using default feeds')
         }
 
         // Fetch and merge feeds (this handles errors gracefully and returns partial results)
@@ -70,6 +89,25 @@ export default function RssFeedList() {
     }
 
     loadRssFeeds()
+
+    // Listen for RSS feed list updates
+    const handleRssFeedListUpdate = (event: CustomEvent) => {
+      const detail = event.detail as { pubkey: string; feedUrls: string[]; eventId: string }
+      // Only refresh if it's for the current user
+      if (detail.pubkey === pubkey) {
+        logger.info('[RssFeedList] Received RSS feed list update event, refreshing...', { 
+          eventId: detail.eventId,
+          feedCount: detail.feedUrls.length 
+        })
+        loadRssFeeds()
+      }
+    }
+
+    window.addEventListener('rssFeedListUpdated', handleRssFeedListUpdate as EventListener)
+
+    return () => {
+      window.removeEventListener('rssFeedListUpdated', handleRssFeedListUpdate as EventListener)
+    }
   }, [pubkey, t])
 
   if (loading) {

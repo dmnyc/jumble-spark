@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS, ExtendedKind, FAST_READ_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { BIG_RELAY_URLS, ExtendedKind, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import {
   compareEvents,
   getReplaceableCoordinate,
@@ -132,6 +132,8 @@ class ClientService extends EventTarget {
         ].includes(event.kind)
       ) {
         _additionalRelayUrls.push(...BIG_RELAY_URLS, ...PROFILE_RELAY_URLS)
+      } else if (event.kind === ExtendedKind.RSS_FEED_LIST) {
+        _additionalRelayUrls.push(...FAST_WRITE_RELAY_URLS, ...PROFILE_RELAY_URLS)
       }
 
       const relayList = await this.fetchRelayList(event.pubkey)
@@ -148,7 +150,15 @@ class ClientService extends EventTarget {
   }
 
   async publishEvent(relayUrls: string[], event: NEvent) {
+    console.log('🔵 [PublishEvent] Starting publishEvent', {
+      eventId: event.id?.substring(0, 8),
+      kind: event.kind,
+      relayCount: relayUrls.length
+    })
+    
     const uniqueRelayUrls = Array.from(new Set(relayUrls))
+    console.log('🔵 [PublishEvent] Unique relays', { count: uniqueRelayUrls.length, relays: uniqueRelayUrls.slice(0, 5) })
+    
     const relayStatuses: { url: string; success: boolean; error?: string }[] = []
     
     return new Promise<{ success: boolean; relayStatuses: typeof relayStatuses; successCount: number; totalCount: number }>((resolve) => {
@@ -156,20 +166,42 @@ class ClientService extends EventTarget {
       let finishedCount = 0
       const errors: { url: string; error: any }[] = []
       
-      // Add a global timeout to prevent hanging for more than 2 minutes
+      console.log('🔵 [PublishEvent] Setting up global timeout (30 seconds)')
+      let hasResolved = false
+      
+      // Add a global timeout to prevent hanging - use 30 seconds for faster feedback
       const globalTimeout = setTimeout(() => {
+        if (hasResolved) {
+          console.log('🔵 [PublishEvent] Already resolved, ignoring timeout')
+          return
+        }
+        
+        console.warn('⚠️ [PublishEvent] Global timeout reached!', {
+          finishedCount,
+          totalRelays: uniqueRelayUrls.length,
+          successCount,
+          relayStatusesCount: relayStatuses.length
+        })
+        
         // Mark any unfinished relays as failed
         uniqueRelayUrls.forEach(url => {
           const alreadyFinished = relayStatuses.some(rs => rs.url === url)
           if (!alreadyFinished) {
+            console.warn('⚠️ [PublishEvent] Marking relay as timed out', { url })
             relayStatuses.push({ url, success: false, error: 'Timeout: Operation took too long' })
             finishedCount++
           }
         })
         
         // Ensure we resolve even if not all relays finished
-        if (finishedCount < uniqueRelayUrls.length) {
-          finishedCount = uniqueRelayUrls.length
+        if (!hasResolved) {
+          hasResolved = true
+          console.log('✅ [PublishEvent] Resolving due to timeout', {
+            success: successCount >= uniqueRelayUrls.length / 3,
+            successCount,
+            totalCount: uniqueRelayUrls.length,
+            relayStatuses: relayStatuses.length
+          })
           resolve({
             success: successCount >= uniqueRelayUrls.length / 3,
             relayStatuses,
@@ -177,62 +209,100 @@ class ClientService extends EventTarget {
             totalCount: uniqueRelayUrls.length
           })
         }
-      }, 120_000) // 2 minutes global timeout
+      }, 30_000) // 30 seconds global timeout (reduced from 2 minutes)
       
+      console.log('🔵 [PublishEvent] Starting Promise.allSettled for all relays')
       Promise.allSettled(
-        uniqueRelayUrls.map(async (url) => {
+        uniqueRelayUrls.map(async (url, index) => {
+          console.log(`🔵 [PublishEvent] Starting relay ${index + 1}/${uniqueRelayUrls.length}`, { url })
           // eslint-disable-next-line @typescript-eslint/no-this-alias
           const that = this
           const isLocal = isLocalNetworkUrl(url)
-          const timeout = isLocal ? 5_000 : 10_000 // 5s for local, 10s for remote
+          const connectionTimeout = isLocal ? 5_000 : 8_000 // 5s for local, 8s for remote
+          const publishTimeout = isLocal ? 5_000 : 8_000 // 5s for local, 8s for remote
+          
+          // Set up a per-relay timeout to ensure we always reach the finally block
+          const relayTimeout = setTimeout(() => {
+            console.warn(`⚠️ [PublishEvent] Per-relay timeout for ${url}`, { connectionTimeout, publishTimeout })
+            // This will be caught in the catch block if the promise is still pending
+          }, connectionTimeout + publishTimeout + 2_000) // Add 2s buffer
           
           try {
             // For local relays, add a connection timeout
             let relay: Relay
-            if (isLocal) {
-              relay = await Promise.race([
-                this.pool.ensureRelay(url),
-                new Promise<Relay>((_, reject) =>
-                  setTimeout(() => reject(new Error('Local relay connection timeout')), timeout)
-                )
-              ])
-            } else {
-              relay = await this.pool.ensureRelay(url)
-            }
+            console.log(`🔵 [PublishEvent] Ensuring relay connection`, { url, isLocal, connectionTimeout })
             
-            relay.publishTimeout = timeout
+            const connectionPromise = isLocal
+              ? Promise.race([
+                  this.pool.ensureRelay(url),
+                  new Promise<Relay>((_, reject) =>
+                    setTimeout(() => reject(new Error('Local relay connection timeout')), connectionTimeout)
+                  )
+                ])
+              : Promise.race([
+                  this.pool.ensureRelay(url),
+                  new Promise<Relay>((_, reject) =>
+                    setTimeout(() => reject(new Error('Remote relay connection timeout')), connectionTimeout)
+                  )
+                ])
             
-            await relay
+            relay = await connectionPromise
+            console.log(`✅ [PublishEvent] Relay connected`, { url })
+            
+            relay.publishTimeout = publishTimeout
+            
+            console.log(`🔵 [PublishEvent] Publishing to relay`, { url })
+            
+            // Wrap publish in a timeout promise
+            const publishPromise = relay
               .publish(event)
               .then(() => {
+                console.log(`✅ [PublishEvent] Successfully published to relay`, { url })
                 this.trackEventSeenOn(event.id, relay)
                 successCount++
                 relayStatuses.push({ url, success: true })
               })
               .catch((error) => {
+                console.warn(`⚠️ [PublishEvent] Publish failed, checking if auth required`, { url, error: error.message })
                 if (
                   error instanceof Error &&
                   error.message.startsWith('auth-required') &&
                   !!that.signer
                 ) {
+                  console.log(`🔵 [PublishEvent] Auth required, attempting authentication`, { url })
                   return relay
                     .auth((authEvt: EventTemplate) => that.signer!.signEvent(authEvt))
-                    .then(() => relay.publish(event))
                     .then(() => {
+                      console.log(`✅ [PublishEvent] Auth successful, retrying publish`, { url })
+                      return relay.publish(event)
+                    })
+                    .then(() => {
+                      console.log(`✅ [PublishEvent] Successfully published after auth`, { url })
                       this.trackEventSeenOn(event.id, relay)
                       successCount++
                       relayStatuses.push({ url, success: true })
                     })
                     .catch((authError) => {
+                      console.error(`❌ [PublishEvent] Auth or publish failed`, { url, error: authError.message })
                       errors.push({ url, error: authError })
                       relayStatuses.push({ url, success: false, error: authError.message })
                     })
                 } else {
+                  console.error(`❌ [PublishEvent] Publish failed`, { url, error: error.message })
                   errors.push({ url, error })
                   relayStatuses.push({ url, success: false, error: error.message })
                 }
               })
+            
+            // Add a timeout wrapper for the entire publish operation
+            await Promise.race([
+              publishPromise,
+              new Promise<void>((_, reject) =>
+                setTimeout(() => reject(new Error(`Publish timeout after ${publishTimeout}ms`)), publishTimeout)
+              )
+            ])
           } catch (error) {
+            console.error(`❌ [PublishEvent] Connection or setup failed`, { url, error: error instanceof Error ? error.message : String(error) })
             errors.push({ url, error })
             relayStatuses.push({ 
               url, 
@@ -240,12 +310,28 @@ class ClientService extends EventTarget {
               error: error instanceof Error ? error.message : 'Connection failed' 
             })
           } finally {
+            clearTimeout(relayTimeout)
+            const currentFinished = ++finishedCount
+            console.log(`🔵 [PublishEvent] Relay finished`, { 
+              url, 
+              finishedCount: currentFinished, 
+              totalRelays: uniqueRelayUrls.length,
+              successCount 
+            })
+            
             // If one third of the relays have accepted the event, consider it a success
             const isSuccess = successCount >= uniqueRelayUrls.length / 3
             if (isSuccess) {
               this.emitNewEvent(event)
             }
-            if (++finishedCount >= uniqueRelayUrls.length) {
+            if (currentFinished >= uniqueRelayUrls.length && !hasResolved) {
+              hasResolved = true
+              console.log('✅ [PublishEvent] All relays finished, resolving', {
+                success: successCount >= uniqueRelayUrls.length / 3,
+                successCount,
+                totalCount: uniqueRelayUrls.length,
+                relayStatusesCount: relayStatuses.length
+              })
               clearTimeout(globalTimeout)
               resolve({
                 success: successCount >= uniqueRelayUrls.length / 3,
@@ -253,6 +339,31 @@ class ClientService extends EventTarget {
                 successCount,
                 totalCount: uniqueRelayUrls.length
               })
+            }
+            
+            // Also resolve early if we have enough successes (1/3 of relays)
+            // This prevents waiting for slow/failing relays
+            if (!hasResolved && successCount >= Math.max(1, Math.ceil(uniqueRelayUrls.length / 3)) && currentFinished >= Math.max(1, Math.ceil(uniqueRelayUrls.length / 3))) {
+              // Wait a bit more to see if more relays succeed quickly
+              setTimeout(() => {
+                if (!hasResolved) {
+                  hasResolved = true
+                  console.log('✅ [PublishEvent] Resolving early with enough successes', {
+                    success: true,
+                    successCount,
+                    totalCount: uniqueRelayUrls.length,
+                    finishedCount: currentFinished,
+                    relayStatusesCount: relayStatuses.length
+                  })
+                  clearTimeout(globalTimeout)
+                  resolve({
+                    success: true,
+                    relayStatuses,
+                    successCount,
+                    totalCount: uniqueRelayUrls.length
+                  })
+                }
+              }, 2000) // Wait 2 more seconds for quick responses
             }
           }
         })

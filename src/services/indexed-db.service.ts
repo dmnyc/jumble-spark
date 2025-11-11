@@ -51,7 +51,7 @@ class IndexedDbService {
   init(): Promise<void> {
     if (!this.initPromise) {
       this.initPromise = new Promise((resolve, reject) => {
-        const request = window.indexedDB.open('jumble', 15)
+        const request = window.indexedDB.open('jumble', 16)
 
         request.onerror = (event) => {
           reject(event)
@@ -178,12 +178,31 @@ class IndexedDbService {
     
     const storeName = this.getStoreNameByKind(cleanEvent.kind)
     if (!storeName) {
+      logger.error('[IndexedDB] Store name not found for kind', { kind: cleanEvent.kind })
       return Promise.reject('store name not found')
     }
+    
+    console.log('🔵 [IndexedDB] Putting replaceable event', {
+      kind: cleanEvent.kind,
+      storeName,
+      eventId: cleanEvent.id?.substring(0, 8),
+      pubkey: cleanEvent.pubkey?.substring(0, 8),
+      created_at: cleanEvent.created_at,
+      fullEventId: cleanEvent.id
+    })
+    logger.info('[IndexedDB] Putting replaceable event', { 
+      kind: cleanEvent.kind,
+      storeName,
+      eventId: cleanEvent.id?.substring(0, 8),
+      pubkey: cleanEvent.pubkey?.substring(0, 8),
+      created_at: cleanEvent.created_at 
+    })
+    
     await this.initPromise
     
     // Wait a bit for database upgrade to complete if store doesn't exist
     if (this.db && !this.db.objectStoreNames.contains(storeName)) {
+      logger.warn('[IndexedDB] Store not found, waiting for database upgrade', { storeName })
       // Wait up to 2 seconds for store to be created (database upgrade)
       let retries = 20
       while (retries > 0 && this.db && !this.db.objectStoreNames.contains(storeName)) {
@@ -194,38 +213,104 @@ class IndexedDbService {
     
     return new Promise((resolve, reject) => {
       if (!this.db) {
+        logger.error('[IndexedDB] Database not initialized', { storeName, kind: cleanEvent.kind })
         return reject('database not initialized')
       }
+      
       // Check if the store exists before trying to access it
       if (!this.db.objectStoreNames.contains(storeName)) {
-        logger.warn(`Store ${storeName} not found in database. Cannot save event.`)
+        console.error('[IndexedDB] Store not found in database after waiting', {
+          storeName,
+          kind: cleanEvent.kind,
+          availableStores: Array.from(this.db.objectStoreNames),
+          dbVersion: this.db.version
+        })
+        logger.error('[IndexedDB] Store not found in database after waiting', { 
+          storeName,
+          kind: cleanEvent.kind,
+          availableStores: Array.from(this.db.objectStoreNames) 
+        })
         // Return the event anyway (don't reject) - caching is optional
         return resolve(cleanEvent)
       }
+      
+      console.log('✅ [IndexedDB] Store exists, proceeding with save', {
+        storeName,
+        kind: cleanEvent.kind,
+        eventId: cleanEvent.id?.substring(0, 8),
+        dbVersion: this.db.version,
+        allStores: Array.from(this.db.objectStoreNames)
+      })
+      
       const transaction = this.db.transaction(storeName, 'readwrite')
       const store = transaction.objectStore(storeName)
 
       const key = this.getReplaceableEventKeyFromEvent(cleanEvent)
+      logger.info('[IndexedDB] Getting existing event', { storeName, key, eventId: cleanEvent.id?.substring(0, 8) })
+      
       const getRequest = store.get(key)
       getRequest.onsuccess = () => {
         const oldValue = getRequest.result as TValue<Event> | undefined
+        if (oldValue?.value) {
+          logger.info('[IndexedDB] Found existing event', { 
+            storeName,
+            key,
+            oldEventId: oldValue.value.id?.substring(0, 8),
+            oldCreatedAt: oldValue.value.created_at,
+            newCreatedAt: cleanEvent.created_at,
+            willUpdate: cleanEvent.created_at > oldValue.value.created_at 
+          })
+        } else {
+          logger.info('[IndexedDB] No existing event found', { storeName, key })
+        }
+        
         if (oldValue?.value && oldValue.value.created_at >= cleanEvent.created_at) {
+          logger.info('[IndexedDB] Keeping existing event (newer or same timestamp)', { 
+            storeName,
+            key,
+            existingEventId: oldValue.value.id?.substring(0, 8) 
+          })
           transaction.commit()
           return resolve(oldValue.value)
         }
+        
+        console.log('🔵 [IndexedDB] Putting new event', { 
+          storeName, 
+          key, 
+          eventId: cleanEvent.id?.substring(0, 8), 
+          fullEventId: cleanEvent.id,
+          content: cleanEvent.content?.substring(0, 50) 
+        })
+        logger.info('[IndexedDB] Putting new event', { storeName, key, eventId: cleanEvent.id?.substring(0, 8) })
         const putRequest = store.put(this.formatValue(key, cleanEvent))
         putRequest.onsuccess = () => {
+          console.log('✅ [IndexedDB] Successfully put event!', { 
+            storeName, 
+            key, 
+            eventId: cleanEvent.id?.substring(0, 8),
+            content: cleanEvent.content?.substring(0, 50)
+          })
+          logger.info('[IndexedDB] Successfully put event', { storeName, key, eventId: cleanEvent.id?.substring(0, 8) })
           transaction.commit()
           resolve(cleanEvent)
         }
 
         putRequest.onerror = (event) => {
+          console.error('❌ [IndexedDB] Error putting event!', { 
+            storeName, 
+            key, 
+            error: event, 
+            target: (event.target as any)?.error,
+            errorMessage: (event.target as any)?.error?.message 
+          })
+          logger.error('[IndexedDB] Error putting event', { storeName, key, error: event })
           transaction.commit()
           reject(event)
         }
       }
 
       getRequest.onerror = (event) => {
+        logger.error('[IndexedDB] Error getting existing event', { storeName, key, error: event })
         transaction.commit()
         reject(event)
       }
@@ -474,6 +559,8 @@ class IndexedDbService {
   }
 
   private getReplaceableEventKeyFromEvent(event: Event): string {
+    // Events that are replaceable by pubkey only (no d-tag)
+    // RSS_FEED_LIST (10895) is in the 10000-20000 range, so it's automatically handled
     if (
       [kinds.Metadata, kinds.Contacts].includes(event.kind) ||
       (event.kind >= 10000 && event.kind < 20000 && event.kind !== ExtendedKind.PUBLICATION && event.kind !== ExtendedKind.PUBLICATION_CONTENT && event.kind !== ExtendedKind.WIKI_ARTICLE && event.kind !== ExtendedKind.WIKI_ARTICLE_MARKDOWN && event.kind !== kinds.LongFormArticle)

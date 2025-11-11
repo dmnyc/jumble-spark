@@ -439,10 +439,18 @@ export function createRelayListDraftEvent(mailboxRelays: TMailboxRelay[]): TDraf
 }
 
 export function createRssFeedListDraftEvent(feedUrls: string[]): TDraftEvent {
+  // Validate and sanitize feed URLs
+  const validUrls = feedUrls
+    .map(url => typeof url === 'string' ? url.trim() : '')
+    .filter(url => url.length > 0)
+  
+  // Create tags with "u" prefix for each feed URL
+  const tags = validUrls.map(url => ['u', url] as [string, string])
+  
   return {
     kind: ExtendedKind.RSS_FEED_LIST,
-    content: JSON.stringify(feedUrls),
-    tags: [],
+    content: '', // Empty content, URLs are in tags
+    tags,
     created_at: dayjs().unix()
   }
 }

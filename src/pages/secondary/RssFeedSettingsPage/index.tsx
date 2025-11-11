@@ -16,7 +16,7 @@ import indexedDb from '@/services/indexed-db.service'
 
 const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
-  const { pubkey, publish, checkLogin } = useNostr()
+  const { pubkey, publish, checkLogin, rssFeedListEvent } = useNostr()
   const [feedUrls, setFeedUrls] = useState<string[]>([])
   const [newFeedUrl, setNewFeedUrl] = useState('')
   const [showRssFeed, setShowRssFeed] = useState(true)
@@ -24,38 +24,54 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
   const [pushing, setPushing] = useState(false)
   const [loading, setLoading] = useState(true)
 
+  // Load RSS feed list from context (which is loaded from cache first, then relays if stale)
   useEffect(() => {
     // Load show RSS feed setting
     setShowRssFeed(storage.getShowRssFeed())
 
-    // Load RSS feed list from event
-    const loadRssFeedList = async () => {
-      if (!pubkey) {
-        setLoading(false)
-        return
-      }
-
-      try {
-        const event = await indexedDb.getReplaceableEvent(pubkey, ExtendedKind.RSS_FEED_LIST)
-        if (event && event.content) {
-          try {
-            const urls = JSON.parse(event.content) as string[]
-            if (Array.isArray(urls)) {
-              setFeedUrls(urls)
-            }
-          } catch (e) {
-            logger.error('[RssFeedSettingsPage] Failed to parse RSS feed list', { error: e })
-          }
-        }
-      } catch (error) {
-        logger.error('[RssFeedSettingsPage] Failed to load RSS feed list', { error })
-      } finally {
-        setLoading(false)
-      }
+    // Load RSS feed list from context event (which comes from cache)
+    if (!pubkey) {
+      setLoading(false)
+      return
     }
 
-    loadRssFeedList()
-  }, [pubkey])
+    if (rssFeedListEvent) {
+      try {
+        // Extract URLs from "u" tags
+        const urls = rssFeedListEvent.tags
+          .filter(tag => tag[0] === 'u' && tag[1])
+          .map(tag => tag[1] as string)
+          .filter((url): url is string => {
+            if (typeof url !== 'string') {
+              logger.warn('[RssFeedSettingsPage] Invalid RSS feed URL (not a string)', { url, type: typeof url })
+              return false
+            }
+            const trimmed = url.trim()
+            if (trimmed.length === 0) {
+              logger.warn('[RssFeedSettingsPage] Empty RSS feed URL found')
+              return false
+            }
+            return true
+          })
+        
+        if (urls.length > 0) {
+          setFeedUrls(urls)
+          logger.info('[RssFeedSettingsPage] Loaded RSS feed list from context', { count: urls.length, urls })
+        } else {
+          logger.info('[RssFeedSettingsPage] RSS feed list is empty or contains no valid URLs')
+        }
+      } catch (e) {
+        logger.error('[RssFeedSettingsPage] Failed to parse RSS feed list from tags', { 
+          error: e,
+          tags: rssFeedListEvent.tags
+        })
+      }
+    } else {
+      logger.info('[RssFeedSettingsPage] No RSS feed list event in context (user may not have created one yet)')
+    }
+    
+    setLoading(false)
+  }, [pubkey, rssFeedListEvent])
 
   const handleShowRssFeedChange = (checked: boolean) => {
     setShowRssFeed(checked)
@@ -91,23 +107,173 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
   }
 
   const handleSave = async () => {
-    if (!pubkey) return
+    if (!pubkey) {
+      logger.error('[RssFeedSettingsPage] Cannot save: no pubkey')
+      return
+    }
 
     setPushing(true)
     try {
+      logger.info('[RssFeedSettingsPage] Creating RSS feed list event', { 
+        pubkey: pubkey.substring(0, 8),
+        feedCount: feedUrls.length,
+        feedUrls 
+      })
+      
       const event = createRssFeedListDraftEvent(feedUrls)
-      const result = await publish(event)
+      
+      // Validate the event structure before publishing
+      logger.info('[RssFeedSettingsPage] Draft event created', { 
+        kind: event.kind,
+        tagCount: event.tags.length,
+        tags: event.tags,
+        created_at: event.created_at 
+      })
+      console.log('✅ [RSS] Event created with tags', {
+        kind: event.kind,
+        tagCount: event.tags.length,
+        tags: event.tags
+      })
+      
+      console.log('🔵 [RSS] About to call publish()')
+      let result
+      try {
+        result = await publish(event)
+        console.log('✅ [RSS] Event published successfully!', {
+          id: result.id,
+          kind: result.kind,
+          pubkey: result.pubkey?.substring(0, 8),
+          content: result.content
+        })
+      } catch (publishError) {
+        console.error('❌ [RSS] Publish failed!', publishError)
+        throw publishError
+      }
+      
+      logger.info('[RssFeedSettingsPage] Event published', { 
+        eventId: result.id,
+        kind: result.kind,
+        pubkey: result.pubkey,
+        created_at: result.created_at,
+        content: result.content 
+      })
       
       // Cache the event in IndexedDB for immediate access
+      console.log('🔵 [RSS] About to cache event in IndexedDB', {
+        eventId: result.id,
+        kind: result.kind,
+        pubkey: result.pubkey?.substring(0, 8)
+      })
+      
       try {
-        await indexedDb.putReplaceableEvent(result)
+        logger.info('[RssFeedSettingsPage] Attempting to cache event in IndexedDB', { 
+          eventId: result.id,
+          kind: result.kind,
+          pubkey: result.pubkey 
+        })
+        
+        console.log('🔵 [RSS] Calling indexedDb.putReplaceableEvent()...')
+        const savedEvent = await indexedDb.putReplaceableEvent(result)
+        console.log('✅ [RSS] Successfully cached to IndexedDB!', {
+          eventId: savedEvent.id,
+          kind: savedEvent.kind,
+          pubkey: savedEvent.pubkey?.substring(0, 8),
+          content: savedEvent.content
+        })
+        logger.info('[RssFeedSettingsPage] Successfully cached RSS feed list event to IndexedDB', { 
+          eventId: savedEvent.id,
+          kind: savedEvent.kind,
+          pubkey: savedEvent.pubkey,
+          feedCount: feedUrls.length 
+        })
       } catch (cacheError) {
-        logger.warn('[RssFeedSettingsPage] Failed to cache RSS feed list event', { error: cacheError })
-        // Don't fail the save if caching fails
+        console.error('❌ [RSS] Failed to cache to IndexedDB!', {
+          error: cacheError,
+          errorMessage: cacheError instanceof Error ? cacheError.message : String(cacheError),
+          errorStack: cacheError instanceof Error ? cacheError.stack : undefined,
+          eventId: result.id,
+          kind: result.kind 
+        })
+        logger.error('[RssFeedSettingsPage] Failed to cache RSS feed list event', { 
+          error: cacheError,
+          eventId: result.id,
+          kind: result.kind 
+        })
+        // Don't fail the save if caching fails, but log the error
       }
+      
+      // Verify the event was saved by reading it back
+      console.log('🔵 [RSS] Verifying event was saved...')
+      try {
+        logger.info('[RssFeedSettingsPage] Verifying event was saved to IndexedDB', { 
+          pubkey: pubkey.substring(0, 8),
+          kind: ExtendedKind.RSS_FEED_LIST 
+        })
+        
+        const savedEvent = await indexedDb.getReplaceableEvent(pubkey, ExtendedKind.RSS_FEED_LIST)
+        if (savedEvent) {
+          console.log('✅ [RSS] Event found in IndexedDB!', {
+            eventId: savedEvent.id,
+            expectedId: result.id,
+            match: savedEvent.id === result.id,
+            content: savedEvent.content
+          })
+          logger.info('[RssFeedSettingsPage] Event found in IndexedDB', { 
+            eventId: savedEvent.id,
+            expectedId: result.id,
+            match: savedEvent.id === result.id,
+            created_at: savedEvent.created_at,
+            content: savedEvent.content 
+          })
+          
+          if (savedEvent.id === result.id) {
+            console.log('✅ [RSS] Event IDs match! Verification successful!')
+            logger.info('[RssFeedSettingsPage] Verified RSS feed list event in IndexedDB', { eventId: savedEvent.id })
+          } else {
+            console.warn('⚠️ [RSS] Event ID mismatch!', {
+              expectedId: result.id,
+              foundId: savedEvent.id
+            })
+            logger.warn('[RssFeedSettingsPage] RSS feed list event ID mismatch', { 
+              expectedId: result.id,
+              foundId: savedEvent.id,
+              expectedCreatedAt: result.created_at,
+              foundCreatedAt: savedEvent.created_at 
+            })
+          }
+        } else {
+          console.error('❌ [RSS] Event NOT found in IndexedDB after save!', {
+            expectedId: result.id,
+            pubkey: pubkey.substring(0, 8),
+            kind: ExtendedKind.RSS_FEED_LIST 
+          })
+          logger.error('[RssFeedSettingsPage] RSS feed list event not found in IndexedDB after save', { 
+            expectedId: result.id,
+            pubkey: pubkey.substring(0, 8),
+            kind: ExtendedKind.RSS_FEED_LIST 
+          })
+        }
+      } catch (verifyError) {
+        console.error('❌ [RSS] Error verifying event in IndexedDB!', verifyError)
+        logger.error('[RssFeedSettingsPage] Failed to verify RSS feed list event in IndexedDB', { 
+          error: verifyError,
+          pubkey: pubkey.substring(0, 8),
+          kind: ExtendedKind.RSS_FEED_LIST 
+        })
+      }
+      
+      // Dispatch custom event to notify other components (like RssFeedList) to refresh
+      window.dispatchEvent(new CustomEvent('rssFeedListUpdated', { 
+        detail: { pubkey, feedUrls, eventId: result.id } 
+      }))
       
       // Read relayStatuses immediately before it might be deleted
       const relayStatuses = (result as any).relayStatuses
+      logger.info('[RssFeedSettingsPage] Publishing complete', { 
+        eventId: result.id,
+        relayStatusCount: relayStatuses?.length || 0,
+        successCount: relayStatuses?.filter((s: any) => s.success).length || 0 
+      })
       
       setHasChange(false)
       
@@ -126,7 +292,11 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
         showSimplePublishSuccess(t('RSS feeds saved'))
       }
     } catch (error) {
-      logger.error('[RssFeedSettingsPage] Failed to save RSS feed list', { error })
+      logger.error('[RssFeedSettingsPage] Failed to save RSS feed list', { 
+        error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined 
+      })
       // Show error feedback with relay statuses if available
       if (error instanceof Error && (error as any).relayStatuses) {
         const errorRelayStatuses = (error as any).relayStatuses
