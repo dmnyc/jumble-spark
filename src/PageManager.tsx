@@ -625,7 +625,12 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     const needScrollToTop = page === currentPrimaryPage
     
     // Clear any primary note view when navigating to a new primary page
+    // This ensures menu clicks always take you to the primary page, not stuck on overlays
     setPrimaryNoteView(null)
+    
+    // Always clear secondary pages when navigating to a primary page via menu
+    // This ensures clicking menu items always takes you to that page, not stuck on profile/note pages
+    clearSecondaryPages()
     
     // Update primary pages and current page
     setPrimaryPages((prev) => {
@@ -646,13 +651,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     
     if (needScrollToTop) {
       PRIMARY_PAGE_REF_MAP[page].current?.scrollToTop('smooth')
-    }
-    
-    // Always clear secondary pages when navigating to home (escape hatch behavior)
-    if (page === 'home') {
-      clearSecondaryPages()
-    } else if (isSmallScreen) {
-      clearSecondaryPages()
     }
   }
 
@@ -710,7 +708,12 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
 
   const clearSecondaryPages = () => {
     if (secondaryStack.length === 0) return
-    window.history.go(-secondaryStack.length)
+    // Capture the length before clearing
+    const stackLength = secondaryStack.length
+    // Clear the state immediately for instant navigation
+    setSecondaryStack([])
+    // Also update browser history to keep it in sync
+    window.history.go(-stackLength)
   }
 
   if (isSmallScreen) {
