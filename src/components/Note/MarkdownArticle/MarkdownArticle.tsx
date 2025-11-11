@@ -252,8 +252,8 @@ function parseMarkdownContent(
         data: { level: headerLevel, text: headerText, lineNum: lineIdx }
       })
     }
-    // Horizontal rule (---- or ====, at least 3 dashes/equals)
-    else if (line.match(/^[-=]{3,}\s*$/)) {
+    // Horizontal rule (***, ---, or ___, at least 3 asterisks/dashes/underscores)
+    else if (line.match(/^[\*\-\_]{3,}\s*$/)) {
       blockPatterns.push({
         index: lineStartIndex,
         end: lineEndIndex,
@@ -362,67 +362,115 @@ function parseMarkdownContent(
     patterns.push(pattern)
   })
   
-  // Markdown links: [text](url) or [![](image)](url) - detect FIRST to handle nested images
-  // We detect links first because links can contain images, and we want the link pattern to take precedence
+  // Markdown image links: [![](image_url)](link_url) - detect FIRST with a specific regex
+  // This must be detected before regular markdown links to avoid incorrect parsing of nested brackets
+  const linkPatterns: Array<{ index: number; end: number; type: string; data: any }> = []
+  
+  // Regex to match image links: [![](image_url)](link_url)
+  // This matches the full pattern including the nested image syntax
+  const imageLinkRegex = /\[(!\[[^\]]*\]\([^)]+\))\]\(([^)]+)\)/g
+  const imageLinkMatches = Array.from(content.matchAll(imageLinkRegex))
+  
+  imageLinkMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const start = match.index
+      const end = match.index + match[0].length
+      // Skip if within a block-level pattern
+      if (!isWithinBlockPattern(start, end, blockPatterns)) {
+        linkPatterns.push({
+          index: start,
+          end: end,
+          type: 'markdown-image-link',
+          data: { text: match[1], url: match[2] }
+        })
+      }
+    }
+  })
+  
+  // Regular markdown links: [text](url) - but exclude those already captured as image links
   const markdownLinkRegex = /\[([^\]]+)\]\(([^)]+)\)/g
   const linkMatches = Array.from(content.matchAll(markdownLinkRegex))
-  const linkPatterns: Array<{ index: number; end: number; type: string; data: any }> = []
   
   linkMatches.forEach(match => {
     if (match.index !== undefined) {
       const start = match.index
       const end = match.index + match[0].length
       // Skip if within a block-level pattern
-      if (!isWithinBlockPattern(start, end, blockPatterns)) {
-        // Check if the link text contains an image markdown syntax
-        const linkText = match[1]
-        const hasImage = /^!\[/.test(linkText.trim())
+      if (isWithinBlockPattern(start, end, blockPatterns)) {
+        return
+      }
+      
+      // Skip if this link is already captured as an image link
+      const isImageLink = linkPatterns.some(imgLink =>
+        start >= imgLink.index && end <= imgLink.end
+      )
+      if (isImageLink) {
+        return
+      }
+      
+      // Check if link is standalone (on its own line, not part of a sentence/list/quote)
+      const isStandalone = (() => {
+        // Get the line containing this link
+        const lineStart = content.lastIndexOf('\n', start) + 1
+        const lineEnd = content.indexOf('\n', end)
+        const lineEndIndex = lineEnd === -1 ? content.length : lineEnd
+        const line = content.substring(lineStart, lineEndIndex)
         
-        // Check if link is standalone (on its own line, not part of a sentence/list/quote)
-        const isStandalone = (() => {
-          // Get the line containing this link
-          const lineStart = content.lastIndexOf('\n', start) + 1
-          const lineEnd = content.indexOf('\n', end)
-          const lineEndIndex = lineEnd === -1 ? content.length : lineEnd
-          const line = content.substring(lineStart, lineEndIndex)
+        // Check if the line is just whitespace + the link (possibly with trailing whitespace)
+        const lineTrimmed = line.trim()
+        const linkMatch = lineTrimmed.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
+        if (linkMatch) {
+          // Link is on its own line - check if it's in a list or blockquote
+          // Check if previous line starts with list marker or blockquote
+          const prevLineStart = content.lastIndexOf('\n', lineStart - 1) + 1
+          const prevLine = content.substring(prevLineStart, lineStart - 1).trim()
           
-          // Check if the line is just whitespace + the link (possibly with trailing whitespace)
-          const lineTrimmed = line.trim()
-          const linkMatch = lineTrimmed.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
-          if (linkMatch) {
-            // Link is on its own line - check if it's in a list or blockquote
-            // Check if previous line starts with list marker or blockquote
-            const prevLineStart = content.lastIndexOf('\n', lineStart - 1) + 1
-            const prevLine = content.substring(prevLineStart, lineStart - 1).trim()
-            
-            // Not standalone if it's part of a list or blockquote
-            if (prevLine.match(/^[\*\-\+]\s/) || prevLine.match(/^\d+\.\s/) || prevLine.match(/^>\s/)) {
-              return false
-            }
-            
-            // Standalone if it's on its own line and not in a list/blockquote
-            return true
+          // Not standalone if it's part of a list or blockquote
+          if (prevLine.match(/^[\*\-\+]\s/) || prevLine.match(/^\d+\.\s/) || prevLine.match(/^>\s/)) {
+            return false
           }
           
-          // Not standalone if it's part of a sentence
-          return false
-        })()
+          // Check if there's content immediately before or after on adjacent lines
+          // If there's text on the previous line (not blank, not list/blockquote), it's probably not standalone
+          if (prevLineStart > 0 && prevLine.length > 0 && !prevLine.match(/^[\*\-\+]\s/) && !prevLine.match(/^\d+\.\s/) && !prevLine.match(/^>\s/)) {
+            // Previous line has content and it's not a list/blockquote - probably part of a paragraph
+            return false
+          }
+          
+          // Check next line - if it has content immediately after, it's probably not standalone
+          if (lineEnd !== -1 && lineEnd < content.length) {
+            const nextLineStart = lineEnd + 1
+            const nextLineEnd = content.indexOf('\n', nextLineStart)
+            const nextLineEndIndex = nextLineEnd === -1 ? content.length : nextLineEnd
+            const nextLine = content.substring(nextLineStart, nextLineEndIndex).trim()
+            if (nextLine.length > 0 && !nextLine.match(/^[\*\-\+]\s/) && !nextLine.match(/^\d+\.\s/) && !nextLine.match(/^>\s/)) {
+              // Next line has content and it's not a list/blockquote - probably part of a paragraph
+              return false
+            }
+          }
+          
+          // Standalone if it's on its own line, not in list/blockquote, and surrounded by blank lines or list items
+          return true
+        }
         
-        // Only render as WebPreview if it's a standalone HTTP/HTTPS link (not YouTube, not relay, not image link)
-        const url = match[2]
-        const shouldRenderAsWebPreview = isStandalone && 
-          !hasImage && 
-          !isYouTubeUrl(url) && 
-          !isWebsocketUrl(url) &&
-          (url.startsWith('http://') || url.startsWith('https://'))
-        
-        linkPatterns.push({
-          index: start,
-          end: end,
-          type: hasImage ? 'markdown-image-link' : (shouldRenderAsWebPreview ? 'markdown-link-standalone' : 'markdown-link'),
-          data: { text: match[1], url: match[2] }
-        })
-      }
+        // Not standalone if it's part of a sentence
+        return false
+      })()
+      
+      // Only render as WebPreview if it's a standalone HTTP/HTTPS link (not YouTube, not relay)
+      // But be more conservative - only treat as standalone if it's clearly separated
+      const url = match[2]
+      const shouldRenderAsWebPreview = isStandalone && 
+        !isYouTubeUrl(url) && 
+        !isWebsocketUrl(url) &&
+        (url.startsWith('http://') || url.startsWith('https://'))
+      
+      linkPatterns.push({
+        index: start,
+        end: end,
+        type: shouldRenderAsWebPreview ? 'markdown-link-standalone' : 'markdown-link',
+        data: { text: match[1], url: match[2] }
+      })
     }
   })
   
@@ -643,34 +691,10 @@ function parseMarkdownContent(
   // Re-sort by index
   filteredPatterns.sort((a, b) => a.index - b.index)
   
-  // Helper function to check if a pattern type is inline
-  const isInlinePatternType = (patternType: string, patternData?: any): boolean => {
-    if (patternType === 'hashtag' || patternType === 'wikilink' || patternType === 'footnote-ref' || patternType === 'relay-url') {
-      return true
-    }
-    // Standalone links are block-level, not inline
-    if (patternType === 'markdown-link-standalone') {
-      return false
-    }
-    if (patternType === 'markdown-link' && patternData) {
-      const { url } = patternData
-      // Markdown links are inline only if they're not YouTube or WebPreview
-      return !isYouTubeUrl(url) && !isWebsocketUrl(url)
-    }
-    if (patternType === 'nostr' && patternData) {
-      const bech32Id = patternData
-      // Nostr addresses are inline only if they're profile types (not events)
-      return bech32Id.startsWith('npub') || bech32Id.startsWith('nprofile')
-    }
-    return false
-  }
-  
-  // Track the last rendered pattern type to determine if whitespace should be preserved
-  let lastRenderedPatternType: string | null = null
-  let lastRenderedPatternData: any = null
-  
   // Create a map to store original line data for list items (for single-item list rendering)
   const listItemOriginalLines = new Map<number, string>()
+  // Track patterns that have been merged into paragraphs (so we don't render them separately)
+  const mergedPatterns = new Set<number>()
   
   // Build React nodes from patterns
   filteredPatterns.forEach((pattern, patternIdx) => {
@@ -681,32 +705,100 @@ function parseMarkdownContent(
     
     // Add text before pattern
     if (pattern.index > lastIndex) {
-      const text = content.slice(lastIndex, pattern.index)
-      // Check if this pattern and the last rendered pattern are both inline patterns
-      // Inline patterns should preserve whitespace between them (like spaces between hashtags)
-      const currentIsInline = isInlinePatternType(pattern.type, pattern.data)
-      const prevIsInline = lastRenderedPatternType !== null && isInlinePatternType(lastRenderedPatternType, lastRenderedPatternData)
+      let text = content.slice(lastIndex, pattern.index)
+      let textEndIndex = pattern.index
       
-      // Preserve whitespace between inline patterns, but skip it between block elements
-      const shouldPreserveWhitespace = currentIsInline && prevIsInline
+      // Check if this pattern is an inline markdown link that should be included in the paragraph
+      // If so, extend the text to include the link markdown so it gets processed as part of the paragraph
+      // This ensures links stay inline with their surrounding text instead of being separated
+      if (pattern.type === 'markdown-link') {
+        // Get the line containing the link
+        const lineStart = content.lastIndexOf('\n', pattern.index) + 1
+        const lineEnd = content.indexOf('\n', pattern.end)
+        const lineEndIndex = lineEnd === -1 ? content.length : lineEnd
+        
+        // Check if there's text on the same line before the link (indicates it's part of a sentence)
+        const textBeforeOnSameLine = content.substring(lineStart, pattern.index)
+        const hasTextOnSameLine = textBeforeOnSameLine.trim().length > 0
+        
+        // Check if there's text before the link (even on previous lines, as long as no paragraph break)
+        const hasTextBefore = text.trim().length > 0 && !text.includes('\n\n')
+        
+        // Merge if:
+        // 1. There's text on the same line before the link (e.g., "via [TFTC](url)")
+        // 2. OR there's text before the link and no double newline (paragraph break)
+        // This ensures links in sentences stay together with their text
+        if (hasTextOnSameLine || hasTextBefore) {
+          // Get the original markdown link syntax from the content
+          const linkMarkdown = content.substring(pattern.index, pattern.end)
+          
+          // Get text after the link on the same line
+          const textAfterLink = content.substring(pattern.end, lineEndIndex)
+          
+          // Extend the text to include the link and any text after it on the same line
+          text = text + linkMarkdown + textAfterLink
+          textEndIndex = lineEndIndex === content.length ? content.length : lineEndIndex + 1
+          
+          // Mark this pattern as merged so we don't render it separately later
+          mergedPatterns.add(patternIdx)
+        }
+      }
       
       if (text) {
-        // Always process text if it's not empty, but preserve whitespace between inline patterns
-        // Process text for inline formatting (bold, italic, etc.)
-        // But skip if this text is part of a table (tables are handled as block patterns)
+        // Skip if this text is part of a table (tables are handled as block patterns)
         const isInTable = blockLevelPatternsFromAll.some(p => 
           p.type === 'table' &&
           lastIndex >= p.index && 
           lastIndex < p.end
         )
         if (!isInTable) {
-          // If we should preserve whitespace (between inline patterns), process the text as-is
-          // Otherwise, only process if the text has non-whitespace content
-          if (shouldPreserveWhitespace || text.trim()) {
-            parts.push(...parseInlineMarkdown(text, `text-${patternIdx}`, footnotes))
-          }
+          // Split text into paragraphs (double newlines create paragraph breaks)
+          // Single newlines within paragraphs should be converted to spaces
+          const paragraphs = text.split(/\n\n+/)
+          
+          paragraphs.forEach((paragraph, paraIdx) => {
+            // Convert single newlines to spaces within the paragraph
+            // This prevents hard breaks within sentences
+            // Also collapse multiple spaces into one
+            let normalizedPara = paragraph.replace(/\n/g, ' ')
+            // Collapse multiple consecutive spaces/tabs (2+) into a single space, but preserve single spaces
+            normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
+            // Trim only leading/trailing whitespace, not internal spaces
+            normalizedPara = normalizedPara.trim()
+            if (normalizedPara) {
+              // Process paragraph for inline formatting (which will handle markdown links)
+              const paraContent = parseInlineMarkdown(normalizedPara, `text-${patternIdx}-para-${paraIdx}`, footnotes)
+              // Wrap in paragraph tag (no whitespace-pre-wrap, let normal text wrapping handle it)
+              parts.push(
+                <p key={`text-${patternIdx}-para-${paraIdx}`} className="mb-2 last:mb-0">
+                  {paraContent}
+                </p>
+              )
+            } else if (paraIdx > 0) {
+              // Empty paragraph between non-empty paragraphs - add spacing
+              // This handles cases where there are multiple consecutive newlines
+              parts.push(<br key={`text-${patternIdx}-para-break-${paraIdx}`} />)
+            }
+          })
+          
+          // Update lastIndex to the end of the processed text (including link if merged)
+          lastIndex = textEndIndex
+        } else {
+          // Still update lastIndex even if in table
+          lastIndex = textEndIndex
+        }
+      } else {
+        // No text, but still update lastIndex if we merged a link
+        if (mergedPatterns.has(patternIdx)) {
+          lastIndex = textEndIndex
         }
       }
+    }
+    
+    // Skip rendering if this pattern was merged into a paragraph
+    // (lastIndex was already updated when we merged it above)
+    if (mergedPatterns.has(patternIdx)) {
+      return
     }
     
     // Render pattern
@@ -739,12 +831,12 @@ function parseMarkdownContent(
         const displayUrl = thumbnailUrl || url
         
         parts.push(
-          <div key={`img-${patternIdx}`} className="my-2 block">
+          <div key={`img-${patternIdx}`} className="my-2 block max-w-[400px] mx-auto">
             <Image
               image={{ url: displayUrl, pubkey: eventPubkey }}
-              className="max-w-[400px] rounded-lg cursor-zoom-in"
+              className="w-full rounded-lg cursor-zoom-in"
               classNames={{
-                wrapper: 'rounded-lg block',
+                wrapper: 'rounded-lg block w-full',
                 errorPlaceholder: 'aspect-square h-[30vh]'
               }}
               onClick={(e) => {
@@ -801,7 +893,7 @@ function parseMarkdownContent(
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block"
+                className="block max-w-[400px] mx-auto no-underline hover:no-underline focus:no-underline"
                 onClick={(e) => {
                   e.stopPropagation()
                   // Allow normal link navigation
@@ -809,9 +901,9 @@ function parseMarkdownContent(
               >
                 <Image
                   image={{ url: displayUrl, pubkey: eventPubkey }}
-                  className="max-w-[400px] rounded-lg cursor-pointer"
+                  className="w-full rounded-lg cursor-pointer"
                   classNames={{
-                    wrapper: 'rounded-lg block',
+                    wrapper: 'rounded-lg block w-full',
                     errorPlaceholder: 'aspect-square h-[30vh]'
                   }}
                   onClick={(e) => {
@@ -860,6 +952,8 @@ function parseMarkdownContent(
       )
     } else if (pattern.type === 'markdown-link') {
       const { text, url } = pattern.data
+      // Process the link text for inline formatting (bold, italic, etc.)
+      const linkContent = parseInlineMarkdown(text, `link-${patternIdx}`, footnotes)
       // Markdown links should always be rendered as inline links, not block-level components
       // This ensures they don't break up the content flow when used in paragraphs
       if (isWebsocketUrl(url)) {
@@ -877,7 +971,7 @@ function parseMarkdownContent(
             }}
             title={text.length > 200 ? text : undefined}
           >
-            {text}
+            {linkContent}
           </a>
         )
       } else {
@@ -890,7 +984,7 @@ function parseMarkdownContent(
             target="_blank"
             rel="noopener noreferrer"
           >
-            {text}
+            {linkContent}
           </a>
         )
       }
@@ -1146,12 +1240,6 @@ function parseMarkdownContent(
       )
     }
     
-    // Update tracking for the last rendered pattern (skip footnote-definition as it's not rendered)
-    if (pattern.type !== 'footnote-definition') {
-      lastRenderedPatternType = pattern.type
-      lastRenderedPatternData = pattern.data
-    }
-    
     lastIndex = pattern.end
   })
   
@@ -1167,16 +1255,46 @@ function parseMarkdownContent(
         lastIndex >= p.index && 
         lastIndex < p.end
       )
-      if (!isInTable) {
-        parts.push(...parseInlineMarkdown(text, 'text-end', footnotes))
+      if (!isInTable && text.trim()) {
+        // Split remaining text into paragraphs
+        const paragraphs = text.split(/\n\n+/)
+        paragraphs.forEach((paragraph, paraIdx) => {
+          // Convert single newlines to spaces within the paragraph
+          // Collapse multiple consecutive spaces/tabs (2+) into a single space, but preserve single spaces
+          let normalizedPara = paragraph.replace(/\n/g, ' ')
+          normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
+          normalizedPara = normalizedPara.trim()
+          if (normalizedPara) {
+            const paraContent = parseInlineMarkdown(normalizedPara, `text-end-para-${paraIdx}`, footnotes)
+            parts.push(
+              <p key={`text-end-para-${paraIdx}`} className="mb-2 last:mb-0">
+                {paraContent}
+              </p>
+            )
+          }
+        })
       }
     }
   }
   
-  // If no patterns, just return the content as text (with inline formatting)
+  // If no patterns, just return the content as text (with inline formatting and paragraphs)
   if (parts.length === 0) {
-    const formattedContent = parseInlineMarkdown(content, 'text-only', footnotes)
-    return { nodes: formattedContent, hashtagsInContent, footnotes }
+    const paragraphs = content.split(/\n\n+/)
+    const formattedParagraphs = paragraphs.map((paragraph, paraIdx) => {
+      // Convert single newlines to spaces within the paragraph
+      // Collapse multiple consecutive spaces/tabs (2+) into a single space, but preserve single spaces
+      let normalizedPara = paragraph.replace(/\n/g, ' ')
+      normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
+      normalizedPara = normalizedPara.trim()
+      if (!normalizedPara) return null
+      const paraContent = parseInlineMarkdown(normalizedPara, `text-only-para-${paraIdx}`, footnotes)
+      return (
+        <p key={`text-only-para-${paraIdx}`} className="mb-2 last:mb-0">
+          {paraContent}
+        </p>
+      )
+    }).filter(Boolean)
+    return { nodes: formattedParagraphs, hashtagsInContent, footnotes }
   }
   
   // Filter out empty spans before wrapping lists
@@ -1194,16 +1312,21 @@ function parseMarkdownContent(
         const prevPart = idx > 0 ? parts[idx - 1] : null
         const nextPart = idx < parts.length - 1 ? parts[idx + 1] : null
         
-        // Check if a part is an inline pattern (hashtag, wikilink, nostr mention, etc.)
+        // Check if a part is an inline pattern (hashtag, wikilink, nostr mention, markdown link, etc.)
         const isInlinePattern = (part: any) => {
           if (!part || !React.isValidElement(part)) return false
           const key = part.key?.toString() || ''
           const type = part.type
           // Hashtags are <a> elements with keys starting with 'hashtag-'
+          // Markdown links are <a> elements with keys starting with 'link-' or 'relay-'
           // Wikilinks might be custom components
           // Nostr mentions might be spans or other elements
-          return (type === 'a' && key.startsWith('hashtag-')) ||
-                 (type === 'a' && key.startsWith('wikilink-')) ||
+          return (type === 'a' && (
+            key.startsWith('hashtag-') ||
+            key.startsWith('wikilink-') ||
+            key.startsWith('link-') ||
+            key.startsWith('relay-')
+          )) ||
                  (type === 'span' && (key.startsWith('wikilink-') || key.startsWith('nostr-'))) ||
                  // Also check for embedded mentions/components that might be inline
                  (type && typeof type !== 'string' && key.includes('mention'))
@@ -1368,6 +1491,12 @@ function parseMarkdownContent(
  * - Footnote references: [^1] (handled at block level, but parsed here for inline context)
  */
 function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<string, string> = new Map()): React.ReactNode[] {
+  // Normalize newlines to spaces at the start (defensive - text should already be normalized, but ensure it)
+  // This prevents any hard breaks within inline content
+  text = text.replace(/\n/g, ' ')
+  // Collapse multiple consecutive spaces/tabs (2+) into a single space, but preserve single spaces
+  text = text.replace(/[ \t]{2,}/g, ' ')
+  
   const parts: React.ReactNode[] = []
   let lastIndex = 0
   const inlinePatterns: Array<{ index: number; end: number; type: string; data: any }> = []
@@ -1586,9 +1715,17 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
   filtered.forEach((pattern, i) => {
     // Add text before pattern
     if (pattern.index > lastIndex) {
-      const textBefore = text.slice(lastIndex, pattern.index)
-      if (textBefore) {
-        parts.push(<span key={`${keyPrefix}-inline-text-${i}`}>{textBefore}</span>)
+      let textBefore = text.slice(lastIndex, pattern.index)
+      // Preserve spaces for proper spacing around inline elements
+      // Text is already normalized (newlines to spaces, multiple spaces collapsed to one)
+      // Even if textBefore is just whitespace, we need to preserve it for spacing
+      if (textBefore.length > 0) {
+        // If it's all whitespace, render as a space
+        if (textBefore.trim().length === 0) {
+          parts.push(<span key={`${keyPrefix}-space-${i}`}>{' '}</span>)
+        } else {
+          parts.push(<span key={`${keyPrefix}-inline-text-${i}`}>{textBefore}</span>)
+        }
       }
     }
     
@@ -1607,7 +1744,9 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
       )
     } else if (pattern.type === 'link') {
       // Render markdown links as inline links (green to match theme)
+      // Process the link text for inline formatting (bold, italic, etc.)
       const { text, url } = pattern.data
+      const linkContent = parseInlineMarkdown(text, `${keyPrefix}-link-${i}`, _footnotes)
       parts.push(
         <a
           key={`${keyPrefix}-link-${i}`}
@@ -1616,7 +1755,7 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
           target="_blank"
           rel="noopener noreferrer"
         >
-          {text}
+          {linkContent}
         </a>
       )
     }
@@ -1627,14 +1766,21 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
   // Add remaining text
   if (lastIndex < text.length) {
     const remaining = text.slice(lastIndex)
-    if (remaining) {
-      parts.push(<span key={`${keyPrefix}-inline-text-final`}>{remaining}</span>)
+    // Preserve spaces - text should already be normalized (newlines converted to spaces)
+    if (remaining.length > 0) {
+      // If it's all whitespace, render as a space
+      if (remaining.trim().length === 0) {
+        parts.push(<span key={`${keyPrefix}-space-final`}>{' '}</span>)
+      } else {
+        parts.push(<span key={`${keyPrefix}-inline-text-final`}>{remaining}</span>)
+      }
     }
   }
   
-  // If no patterns found, return the text as-is
+  // If no patterns found, return the text as-is (already normalized at start of function)
   if (parts.length === 0) {
-    return [<span key={`${keyPrefix}-plain`}>{text}</span>]
+    const trimmedText = text.trim()
+    return trimmedText ? [<span key={`${keyPrefix}-plain`}>{trimmedText}</span>] : []
   }
   
   return parts

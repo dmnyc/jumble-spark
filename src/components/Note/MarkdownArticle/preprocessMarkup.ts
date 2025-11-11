@@ -21,15 +21,23 @@ function isYouTubeUrl(url: string): boolean {
 export function preprocessMarkdownMediaLinks(content: string): string {
   let processed = content
   
+  // First, handle angle bracket URLs: <https://example.com> -> https://example.com
+  // These should be converted to plain URLs so they can be processed by the URL regex
+  const angleBracketUrlRegex = /<((?:https?|ftp):\/\/[^\s<>"']+)>/g
+  processed = processed.replace(angleBracketUrlRegex, (_match, url) => {
+    // Just remove the angle brackets, leaving the URL for the main URL processor to handle
+    return url
+  })
+  
   // Find all URLs but process them in reverse order to preserve indices
   const allMatches: Array<{ url: string; index: number }> = []
   
   let match
   const regex = new RegExp(URL_REGEX.source, URL_REGEX.flags)
-  while ((match = regex.exec(content)) !== null) {
+  while ((match = regex.exec(processed)) !== null) {
     const index = match.index
     const url = match[0]
-    const before = content.substring(Math.max(0, index - 20), index)
+    const before = processed.substring(Math.max(0, index - 20), index)
     
     // Check if this URL is already part of markdown syntax
     // Skip if preceded by: [text](url, ![text](url, or ](url
@@ -45,7 +53,7 @@ export function preprocessMarkdownMediaLinks(content: string): string {
     const { url, index } = allMatches[i]
     
     // Check if URL is in code block
-    const beforeUrl = content.substring(0, index)
+    const beforeUrl = processed.substring(0, index)
     const backticksCount = (beforeUrl.match(/```/g) || []).length
     if (backticksCount % 2 === 1) {
       continue // In code block
@@ -54,7 +62,7 @@ export function preprocessMarkdownMediaLinks(content: string): string {
     // Check if URL is in inline code
     const lastBacktick = beforeUrl.lastIndexOf('`')
     if (lastBacktick !== -1) {
-      const afterUrl = content.substring(index + url.length)
+      const afterUrl = processed.substring(index + url.length)
       const nextBacktick = afterUrl.indexOf('`')
       if (nextBacktick !== -1) {
         const codeBefore = beforeUrl.substring(lastBacktick + 1)
