@@ -874,27 +874,121 @@ function parseMarkdownContent(
           const paragraphs = text.split(/\n\n+/)
           
           paragraphs.forEach((paragraph, paraIdx) => {
-            // Convert single newlines to spaces within the paragraph
-            // This prevents hard breaks within sentences
-            // Also collapse multiple spaces into one
-            let normalizedPara = paragraph.replace(/\n/g, ' ')
-            // Collapse multiple consecutive spaces/tabs (2+) into a single space, but preserve single spaces
-            normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
-            // Trim only leading/trailing whitespace, not internal spaces
-            normalizedPara = normalizedPara.trim()
-            if (normalizedPara) {
-              // Process paragraph for inline formatting (which will handle markdown links)
-              const paraContent = parseInlineMarkdown(normalizedPara, `text-${patternIdx}-para-${paraIdx}`, footnotes)
-              // Wrap in paragraph tag (no whitespace-pre-wrap, let normal text wrapping handle it)
-              parts.push(
-                <p key={`text-${patternIdx}-para-${paraIdx}`} className="mb-2 last:mb-0">
-                  {paraContent}
-                </p>
-              )
-            } else if (paraIdx > 0) {
-              // Empty paragraph between non-empty paragraphs - add spacing
-              // This handles cases where there are multiple consecutive newlines
-              parts.push(<br key={`text-${patternIdx}-para-break-${paraIdx}`} />)
+            // Check for markdown images in this paragraph and extract them
+            const markdownImageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g
+            const imageMatches = Array.from(paragraph.matchAll(markdownImageRegex))
+            
+            if (imageMatches.length > 0) {
+              // Process text and images separately
+              let paraLastIndex = 0
+              imageMatches.forEach((match, imgIdx) => {
+                if (match.index !== undefined) {
+                  const imgStart = match.index
+                  const imgEnd = match.index + match[0].length
+                  const imgUrl = match[2]
+                  const cleaned = cleanUrl(imgUrl)
+                  
+                  // Add text before this image
+                  if (imgStart > paraLastIndex) {
+                    const textBefore = paragraph.slice(paraLastIndex, imgStart)
+                    let normalizedText = textBefore.replace(/\n/g, ' ')
+                    normalizedText = normalizedText.replace(/[ \t]{2,}/g, ' ')
+                    normalizedText = normalizedText.trim()
+                    if (normalizedText) {
+                      const textContent = parseInlineMarkdown(normalizedText, `text-${patternIdx}-para-${paraIdx}-img-${imgIdx}`, footnotes)
+                      parts.push(
+                        <p key={`text-${patternIdx}-para-${paraIdx}-img-${imgIdx}`} className="mb-2 last:mb-0">
+                          {textContent}
+                        </p>
+                      )
+                    }
+                  }
+                  
+                  // Render the image
+                  if (isImage(cleaned)) {
+                    let imageIndex = imageIndexMap.get(cleaned)
+                    if (imageIndex === undefined && getImageIdentifier) {
+                      const identifier = getImageIdentifier(cleaned)
+                      if (identifier) {
+                        imageIndex = imageIndexMap.get(`__img_id:${identifier}`)
+                      }
+                    }
+                    
+                    let thumbnailUrl: string | undefined
+                    if (imageThumbnailMap) {
+                      thumbnailUrl = imageThumbnailMap.get(cleaned)
+                      if (!thumbnailUrl && getImageIdentifier) {
+                        const identifier = getImageIdentifier(cleaned)
+                        if (identifier) {
+                          thumbnailUrl = imageThumbnailMap.get(`__img_id:${identifier}`)
+                        }
+                      }
+                    }
+                    const displayUrl = thumbnailUrl || imgUrl
+                    
+                    parts.push(
+                      <div key={`img-${patternIdx}-para-${paraIdx}-${imgIdx}`} className="my-2 block max-w-[400px] mx-auto">
+                        <Image
+                          image={{ url: displayUrl, pubkey: eventPubkey }}
+                          className="w-full rounded-lg cursor-zoom-in"
+                          classNames={{
+                            wrapper: 'rounded-lg block w-full',
+                            errorPlaceholder: 'aspect-square h-[30vh]'
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (imageIndex !== undefined) {
+                              openLightbox(imageIndex)
+                            }
+                          }}
+                        />
+                      </div>
+                    )
+                  }
+                  
+                  paraLastIndex = imgEnd
+                }
+              })
+              
+              // Add any remaining text after the last image
+              if (paraLastIndex < paragraph.length) {
+                const remainingText = paragraph.slice(paraLastIndex)
+                let normalizedText = remainingText.replace(/\n/g, ' ')
+                normalizedText = normalizedText.replace(/[ \t]{2,}/g, ' ')
+                normalizedText = normalizedText.trim()
+                if (normalizedText) {
+                  const textContent = parseInlineMarkdown(normalizedText, `text-${patternIdx}-para-${paraIdx}-final`, footnotes)
+                  parts.push(
+                    <p key={`text-${patternIdx}-para-${paraIdx}-final`} className="mb-2 last:mb-0">
+                      {textContent}
+                    </p>
+                  )
+                }
+              }
+            } else {
+              // No images, process normally
+              // Convert single newlines to spaces within the paragraph
+              // This prevents hard breaks within sentences
+              // Also collapse multiple spaces into one
+              let normalizedPara = paragraph.replace(/\n/g, ' ')
+              // Collapse multiple consecutive spaces/tabs (2+) into a single space, but preserve single spaces
+              normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
+              // Trim only leading/trailing whitespace, not internal spaces
+              normalizedPara = normalizedPara.trim()
+              if (normalizedPara) {
+                // Process paragraph for inline formatting (which will handle markdown links)
+                const paraContent = parseInlineMarkdown(normalizedPara, `text-${patternIdx}-para-${paraIdx}`, footnotes)
+                // Wrap in paragraph tag (no whitespace-pre-wrap, let normal text wrapping handle it)
+                parts.push(
+                  <p key={`text-${patternIdx}-para-${paraIdx}`} className="mb-2 last:mb-0">
+                    {paraContent}
+                  </p>
+                )
+              } else if (paraIdx > 0) {
+                // Empty paragraph between non-empty paragraphs - add spacing
+                // This handles cases where there are multiple consecutive newlines
+                parts.push(<br key={`text-${patternIdx}-para-break-${paraIdx}`} />)
+              }
             }
           })
           
@@ -1390,23 +1484,126 @@ function parseMarkdownContent(
         lastIndex < p.end
       )
       if (!isInTable && text.trim()) {
-        // Split remaining text into paragraphs
-        const paragraphs = text.split(/\n\n+/)
-        paragraphs.forEach((paragraph, paraIdx) => {
-          // Convert single newlines to spaces within the paragraph
-          // Collapse multiple consecutive spaces/tabs (2+) into a single space, but preserve single spaces
-          let normalizedPara = paragraph.replace(/\n/g, ' ')
-          normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
-          normalizedPara = normalizedPara.trim()
-          if (normalizedPara) {
-            const paraContent = parseInlineMarkdown(normalizedPara, `text-end-para-${paraIdx}`, footnotes)
-            parts.push(
-              <p key={`text-end-para-${paraIdx}`} className="mb-2 last:mb-0">
-                {paraContent}
-              </p>
-            )
+        // Check if there are any markdown images in the remaining text that weren't detected as patterns
+        // If so, we need to process them separately before processing the text
+        const markdownImageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g
+        const remainingImageMatches = Array.from(text.matchAll(markdownImageRegex))
+        
+        // Process images first, then text between/after them
+        let textLastIndex = 0
+        remainingImageMatches.forEach((match, imgIdx) => {
+          if (match.index !== undefined) {
+            const imgStart = match.index
+            const imgEnd = match.index + match[0].length
+            const imgUrl = match[2]
+            const cleaned = cleanUrl(imgUrl)
+            
+            // Add text before this image
+            if (imgStart > textLastIndex) {
+              const textBefore = text.slice(textLastIndex, imgStart).trim()
+              if (textBefore) {
+                // Split into paragraphs
+                const paragraphs = textBefore.split(/\n\n+/)
+                paragraphs.forEach((paragraph, paraIdx) => {
+                  let normalizedPara = paragraph.replace(/\n/g, ' ')
+                  normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
+                  normalizedPara = normalizedPara.trim()
+                  if (normalizedPara) {
+                    const paraContent = parseInlineMarkdown(normalizedPara, `text-end-para-${imgIdx}-${paraIdx}`, footnotes)
+                    parts.push(
+                      <p key={`text-end-para-${imgIdx}-${paraIdx}`} className="mb-2 last:mb-0">
+                        {paraContent}
+                      </p>
+                    )
+                  }
+                })
+              }
+            }
+            
+            // Render the image
+            if (isImage(cleaned)) {
+              let imageIndex = imageIndexMap.get(cleaned)
+              if (imageIndex === undefined && getImageIdentifier) {
+                const identifier = getImageIdentifier(cleaned)
+                if (identifier) {
+                  imageIndex = imageIndexMap.get(`__img_id:${identifier}`)
+                }
+              }
+              
+              let thumbnailUrl: string | undefined
+              if (imageThumbnailMap) {
+                thumbnailUrl = imageThumbnailMap.get(cleaned)
+                if (!thumbnailUrl && getImageIdentifier) {
+                  const identifier = getImageIdentifier(cleaned)
+                  if (identifier) {
+                    thumbnailUrl = imageThumbnailMap.get(`__img_id:${identifier}`)
+                  }
+                }
+              }
+              const displayUrl = thumbnailUrl || imgUrl
+              
+              parts.push(
+                <div key={`img-end-${imgIdx}`} className="my-2 block max-w-[400px] mx-auto">
+                  <Image
+                    image={{ url: displayUrl, pubkey: eventPubkey }}
+                    className="w-full rounded-lg cursor-zoom-in"
+                    classNames={{
+                      wrapper: 'rounded-lg block w-full',
+                      errorPlaceholder: 'aspect-square h-[30vh]'
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (imageIndex !== undefined) {
+                        openLightbox(imageIndex)
+                      }
+                    }}
+                  />
+                </div>
+              )
+            }
+            
+            textLastIndex = imgEnd
           }
         })
+        
+        // Add any remaining text after the last image
+        if (textLastIndex < text.length) {
+          const remainingText = text.slice(textLastIndex).trim()
+          if (remainingText) {
+            const paragraphs = remainingText.split(/\n\n+/)
+            paragraphs.forEach((paragraph, paraIdx) => {
+              let normalizedPara = paragraph.replace(/\n/g, ' ')
+              normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
+              normalizedPara = normalizedPara.trim()
+              if (normalizedPara) {
+                const paraContent = parseInlineMarkdown(normalizedPara, `text-end-final-para-${paraIdx}`, footnotes)
+                parts.push(
+                  <p key={`text-end-final-para-${paraIdx}`} className="mb-2 last:mb-0">
+                    {paraContent}
+                  </p>
+                )
+              }
+            })
+          }
+        } else if (remainingImageMatches.length === 0) {
+          // No images found, process the text normally
+          const paragraphs = text.split(/\n\n+/)
+          paragraphs.forEach((paragraph, paraIdx) => {
+            // Convert single newlines to spaces within the paragraph
+            // Collapse multiple consecutive spaces/tabs (2+) into a single space, but preserve single spaces
+            let normalizedPara = paragraph.replace(/\n/g, ' ')
+            normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
+            normalizedPara = normalizedPara.trim()
+            if (normalizedPara) {
+              const paraContent = parseInlineMarkdown(normalizedPara, `text-end-para-${paraIdx}`, footnotes)
+              parts.push(
+                <p key={`text-end-para-${paraIdx}`} className="mb-2 last:mb-0">
+                  {paraContent}
+                </p>
+              )
+            }
+          })
+        }
       }
     }
   }
