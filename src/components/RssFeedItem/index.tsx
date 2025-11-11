@@ -9,6 +9,30 @@ import PostEditor from '@/components/PostEditor'
 import { HighlightData } from '@/components/PostEditor/HighlightEditor'
 import { cn } from '@/lib/utils'
 
+/**
+ * Convert HTML to plain text by extracting text content and cleaning up whitespace
+ */
+function htmlToPlainText(html: string): string {
+  if (!html) return ''
+  
+  // Create a temporary DOM element to extract text content
+  const temp = document.createElement('div')
+  temp.innerHTML = html
+  
+  // Get text content and clean up whitespace
+  let text = temp.textContent || temp.innerText || ''
+  
+  // Clean up multiple consecutive newlines and whitespace
+  text = text
+    .replace(/\n{3,}/g, '\n\n') // Replace 3+ newlines with 2
+    .replace(/[ \t]+/g, ' ') // Replace multiple spaces/tabs with single space
+    .replace(/ \n/g, '\n') // Remove spaces before newlines
+    .replace(/\n /g, '\n') // Remove spaces after newlines
+    .trim()
+  
+  return text
+}
+
 export default function RssFeedItem({ item, className }: { item: TRssFeedItem; className?: string }) {
   const { t } = useTranslation()
   const { pubkey, checkLogin } = useNostr()
@@ -26,17 +50,75 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
   useEffect(() => {
     const handleSelection = () => {
       const selection = window.getSelection()
-      if (!selection || selection.isCollapsed || !contentRef.current) {
+      if (!selection || selection.rangeCount === 0) {
         setShowHighlightButton(false)
         setSelectedText('')
+        setSelectionPosition(null)
+        return
+      }
+
+      const range = selection.getRangeAt(0)
+      
+      // Check if selection is collapsed (no actual selection)
+      if (selection.isCollapsed || range.collapsed) {
+        setShowHighlightButton(false)
+        setSelectedText('')
+        setSelectionPosition(null)
+        return
+      }
+
+      // Check if contentRef exists
+      if (!contentRef.current) {
+        setShowHighlightButton(false)
+        setSelectedText('')
+        setSelectionPosition(null)
         return
       }
 
       // Check if selection is within this item's content
-      const range = selection.getRangeAt(0)
-      if (!contentRef.current.contains(range.commonAncestorContainer)) {
+      // Use a more reliable containment check
+      const commonAncestor = range.commonAncestorContainer
+      
+      // Check if the common ancestor is within our content element
+      // Handle both Element and Text nodes
+      let isSelectionInContent = false
+      
+      if (contentRef.current) {
+        // For Element nodes, use contains directly
+        if (commonAncestor.nodeType === Node.ELEMENT_NODE) {
+          isSelectionInContent = contentRef.current.contains(commonAncestor as Element)
+        } else {
+          // For Text nodes, check if the parent element is contained
+          const parentElement = commonAncestor.parentElement
+          if (parentElement) {
+            isSelectionInContent = contentRef.current.contains(parentElement)
+          }
+        }
+        
+        // Also check if the range intersects with our content
+        if (!isSelectionInContent) {
+          try {
+            const contentRect = contentRef.current.getBoundingClientRect()
+            const rangeRect = range.getBoundingClientRect()
+            
+            // Check if ranges overlap
+            isSelectionInContent = !(
+              rangeRect.bottom < contentRect.top ||
+              rangeRect.top > contentRect.bottom ||
+              rangeRect.right < contentRect.left ||
+              rangeRect.left > contentRect.right
+            )
+          } catch {
+            // If getBoundingClientRect fails, fall back to false
+            isSelectionInContent = false
+          }
+        }
+      }
+
+      if (!isSelectionInContent) {
         setShowHighlightButton(false)
         setSelectedText('')
+        setSelectionPosition(null)
         return
       }
 
@@ -54,30 +136,53 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
       } else {
         setShowHighlightButton(false)
         setSelectedText('')
+        setSelectionPosition(null)
       }
     }
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
+      // Don't process if clicking on the highlight button itself
+      if ((e.target as HTMLElement).closest('.highlight-button-container')) {
+        return
+      }
+
       // Delay to allow selection to complete
       if (selectionTimeoutRef.current) {
         clearTimeout(selectionTimeoutRef.current)
       }
-      selectionTimeoutRef.current = setTimeout(handleSelection, 100)
+      selectionTimeoutRef.current = setTimeout(handleSelection, 50)
     }
 
     const handleClick = (e: MouseEvent) => {
-      // Hide button if clicking outside the selection area
-      if (showHighlightButton && !(e.target as HTMLElement).closest('.highlight-button-container')) {
-        setShowHighlightButton(false)
+      // Hide button if clicking outside the selection area and not on the button itself
+      const target = e.target as HTMLElement
+      if (showHighlightButton && !target.closest('.highlight-button-container')) {
+        // Check if there's still a valid selection
+        const selection = window.getSelection()
+        if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+          setShowHighlightButton(false)
+          setSelectedText('')
+          setSelectionPosition(null)
+        }
       }
     }
 
+    // Also listen for selectionchange events which fire more reliably
+    const handleSelectionChange = () => {
+      if (selectionTimeoutRef.current) {
+        clearTimeout(selectionTimeoutRef.current)
+      }
+      selectionTimeoutRef.current = setTimeout(handleSelection, 50)
+    }
+
     document.addEventListener('mouseup', handleMouseUp)
-    document.addEventListener('click', handleClick)
+    document.addEventListener('click', handleClick, true) // Use capture phase
+    document.addEventListener('selectionchange', handleSelectionChange)
 
     return () => {
       document.removeEventListener('mouseup', handleMouseUp)
-      document.removeEventListener('click', handleClick)
+      document.removeEventListener('click', handleClick, true)
+      document.removeEventListener('selectionchange', handleSelectionChange)
       if (selectionTimeoutRef.current) {
         clearTimeout(selectionTimeoutRef.current)
       }
@@ -95,13 +200,16 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
     // Store the text to highlight
     setHighlightText(text)
 
+    // Convert HTML description to plain text for context
+    const plainTextContext = htmlToPlainText(item.description)
+
     if (!pubkey) {
       checkLogin(() => {
         // After login, create highlight data and open editor
         const data: HighlightData = {
           sourceType: 'url',
           sourceValue: item.link,
-          context: item.description
+          context: plainTextContext
         }
         setHighlightData(data)
         setIsPostEditorOpen(true)
@@ -117,7 +225,7 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
     const data: HighlightData = {
       sourceType: 'url',
       sourceValue: item.link,
-      context: item.description
+      context: plainTextContext
     }
 
     // Open PostEditor in highlight mode
@@ -252,15 +360,12 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
             MozUserSelect: 'text',
             msUserSelect: 'text'
           }}
-        >
-          <div
-            dangerouslySetInnerHTML={{ __html: descriptionHtml }}
-            onMouseUp={(e) => {
-              // Allow text selection
-              e.stopPropagation()
-            }}
-          />
-        </div>
+          dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+          onMouseUp={(e) => {
+            // Allow text selection
+            e.stopPropagation()
+          }}
+        />
         
         {/* Gradient overlay when collapsed */}
         {needsCollapse && !isExpanded && (
@@ -349,4 +454,5 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
     </div>
   )
 }
+
 
