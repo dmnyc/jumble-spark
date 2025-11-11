@@ -730,10 +730,10 @@ function parseMarkdownContent(
       let text = pattern.index > lastIndex ? content.slice(lastIndex, pattern.index) : ''
       let textEndIndex = pattern.index
       
-      // Check if this pattern is an inline markdown link or hashtag that should be included in the paragraph
+      // Check if this pattern is an inline markdown link, hashtag, or relay URL that should be included in the paragraph
       // If so, extend the text to include the pattern so it gets processed as part of the paragraph
-      // This ensures links and hashtags stay inline with their surrounding text instead of being separated
-      if (pattern.type === 'markdown-link' || pattern.type === 'hashtag') {
+      // This ensures links, hashtags, and relay URLs stay inline with their surrounding text instead of being separated
+      if (pattern.type === 'markdown-link' || pattern.type === 'hashtag' || pattern.type === 'relay-url') {
         // Get the line containing the pattern
         const lineStart = content.lastIndexOf('\n', pattern.index) + 1
         const lineEnd = content.indexOf('\n', pattern.end)
@@ -825,7 +825,7 @@ function parseMarkdownContent(
             // Mark as merged BEFORE processing text to ensure it's skipped
             mergedPatterns.add(patternIdx)
           }
-        } else if (pattern.type === 'markdown-link' && (hasTextOnSameLine || hasTextBefore)) {
+        } else if ((pattern.type === 'markdown-link' || pattern.type === 'relay-url') && (hasTextOnSameLine || hasTextBefore)) {
           // Get the original pattern syntax from the content
           const patternMarkdown = content.substring(pattern.index, pattern.end)
           
@@ -1817,9 +1817,9 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
   const hashtagMatches = Array.from(text.matchAll(hashtagRegex))
   hashtagMatches.forEach(match => {
     if (match.index !== undefined) {
-      // Skip if already in code, bold, italic, strikethrough, or link
+      // Skip if already in code, bold, italic, strikethrough, link, or relay-url
       const isInOther = inlinePatterns.some(p => 
-        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag') &&
+        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url') &&
         match.index! >= p.index && 
         match.index! < p.end
       )
@@ -1830,6 +1830,31 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
           type: 'hashtag',
           data: match[1] // The tag without the #
         })
+      }
+    }
+  })
+  
+  // Relay URLs: wss:// or ws:// (process after code/bold/italic/links/hashtags to avoid conflicts)
+  const relayUrlMatches = Array.from(text.matchAll(WS_URL_REGEX))
+  relayUrlMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const url = match[0]
+      // Only process if it's actually a websocket URL
+      if (isWebsocketUrl(url)) {
+        // Skip if already in code, bold, italic, strikethrough, link, or hashtag
+        const isInOther = inlinePatterns.some(p => 
+          (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url') &&
+          match.index! >= p.index && 
+          match.index! < p.end
+        )
+        if (!isInOther) {
+          inlinePatterns.push({
+            index: match.index,
+            end: match.index + match[0].length,
+            type: 'relay-url',
+            data: url
+          })
+        }
       }
     }
   })
@@ -1905,6 +1930,21 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
           className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
         >
           #{tag}
+        </a>
+      )
+    } else if (pattern.type === 'relay-url') {
+      // Render relay URLs as inline links (green to match theme)
+      const url = pattern.data
+      const relayPath = `/relays/${encodeURIComponent(url)}`
+      // Note: We can't use navigateToRelay here since this is a pure function
+      // The link will navigate normally, or we could make this a callback
+      parts.push(
+        <a
+          key={`${keyPrefix}-relay-${i}`}
+          href={relayPath}
+          className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+        >
+          {url}
         </a>
       )
     }
