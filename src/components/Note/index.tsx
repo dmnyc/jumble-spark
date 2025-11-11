@@ -45,7 +45,8 @@ export default function Note({
   size = 'normal',
   className,
   hideParentNotePreview = false,
-  showFull = false
+  showFull = false,
+  disableClick = false
 }: {
   event: Event
   originalNoteId?: string
@@ -53,6 +54,7 @@ export default function Note({
   className?: string
   hideParentNotePreview?: boolean
   showFull?: boolean
+  disableClick?: boolean
 }) {
   const { navigateToNote } = useSmartNoteNavigation()
   const { isSmallScreen } = useScreenSize()
@@ -173,13 +175,14 @@ export default function Note({
 
   return (
     <div 
-      className={`${className} clickable`}
-      onClick={(e) => {
+      className={`${className} ${disableClick ? '' : 'clickable'}`}
+      onClick={disableClick ? undefined : (e) => {
         // Don't navigate if clicking on interactive elements
         const target = e.target as HTMLElement
         if (target.closest('button') || target.closest('[role="button"]') || target.closest('a') || target.closest('[data-embedded-note]') || target.closest('[data-parent-note-preview]') || target.closest('[data-user-avatar]') || target.closest('[data-username]')) {
           return
         }
+        e.stopPropagation()
         navigateToNote(toNote(event))
       }}
     >

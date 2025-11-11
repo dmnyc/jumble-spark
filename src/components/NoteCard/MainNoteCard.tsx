@@ -28,7 +28,7 @@ export default function MainNoteCard({
       onClick={(e) => {
         // Don't navigate if clicking on interactive elements
         const target = e.target as HTMLElement
-        if (target.closest('button') || target.closest('[role="button"]') || target.closest('a') || target.closest('[data-parent-note-preview]')) {
+        if (target.closest('button') || target.closest('[role="button"]') || target.closest('a') || target.closest('[data-parent-note-preview]') || target.closest('[data-user-avatar]') || target.closest('[data-username]')) {
           return
         }
         // For embedded notes, allow clicks (don't exclude [data-embedded-note])
@@ -50,6 +50,7 @@ export default function MainNoteCard({
             size={embedded ? 'small' : 'normal'}
             event={event}
             originalNoteId={originalNoteId}
+            disableClick={true}
           />
         </Collapsible>
         {!embedded && (
