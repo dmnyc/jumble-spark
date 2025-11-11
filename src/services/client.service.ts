@@ -6,6 +6,7 @@ import {
   isReplaceableEvent
 } from '@/lib/event'
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
+import logger from '@/lib/logger'
 import { formatPubkey, isValidPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib/pubkey'
 import { getPubkeysFromPTags, getServersFromServerTags, tagNameEquals } from '@/lib/tag'
 import { isLocalNetworkUrl, isWebsocketUrl, normalizeUrl } from '@/lib/url'
@@ -753,16 +754,52 @@ class ClientService extends EventTarget {
     set.add(relay)
   }
 
-  private async query(urls: string[], filter: Filter | Filter[], onevent?: (evt: NEvent) => void) {
+  private async query(
+    urls: string[], 
+    filter: Filter | Filter[], 
+    onevent?: (evt: NEvent) => void,
+    options?: { eoseTimeout?: number; globalTimeout?: number }
+  ) {
+    const eoseTimeout = options?.eoseTimeout ?? 500 // Default 500ms after EOSE
+    const globalTimeout = options?.globalTimeout ?? 10000 // Default 10s global timeout
+    const isExternalSearch = eoseTimeout > 1000 // Consider it external search if timeout > 1s
+    
+    if (isExternalSearch) {
+      logger.info('query: Starting external relay search', {
+        relayCount: urls.length,
+        relays: urls,
+        eoseTimeout,
+        globalTimeout,
+        filter: Array.isArray(filter) ? filter : [filter]
+      })
+    }
+    
     return await new Promise<NEvent[]>((resolve) => {
       const events: NEvent[] = []
-      let hasEosed = false
       let resolveTimeout: ReturnType<typeof setTimeout> | null = null
+      let allEosed = false
+      let eoseTime: number | null = null
+      let eventCount = 0
+      
+      let globalTimeoutId: ReturnType<typeof setTimeout> | null = null
       
       const resolveWithEvents = () => {
         if (resolveTimeout) {
           clearTimeout(resolveTimeout)
           resolveTimeout = null
+        }
+        if (globalTimeoutId) {
+          clearTimeout(globalTimeoutId)
+          globalTimeoutId = null
+        }
+        const duration = eoseTime ? Date.now() - eoseTime : 0
+        if (isExternalSearch) {
+          logger.info('query: Resolving external search', {
+            eventsFound: events.length,
+            eventCount,
+            allEosed,
+            timeSinceEose: duration
+          })
         }
         sub.close()
         resolve(events)
@@ -770,48 +807,103 @@ class ClientService extends EventTarget {
       
       const sub = this.subscribe(urls, filter, {
         onevent(evt) {
+          eventCount++
+          if (isExternalSearch && eventCount <= 3) {
+            logger.info('query: Received event', {
+              eventId: evt.id.substring(0, 8),
+              eventCount,
+              timeSinceEose: eoseTime ? Date.now() - eoseTime : null
+            })
+          }
           onevent?.(evt)
           events.push(evt)
-          // If we got events, clear any timeout - we're making progress
-          if (resolveTimeout) {
-            clearTimeout(resolveTimeout)
-            resolveTimeout = null
+          
+          // Check if we're looking for a specific event ID (limit: 1 with ids filter)
+          const filters = Array.isArray(filter) ? filter : [filter]
+          const hasIdFilter = filters.some(f => f.ids && f.ids.length > 0)
+          const hasLimitOne = filters.some(f => f.limit === 1)
+          
+          // If we're searching for a specific event and found it, we can resolve early
+          // But wait a bit (100ms) in case duplicate events arrive
+          if (hasIdFilter && hasLimitOne && events.length > 0 && allEosed) {
+            // We've found the event and received EOSE, wait a short moment then resolve
+            if (resolveTimeout) {
+              clearTimeout(resolveTimeout)
+            }
+            resolveTimeout = setTimeout(() => {
+              resolveWithEvents()
+            }, 100) // Short delay to catch any duplicate events
           }
         },
         oneose: (eosed) => {
           if (eosed) {
-            hasEosed = true
-            // Wait a bit more after EOSE to ensure we got all events
-            resolveTimeout = setTimeout(() => {
-              resolveWithEvents()
-            }, 500)
-          }
-        },
-        onclose: () => {
-          // Only resolve immediately on close if we've received EOSE or have events
-          // Otherwise, wait a bit to see if more events come
-          if (hasEosed || events.length > 0) {
+            // When eosed is true, it means all relays have finished (either sent EOSE or failed to connect)
+            allEosed = true
+            eoseTime = Date.now()
+            if (isExternalSearch) {
+              logger.info('query: Received EOSE from all relays', {
+                eventsSoFar: events.length,
+                eventCount,
+                willWait: eoseTimeout
+              })
+            }
+            // Clear any existing timeout
             if (resolveTimeout) {
               clearTimeout(resolveTimeout)
             }
-            resolve(events)
-          } else {
-            // Wait up to 3 seconds for events if connection closes early
+            // Wait longer after all relays send EOSE to allow searchable relays to finish searching
+            // For searchable relays, they may send EOSE quickly but still need time to search their database
+            // Important: We keep the subscription open during this timeout so we can receive events
             resolveTimeout = setTimeout(() => {
-              resolve(events)
-            }, 3000)
+              resolveWithEvents()
+            }, eoseTimeout)
+          }
+        },
+        onclose: (url, reason) => {
+          if (isExternalSearch) {
+            logger.info('query: Relay connection closed', { url, reason, eventsSoFar: events.length, allEosed })
+          }
+          // If we've received EOSE, we have a timeout set - let it handle resolution
+          // This gives searchable relays time to search their databases
+          if (allEosed) {
+            // Don't resolve immediately - let the EOSE timeout handle it
+            // This allows searchable relays to continue searching even if connections close
+            return
+          }
+          
+          // If we have events but no EOSE yet, we might want to wait a bit more
+          // But if connections are closing, we should resolve
+          if (events.length > 0) {
+            // We have events, but haven't received EOSE from all relays
+            // Wait a short time to see if more events come, then resolve
+            if (!resolveTimeout) {
+              resolveTimeout = setTimeout(() => {
+                resolveWithEvents()
+              }, 1000) // Wait 1 second for more events
+            }
+          } else {
+            // No events and no EOSE - connection closed early
+            // Wait a bit to see if events arrive, but not too long
+            if (!resolveTimeout) {
+              resolveTimeout = setTimeout(() => {
+                resolveWithEvents()
+              }, 2000) // Wait 2 seconds for events
+            }
           }
         }
       })
       
-      // Fallback timeout: resolve after 10 seconds max to prevent hanging
-      setTimeout(() => {
-        if (resolveTimeout) {
-          clearTimeout(resolveTimeout)
+      // Fallback timeout: resolve after globalTimeout to prevent hanging
+      globalTimeoutId = setTimeout(() => {
+        if (isExternalSearch) {
+          logger.info('query: Global timeout reached', {
+            eventsFound: events.length,
+            eventCount,
+            allEosed
+          })
         }
-        sub.close()
-        resolve(events)
-      }, 10000)
+        resolveWithEvents()
+      }, globalTimeout)
     })
   }
 
@@ -820,14 +912,23 @@ class ClientService extends EventTarget {
     filter: Filter | Filter[],
     {
       onevent,
-      cache = false
+      cache = false,
+      eoseTimeout,
+      globalTimeout
     }: {
       onevent?: (evt: NEvent) => void
       cache?: boolean
+      eoseTimeout?: number
+      globalTimeout?: number
     } = {}
   ) {
     const relays = Array.from(new Set(urls))
-    const events = await this.query(relays.length > 0 ? relays : BIG_RELAY_URLS, filter, onevent)
+    const events = await this.query(
+      relays.length > 0 ? relays : BIG_RELAY_URLS, 
+      filter, 
+      onevent,
+      { eoseTimeout, globalTimeout }
+    )
     if (cache) {
       events.forEach((evt) => {
         this.addEventToCache(evt)
@@ -1749,8 +1850,39 @@ class ClientService extends EventTarget {
   }
 
   async fetchEventWithExternalRelays(eventId: string, externalRelays: string[]) {
+    if (!externalRelays || externalRelays.length === 0) {
+      logger.warn('fetchEventWithExternalRelays: No external relays provided', { eventId })
+      return undefined
+    }
+    
+    logger.info('fetchEventWithExternalRelays: Starting search', {
+      eventId: eventId.substring(0, 8),
+      relayCount: externalRelays.length,
+      relays: externalRelays
+    })
+    
     // Use external relays for fetching the event
-    const events = await this.fetchEvents(externalRelays, { ids: [eventId], limit: 1 })
+    // For searchable relays, we want to give them more time to search their database
+    // Use a longer EOSE timeout (10 seconds) to allow searchable relays to complete their search
+    // and a longer global timeout (20 seconds) to ensure we wait long enough
+    const startTime = Date.now()
+    const events = await this.fetchEvents(
+      externalRelays, 
+      { ids: [eventId], limit: 1 },
+      {
+        eoseTimeout: 10000, // Wait 10 seconds after all EOSE (searchable relays need time to search)
+        globalTimeout: 20000 // 20 second global timeout
+      }
+    )
+    const duration = Date.now() - startTime
+    
+    logger.info('fetchEventWithExternalRelays: Search completed', {
+      eventId: eventId.substring(0, 8),
+      relayCount: externalRelays.length,
+      eventsFound: events.length,
+      durationMs: duration
+    })
+    
     return events[0]
   }
 

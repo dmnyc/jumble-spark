@@ -1,5 +1,5 @@
 import { Skeleton } from '@/components/ui/skeleton'
-import { BIG_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { useFetchEvent } from '@/hooks'
 import { normalizeUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
@@ -106,30 +106,36 @@ function EmbeddedNoteNotFound({
   // Calculate which external relays would be tried
   useEffect(() => {
     const getExternalRelays = async () => {
-      let relays: string[] = []
+      // Get all relays that have already been tried (BIG_RELAY_URLS + FAST_READ_RELAY_URLS)
+      // These are the relays used in the initial fetch
+      const alreadyTriedRelaysSet = new Set<string>()
+      ;[...BIG_RELAY_URLS, ...FAST_READ_RELAY_URLS].forEach(url => {
+        const normalized = normalizeUrl(url)
+        if (normalized) alreadyTriedRelaysSet.add(normalized)
+      })
+      
+      let hintRelays: string[] = []
       let extractedHexEventId: string | null = null
       
+      // Parse relay hints and author from bech32 ID
       if (!/^[0-9a-f]{64}$/.test(noteId)) {
         try {
           const { type, data } = nip19.decode(noteId)
           
           if (type === 'nevent') {
             extractedHexEventId = data.id
-            if (data.relays) relays.push(...data.relays)
+            if (data.relays) hintRelays.push(...data.relays)
             if (data.author) {
               const authorRelayList = await client.fetchRelayList(data.author)
-              relays.push(...authorRelayList.write.slice(0, 6))
+              hintRelays.push(...authorRelayList.write.slice(0, 6))
             }
           } else if (type === 'naddr') {
-            if (data.relays) relays.push(...data.relays)
+            if (data.relays) hintRelays.push(...data.relays)
             const authorRelayList = await client.fetchRelayList(data.pubkey)
-            relays.push(...authorRelayList.write.slice(0, 6))
+            hintRelays.push(...authorRelayList.write.slice(0, 6))
           } else if (type === 'note') {
             extractedHexEventId = data
           }
-          // Normalize and deduplicate relays
-          relays = relays.map(url => normalizeUrl(url) || url)
-          relays = Array.from(new Set(relays))
         } catch (err) {
           logger.error('Failed to parse external relays', { error: err, noteId })
         }
@@ -139,25 +145,40 @@ function EmbeddedNoteNotFound({
       
       setHexEventId(extractedHexEventId)
       
+      // Get relays where this event was seen
       const seenOn = extractedHexEventId ? client.getSeenEventRelayUrls(extractedHexEventId) : []
-      relays.push(...seenOn)
+      hintRelays.push(...seenOn)
       
-      // Normalize all relays first
-      let normalizedRelays = relays.map(url => normalizeUrl(url) || url).filter(Boolean)
-      normalizedRelays = Array.from(new Set(normalizedRelays))
+      // Normalize all hint relays
+      const normalizedHints = hintRelays
+        .map(url => normalizeUrl(url))
+        .filter((url): url is string => Boolean(url))
       
-      // If no external relays from hints, try SEARCHABLE_RELAY_URLS as fallback
-      // Filter out relays that overlap with BIG_RELAY_URLS (already tried first)
-      if (normalizedRelays.length === 0) {
-        const searchableRelays = SEARCHABLE_RELAY_URLS
-          .map(url => normalizeUrl(url) || url)
-          .filter((url): url is string => Boolean(url))
-          .filter(relay => !BIG_RELAY_URLS.includes(relay))
-        normalizedRelays.push(...searchableRelays)
-      }
+      // Combine hints with SEARCHABLE_RELAY_URLS (always include as fallback)
+      // Normalize SEARCHABLE_RELAY_URLS for comparison
+      const normalizedSearchableRelays = SEARCHABLE_RELAY_URLS
+        .map(url => normalizeUrl(url))
+        .filter((url): url is string => Boolean(url))
+      
+      // Combine all potential relays (hints + searchable)
+      const allPotentialRelays = new Set([...normalizedHints, ...normalizedSearchableRelays])
+      
+      // Filter out relays that were already tried
+      const externalRelays = Array.from(allPotentialRelays).filter(
+        relay => !alreadyTriedRelaysSet.has(relay)
+      )
       
       // Deduplicate final relay list
-      setExternalRelays(Array.from(new Set(normalizedRelays)))
+      setExternalRelays(externalRelays)
+      
+      logger.debug('External relays calculated', {
+        noteId,
+        hintRelaysCount: normalizedHints.length,
+        searchableRelaysCount: normalizedSearchableRelays.length,
+        alreadyTriedCount: alreadyTriedRelaysSet.size,
+        externalRelaysCount: externalRelays.length,
+        externalRelays: externalRelays.slice(0, 10) // Log first 10
+      })
     }
 
     getExternalRelays()
@@ -166,14 +187,37 @@ function EmbeddedNoteNotFound({
   const handleTryExternalRelays = async () => {
     if (!hexEventId || isSearchingExternal) return
     
+    if (externalRelays.length === 0) {
+      logger.warn('No external relays to search', { noteId, hexEventId })
+      setTriedExternal(true)
+      return
+    }
+    
     setIsSearchingExternal(true)
     try {
+      logger.info('Searching external relays', { 
+        noteId, 
+        hexEventId, 
+        relayCount: externalRelays.length,
+        relays: externalRelays.slice(0, 5) // Log first 5 relays
+      })
+      
       const event = await client.fetchEventWithExternalRelays(hexEventId, externalRelays)
-      if (event && onEventFound) {
-        onEventFound(event)
+      
+      if (event) {
+        logger.info('Event found on external relay', { noteId, hexEventId })
+        if (onEventFound) {
+          onEventFound(event)
+        }
+      } else {
+        logger.info('Event not found on external relays', { 
+          noteId, 
+          hexEventId, 
+          relayCount: externalRelays.length 
+        })
       }
     } catch (error) {
-      logger.error('External relay fetch failed', { error, noteId })
+      logger.error('External relay fetch failed', { error, noteId, hexEventId, externalRelays })
     } finally {
       setIsSearchingExternal(false)
       setTriedExternal(true)

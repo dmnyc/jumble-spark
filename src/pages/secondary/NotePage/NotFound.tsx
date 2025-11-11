@@ -1,6 +1,6 @@
 import ClientSelect from '@/components/ClientSelect'
 import { Button } from '@/components/ui/button'
-import { BIG_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import client from '@/services/client.service'
 import { AlertCircle, Search } from 'lucide-react'
@@ -27,10 +27,15 @@ export default function NotFound({
     if (!bech32Id) return
 
     const getExternalRelays = async () => {
-      // Get all relays that would be tried in tiers 1-3 (already tried)
-      const alreadyTriedRelays: string[] = await client.getAlreadyTriedRelays()
+      // Get all relays that have already been tried (BIG_RELAY_URLS + FAST_READ_RELAY_URLS)
+      // These are the relays used in the initial fetch
+      const alreadyTriedRelaysSet = new Set<string>()
+      ;[...BIG_RELAY_URLS, ...FAST_READ_RELAY_URLS].forEach(url => {
+        const normalized = normalizeUrl(url)
+        if (normalized) alreadyTriedRelaysSet.add(normalized)
+      })
       
-      let externalRelays: string[] = []
+      let hintRelays: string[] = []
       let extractedHexEventId: string | null = null
       
       // Parse relay hints and author from bech32 ID
@@ -40,23 +45,20 @@ export default function NotFound({
           
           if (type === 'nevent') {
             extractedHexEventId = data.id
-            if (data.relays) externalRelays.push(...data.relays)
+            if (data.relays) hintRelays.push(...data.relays)
             if (data.author) {
               const authorRelayList = await client.fetchRelayList(data.author)
-              externalRelays.push(...authorRelayList.write.slice(0, 6))
+              hintRelays.push(...authorRelayList.write.slice(0, 6))
             }
           } else if (type === 'naddr') {
-            if (data.relays) externalRelays.push(...data.relays)
+            if (data.relays) hintRelays.push(...data.relays)
             const authorRelayList = await client.fetchRelayList(data.pubkey)
-            externalRelays.push(...authorRelayList.write.slice(0, 6))
+            hintRelays.push(...authorRelayList.write.slice(0, 6))
           } else if (type === 'note') {
             extractedHexEventId = data
           }
-          // Normalize and deduplicate external relays
-          externalRelays = externalRelays.map(url => normalizeUrl(url) || url)
-          externalRelays = Array.from(new Set(externalRelays))
         } catch (err) {
-        logger.error('Failed to parse external relays', { error: err, bech32Id })
+          logger.error('Failed to parse external relays', { error: err, bech32Id })
         }
       } else {
         extractedHexEventId = bech32Id
@@ -64,28 +66,40 @@ export default function NotFound({
       
       setHexEventId(extractedHexEventId)
       
+      // Get relays where this event was seen
       const seenOn = extractedHexEventId ? client.getSeenEventRelayUrls(extractedHexEventId) : []
-      externalRelays.push(...seenOn)
+      hintRelays.push(...seenOn)
       
-      // Normalize all relays first
-      let normalizedRelays = externalRelays.map(url => normalizeUrl(url) || url).filter(Boolean)
-      normalizedRelays = Array.from(new Set(normalizedRelays))
+      // Normalize all hint relays
+      const normalizedHints = hintRelays
+        .map(url => normalizeUrl(url))
+        .filter((url): url is string => Boolean(url))
       
-      // If no external relays from hints, try SEARCHABLE_RELAY_URLS as fallback
-      // Filter out relays that overlap with BIG_RELAY_URLS (already tried first)
-      if (normalizedRelays.length === 0) {
-        const searchableRelays = SEARCHABLE_RELAY_URLS
-          .map(url => normalizeUrl(url) || url)
-          .filter((url): url is string => Boolean(url))
-          .filter(relay => !BIG_RELAY_URLS.includes(relay))
-        normalizedRelays.push(...searchableRelays)
-      }
+      // Combine hints with SEARCHABLE_RELAY_URLS (always include as fallback)
+      // Normalize SEARCHABLE_RELAY_URLS for comparison
+      const normalizedSearchableRelays = SEARCHABLE_RELAY_URLS
+        .map(url => normalizeUrl(url))
+        .filter((url): url is string => Boolean(url))
       
-      // Filter out relays that were already tried in tiers 1-3
-      const newRelays = normalizedRelays.filter(relay => !alreadyTriedRelays.includes(relay))
+      // Combine all potential relays (hints + searchable)
+      const allPotentialRelays = new Set([...normalizedHints, ...normalizedSearchableRelays])
+      
+      // Filter out relays that were already tried
+      const externalRelays = Array.from(allPotentialRelays).filter(
+        relay => !alreadyTriedRelaysSet.has(relay)
+      )
       
       // Deduplicate final relay list
-      setExternalRelays(Array.from(new Set(newRelays)))
+      setExternalRelays(externalRelays)
+      
+      logger.debug('External relays calculated (NotFound)', {
+        bech32Id,
+        hintRelaysCount: normalizedHints.length,
+        searchableRelaysCount: normalizedSearchableRelays.length,
+        alreadyTriedCount: alreadyTriedRelaysSet.size,
+        externalRelaysCount: externalRelays.length,
+        externalRelays: externalRelays.slice(0, 10) // Log first 10
+      })
     }
 
     getExternalRelays()
@@ -94,14 +108,37 @@ export default function NotFound({
   const handleTryExternalRelays = async () => {
     if (!hexEventId || isSearchingExternal) return
     
+    if (externalRelays.length === 0) {
+      logger.warn('No external relays to search (NotFound)', { bech32Id, hexEventId })
+      setTriedExternal(true)
+      return
+    }
+    
     setIsSearchingExternal(true)
     try {
+      logger.info('Searching external relays (NotFound)', { 
+        bech32Id, 
+        hexEventId, 
+        relayCount: externalRelays.length,
+        relays: externalRelays.slice(0, 5) // Log first 5 relays
+      })
+      
       const event = await client.fetchEventWithExternalRelays(hexEventId, externalRelays)
-      if (event && onEventFound) {
-        onEventFound(event)
+      
+      if (event) {
+        logger.info('Event found on external relay (NotFound)', { bech32Id, hexEventId })
+        if (onEventFound) {
+          onEventFound(event)
+        }
+      } else {
+        logger.info('Event not found on external relays (NotFound)', { 
+          bech32Id, 
+          hexEventId, 
+          relayCount: externalRelays.length 
+        })
       }
     } catch (error) {
-      logger.error('External relay fetch failed', { error, bech32Id, hexEventId })
+      logger.error('External relay fetch failed (NotFound)', { error, bech32Id, hexEventId, externalRelays })
     } finally {
       setIsSearchingExternal(false)
       setTriedExternal(true)
