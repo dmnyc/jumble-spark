@@ -730,10 +730,11 @@ function parseMarkdownContent(
       let text = pattern.index > lastIndex ? content.slice(lastIndex, pattern.index) : ''
       let textEndIndex = pattern.index
       
-      // Check if this pattern is an inline markdown link, hashtag, or relay URL that should be included in the paragraph
+      // Check if this pattern is an inline markdown link, hashtag, relay URL, or nostr address that should be included in the paragraph
       // If so, extend the text to include the pattern so it gets processed as part of the paragraph
-      // This ensures links, hashtags, and relay URLs stay inline with their surrounding text instead of being separated
-      if (pattern.type === 'markdown-link' || pattern.type === 'hashtag' || pattern.type === 'relay-url') {
+      // This ensures links, hashtags, relay URLs, and nostr addresses stay inline with their surrounding text instead of being separated
+      // Note: Only profile types (npub/nprofile) should be merged inline; event types (note/nevent/naddr) remain block-level
+      if (pattern.type === 'markdown-link' || pattern.type === 'hashtag' || pattern.type === 'relay-url' || pattern.type === 'nostr') {
         // Get the line containing the pattern
         const lineStart = content.lastIndexOf('\n', pattern.index) + 1
         const lineEnd = content.indexOf('\n', pattern.end)
@@ -838,6 +839,25 @@ function parseMarkdownContent(
           
           // Mark this pattern as merged so we don't render it separately later
           mergedPatterns.add(patternIdx)
+        } else if (pattern.type === 'nostr' && (hasTextOnSameLine || hasTextBefore)) {
+          // Only merge profile types (npub/nprofile) inline; event types (note/nevent/naddr) remain block-level
+          const bech32Id = pattern.data
+          const isProfileType = bech32Id.startsWith('npub') || bech32Id.startsWith('nprofile')
+          
+          if (isProfileType) {
+            // Get the original pattern syntax from the content
+            const patternMarkdown = content.substring(pattern.index, pattern.end)
+            
+            // Get text after the pattern on the same line
+            const textAfterPattern = content.substring(pattern.end, lineEndIndex)
+            
+            // Extend the text to include the pattern and any text after it on the same line
+            text = text + patternMarkdown + textAfterPattern
+            textEndIndex = lineEndIndex === content.length ? content.length : lineEndIndex + 1
+            
+            // Mark this pattern as merged so we don't render it separately later
+            mergedPatterns.add(patternIdx)
+          }
         }
       }
       
@@ -1817,9 +1837,9 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
   const hashtagMatches = Array.from(text.matchAll(hashtagRegex))
   hashtagMatches.forEach(match => {
     if (match.index !== undefined) {
-      // Skip if already in code, bold, italic, strikethrough, link, or relay-url
+      // Skip if already in code, bold, italic, strikethrough, link, relay-url, or nostr
       const isInOther = inlinePatterns.some(p => 
-        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url') &&
+        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr') &&
         match.index! >= p.index && 
         match.index! < p.end
       )
@@ -1841,9 +1861,9 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
       const url = match[0]
       // Only process if it's actually a websocket URL
       if (isWebsocketUrl(url)) {
-        // Skip if already in code, bold, italic, strikethrough, link, or hashtag
+        // Skip if already in code, bold, italic, strikethrough, link, hashtag, or nostr
         const isInOther = inlinePatterns.some(p => 
-          (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url') &&
+          (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr') &&
           match.index! >= p.index && 
           match.index! < p.end
         )
@@ -1853,6 +1873,35 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
             end: match.index + match[0].length,
             type: 'relay-url',
             data: url
+          })
+        }
+      }
+    }
+  })
+  
+  // Nostr addresses: nostr:npub1..., nostr:note1..., etc. (process after code/bold/italic/links/hashtags/relay-urls to avoid conflicts)
+  // Only process profile types (npub/nprofile) inline; event types (note/nevent/naddr) should remain block-level
+  const nostrRegex = /nostr:(npub1[a-z0-9]{58}|nprofile1[a-z0-9]+|note1[a-z0-9]{58}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)/g
+  const nostrMatches = Array.from(text.matchAll(nostrRegex))
+  nostrMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const bech32Id = match[1]
+      // Only process profile types inline; event types should remain block-level
+      const isProfileType = bech32Id.startsWith('npub') || bech32Id.startsWith('nprofile')
+      
+      if (isProfileType) {
+        // Skip if already in code, bold, italic, strikethrough, link, hashtag, or relay-url
+        const isInOther = inlinePatterns.some(p => 
+          (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr') &&
+          match.index! >= p.index && 
+          match.index! < p.end
+        )
+        if (!isInOther) {
+          inlinePatterns.push({
+            index: match.index,
+            end: match.index + match[0].length,
+            type: 'nostr',
+            data: bech32Id
           })
         }
       }
@@ -1947,6 +1996,20 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
           {url}
         </a>
       )
+    } else if (pattern.type === 'nostr') {
+      // Render nostr addresses - only profile types (npub/nprofile) should be here (event types remain block-level)
+      const bech32Id = pattern.data
+      if (bech32Id.startsWith('npub') || bech32Id.startsWith('nprofile')) {
+        // Render as inline mention
+        parts.push(
+          <span key={`${keyPrefix}-nostr-${i}`} className="inline-block">
+            <EmbeddedMention userId={bech32Id} />
+          </span>
+        )
+      } else {
+        // Fallback for unexpected types (shouldn't happen, but handle gracefully)
+        parts.push(<span key={`${keyPrefix}-nostr-${i}`}>nostr:{bech32Id}</span>)
+      }
     }
     
     lastIndex = pattern.end
