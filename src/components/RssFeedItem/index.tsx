@@ -8,6 +8,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import PostEditor from '@/components/PostEditor'
 import { HighlightData } from '@/components/PostEditor/HighlightEditor'
 import { cn } from '@/lib/utils'
+import MediaPlayer from '@/components/MediaPlayer'
 
 /**
  * Convert HTML to plain text by extracting text content and cleaning up whitespace
@@ -249,9 +250,18 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
   }, [item.feedUrl, item.feedTitle])
 
   // Clean and parse HTML description safely
-  // Remove any XML artifacts that might have leaked through
+  // Decode HTML entities and remove any XML artifacts that might have leaked through
   const descriptionHtml = useMemo(() => {
     let html = item.description || ''
+    
+    if (!html) return ''
+    
+    // Decode HTML entities (like &lt; &gt; &amp; &quot; etc.)
+    // Use textarea element which automatically decodes HTML entities when setting innerHTML
+    // This is the most reliable way to decode entities in the browser
+    const decoder = document.createElement('textarea')
+    decoder.innerHTML = html
+    html = decoder.value
     
     // Remove any trailing XML/CDATA artifacts
     html = html
@@ -260,6 +270,16 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
       .replace(/<\?xml[^>]*\?>/gi, '') // Remove XML declarations
       .replace(/<\!DOCTYPE[^>]*>/gi, '') // Remove DOCTYPE declarations
       .trim()
+    
+    // Basic sanitization: remove script tags and dangerous attributes
+    // Remove script tags and their content (including nested tags)
+    html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    // Remove event handlers (onclick, onerror, etc.)
+    html = html.replace(/\s*on\w+\s*=\s*["'][^"']*["']/gi, '')
+    // Remove javascript: URLs in href and src attributes
+    html = html.replace(/javascript:/gi, '')
+    // Remove data: URLs that might contain javascript (basic protection)
+    html = html.replace(/data:\s*text\/html/gi, '')
     
     return html
   }, [item.description])
@@ -324,12 +344,39 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
 
   return (
     <div className={`border rounded-lg bg-background p-4 space-y-3 ${className || ''}`}>
-      {/* Feed Source and Date */}
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span className="font-medium">{feedSourceName}</span>
-        {pubDateTimestamp && (
-          <FormattedTimestamp timestamp={pubDateTimestamp} className="shrink-0" short />
+      {/* Feed Header with Metadata */}
+      <div className="flex items-start gap-3 pb-3 border-b">
+        {/* Feed Image/Logo */}
+        {item.feedImage && (
+          <img
+            src={item.feedImage}
+            alt={item.feedTitle || feedSourceName}
+            className="w-12 h-12 rounded object-contain shrink-0"
+            onError={(e) => {
+              // Hide image on error
+              e.currentTarget.style.display = 'none'
+            }}
+          />
         )}
+        
+        {/* Feed Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-sm truncate">
+                {item.feedTitle || feedSourceName}
+              </h3>
+              {item.feedDescription && (
+                <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                  {item.feedDescription}
+                </p>
+              )}
+            </div>
+            {pubDateTimestamp && (
+              <FormattedTimestamp timestamp={pubDateTimestamp} className="shrink-0 text-xs" short />
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Title */}
@@ -345,6 +392,58 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
           <ExternalLink className="h-4 w-4 shrink-0" />
         </a>
       </div>
+
+      {/* Media (Images) */}
+      {item.media && item.media.length > 0 && (
+        <div className="space-y-2">
+          {item.media
+            .filter(m => m.type?.startsWith('image/') || !m.type || m.type === 'image')
+            .map((media, index) => (
+              <div key={index} className="relative">
+                <img
+                  src={media.thumbnail || media.url}
+                  alt={item.title}
+                  className="w-full rounded-lg object-cover max-h-96 cursor-pointer hover:opacity-90 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    // Open image in new tab
+                    window.open(media.url, '_blank', 'noopener,noreferrer')
+                  }}
+                  onError={(e) => {
+                    // Hide image on error
+                    e.currentTarget.style.display = 'none'
+                  }}
+                />
+                {media.credit && (
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {t('Photo')}: {media.credit}
+                  </div>
+                )}
+              </div>
+            ))}
+        </div>
+      )}
+
+      {/* Audio/Video Enclosure */}
+      {item.enclosure && (item.enclosure.type.startsWith('audio/') || item.enclosure.type.startsWith('video/')) && (
+        <div className="space-y-2">
+          <div className="rounded-lg border bg-muted/50 p-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="text-sm font-medium">
+                {item.enclosure.type.startsWith('audio/') ? t('Audio') : t('Video')}
+                {item.enclosure.duration && (
+                  <span className="text-muted-foreground ml-2">({item.enclosure.duration})</span>
+                )}
+              </div>
+            </div>
+            <MediaPlayer
+              src={item.enclosure.url}
+              className="w-full"
+              mustLoad={true}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Description with text selection support and collapse/expand */}
       <div className="relative">
