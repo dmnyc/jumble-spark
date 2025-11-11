@@ -1,16 +1,14 @@
 /**
  * Advanced search parser for Nostr events
  * Supports multiple search parameters:
- * - Date ranges: YYYY-MM-DD to YYYY-MM-DD, from:YYYY-MM-DD, to:YYYY-MM-DD, before:YYYY-MM-DD, after:YYYY-MM-DD
  * - Hashtag: t:hashtag or hashtag:hashtag (filters by #t tag)
- * - Pubkey: pubkey:npub... or pubkey:hex... (filters by authors field)
- * - Events: events:hex, events:note1..., events:nevent1..., events:naddr1... (filters by ids field)
- * - Kind: kind:30023 (filter by event kind)
+ * - Event IDs: Bare event IDs (hex, note1, nevent1, naddr1) work as standard search
  * - Plain text: becomes d-tag search for replaceable events (uses #d tag)
  * 
- * Note: Nostr only supports single-letter tag indexes (#d, #t, #p, #e, #a, etc.)
- * Multi-letter tags like title, subject, description, author, type are parsed but
- * not used in filters as relays don't index them.
+ * Note: 
+ * - Nostr only supports single-letter tag indexes (#d, #t, #p, #e, #a, etc.)
+ * - Kind filter is only available as URL parameter k= (e.g., ?t=bitcoin&k=1)
+ * - Date searches and pubkey filters are not supported
  */
 
 export interface AdvancedSearchParams {
@@ -21,13 +19,10 @@ export interface AdvancedSearchParams {
   description?: string | string[]
   author?: string | string[]
   pubkey?: string | string[] // Accepts: hex, npub, nprofile, or NIP-05
-  events?: string | string[] // Accepts: hex event ID, note, nevent, naddr
+  events?: string | string[] // Accepts: hex event ID, note, nevent, naddr (bare IDs work as standard search)
   type?: string | string[]
-  from?: string // YYYY-MM-DD
-  to?: string // YYYY-MM-DD
-  before?: string // YYYY-MM-DD
-  after?: string // YYYY-MM-DD
-  kinds?: number[]
+  // Date searches removed - not supported
+  // Kind filter only available as URL parameter k=
 }
 
 /**
@@ -44,28 +39,6 @@ export function normalizeToDTag(term: string): string {
 }
 
 /**
- * Normalize date to YYYY-MM-DD format
- * Supports both 2-digit (YY) and 4-digit (YYYY) years
- */
-function normalizeDate(dateStr: string): string {
-  const parts = dateStr.split('-')
-  if (parts.length !== 3) return dateStr
-  
-  let year = parts[0]
-  const month = parts[1]
-  const day = parts[2]
-  
-  // Convert 2-digit year to 4-digit
-  if (year.length === 2) {
-    const yearNum = parseInt(year)
-    // Assume years 00-30 are 2000-2030, years 31-99 are 1931-1999
-    year = yearNum <= 30 ? `20${year.padStart(2, '0')}` : `19${year}`
-  }
-  
-  return `${year}-${month}-${day}`
-}
-
-/**
  * Parse advanced search query
  */
 export function parseAdvancedSearch(query: string): AdvancedSearchParams {
@@ -75,16 +48,14 @@ export function parseAdvancedSearch(query: string): AdvancedSearchParams {
     .replace(/\s+/g, ' ') // Replace multiple whitespace with single space
     .replace(/\s*,\s*/g, ',') // Normalize spaces around commas
     .replace(/\s*:\s*/g, ':') // Normalize spaces around colons
-    .replace(/\s+to\s+/gi, ' to ') // Normalize "to" in date ranges
   
   const params: AdvancedSearchParams = {}
 
   // Regular expressions for different parameter types
-  // Support both 4-digit (YYYY) and 2-digit (YY) years, date ranges (DATE to DATE)
-  const dateRangePattern = /(\d{2,4}-\d{2}-\d{2})\s+to\s+(\d{2,4}-\d{2}-\d{2})/gi
-  const datePattern = /(?:from|to|before|after):(\d{2,4}-\d{2}-\d{2})/gi
-  const quotedPattern = /(title|subject|description|author|type|pubkey|events|hashtag|t):"([^"]+)"/gi
-  const unquotedPattern = /(title|subject|description|author|pubkey|type|kind|events|hashtag|t):([^\s]+)/gi
+  // Note: Date searches, kind: prefix, and pubkey: prefix removed
+  // Kind only available as URL parameter k=
+  const quotedPattern = /(title|subject|description|author|type|hashtag|t):"([^"]+)"/gi
+  const unquotedPattern = /(title|subject|description|author|type|hashtag|t):([^\s]+)/gi
   
   // Pattern to detect bare nip19 IDs (nevent, note, naddr) or hex event IDs
   // These start with the prefix and are base32 encoded (use word boundary to avoid partial matches)
@@ -188,14 +159,6 @@ export function parseAdvancedSearch(query: string): AdvancedSearchParams {
       case 'type':
         params.type = values.length === 1 ? values[0] : values
         break
-      case 'pubkey':
-        const pubkeyValues = parseValues(value)
-        params.pubkey = pubkeyValues.length === 1 ? pubkeyValues[0] : pubkeyValues
-        break
-      case 'events':
-        const eventValues = parseValues(value)
-        params.events = eventValues.length === 1 ? eventValues[0] : eventValues
-        break
     }
   }
 
@@ -246,38 +209,17 @@ export function parseAdvancedSearch(query: string): AdvancedSearchParams {
           params.author = values.length === 1 ? values[0] : values
         }
         break
-      case 'pubkey':
-        if (!params.pubkey) {
-          const pubkeyValues = parseValues(value)
-          params.pubkey = pubkeyValues.length === 1 ? pubkeyValues[0] : pubkeyValues
-        }
-        break
-      case 'events':
-        if (!params.events) {
-          const eventValues = parseValues(value)
-          params.events = eventValues.length === 1 ? eventValues[0] : eventValues
-        }
-        break
       case 'type':
         if (!params.type) {
           const values = parseValues(value)
           params.type = values.length === 1 ? values[0] : values
         }
         break
-      case 'kind':
-        const kindValues = parseValues(value)
-        params.kinds = params.kinds || []
-        for (const kindVal of kindValues) {
-          const kindNum = parseInt(kindVal)
-          if (!isNaN(kindNum)) {
-            params.kinds.push(kindNum)
-          }
-        }
-        break
     }
   }
   
   // Process detected bare event IDs (those not used as parameters)
+  // Note: Bare event IDs are left as plain text for standard search, not stored as filter params
   for (const detectedId of detectedEventIds) {
     const start = detectedId.start
     // Skip if already used by a parameter pattern
@@ -285,20 +227,12 @@ export function parseAdvancedSearch(query: string): AdvancedSearchParams {
       continue
     }
     
-    // Mark as used
+    // Mark as used - but don't store in params.events, leave as plain text for standard search
     usedIndices.push(start, detectedId.end)
-    
-    // Store the event ID in params.events
-    if (!params.events) {
-      params.events = detectedId.id
-    } else if (Array.isArray(params.events)) {
-      params.events.push(detectedId.id)
-    } else {
-      params.events = [params.events, detectedId.id]
-    }
   }
   
   // Process detected bare pubkey IDs (those not used as parameters)
+  // Note: Pubkey filters removed - not supported
   for (const detectedId of detectedPubkeyIds) {
     const start = detectedId.start
     // Skip if already used by a parameter pattern
@@ -306,66 +240,11 @@ export function parseAdvancedSearch(query: string): AdvancedSearchParams {
       continue
     }
     
-    // Mark as used
+    // Mark as used - but don't store in params.pubkey, leave as plain text
     usedIndices.push(start, detectedId.end)
-    
-    // Store the pubkey ID in params.pubkey
-    if (!params.pubkey) {
-      params.pubkey = detectedId.id
-    } else if (Array.isArray(params.pubkey)) {
-      params.pubkey.push(detectedId.id)
-    } else {
-      params.pubkey = [params.pubkey, detectedId.id]
-    }
   }
 
-  // Process date range patterns first (DATE to DATE)
-  dateRangePattern.lastIndex = 0
-  while ((match = dateRangePattern.exec(normalizedQuery)) !== null) {
-    const startDate = normalizeDate(match[1])
-    const endDate = normalizeDate(match[2])
-    const start = match.index
-    const end = start + match[0].length
-
-    usedIndices.push(start, end)
-    lastIndex = Math.max(lastIndex, end)
-
-    // Use from/to for date ranges
-    params.from = startDate
-    params.to = endDate
-  }
-
-  // Process date parameters (from:, to:, before:, after:)
-  datePattern.lastIndex = 0
-  while ((match = datePattern.exec(normalizedQuery)) !== null) {
-    const start = match.index
-    // Skip if already used by date range pattern
-    if (usedIndices.some((idx, i) => i % 2 === 0 && start >= idx && start <= usedIndices[i + 1])) {
-      continue
-    }
-
-    const param = match[0].split(':')[0].toLowerCase()
-    const value = normalizeDate(match[1])
-    const end = start + match[0].length
-
-    usedIndices.push(start, end)
-    lastIndex = Math.max(lastIndex, end)
-
-    switch (param) {
-      case 'from':
-        params.from = value
-        break
-      case 'to':
-        params.to = value
-        break
-      case 'before':
-        params.before = value
-        break
-      case 'after':
-        params.after = value
-        break
-    }
-  }
+  // Date searches removed - not supported
 
   // Extract plain text (everything not matched by patterns)
   usedIndices.sort((a, b) => a - b)

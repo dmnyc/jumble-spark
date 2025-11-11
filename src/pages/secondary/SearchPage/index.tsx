@@ -5,7 +5,8 @@ import { toSearch } from '@/lib/link'
 import { parseAdvancedSearch } from '@/lib/search-parser'
 import { useSecondaryPage } from '@/PageManager'
 import { TSearchParams } from '@/types'
-import SearchInfo from '@/components/SearchInfo'
+import { BookOpen } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
 const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
@@ -79,27 +80,9 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
           }
           // Skip title, subject, description, author, type - these use multi-letter tags
           // that Nostr relays don't index
-          if (searchParams.pubkey) {
-            if (Array.isArray(searchParams.pubkey)) {
-              searchParams.pubkey.forEach(p => urlParams.append('pubkey', p))
-            } else {
-              urlParams.set('pubkey', searchParams.pubkey)
-            }
-          }
-          if (searchParams.events) {
-            if (Array.isArray(searchParams.events)) {
-              searchParams.events.forEach(e => urlParams.append('events', e))
-            } else {
-              urlParams.set('events', searchParams.events)
-            }
-          }
-          if (searchParams.from) urlParams.set('from', searchParams.from)
-          if (searchParams.to) urlParams.set('to', searchParams.to)
-          if (searchParams.before) urlParams.set('before', searchParams.before)
-          if (searchParams.after) urlParams.set('after', searchParams.after)
-          if (searchParams.kinds) {
-            searchParams.kinds.forEach(k => urlParams.append('k', k.toString()))
-          }
+          // Note: Bare event IDs are handled as standard search, not as filter params
+          // Date searches and pubkey filters removed - not supported
+          // Kind filter only available as URL parameter k=, not from search parser
           
           push(`/notes?${urlParams.toString()}`)
           return
@@ -126,7 +109,20 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
             <SearchBar ref={searchBarRef} input={input} setInput={setInput} onSearch={onSearch} />
           </div>
           <div className="flex-shrink-0 relative z-50">
-            <SearchInfo />
+            <Button
+              variant="ghost"
+              className="h-9 shrink-0 text-muted-foreground hover:text-foreground border border-border/50 hover:border-border rounded-md px-3 gap-2"
+              asChild
+            >
+              <a
+                href="https://next-alexandria.gitcitadel.eu/events"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <BookOpen className="h-4 w-4" />
+                <span className="text-sm">Search on Alexandria</span>
+              </a>
+            </Button>
           </div>
         </div>
         <div className="h-4"></div>

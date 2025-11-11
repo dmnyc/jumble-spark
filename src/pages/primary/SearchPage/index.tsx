@@ -3,7 +3,8 @@ import SearchResult from '@/components/SearchResult'
 import PrimaryPageLayout, { TPrimaryPageLayoutRef } from '@/layouts/PrimaryPageLayout'
 import { usePrimaryPage } from '@/PageManager'
 import { TSearchParams } from '@/types'
-import SearchInfo from '@/components/SearchInfo'
+import { BookOpen } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
 const SearchPage = forwardRef((_, ref) => {
@@ -50,7 +51,20 @@ const SearchPage = forwardRef((_, ref) => {
             <SearchBar ref={searchBarRef} onSearch={onSearch} input={input} setInput={setInput} />
           </div>
           <div className="flex-shrink-0 relative z-50">
-            <SearchInfo />
+            <Button
+              variant="ghost"
+              className="h-9 shrink-0 text-muted-foreground hover:text-foreground border border-border/50 hover:border-border rounded-md px-3 gap-2"
+              asChild
+            >
+              <a
+                href="https://next-alexandria.gitcitadel.eu/events"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <BookOpen className="h-4 w-4" />
+                <span className="text-sm">Search on Alexandria</span>
+              </a>
+            </Button>
           </div>
         </div>
         <div className="h-4"></div>

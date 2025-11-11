@@ -1,4 +1,4 @@
-import { Info } from 'lucide-react'
+import { Info, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import {
@@ -19,31 +19,23 @@ export default function SearchInfo() {
   const searchInfoContent = (
     <div className="space-y-3">
       <div>
-        <h4 className="font-semibold mb-2">Advanced Search Parameters</h4>
+        <h4 className="font-semibold mb-2">Search Parameters</h4>
         <div className="space-y-2 text-sm">
           <div>
             <strong>Plain text:</strong> Searches by d-tag for replaceable events (normalized, hyphenated)
           </div>
           <div>
-            <strong>Date ranges:</strong>
-            <ul className="ml-4 mt-1 space-y-1 list-disc">
-              <li><code className="text-xs">YYYY-MM-DD to YYYY-MM-DD</code> - Date range (e.g., <code className="text-xs">2025-10-23 to 2025-10-30</code>)</li>
-              <li><code className="text-xs">from:YYYY-MM-DD</code> - Events from this date</li>
-              <li><code className="text-xs">to:YYYY-MM-DD</code> - Events until this date</li>
-              <li><code className="text-xs">before:YYYY-MM-DD</code> - Events before this date</li>
-              <li><code className="text-xs">after:YYYY-MM-DD</code> - Events after this date</li>
-              <li>Supports 2-digit years (e.g., <code className="text-xs">25-10-23</code> = <code className="text-xs">2025-10-23</code>)</li>
-            </ul>
+            <strong>Event IDs:</strong> Bare event IDs work as standard search (hex, note1, nevent1, naddr1)
           </div>
           <div>
             <strong>Filters:</strong>
             <ul className="ml-4 mt-1 space-y-1 list-disc">
               <li><code className="text-xs">t:hashtag</code> or <code className="text-xs">hashtag:hashtag</code> - Filter by hashtag (t-tag)</li>
-              <li><code className="text-xs">pubkey:npub...</code>, <code className="text-xs">pubkey:hex</code>, <code className="text-xs">pubkey:nprofile...</code>, or <code className="text-xs">pubkey:user@domain.com</code> - Filter by pubkey (accepts npub, nprofile, hex, or NIP-05)</li>
-              <li><code className="text-xs">events:hex</code>, <code className="text-xs">events:note1...</code>, <code className="text-xs">events:nevent1...</code>, or <code className="text-xs">events:naddr1...</code> - Filter by specific events (accepts hex, note, nevent, or naddr)</li>
-              <li><code className="text-xs">kind:30023</code> - Filter by event kind (e.g., 1=notes, 30023=articles, 30817/30818=wiki)</li>
-              <li>Multiple values supported: <code className="text-xs">t:bitcoin,nostr</code>, <code className="text-xs">pubkey:npub1...,npub2...</code> or <code className="text-xs">kind:30023,2018</code></li>
+              <li>Multiple values supported: <code className="text-xs">t:bitcoin,nostr</code></li>
             </ul>
+          </div>
+          <div>
+            <strong>Kind filter:</strong> Use URL parameter <code className="text-xs">k=</code> with other filters (e.g., <code className="text-xs">?t=bitcoin&k=1</code> or <code className="text-xs">?t=testfile&k=30023</code>). Cannot be used alone.
           </div>
           <div className="pt-2 border-t">
             <p className="text-xs text-muted-foreground">
@@ -51,13 +43,22 @@ export default function SearchInfo() {
             </p>
             <ul className="ml-4 mt-1 space-y-1 list-disc text-xs text-muted-foreground">
               <li><code>jumble search</code> → searches d-tag</li>
-              <li><code>t:bitcoin from:2024-01-01</code></li>
-              <li><code>pubkey:npub1abc... from:2024-01-01</code></li>
-              <li><code>kind:30023 from:2024-01-01</code></li>
-              <li><code>2025-10-23 to 2025-10-30</code> → date range</li>
+              <li><code>t:bitcoin</code> → hashtag search</li>
+              <li><code>note1abc...</code> → searches for event ID</li>
             </ul>
           </div>
         </div>
+      </div>
+      <div className="pt-2 border-t">
+        <a
+          href="https://next-alexandria.gitcitadel.eu/events"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <BookOpen className="h-4 w-4" />
+          <span>Advanced search on Alexandria</span>
+        </a>
       </div>
     </div>
   )
@@ -84,6 +85,17 @@ export default function SearchInfo() {
           </DrawerHeader>
           <div className="px-4 pb-4 max-h-[60vh] overflow-y-auto">
             {searchInfoContent}
+          </div>
+          <div className="px-4 pb-4 border-t">
+            <a
+              href="https://next-alexandria.gitcitadel.eu/events"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <BookOpen className="h-4 w-4" />
+              <span>Advanced search on Alexandria</span>
+            </a>
           </div>
           <DrawerClose asChild>
             <Button variant="outline" className="m-4">Close</Button>
