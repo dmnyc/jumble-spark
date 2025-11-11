@@ -59,6 +59,7 @@ class LocalStorageService {
   private defaultQuietDays: number = 7
   private respectQuietTags: boolean = true
   private globalQuietMode: boolean = false
+  private showRssFeed: boolean = true
 
   constructor() {
     if (!LocalStorageService.instance) {
@@ -275,6 +276,9 @@ class LocalStorageService {
 
     const globalQuietModeStr = window.localStorage.getItem(StorageKey.GLOBAL_QUIET_MODE)
     this.globalQuietMode = globalQuietModeStr === 'true'
+
+    const showRssFeedStr = window.localStorage.getItem(StorageKey.SHOW_RSS_FEED)
+    this.showRssFeed = showRssFeedStr === null ? true : showRssFeedStr === 'true' // Default to true
 
     // Clean up deprecated data
     window.localStorage.removeItem(StorageKey.ACCOUNT_PROFILE_EVENT_MAP)
@@ -645,6 +649,15 @@ class LocalStorageService {
   setGlobalQuietMode(enabled: boolean) {
     this.globalQuietMode = enabled
     window.localStorage.setItem(StorageKey.GLOBAL_QUIET_MODE, enabled.toString())
+  }
+
+  getShowRssFeed() {
+    return this.showRssFeed
+  }
+
+  setShowRssFeed(show: boolean) {
+    this.showRssFeed = show
+    window.localStorage.setItem(StorageKey.SHOW_RSS_FEED, show.toString())
   }
 }
 

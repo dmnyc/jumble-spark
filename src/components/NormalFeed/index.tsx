@@ -6,9 +6,10 @@ import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import storage from '@/services/local-storage.service'
 import { TFeedSubRequest, TNoteListMode } from '@/types'
-import { forwardRef, useMemo, useRef, useState } from 'react'
+import { forwardRef, useMemo, useRef, useState, useEffect } from 'react'
 import KindFilter from '../KindFilter'
 import { RefreshButton } from '../RefreshButton'
+import RssFeedList from '../RssFeedList'
 
 const NormalFeed = forwardRef<TNoteListRef, {
   subRequests: TFeedSubRequest[]
@@ -37,11 +38,41 @@ const NormalFeed = forwardRef<TNoteListRef, {
   const supportTouch = useMemo(() => isTouchDevice(), [])
   const internalNoteListRef = useRef<TNoteListRef>(null)
   const noteListRef = ref || internalNoteListRef
+  const [showRssFeed, setShowRssFeed] = useState(() => storage.getShowRssFeed())
+  const [activeTab, setActiveTab] = useState<string>(listMode)
 
-  const handleListModeChange = (mode: TNoteListMode) => {
-    setListMode(mode)
+  // Sync activeTab with listMode when listMode changes (but not when switching to RSS)
+  useEffect(() => {
+    if (activeTab !== 'rss' && activeTab !== listMode) {
+      setActiveTab(listMode)
+    }
+  }, [listMode, activeTab])
+
+  // Check showRssFeed setting on mount
+  useEffect(() => {
+    const currentShowRssFeed = storage.getShowRssFeed()
+    setShowRssFeed(currentShowRssFeed)
+  }, [])
+  
+  // Handle RSS tab visibility when showRssFeed changes
+  useEffect(() => {
+    // If RSS tab is hidden while it's active, switch to posts
+    if (!showRssFeed && activeTab === 'rss') {
+      setActiveTab('posts')
+      setListMode('posts')
+    }
+  }, [showRssFeed, activeTab])
+
+  const handleListModeChange = (mode: TNoteListMode | string) => {
+    if (mode === 'rss') {
+      setActiveTab('rss')
+      return
+    }
+    const noteListMode = mode as TNoteListMode
+    setListMode(noteListMode)
+    setActiveTab(noteListMode)
     if (isMainFeed) {
-      storage.setNoteListMode(mode)
+      storage.setNoteListMode(noteListMode)
     }
     if (noteListRef && typeof noteListRef !== 'function') {
       noteListRef.current?.scrollToTop('smooth')
@@ -55,37 +86,57 @@ const NormalFeed = forwardRef<TNoteListRef, {
     }
   }
 
+  // Build tabs array conditionally
+  const tabs = useMemo(() => {
+    const baseTabs = [
+      { value: 'posts', label: 'Notes' },
+      { value: 'postsAndReplies', label: 'Replies' }
+    ]
+    
+    if (showRssFeed) {
+      baseTabs.push({ value: 'rss', label: 'RSS' })
+    }
+    
+    return baseTabs
+  }, [showRssFeed])
+
+  // Determine current tab value
+  const currentTabValue = activeTab
+
   return (
     <>
       <Tabs
-        value={listMode}
-        tabs={[
-          { value: 'posts', label: 'Notes' },
-          { value: 'postsAndReplies', label: 'Replies' }
-        ]}
-        onTabChange={(listMode) => {
-          handleListModeChange(listMode as TNoteListMode)
+        value={currentTabValue}
+        tabs={tabs}
+        onTabChange={(tab) => {
+          handleListModeChange(tab)
         }}
         options={
-          <>
-            {!supportTouch && <RefreshButton onClick={() => {
-              if (noteListRef && typeof noteListRef !== 'function') {
-                noteListRef.current?.refresh()
-              }
-            }} />}
-            <KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />
-          </>
+          activeTab !== 'rss' ? (
+            <>
+              {!supportTouch && <RefreshButton onClick={() => {
+                if (noteListRef && typeof noteListRef !== 'function') {
+                  noteListRef.current?.refresh()
+                }
+              }} />}
+              <KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />
+            </>
+          ) : null
         }
       />
-      <NoteList
-        ref={noteListRef}
-        showKinds={temporaryShowKinds}
-        subRequests={subRequests}
-        hideReplies={listMode === 'posts'}
-        hideUntrustedNotes={hideUntrustedNotes}
-        areAlgoRelays={areAlgoRelays}
-        showRelayCloseReason={showRelayCloseReason}
-      />
+      {activeTab === 'rss' ? (
+        <RssFeedList />
+      ) : (
+        <NoteList
+          ref={noteListRef}
+          showKinds={temporaryShowKinds}
+          subRequests={subRequests}
+          hideReplies={listMode === 'posts'}
+          hideUntrustedNotes={hideUntrustedNotes}
+          areAlgoRelays={areAlgoRelays}
+          showRelayCloseReason={showRelayCloseReason}
+        />
+      )}
     </>
   )
 })

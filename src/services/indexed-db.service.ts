@@ -27,6 +27,7 @@ const StoreNames = {
   FAVORITE_RELAYS: 'favoriteRelays',
   BLOCKED_RELAYS_EVENTS: 'blockedRelaysEvents',
   CACHE_RELAYS_EVENTS: 'cacheRelaysEvents',
+  RSS_FEED_LIST_EVENTS: 'rssFeedListEvents',
   RELAY_SETS: 'relaySets',
   FOLLOWING_FAVORITE_RELAYS: 'followingFavoriteRelays',
   RELAY_INFOS: 'relayInfos',
@@ -50,7 +51,7 @@ class IndexedDbService {
   init(): Promise<void> {
     if (!this.initPromise) {
       this.initPromise = new Promise((resolve, reject) => {
-        const request = window.indexedDB.open('jumble', 14)
+        const request = window.indexedDB.open('jumble', 15)
 
         request.onerror = (event) => {
           reject(event)
@@ -119,6 +120,9 @@ class IndexedDbService {
           }
           if (!db.objectStoreNames.contains(StoreNames.CACHE_RELAYS_EVENTS)) {
             db.createObjectStore(StoreNames.CACHE_RELAYS_EVENTS, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.RSS_FEED_LIST_EVENTS)) {
+            db.createObjectStore(StoreNames.RSS_FEED_LIST_EVENTS, { keyPath: 'key' })
           }
         }
       })
@@ -512,6 +516,8 @@ class IndexedDbService {
         return StoreNames.BLOCKED_RELAYS_EVENTS
       case ExtendedKind.CACHE_RELAYS:
         return StoreNames.CACHE_RELAYS_EVENTS
+      case ExtendedKind.RSS_FEED_LIST:
+        return StoreNames.RSS_FEED_LIST_EVENTS
       case kinds.UserEmojiList:
         return StoreNames.USER_EMOJI_LIST_EVENTS
       case kinds.Emojisets:
@@ -1077,11 +1083,12 @@ class IndexedDbService {
     if (storeName === StoreNames.RELAY_SETS) return kinds.Relaysets
     if (storeName === StoreNames.FAVORITE_RELAYS) return ExtendedKind.FAVORITE_RELAYS
     if (storeName === StoreNames.BLOCKED_RELAYS_EVENTS) return ExtendedKind.BLOCKED_RELAYS
-    if (storeName === StoreNames.CACHE_RELAYS_EVENTS) return ExtendedKind.CACHE_RELAYS
-    if (storeName === StoreNames.USER_EMOJI_LIST_EVENTS) return kinds.UserEmojiList
-    if (storeName === StoreNames.EMOJI_SET_EVENTS) return kinds.Emojisets
-    // PUBLICATION_EVENTS is not replaceable, so we don't handle it here
-    return undefined
+      if (storeName === StoreNames.CACHE_RELAYS_EVENTS) return ExtendedKind.CACHE_RELAYS
+      if (storeName === StoreNames.RSS_FEED_LIST_EVENTS) return ExtendedKind.RSS_FEED_LIST
+      if (storeName === StoreNames.USER_EMOJI_LIST_EVENTS) return kinds.UserEmojiList
+      if (storeName === StoreNames.EMOJI_SET_EVENTS) return kinds.Emojisets
+      // PUBLICATION_EVENTS is not replaceable, so we don't handle it here
+      return undefined
   }
 
   private isReplaceableEventKind(kind: number): boolean {
@@ -1096,7 +1103,8 @@ class IndexedDbService {
       kind === ExtendedKind.FAVORITE_RELAYS ||
       kind === ExtendedKind.BLOCKED_RELAYS ||
       kind === ExtendedKind.CACHE_RELAYS ||
-      kind === ExtendedKind.BLOSSOM_SERVER_LIST
+      kind === ExtendedKind.BLOSSOM_SERVER_LIST ||
+      kind === ExtendedKind.RSS_FEED_LIST
     )
   }
 

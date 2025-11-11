@@ -438,6 +438,15 @@ export function createRelayListDraftEvent(mailboxRelays: TMailboxRelay[]): TDraf
   }
 }
 
+export function createRssFeedListDraftEvent(feedUrls: string[]): TDraftEvent {
+  return {
+    kind: ExtendedKind.RSS_FEED_LIST,
+    content: JSON.stringify(feedUrls),
+    tags: [],
+    created_at: dayjs().unix()
+  }
+}
+
 export function createCacheRelaysDraftEvent(mailboxRelays: TMailboxRelay[]): TDraftEvent {
   return {
     kind: ExtendedKind.CACHE_RELAYS,

@@ -53,6 +53,7 @@ export const StorageKey = {
   DEFAULT_QUIET_DAYS: 'defaultQuietDays',
   RESPECT_QUIET_TAGS: 'respectQuietTags',
   GLOBAL_QUIET_MODE: 'globalQuietMode',
+  SHOW_RSS_FEED: 'showRssFeed',
   MEDIA_UPLOAD_SERVICE: 'mediaUploadService', // deprecated
   HIDE_UNTRUSTED_EVENTS: 'hideUntrustedEvents', // deprecated
   ACCOUNT_RELAY_LIST_EVENT_MAP: 'accountRelayListEventMap', // deprecated
@@ -149,6 +150,7 @@ export const ExtendedKind = {
   WIKI_ARTICLE: 30818,
   WIKI_ARTICLE_MARKDOWN: 30817,
   PUBLICATION_CONTENT: 30041,
+  RSS_FEED_LIST: 30895,
   // NIP-89 Application Handlers
   APPLICATION_HANDLER_RECOMMENDATION: 31989,
   APPLICATION_HANDLER_INFO: 31990
@@ -230,3 +232,5 @@ export const MEDIA_AUTO_LOAD_POLICY = {
   WIFI_ONLY: 'wifi-only',
   NEVER: 'never'
 } as const
+
+export const DEFAULT_RSS_FEEDS = ['https://divineoffice.org/feed/']

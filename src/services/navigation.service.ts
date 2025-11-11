@@ -14,6 +14,7 @@ import WalletPage from '@/pages/secondary/WalletPage'
 import PostSettingsPage from '@/pages/secondary/PostSettingsPage'
 import GeneralSettingsPage from '@/pages/secondary/GeneralSettingsPage'
 import TranslationPage from '@/pages/secondary/TranslationPage'
+import RssFeedSettingsPage from '@/pages/secondary/RssFeedSettingsPage'
 import NotePage from '@/pages/secondary/NotePage'
 import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
 import FollowingListPage from '@/pages/secondary/FollowingListPage'
@@ -64,6 +65,7 @@ export class URLParser {
     if (url.includes('/wallet')) return 'wallet'
     if (url.includes('/posts')) return 'posts'
     if (url.includes('/translation')) return 'translation'
+    if (url.includes('/rss-feeds')) return 'rss-feeds'
     return 'general'
   }
 }
@@ -116,6 +118,8 @@ export class ComponentFactory {
         return React.createElement(GeneralSettingsPage, { index: 0, hideTitlebar: true })
       case 'translation':
         return React.createElement(TranslationPage, { index: 0, hideTitlebar: true })
+      case 'rss-feeds':
+        return React.createElement(RssFeedSettingsPage, { index: 0, hideTitlebar: true })
       default:
         return React.createElement(GeneralSettingsPage, { index: 0, hideTitlebar: true })
     }

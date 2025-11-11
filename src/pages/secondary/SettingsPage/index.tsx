@@ -5,7 +5,8 @@ import {
   toPostSettings,
   toRelaySettings,
   toTranslation,
-  toWallet
+  toWallet,
+  toRssFeedSettings
 } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import { useSmartSettingsNavigation } from '@/PageManager'
@@ -18,6 +19,7 @@ import {
   KeyRound,
   Languages,
   PencilLine,
+  Rss,
   Server,
   Settings2,
   Wallet
@@ -71,6 +73,15 @@ const SettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: numb
           <div className="flex items-center gap-4">
             <PencilLine />
             <div>{t('Post settings')}</div>
+          </div>
+          <ChevronRight />
+        </SettingItem>
+      )}
+      {!!pubkey && (
+        <SettingItem className="clickable" onClick={() => navigateToSettings(toRssFeedSettings())}>
+          <div className="flex items-center gap-4">
+            <Rss />
+            <div>{t('RSS Feed Settings')}</div>
           </div>
           <ChevronRight />
         </SettingItem>

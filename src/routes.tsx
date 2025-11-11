@@ -13,6 +13,7 @@ import ProfilePage from './pages/secondary/ProfilePage'
 import RelayPage from './pages/secondary/RelayPage'
 import RelayReviewsPage from './pages/secondary/RelayReviewsPage'
 import RelaySettingsPage from './pages/secondary/RelaySettingsPage'
+import RssFeedSettingsPage from './pages/secondary/RssFeedSettingsPage'
 import SearchPage from './pages/secondary/SearchPage'
 import SettingsPage from './pages/secondary/SettingsPage'
 import TranslationPage from './pages/secondary/TranslationPage'
@@ -34,6 +35,7 @@ const ROUTES = [
   { path: '/settings/posts', element: <PostSettingsPage /> },
   { path: '/settings/general', element: <GeneralSettingsPage /> },
   { path: '/settings/translation', element: <TranslationPage /> },
+  { path: '/settings/rss-feeds', element: <RssFeedSettingsPage /> },
   { path: '/profile-editor', element: <ProfileEditorPage /> },
   { path: '/mutes', element: <MuteListPage /> }
 ]

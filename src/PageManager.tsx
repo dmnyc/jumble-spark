@@ -13,6 +13,7 @@ import WalletPage from '@/pages/secondary/WalletPage'
 import PostSettingsPage from '@/pages/secondary/PostSettingsPage'
 import GeneralSettingsPage from '@/pages/secondary/GeneralSettingsPage'
 import TranslationPage from '@/pages/secondary/TranslationPage'
+import RssFeedSettingsPage from '@/pages/secondary/RssFeedSettingsPage'
 import NotePage from '@/pages/secondary/NotePage'
 import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
 import FollowingListPage from '@/pages/secondary/FollowingListPage'
@@ -298,6 +299,9 @@ export function useSmartSettingsNavigation() {
     } else if (url === '/settings/translation') {
       window.history.pushState(null, '', url)
       setPrimaryNoteView(<TranslationPage index={0} hideTitlebar={true} />, 'settings-sub')
+    } else if (url === '/settings/rss-feeds') {
+      window.history.pushState(null, '', url)
+      setPrimaryNoteView(<RssFeedSettingsPage index={0} hideTitlebar={true} />, 'settings-sub')
     }
   }
   
