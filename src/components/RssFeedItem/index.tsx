@@ -1,12 +1,13 @@
 import { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
 import { FormattedTimestamp } from '../FormattedTimestamp'
-import { ExternalLink, Highlighter } from 'lucide-react'
+import { ExternalLink, Highlighter, ChevronDown, ChevronUp } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { useNostr } from '@/providers/NostrProvider'
 import PostEditor from '@/components/PostEditor'
 import { HighlightData } from '@/components/PostEditor/HighlightEditor'
+import { cn } from '@/lib/utils'
 
 export default function RssFeedItem({ item, className }: { item: TRssFeedItem; className?: string }) {
   const { t } = useTranslation()
@@ -17,6 +18,7 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
   const [selectionPosition, setSelectionPosition] = useState<{ x: number; y: number } | null>(null)
   const [isPostEditorOpen, setIsPostEditorOpen] = useState(false)
   const [highlightData, setHighlightData] = useState<HighlightData | undefined>(undefined)
+  const [isExpanded, setIsExpanded] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const selectionTimeoutRef = useRef<NodeJS.Timeout>()
 
@@ -138,11 +140,79 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
     }
   }, [item.feedUrl, item.feedTitle])
 
-  // Parse HTML description safely
-  const descriptionHtml = item.description
+  // Clean and parse HTML description safely
+  // Remove any XML artifacts that might have leaked through
+  const descriptionHtml = useMemo(() => {
+    let html = item.description || ''
+    
+    // Remove any trailing XML/CDATA artifacts
+    html = html
+      .replace(/\]\]\s*>\s*$/g, '') // Remove trailing ]]> from CDATA
+      .replace(/^\s*<!\[CDATA\[/g, '') // Remove leading CDATA declaration
+      .replace(/<\?xml[^>]*\?>/gi, '') // Remove XML declarations
+      .replace(/<\!DOCTYPE[^>]*>/gi, '') // Remove DOCTYPE declarations
+      .trim()
+    
+    return html
+  }, [item.description])
 
   // Format publication date
   const pubDateTimestamp = item.pubDate ? Math.floor(item.pubDate.getTime() / 1000) : null
+
+  // Check if content exceeds 400px height
+  const [needsCollapse, setNeedsCollapse] = useState(false)
+
+  useEffect(() => {
+    if (!contentRef.current || !descriptionHtml) return
+
+    const checkHeight = () => {
+      const element = contentRef.current
+      if (!element) return
+
+      // Temporarily remove max-height to measure full content height
+      const hadMaxHeight = element.classList.contains('max-h-[400px]')
+      if (hadMaxHeight) {
+        element.classList.remove('max-h-[400px]')
+        element.style.maxHeight = 'none'
+      }
+      
+      // Force a reflow to get accurate measurements
+      void element.offsetHeight
+      
+      // Measure the actual content height
+      const fullHeight = element.scrollHeight
+      
+      // Restore original state
+      if (hadMaxHeight) {
+        element.classList.add('max-h-[400px]')
+        element.style.maxHeight = ''
+      }
+      
+      setNeedsCollapse(fullHeight > 400)
+    }
+
+    // Check height after content is rendered (multiple checks for dynamic content)
+    const timeoutId1 = setTimeout(checkHeight, 100)
+    const timeoutId2 = setTimeout(checkHeight, 500)
+
+    // Use ResizeObserver to detect when content changes
+    const resizeObserver = new ResizeObserver(() => {
+      // Only check if not currently expanded (to avoid unnecessary checks)
+      if (!isExpanded) {
+        checkHeight()
+      }
+    })
+
+    if (contentRef.current) {
+      resizeObserver.observe(contentRef.current)
+    }
+
+    return () => {
+      clearTimeout(timeoutId1)
+      clearTimeout(timeoutId2)
+      resizeObserver.disconnect()
+    }
+  }, [descriptionHtml, isExpanded])
 
   return (
     <div className={`border rounded-lg bg-background p-4 space-y-3 ${className || ''}`}>
@@ -168,23 +238,61 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
         </a>
       </div>
 
-      {/* Description with text selection support */}
+      {/* Description with text selection support and collapse/expand */}
       <div className="relative">
         <div
           ref={contentRef}
-          className="prose prose-sm dark:prose-invert max-w-none break-words rss-feed-content"
-          dangerouslySetInnerHTML={{ __html: descriptionHtml }}
-          onMouseUp={(e) => {
-            // Allow text selection
-            e.stopPropagation()
-          }}
+          className={cn(
+            'prose prose-sm dark:prose-invert max-w-none break-words rss-feed-content transition-all duration-200',
+            needsCollapse && !isExpanded && 'max-h-[400px] overflow-hidden'
+          )}
           style={{
             userSelect: 'text',
             WebkitUserSelect: 'text',
             MozUserSelect: 'text',
             msUserSelect: 'text'
           }}
-        />
+        >
+          <div
+            dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+            onMouseUp={(e) => {
+              // Allow text selection
+              e.stopPropagation()
+            }}
+          />
+        </div>
+        
+        {/* Gradient overlay when collapsed */}
+        {needsCollapse && !isExpanded && (
+          <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-b from-transparent via-background/60 to-background pointer-events-none" />
+        )}
+        
+        {/* Collapse/Expand Button */}
+        {needsCollapse && (
+          <div className="flex justify-center mt-2 relative z-10">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsExpanded(!isExpanded)
+              }}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              {isExpanded ? (
+                <>
+                  <ChevronUp className="h-4 w-4 mr-1" />
+                  {t('Show less')}
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-4 w-4 mr-1" />
+                  {t('Show more')}
+                </>
+              )}
+            </Button>
+          </div>
+        )}
         
         {/* Highlight Button */}
         {showHighlightButton && selectedText && selectionPosition && (

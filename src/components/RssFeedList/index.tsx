@@ -44,12 +44,26 @@ export default function RssFeedList() {
           }
         }
 
-        // Fetch and merge feeds
+        // Fetch and merge feeds (this handles errors gracefully and returns partial results)
         const fetchedItems = await rssFeedService.fetchMultipleFeeds(feedUrls)
+        
+        if (fetchedItems.length === 0) {
+          // No items were successfully fetched, but don't show error if we tried
+          // The fetchMultipleFeeds already logs warnings for failed feeds
+          setError(null) // Clear any previous error
+        }
+        
         setItems(fetchedItems)
       } catch (err) {
         logger.error('[RssFeedList] Error loading RSS feeds', { error: err })
-        setError(err instanceof Error ? err.message : t('Failed to load RSS feeds'))
+        // Don't set error state - fetchMultipleFeeds handles individual feed failures gracefully
+        // Only set error if there's a critical issue (like network completely down)
+        if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+          // Network error - might be temporary, don't show persistent error
+          setError(null)
+        } else {
+          setError(err instanceof Error ? err.message : t('Failed to load RSS feeds'))
+        }
       } finally {
         setLoading(false)
       }
