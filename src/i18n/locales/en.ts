@@ -374,6 +374,7 @@ export default {
     Posts: 'Posts',
     Articles: 'Articles',
     Highlights: 'Highlights',
+    'A note from': 'A note from',
     Polls: 'Polls',
     'Voice Posts': 'Voice Posts',
     'Photo Posts': 'Photo Posts',
