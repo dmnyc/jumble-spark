@@ -11,12 +11,14 @@ import { cleanUrl, isImage, isMedia, isVideo, isAudio, isWebsocketUrl } from '@/
 import { getImetaInfosFromEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import { ExtendedKind, WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
-import React, { useMemo, useState, useCallback } from 'react'
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Lightbox from 'yet-another-react-lightbox'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import { EmbeddedNote, EmbeddedMention } from '@/components/Embedded'
 import { preprocessMarkdownMediaLinks } from './preprocessMarkup'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
 
 /**
  * Truncate link display text to 200 characters, adding ellipsis if truncated
@@ -100,6 +102,238 @@ function isYouTubeUrl(url: string): boolean {
   const flags = YOUTUBE_URL_REGEX.flags.replace('g', '')
   const regex = new RegExp(YOUTUBE_URL_REGEX.source, flags)
   return regex.test(url)
+}
+
+/**
+ * CodeBlock component that renders code with syntax highlighting using highlight.js
+ */
+function CodeBlock({ id, code, language }: { id: string; code: string; language: string }) {
+  const codeRef = useRef<HTMLElement>(null)
+  
+  useEffect(() => {
+    const initHighlight = async () => {
+      if (typeof window !== 'undefined' && codeRef.current) {
+        try {
+          const hljs = await import('highlight.js')
+          if (codeRef.current) {
+            hljs.default.highlightElement(codeRef.current)
+          }
+        } catch (error) {
+          console.error('Error loading highlight.js:', error)
+        }
+      }
+    }
+    
+    // Small delay to ensure DOM is ready
+    const timeoutId = setTimeout(initHighlight, 0)
+    return () => clearTimeout(timeoutId)
+  }, [code, language])
+  
+  return (
+    <div className="my-4 overflow-x-auto">
+      <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg border border-gray-300 dark:border-gray-700">
+        <code
+          ref={codeRef}
+          id={id}
+          className={`hljs language-${language || 'plaintext'}`}
+          style={{ color: 'inherit' }}
+        >
+          {code}
+        </code>
+      </pre>
+    </div>
+  )
+}
+
+/**
+ * InlineCode component that renders inline code, with LaTeX math detection
+ * If the code content is LaTeX math (starts and ends with $), render it with KaTeX
+ */
+function InlineCode({ code, keyPrefix }: { code: string; keyPrefix: string }) {
+  const elementRef = useRef<HTMLElement>(null)
+  
+  // Check if this is LaTeX math: starts with $ and ends with $
+  // Pattern: $...$ where ... may contain LaTeX expressions
+  const trimmedCode = code.trim()
+  const latexMatch = trimmedCode.match(/^\$([^$]+)\$$/)
+  
+  useEffect(() => {
+    if (latexMatch && elementRef.current) {
+      try {
+        // Extract the LaTeX expression
+        let latexExpr = latexMatch[1]
+        
+        // Handle escaped backslashes: if the content has double backslashes (\\),
+        // they might need to be unescaped to single backslashes (\)
+        // This can happen if the content was stored with escaped backslashes
+        // In JavaScript strings, "\\" in source represents a single backslash in the actual string
+        // So if we see "\\\\" in the string (4 backslashes in source = 2 backslashes in string),
+        // we should convert to "\\" (2 backslashes in source = 1 backslash in string)
+        // But we need to be careful: we only want to unescape if it's actually double-escaped
+        // Try to detect if we have literal double backslashes that should be single
+        // Check if there are patterns like \\command that should be \command
+        if (latexExpr.includes('\\\\')) {
+          // Replace double backslashes with single backslash
+          // This handles cases where backslashes are escaped in the source
+          latexExpr = latexExpr.replace(/\\\\/g, '\\')
+        }
+        
+        // Render with KaTeX
+        katex.render(latexExpr, elementRef.current, {
+          throwOnError: false,
+          displayMode: false
+        })
+      } catch (error) {
+        console.error('Error rendering LaTeX inline math:', error)
+        // On error, fall back to showing the code as-is
+        if (elementRef.current) {
+          elementRef.current.textContent = code
+          elementRef.current.className = 'bg-muted px-1 py-0.5 rounded text-sm font-mono'
+        }
+      }
+    }
+  }, [code, latexMatch])
+  
+  // If it's LaTeX math, render with KaTeX
+  if (latexMatch) {
+    return (
+      <span
+        ref={elementRef}
+        key={keyPrefix}
+        className="katex-inline"
+        style={{ display: 'inline' }}
+      />
+    )
+  }
+  
+  // Regular inline code
+  return (
+    <code key={keyPrefix} className="bg-muted px-1 py-0.5 rounded text-sm font-mono">
+      {code}
+    </code>
+  )
+}
+
+/**
+ * Normalize backticks in markdown content:
+ * - Inline code: normalize to single backtick (`code`)
+ * - Code blocks: normalize to triple backticks (```code```)
+ * This handles cases where content uses 2, 3, or 4 backticks inconsistently
+ */
+function normalizeBackticks(content: string): string {
+  let normalized = content
+  
+  // First, protect code blocks by temporarily replacing them
+  // Match code blocks with 3 or 4 backticks - need to handle multiline content
+  const codeBlockPlaceholders: string[] = []
+  const lines = normalized.split('\n')
+  const processedLines: string[] = []
+  let i = 0
+  
+  while (i < lines.length) {
+    const line = lines[i]
+    // Check if this line starts a code block (3 or 4 backticks, optionally with language)
+    const codeBlockStartMatch = line.match(/^(`{3,4})(\w*)\s*$/)
+    
+    if (codeBlockStartMatch) {
+      const language = codeBlockStartMatch[2] || ''
+      const codeLines: string[] = [line]
+      i++
+      let foundEnd = false
+      
+      // Look for the closing backticks
+      while (i < lines.length) {
+        const codeLine = lines[i]
+        codeLines.push(codeLine)
+        
+        // Check if this line has the closing backticks
+        if (codeLine.match(/^`{3,4}\s*$/)) {
+          foundEnd = true
+          i++
+          break
+        }
+        
+        i++
+      }
+      
+      if (foundEnd) {
+        // Normalize to triple backticks
+        const placeholder = `__CODE_BLOCK_${codeBlockPlaceholders.length}__`
+        const normalizedBlock = `\`\`\`${language}\n${codeLines.slice(1, -1).join('\n')}\n\`\`\``
+        codeBlockPlaceholders.push(normalizedBlock)
+        processedLines.push(placeholder)
+        continue
+      }
+    }
+    
+    processedLines.push(line)
+    i++
+  }
+  
+  normalized = processedLines.join('\n')
+  
+  // Normalize inline code: replace double backticks with single backticks
+  // But only if they're not part of a code block (which we've already protected)
+  // Use a more precise regex that doesn't match triple+ backticks
+  normalized = normalized.replace(/``([^`\n]+?)``/g, '`$1`')
+  
+  // Restore code blocks
+  codeBlockPlaceholders.forEach((block, index) => {
+    normalized = normalized.replace(`__CODE_BLOCK_${index}__`, block)
+  })
+  
+  return normalized
+}
+
+/**
+ * Convert Setext-style headers to markdown format
+ * H1: "Text\n======\n" -> "# Text\n"
+ * H2: "Text\n------\n" -> "## Text\n"
+ * This handles the Setext-style header format (both equals and dashes)
+ * 
+ * Note: Only converts if the text line has at least 2 characters to avoid
+ * creating headers from fragments like "D\n------" which would become "## D"
+ */
+function normalizeSetextHeaders(content: string): string {
+  const lines = content.split('\n')
+  const result: string[] = []
+  let i = 0
+  
+  while (i < lines.length) {
+    const currentLine = lines[i]
+    const nextLine = i + 1 < lines.length ? lines[i + 1] : ''
+    const currentLineTrimmed = currentLine.trim()
+    
+    // Check if next line is all equals signs (at least 3) - H1
+    const equalsMatch = nextLine.match(/^={3,}\s*$/)
+    if (equalsMatch && currentLineTrimmed.length > 0) {
+      // Only convert if the text has at least 2 characters (avoid fragments like "D")
+      if (currentLineTrimmed.length >= 2) {
+        // Convert to markdown H1
+        result.push(`# ${currentLineTrimmed}`)
+        i += 2 // Skip both lines
+        continue
+      }
+    }
+    
+    // Check if next line is all dashes (at least 3) - H2
+    // But make sure it's not a horizontal rule (which would be on its own line)
+    const dashesMatch = nextLine.match(/^-{3,}\s*$/)
+    if (dashesMatch && currentLineTrimmed.length > 0) {
+      // Only convert if the text has at least 2 characters (avoid fragments like "D")
+      if (currentLineTrimmed.length >= 2) {
+        // Convert to markdown H2
+        result.push(`## ${currentLineTrimmed}`)
+        i += 2 // Skip both lines
+        continue
+      }
+    }
+    
+    result.push(currentLine)
+    i++
+  }
+  
+  return result.join('\n')
 }
 
 /**
@@ -231,8 +465,13 @@ function parseMarkdownContent(
               type: 'table',
               data: { rows: parsedRows, lineNum: lineIdx }
             })
-            // Skip all table lines
-            currentIndex = tableEndIndex + 1
+            // Update currentIndex to position at the start of the line after the table
+            // Calculate by summing all lines up to (but not including) tableLineIdx
+            let newCurrentIndex = 0
+            for (let i = 0; i < tableLineIdx && i < lines.length; i++) {
+              newCurrentIndex += lines[i].length + 1 // +1 for newline
+            }
+            currentIndex = newCurrentIndex
             lineIdx = tableLineIdx
             continue
           }
@@ -240,17 +479,84 @@ function parseMarkdownContent(
       }
     }
     
+    // Fenced code blocks (```code```) - detect before headers
+    // Check if this line starts a fenced code block
+    const codeBlockStartMatch = line.match(/^(`{3,})(\w*)\s*$/)
+    if (codeBlockStartMatch) {
+      const language = codeBlockStartMatch[2] || ''
+      const codeBlockStartIndex = lineStartIndex
+      let codeBlockLineIdx = lineIdx + 1
+      // Start with the end of the opening line (including newline)
+      let codeBlockEndIndex = lineEndIndex + 1 // +1 for newline after opening line
+      const codeLines: string[] = []
+      let foundEnd = false
+      
+      // Look for the closing backticks
+      while (codeBlockLineIdx < lines.length) {
+        const codeLine = lines[codeBlockLineIdx]
+        
+        // Check if this line has the closing backticks
+        if (codeLine.match(/^`{3,}\s*$/)) {
+          foundEnd = true
+          // Include the closing line and its newline
+          codeBlockEndIndex += codeLine.length + 1
+          codeBlockLineIdx++
+          break
+        }
+        
+        // Add this line to code content
+        codeLines.push(codeLine)
+        // Add line length + newline to end index
+        codeBlockEndIndex += codeLine.length + 1
+        codeBlockLineIdx++
+      }
+      
+      if (foundEnd) {
+        const codeContent = codeLines.join('\n')
+        blockPatterns.push({
+          index: codeBlockStartIndex,
+          end: codeBlockEndIndex,
+          type: 'fenced-code-block',
+          data: { code: codeContent, language: language, lineNum: lineIdx }
+        })
+        // Update currentIndex to position at the start of the line after the code block
+        // Calculate by summing all lines up to (but not including) codeBlockLineIdx
+        // This way, the next iteration will process codeBlockLineIdx and update currentIndex correctly
+        let newCurrentIndex = 0
+        for (let i = 0; i < codeBlockLineIdx && i < lines.length; i++) {
+          newCurrentIndex += lines[i].length + 1 // +1 for newline
+        }
+        currentIndex = newCurrentIndex
+        lineIdx = codeBlockLineIdx
+        continue
+      }
+    }
+    
     // Headers (# Header, ## Header, etc.)
+    // Must be at start of line (after any leading whitespace is handled)
+    // Require at least one space after # and non-empty text after that
+    // Skip if we're inside a code block or table (those are handled separately)
     const headerMatch = line.match(/^(#{1,6})\s+(.+)$/)
     if (headerMatch) {
-      const headerLevel = headerMatch[1].length
-      const headerText = headerMatch[2]
-      blockPatterns.push({
-        index: lineStartIndex,
-        end: lineEndIndex,
-        type: 'header',
-        data: { level: headerLevel, text: headerText, lineNum: lineIdx }
-      })
+      // Check if this line is inside any existing block pattern (code block, table, etc.)
+      const isInsideBlock = blockPatterns.some(blockPattern =>
+        lineStartIndex >= blockPattern.index && lineStartIndex < blockPattern.end
+      )
+      
+      if (!isInsideBlock) {
+        const headerLevel = headerMatch[1].length
+        const headerText = headerMatch[2].trim() // Trim the header text to remove trailing whitespace
+        // Only create header if we have actual text (not just whitespace)
+        // Also require at least 2 characters to avoid matching fragments like "## D" when "D" is part of other text
+        if (headerText.length > 1) {
+          blockPatterns.push({
+            index: lineStartIndex,
+            end: lineEndIndex,
+            type: 'header',
+            data: { level: headerLevel, text: headerText, lineNum: lineIdx }
+          })
+        }
+      }
     }
     // Horizontal rule (***, ---, or ___, at least 3 asterisks/dashes/underscores)
     else if (line.match(/^[\*\-\_]{3,}\s*$/)) {
@@ -332,8 +638,13 @@ function parseMarkdownContent(
             type: 'blockquote',
             data: { lines: blockquoteLines, lineNum: lineIdx }
           })
-          // Update currentIndex and skip processed lines (similar to table handling)
-          currentIndex = blockquoteEndIndex + 1
+          // Update currentIndex to position at the start of the line after the blockquote
+          // Calculate by summing all lines up to (but not including) blockquoteLineIdx
+          let newCurrentIndex = 0
+          for (let i = 0; i < blockquoteLineIdx && i < lines.length; i++) {
+            newCurrentIndex += lines[i].length + 1 // +1 for newline
+          }
+          currentIndex = newCurrentIndex
           lineIdx = blockquoteLineIdx
           continue
         }
@@ -657,9 +968,9 @@ function parseMarkdownContent(
   patterns.sort((a, b) => a.index - b.index)
   
   // Remove overlapping patterns (keep the first one)
-  // Block-level patterns (headers, lists, horizontal rules, tables, blockquotes) take priority
+  // Block-level patterns (headers, lists, horizontal rules, tables, blockquotes, code blocks) take priority
   const filteredPatterns: typeof patterns = []
-  const blockLevelTypes = ['header', 'horizontal-rule', 'bullet-list-item', 'numbered-list-item', 'table', 'blockquote', 'footnote-definition']
+  const blockLevelTypes = ['header', 'horizontal-rule', 'bullet-list-item', 'numbered-list-item', 'table', 'blockquote', 'footnote-definition', 'fenced-code-block']
   const blockLevelPatternsFromAll = patterns.filter(p => blockLevelTypes.includes(p.type))
   const otherPatterns = patterns.filter(p => !blockLevelTypes.includes(p.type))
   
@@ -1371,6 +1682,19 @@ function parseMarkdownContent(
         >
           {blockquoteContent}
         </blockquote>
+      )
+    } else if (pattern.type === 'fenced-code-block') {
+      const { code, language } = pattern.data
+      // Render code block with syntax highlighting
+      // We'll use a ref and useEffect to apply highlight.js after render
+      const codeBlockId = `code-block-${patternIdx}`
+      parts.push(
+        <CodeBlock 
+          key={codeBlockId}
+          id={codeBlockId}
+          code={code}
+          language={language}
+        />
       )
     } else if (pattern.type === 'footnote-definition') {
       // Don't render footnote definitions in the main content - they'll be rendered at the bottom
@@ -2145,9 +2469,11 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
       parts.push(<del key={`${keyPrefix}-strikethrough-${i}`} className="line-through">{pattern.data}</del>)
     } else if (pattern.type === 'code') {
       parts.push(
-        <code key={`${keyPrefix}-code-${i}`} className="bg-muted px-1 py-0.5 rounded text-sm font-mono">
-          {pattern.data}
-        </code>
+        <InlineCode 
+          key={`${keyPrefix}-code-${i}`}
+          keyPrefix={`${keyPrefix}-code-${i}`}
+          code={pattern.data}
+        />
       )
     } else if (pattern.type === 'link') {
       // Render markdown links as inline links (green to match theme)
@@ -2526,9 +2852,13 @@ export default function MarkdownArticle({
   // Preprocess content to convert URLs to markdown syntax
   const preprocessedContent = useMemo(() => {
     // First unescape JSON-encoded escape sequences
-    const unescapedContent = unescapeJsonContent(event.content)
+    let processed = unescapeJsonContent(event.content)
+    // Normalize Setext-style headers (H1 with ===, H2 with ---)
+    processed = normalizeSetextHeaders(processed)
+    // Normalize backticks (inline code and code blocks)
+    processed = normalizeBackticks(processed)
     // Then preprocess media links
-    return preprocessMarkdownMediaLinks(unescapedContent)
+    return preprocessMarkdownMediaLinks(processed)
   }, [event.content])
   
   // Create video poster map from imeta tags
@@ -2599,6 +2929,76 @@ export default function MarkdownArticle({
           list-style-position: outside !important;
           line-height: 1.25 !important;
           margin-bottom: 0 !important;
+        }
+        .hljs {
+          background: transparent !important;
+        }
+        .hljs-keyword,
+        .hljs-selector-tag,
+        .hljs-literal,
+        .hljs-title,
+        .hljs-section,
+        .hljs-doctag,
+        .hljs-type,
+        .hljs-name,
+        .hljs-strong {
+          color: #dc2626 !important;
+          font-weight: bold !important;
+        }
+        .hljs-string,
+        .hljs-title.class_,
+        .hljs-attr,
+        .hljs-symbol,
+        .hljs-bullet,
+        .hljs-addition,
+        .hljs-code,
+        .hljs-regexp,
+        .hljs-selector-pseudo,
+        .hljs-selector-attr,
+        .hljs-selector-class,
+        .hljs-selector-id {
+          color: #0284c7 !important;
+        }
+        .hljs-comment,
+        .hljs-quote {
+          color: #6b7280 !important;
+        }
+        .hljs-number,
+        .hljs-deletion {
+          color: #0d9488 !important;
+        }
+        .dark .hljs-keyword,
+        .dark .hljs-selector-tag,
+        .dark .hljs-literal,
+        .dark .hljs-title,
+        .dark .hljs-section,
+        .dark .hljs-doctag,
+        .dark .hljs-type,
+        .dark .hljs-name,
+        .dark .hljs-strong {
+          color: #f87171 !important;
+        }
+        .dark .hljs-string,
+        .dark .hljs-title.class_,
+        .dark .hljs-attr,
+        .dark .hljs-symbol,
+        .dark .hljs-bullet,
+        .dark .hljs-addition,
+        .dark .hljs-code,
+        .dark .hljs-regexp,
+        .dark .hljs-selector-pseudo,
+        .dark .hljs-selector-attr,
+        .dark .hljs-selector-class,
+        .dark .hljs-selector-id {
+          color: #38bdf8 !important;
+        }
+        .dark .hljs-comment,
+        .dark .hljs-quote {
+          color: #9ca3af !important;
+        }
+        .dark .hljs-number,
+        .dark .hljs-deletion {
+          color: #5eead4 !important;
         }
       `}</style>
       <div className={`prose prose-zinc max-w-none dark:prose-invert break-words overflow-wrap-anywhere ${className || ''}`}>
