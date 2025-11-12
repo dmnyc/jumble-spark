@@ -15,7 +15,18 @@ export default function RssFeedList() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // Create AbortController for this effect
+    const abortController = new AbortController()
+    let isMounted = true
+    let isLoading = false
+
     const loadRssFeeds = async () => {
+      // Check if already aborted or if a load is already in progress
+      if (abortController.signal.aborted || isLoading) {
+        return
+      }
+
+      isLoading = true
       setLoading(true)
       setError(null)
 
@@ -63,8 +74,18 @@ export default function RssFeedList() {
           logger.info('[RssFeedList] No RSS feed list event in context, using default feeds')
         }
 
+        // Check if aborted before fetching
+        if (abortController.signal.aborted || !isMounted) {
+          return
+        }
+
         // Fetch and merge feeds (this handles errors gracefully and returns partial results)
-        const fetchedItems = await rssFeedService.fetchMultipleFeeds(feedUrls)
+        const fetchedItems = await rssFeedService.fetchMultipleFeeds(feedUrls, abortController.signal)
+        
+        // Check if aborted after fetching
+        if (abortController.signal.aborted || !isMounted) {
+          return
+        }
         
         if (fetchedItems.length === 0) {
           // No items were successfully fetched, but don't show error if we tried
@@ -74,6 +95,16 @@ export default function RssFeedList() {
         
         setItems(fetchedItems)
       } catch (err) {
+        // Don't handle abort errors - they're expected during cleanup
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return
+        }
+
+        // Check if still mounted before setting error
+        if (!isMounted) {
+          return
+        }
+
         logger.error('[RssFeedList] Error loading RSS feeds', { error: err })
         // Don't set error state - fetchMultipleFeeds handles individual feed failures gracefully
         // Only set error if there's a critical issue (like network completely down)
@@ -84,7 +115,11 @@ export default function RssFeedList() {
           setError(err instanceof Error ? err.message : t('Failed to load RSS feeds'))
         }
       } finally {
-        setLoading(false)
+        isLoading = false
+        // Only update loading state if still mounted
+        if (isMounted) {
+          setLoading(false)
+        }
       }
     }
 
@@ -94,7 +129,7 @@ export default function RssFeedList() {
     const handleRssFeedListUpdate = (event: CustomEvent) => {
       const detail = event.detail as { pubkey: string; feedUrls: string[]; eventId: string }
       // Only refresh if it's for the current user
-      if (detail.pubkey === pubkey) {
+      if (detail.pubkey === pubkey && isMounted) {
         logger.info('[RssFeedList] Received RSS feed list update event, refreshing...', { 
           eventId: detail.eventId,
           feedCount: detail.feedUrls.length 
@@ -106,9 +141,12 @@ export default function RssFeedList() {
     window.addEventListener('rssFeedListUpdated', handleRssFeedListUpdate as EventListener)
 
     return () => {
+      isMounted = false
+      isLoading = false
+      abortController.abort() // Cancel all in-flight requests
       window.removeEventListener('rssFeedListUpdated', handleRssFeedListUpdate as EventListener)
     }
-  }, [pubkey, t])
+  }, [pubkey, rssFeedListEvent, t])
 
   if (loading) {
     return (

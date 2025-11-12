@@ -66,19 +66,29 @@ class RssFeedService {
   /**
    * Fetch and parse an RSS/Atom feed from a URL
    */
-  async fetchFeed(url: string): Promise<RssFeed> {
+  async fetchFeed(url: string, signal?: AbortSignal): Promise<RssFeed> {
     // Check cache first
     const cached = this.feedCache.get(url)
     if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
       return cached.feed
     }
 
+    // Check if already aborted
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+
     // Try multiple fetch strategies in order
     const strategies = this.getFetchStrategies(url)
     
     for (const strategy of strategies) {
+      // Check if aborted before trying next strategy
+      if (signal?.aborted) {
+        throw new DOMException('The operation was aborted.', 'AbortError')
+      }
+
       try {
-        const xmlText = await this.fetchWithStrategy(url, strategy)
+        const xmlText = await this.fetchWithStrategy(url, strategy, signal)
         if (xmlText) {
           const feed = this.parseFeed(xmlText, url)
           // Cache the feed
@@ -86,6 +96,10 @@ class RssFeedService {
           return feed
         }
       } catch (error) {
+        // Don't log abort errors as warnings - they're expected during cleanup
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          throw error // Re-throw abort errors immediately
+        }
         logger.warn('[RssFeedService] Strategy failed', { url, strategy: strategy.name, error })
         // Continue to next strategy
         continue
@@ -135,11 +149,26 @@ class RssFeedService {
   /**
    * Fetch feed using a specific strategy
    */
-  private async fetchWithStrategy(originalUrl: string, strategy: { name: string; getUrl: (url: string) => string }): Promise<string> {
+  private async fetchWithStrategy(originalUrl: string, strategy: { name: string; getUrl: (url: string) => string }, externalSignal?: AbortSignal): Promise<string> {
     const fetchUrl = strategy.getUrl(originalUrl)
     
+    // Check if external signal is already aborted
+    if (externalSignal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+    const timeoutId = setTimeout(() => {
+      controller.abort()
+    }, 15000) // 15 second timeout
+
+    // If external signal is provided, abort our controller when external signal aborts
+    if (externalSignal) {
+      externalSignal.addEventListener('abort', () => {
+        clearTimeout(timeoutId)
+        controller.abort()
+      }, { once: true })
+    }
 
     try {
       const res = await fetch(fetchUrl, {
@@ -172,6 +201,10 @@ class RssFeedService {
       return xmlText
     } catch (error) {
       clearTimeout(timeoutId)
+      // Re-throw abort errors as-is
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw error
+      }
       throw error
     }
   }
@@ -894,18 +927,29 @@ class RssFeedService {
    * Fetch multiple feeds and merge items
    * This method gracefully handles failures - if some feeds fail, it returns items from successful feeds
    */
-  async fetchMultipleFeeds(feedUrls: string[]): Promise<RssFeedItem[]> {
+  async fetchMultipleFeeds(feedUrls: string[], signal?: AbortSignal): Promise<RssFeedItem[]> {
     if (feedUrls.length === 0) {
       return []
     }
 
+    // Check if already aborted
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+
     const results = await Promise.allSettled(
-      feedUrls.map(url => this.fetchFeed(url))
+      feedUrls.map(url => this.fetchFeed(url, signal))
     )
+
+    // Check if aborted after fetching
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
 
     const allItems: RssFeedItem[] = []
     let successCount = 0
     let failureCount = 0
+    let abortCount = 0
 
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') {
@@ -914,8 +958,15 @@ class RssFeedService {
         logger.debug('[RssFeedService] Successfully fetched feed', { url: feedUrls[index], itemCount: result.value.items.length })
       } else {
         failureCount++
+        const error = result.reason
+        // Don't log abort errors - they're expected during cleanup
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          abortCount++
+          // Silently skip aborted requests
+          return
+        }
         // Log warning but don't throw - we want to return partial results
-        const errorMessage = result.reason instanceof Error ? result.reason.message : String(result.reason)
+        const errorMessage = error instanceof Error ? error.message : String(error)
         logger.warn('[RssFeedService] Failed to fetch feed after trying all strategies', { 
           url: feedUrls[index], 
           error: errorMessage
@@ -923,19 +974,23 @@ class RssFeedService {
       }
     })
 
-    // Log summary
-    if (successCount > 0) {
-      logger.info('[RssFeedService] Feed fetch summary', { 
-        total: feedUrls.length, 
-        successful: successCount, 
-        failed: failureCount,
-        itemsFound: allItems.length
-      })
-    } else if (failureCount > 0) {
-      logger.error('[RssFeedService] All feeds failed to fetch', { 
-        total: feedUrls.length, 
-        urls: feedUrls 
-      })
+    // Log summary (only if not aborted)
+    if (!signal?.aborted) {
+      if (successCount > 0) {
+        logger.info('[RssFeedService] Feed fetch summary', { 
+          total: feedUrls.length, 
+          successful: successCount, 
+          failed: failureCount - abortCount, // Don't count aborts as failures
+          aborted: abortCount,
+          itemsFound: allItems.length
+        })
+      } else if (failureCount > abortCount) {
+        // Only log error if there were actual failures (not just aborts)
+        logger.error('[RssFeedService] All feeds failed to fetch', { 
+          total: feedUrls.length, 
+          urls: feedUrls 
+        })
+      }
     }
 
     // Sort by publication date (newest first)
