@@ -90,11 +90,39 @@ class ClientService extends EventTarget {
     event: NEvent,
     { specifiedRelayUrls, additionalRelayUrls }: TPublishOptions = {}
   ) {
+    // For Report events, always include user's write relays first, then add seen relays if they're write-capable
     if (event.kind === kinds.Report) {
+      // Start with user's write relays (outboxes) - these are the primary targets for reports
+      const relayList = await this.fetchRelayList(event.pubkey)
+      const userWriteRelays = relayList?.write.slice(0, 10) ?? []
+      
+      // Get seen relays where the reported event was found
       const targetEventId = event.tags.find(tagNameEquals('e'))?.[1]
+      const seenRelays: string[] = []
+      
       if (targetEventId) {
-        return this.getSeenEventRelayUrls(targetEventId)
+        const allSeenRelays = this.getSeenEventRelayUrls(targetEventId)
+        // Filter seen relays: only include those that are in user's write list
+        // This ensures we don't try to publish to read-only relays
+        const userWriteRelaySet = new Set(userWriteRelays.map(url => normalizeUrl(url) || url))
+        seenRelays.push(...allSeenRelays.filter(url => {
+          const normalized = normalizeUrl(url) || url
+          return userWriteRelaySet.has(normalized)
+        }))
       }
+      
+      // Combine: user's write relays first (primary), then seen write relays (additional context)
+      const reportRelays = Array.from(new Set([
+        ...userWriteRelays,
+        ...seenRelays
+      ]))
+      
+      // If we still don't have any relays, fall back to fast write relays
+      if (reportRelays.length === 0) {
+        reportRelays.push(...FAST_WRITE_RELAY_URLS)
+      }
+      
+      return reportRelays
     }
 
     let relays: string[]
