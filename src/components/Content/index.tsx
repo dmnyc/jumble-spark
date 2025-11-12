@@ -329,12 +329,13 @@ export default function Content({
       
       {/* Render videos from tags that don't appear in content */}
       {videosFromTags.map((video) => (
-        <MediaPlayer
-          key={`tag-video-${video.url}`}
-          src={video.url}
-          className="mt-2"
-          mustLoad={mustLoadMedia}
-        />
+        <div key={`tag-video-${video.url}`} className="mt-2 w-full max-w-full overflow-hidden">
+          <MediaPlayer
+            src={video.url}
+            className="w-full max-w-full"
+            mustLoad={mustLoadMedia}
+          />
+        </div>
       ))}
       
       {/* Render audio from tags that don't appear in content */}

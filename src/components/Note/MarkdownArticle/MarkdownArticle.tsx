@@ -3087,10 +3087,10 @@ export default function MarkdownArticle({
                 )
               } else if (media.type === 'video' || media.type === 'audio') {
                 return (
-                  <div key={`tag-media-${cleaned}`} className="my-2">
+                  <div key={`tag-media-${cleaned}`} className="my-2 w-full max-w-full overflow-hidden">
                     <MediaPlayer
                       src={media.url}
-                      className="max-w-[400px]"
+                      className="max-w-full sm:max-w-[400px] w-full"
                       mustLoad={true}
                       poster={media.poster}
                     />

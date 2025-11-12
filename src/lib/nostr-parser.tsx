@@ -411,7 +411,7 @@ export function renderNostrContent(parsedContent: ParsedNostrContent, className?
               key={index}
               src={element.mediaUrl}
               controls
-              className="max-w-[400px] w-full h-auto rounded-lg my-2 block"
+              className="max-w-full sm:max-w-[400px] w-full h-auto rounded-lg my-2 block"
               preload="metadata"
               onError={(e) => {
                 // Fallback to text if video fails to load

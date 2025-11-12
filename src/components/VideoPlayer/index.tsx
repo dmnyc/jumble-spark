@@ -57,12 +57,12 @@ export default function VideoPlayer({ src, className, poster }: { src: string; c
         setError(true)
       }}
     >
-      <div ref={containerRef}>
+      <div ref={containerRef} className="w-full max-w-full overflow-hidden">
         <video
           ref={videoRef}
           controls
           playsInline
-          className={cn('rounded-lg max-h-[80vh] sm:max-h-[60vh] border', className)}
+          className={cn('rounded-lg max-h-[80vh] sm:max-h-[60vh] border w-full h-auto max-w-full', className)}
           src={src}
           poster={poster}
           onClick={(e) => e.stopPropagation()}
