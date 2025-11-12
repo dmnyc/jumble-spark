@@ -36,7 +36,7 @@ function htmlToPlainText(html: string): string {
   return text
 }
 
-export default function RssFeedItem({ item, className }: { item: TRssFeedItem; className?: string }) {
+export default function RssFeedItem({ item, className, compact = false }: { item: TRssFeedItem; className?: string; compact?: boolean }) {
   const { t } = useTranslation()
   const { pubkey, checkLogin } = useNostr()
   const { isSmallScreen } = useScreenSize()
@@ -238,14 +238,14 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
           return
         }
         
-        // Wait for selection to be stable (no changes for 500ms) before showing drawer
+        // Wait for selection to be stable (no changes for 1500ms) before showing drawer
         selectionStableTimeoutRef.current = setTimeout(() => {
           const timeSinceLastChange = Date.now() - lastSelectionChangeRef.current
-          // Only show if selection hasn't changed in the last 500ms
-          if (timeSinceLastChange >= 500 && !isSelectingRef.current) {
+          // Only show if selection hasn't changed in the last 1500ms (3x original delay)
+          if (timeSinceLastChange >= 2000 && !isSelectingRef.current) {
             handleSelection(true)
           }
-        }, 500)
+        }, 1500)
       } else {
         // Desktop: shorter delay
         if (selectionTimeoutRef.current) {
@@ -454,7 +454,7 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
   }, [descriptionHtml, isExpanded])
 
   return (
-    <div className={`border rounded-lg bg-background p-4 space-y-3 ${className || ''}`}>
+    <div className={`border rounded-lg bg-background p-4 space-y-3 overflow-hidden ${className || ''}`}>
       {/* Feed Header with Metadata */}
       <div className="flex items-start gap-3 pb-3 border-b">
         {/* Feed Image/Logo */}
@@ -491,206 +491,238 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
       </div>
 
       {/* Title */}
-      <div>
+      <div className="min-w-0">
         <a
           href={item.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-lg font-semibold hover:text-primary transition-colors inline-flex items-center gap-2"
+          className={cn(
+            "text-lg hover:text-primary transition-colors inline-flex items-center gap-2 break-words",
+            !compact || isExpanded ? "font-semibold" : ""
+          )}
           onClick={(e) => e.stopPropagation()}
         >
-          {item.title}
+          <span className="break-words">{item.title}</span>
           <ExternalLink className="h-4 w-4 shrink-0" />
         </a>
       </div>
 
-      {/* Media (Images) */}
-      {item.media && item.media.length > 0 && (
-        <div className="space-y-2">
-          {item.media
-            .filter(m => m.type?.startsWith('image/') || !m.type || m.type === 'image')
-            .map((media, index) => {
-              const hasThumbnail = !!media.thumbnail
-              const imageUrl = media.thumbnail || media.url
-              return (
-                <div key={index} className="relative">
-                  <img
-                    src={imageUrl}
-                    alt={item.title}
-                    className={`${hasThumbnail ? 'max-w-[120px] h-auto' : 'max-w-full md:max-w-[400px] max-h-96'} rounded-lg ${hasThumbnail ? 'object-contain' : 'object-cover'} cursor-pointer hover:opacity-90 transition-opacity`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      // Open full image in new tab
-                      window.open(media.url, '_blank', 'noopener,noreferrer')
-                    }}
-                    onError={(e) => {
-                      // Hide image on error
-                      e.currentTarget.style.display = 'none'
-                    }}
-                  />
-                  {media.credit && (
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {t('Photo')}: {media.credit}
+      {/* Compact view: Hide media and description when compact and not expanded */}
+      {!compact || isExpanded ? (
+        <>
+          {/* Media (Images) */}
+          {item.media && item.media.length > 0 && (
+            <div className="space-y-2 overflow-hidden">
+              {item.media
+                .filter(m => m.type?.startsWith('image/') || !m.type || m.type === 'image')
+                .map((media, index) => {
+                  const hasThumbnail = !!media.thumbnail
+                  const imageUrl = media.thumbnail || media.url
+                  return (
+                    <div key={index} className="relative overflow-hidden">
+                      <img
+                        src={imageUrl}
+                        alt={item.title}
+                        className={`${hasThumbnail ? 'max-w-[120px] h-auto' : 'max-w-full md:max-w-[400px] max-h-96'} rounded-lg ${hasThumbnail ? 'object-contain' : 'object-cover'} cursor-pointer hover:opacity-90 transition-opacity`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          // Open full image in new tab
+                          window.open(media.url, '_blank', 'noopener,noreferrer')
+                        }}
+                        onError={(e) => {
+                          // Hide image on error
+                          e.currentTarget.style.display = 'none'
+                        }}
+                      />
+                      {media.credit && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {t('Photo')}: {media.credit}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              )
-            })}
-        </div>
-      )}
+                  )
+                })}
+            </div>
+          )}
 
-      {/* Audio/Video Enclosure */}
-      {item.enclosure && (item.enclosure.type.startsWith('audio/') || item.enclosure.type.startsWith('video/')) && (
-        <div className="space-y-2">
-          <div className="rounded-lg border bg-muted/50 p-4">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="text-sm font-medium">
-                {item.enclosure.type.startsWith('audio/') ? t('Audio') : t('Video')}
-                {item.enclosure.duration && (
-                  <span className="text-muted-foreground ml-2">({item.enclosure.duration})</span>
-                )}
+          {/* Audio/Video Enclosure */}
+          {item.enclosure && (item.enclosure.type.startsWith('audio/') || item.enclosure.type.startsWith('video/')) && (
+            <div className="space-y-2">
+              <div className="rounded-lg border bg-muted/50 p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="text-sm font-medium">
+                    {item.enclosure.type.startsWith('audio/') ? t('Audio') : t('Video')}
+                    {item.enclosure.duration && (
+                      <span className="text-muted-foreground ml-2">({item.enclosure.duration})</span>
+                    )}
+                  </div>
+                </div>
+                <MediaPlayer
+                  src={item.enclosure.url}
+                  className="w-full"
+                  mustLoad={true}
+                />
               </div>
             </div>
-            <MediaPlayer
-              src={item.enclosure.url}
-              className="w-full"
-              mustLoad={true}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Description with text selection support and collapse/expand */}
-      <div className="relative">
-        <div
-          ref={contentRef}
-          className={cn(
-            'prose prose-sm dark:prose-invert max-w-none break-words rss-feed-content transition-all duration-200',
-            needsCollapse && !isExpanded && 'max-h-[400px] overflow-hidden',
-            '[&_img]:max-w-full [&_img]:md:max-w-[400px] [&_img]:h-auto [&_img]:rounded-lg'
           )}
-          style={{
-            userSelect: 'text',
-            WebkitUserSelect: 'text',
-            MozUserSelect: 'text',
-            msUserSelect: 'text'
-          }}
-          dangerouslySetInnerHTML={{ __html: descriptionHtml }}
-          onMouseUp={(e) => {
-            // Allow text selection
-            e.stopPropagation()
-          }}
-        />
-        
-        {/* Gradient overlay when collapsed */}
-        {needsCollapse && !isExpanded && (
-          <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-b from-transparent via-background/60 to-background pointer-events-none" />
-        )}
-        
-        {/* Collapse/Expand Button */}
-        {needsCollapse && (
-          <div className="flex justify-center mt-2 relative z-10">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                setIsExpanded(!isExpanded)
-              }}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              {isExpanded ? (
-                <>
-                  <ChevronUp className="h-4 w-4 mr-1" />
-                  {t('Show less')}
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="h-4 w-4 mr-1" />
-                  {t('Show more')}
-                </>
-              )}
-            </Button>
-          </div>
-        )}
-        
-        {/* Highlight Button (Desktop) */}
-        {!isSmallScreen && showHighlightButton && selectedText && selectionPosition && (
-          <div
-            className="highlight-button-container fixed z-50"
-            style={{
-              left: `${selectionPosition.x}px`,
-              top: `${selectionPosition.y}px`,
-              transform: 'translateX(-50%) translateY(-100%)'
-            }}
-          >
-            <Button
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                handleCreateHighlight()
-              }}
-              className="shadow-lg"
-            >
-              <Highlighter className="h-4 w-4 mr-2" />
-              {t('Create Highlight')}
-            </Button>
-          </div>
-        )}
 
-        {/* Highlight Drawer (Mobile) */}
-        {isSmallScreen && (
-          <Drawer 
-            open={showHighlightDrawer} 
-            onOpenChange={(open) => {
-              setShowHighlightDrawer(open)
-              if (!open) {
-                // Clear selection when drawer closes
-                window.getSelection()?.removeAllRanges()
-                setSelectedText('')
-                setShowHighlightButton(false)
-              }
-            }}
-          >
-            <DrawerContent>
-              <DrawerHeader>
-                <DrawerTitle>{t('Create Highlight')}</DrawerTitle>
-              </DrawerHeader>
-              <div className="p-4 space-y-4">
-                <div className="text-sm text-muted-foreground">
-                  {t('Selected text')}:
-                </div>
-                <div className="p-3 bg-muted rounded-lg text-sm break-words">
-                  "{selectedText}"
-                </div>
+          {/* Description with text selection support and collapse/expand */}
+          <div className="relative overflow-hidden">
+            <div
+              ref={contentRef}
+              className={cn(
+                'prose prose-sm dark:prose-invert max-w-none break-words rss-feed-content transition-all duration-200 overflow-wrap-anywhere',
+                needsCollapse && !isExpanded && 'max-h-[400px] overflow-hidden',
+                '[&_img]:max-w-full [&_img]:md:max-w-[400px] [&_img]:h-auto [&_img]:rounded-lg',
+                '[&_*]:max-w-full'
+              )}
+              style={{
+                userSelect: 'text',
+                WebkitUserSelect: 'text',
+                MozUserSelect: 'text',
+                msUserSelect: 'text'
+              }}
+              dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+              onMouseUp={(e) => {
+                // Allow text selection
+                e.stopPropagation()
+              }}
+            />
+            
+            {/* Gradient overlay when collapsed */}
+            {needsCollapse && !isExpanded && (
+              <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-b from-transparent via-background/60 to-background pointer-events-none" />
+            )}
+            
+            {/* Collapse/Expand Button - Only show in full view */}
+            {!compact && needsCollapse && (
+              <div className="flex justify-center mt-2 relative z-10">
                 <Button
-                  className="w-full"
-                  onClick={() => {
-                    handleCreateHighlight()
-                    setShowHighlightDrawer(false)
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setIsExpanded(!isExpanded)
                   }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {isExpanded ? (
+                    <>
+                      <ChevronUp className="h-4 w-4 mr-1" />
+                      {t('Show less')}
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-4 w-4 mr-1" />
+                      {t('Show more')}
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+            
+            {/* Highlight Button (Desktop) */}
+            {!isSmallScreen && showHighlightButton && selectedText && selectionPosition && (
+              <div
+                className="highlight-button-container fixed z-50"
+                style={{
+                  left: `${selectionPosition.x}px`,
+                  top: `${selectionPosition.y}px`,
+                  transform: 'translateX(-50%) translateY(-100%)'
+                }}
+              >
+                <Button
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleCreateHighlight()
+                  }}
+                  className="shadow-lg"
                 >
                   <Highlighter className="h-4 w-4 mr-2" />
                   {t('Create Highlight')}
                 </Button>
               </div>
-            </DrawerContent>
-          </Drawer>
-        )}
-      </div>
+            )}
 
-      {/* Link to original article */}
-      <div className="flex items-center gap-2 text-sm">
+            {/* Highlight Drawer (Mobile) */}
+            {isSmallScreen && (
+              <Drawer 
+                open={showHighlightDrawer} 
+                onOpenChange={(open) => {
+                  setShowHighlightDrawer(open)
+                  if (!open) {
+                    // Clear selection when drawer closes
+                    window.getSelection()?.removeAllRanges()
+                    setSelectedText('')
+                    setShowHighlightButton(false)
+                  }
+                }}
+              >
+                <DrawerContent>
+                  <DrawerHeader>
+                    <DrawerTitle>{t('Create Highlight')}</DrawerTitle>
+                  </DrawerHeader>
+                  <div className="p-4 space-y-4">
+                    <div className="text-sm text-muted-foreground">
+                      {t('Selected text')}:
+                    </div>
+                    <div className="p-3 bg-muted rounded-lg text-sm break-words">
+                      "{selectedText}"
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={() => {
+                        handleCreateHighlight()
+                        setShowHighlightDrawer(false)
+                      }}
+                    >
+                      <Highlighter className="h-4 w-4 mr-2" />
+                      {t('Create Highlight')}
+                    </Button>
+                  </div>
+                </DrawerContent>
+              </Drawer>
+            )}
+          </div>
+        </>
+      ) : null}
+
+      {/* Link to original article and expand button */}
+      <div className="flex items-center justify-between gap-2 text-sm min-w-0">
         <a
           href={item.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-primary hover:underline inline-flex items-center gap-1"
+          className="text-primary hover:underline inline-flex items-center gap-1 min-w-0 truncate"
           onClick={(e) => e.stopPropagation()}
         >
-          {t('Read full article')}
-          <ExternalLink className="h-3 w-3" />
+          <span className="truncate">{t('Read full article')}</span>
+          <ExternalLink className="h-3 w-3 shrink-0" />
         </a>
+        {compact && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              setIsExpanded(!isExpanded)
+            }}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            {isExpanded ? (
+              <>
+                <ChevronUp className="h-4 w-4 mr-1" />
+                {t('Show less')}
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-4 w-4 mr-1" />
+                {t('Expand')}
+              </>
+            )}
+          </Button>
+        )}
       </div>
 
       {/* Post Editor for highlights */}

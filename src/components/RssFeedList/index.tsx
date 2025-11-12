@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
 import rssFeedService, { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
@@ -8,7 +8,12 @@ import { Loader, AlertCircle, Search } from 'lucide-react'
 import logger from '@/lib/logger'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Button } from '@/components/ui/button'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { Check, ChevronDown } from 'lucide-react'
 
 export default function RssFeedList() {
   const { t } = useTranslation()
@@ -20,10 +25,16 @@ export default function RssFeedList() {
   const [refreshing, setRefreshing] = useState(false)
   
   // Filter states
-  const [selectedFeed, setSelectedFeed] = useState<string>('all')
+  const [selectedFeeds, setSelectedFeeds] = useState<string[]>(['all'])
   const [timeFilter, setTimeFilter] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [showFilters, setShowFilters] = useState<boolean>(false)
+  const [isCompactView, setIsCompactView] = useState<boolean>(true)
+  const [feedPopoverOpen, setFeedPopoverOpen] = useState<boolean>(false)
+  
+  // Pagination state
+  const [showCount, setShowCount] = useState<number>(25)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
   // Listen for filter toggle events
   useEffect(() => {
@@ -85,7 +96,6 @@ export default function RssFeedList() {
       try {
         // Get feed URLs from event or use default
         let feedUrls: string[] = []
-        let useDefaultFeeds = false
 
         if (pubkey && rssFeedListEvent) {
           // User has an event - use only feeds from that event (even if empty)
@@ -129,7 +139,6 @@ export default function RssFeedList() {
           // No event exists - use default feeds for demo
           logger.info('[RssFeedList] No RSS feed list event in context, using default feeds')
           feedUrls = DEFAULT_RSS_FEEDS
-          useDefaultFeeds = true
           // Trigger background refresh for default feeds when no event exists
           rssFeedService.backgroundRefreshFeeds(feedUrls, abortController.signal).catch(err => {
             if (!(err instanceof DOMException && err.name === 'AbortError')) {
@@ -139,7 +148,6 @@ export default function RssFeedList() {
         } else {
           // No pubkey - use default feeds
           feedUrls = DEFAULT_RSS_FEEDS
-          useDefaultFeeds = true
         }
 
         // Check if aborted before fetching
@@ -306,14 +314,39 @@ export default function RssFeedList() {
     return Array.from(feedMap.values())
   }, [items])
 
+  // Helper function to truncate text
+  const truncateText = (text: string, maxLength: number): string => {
+    if (text.length <= maxLength) return text
+    return text.slice(0, maxLength) + '...'
+  }
+
+  // Handle feed selection change
+  const handleFeedToggle = (feedUrl: string, checked: boolean) => {
+    if (feedUrl === 'all') {
+      // If "all" is checked, clear all other selections
+      setSelectedFeeds(checked ? ['all'] : [])
+    } else {
+      // If a specific feed is checked, remove "all" if present
+      setSelectedFeeds(prev => {
+        const newSelection = checked
+          ? [...prev.filter(f => f !== 'all'), feedUrl]
+          : prev.filter(f => f !== feedUrl)
+        // If nothing is selected, default to "all"
+        return newSelection.length === 0 ? ['all'] : newSelection
+      })
+    }
+  }
+
   // Filter items based on selected filters
   const filteredItems = useMemo(() => {
     let filtered = items
 
     // Filter by feed
-    if (selectedFeed !== 'all') {
-      const normalizedSelectedFeed = normalizeFeedUrl(selectedFeed)
-      filtered = filtered.filter(item => normalizeFeedUrl(item.feedUrl) === normalizedSelectedFeed)
+    if (!selectedFeeds.includes('all') && selectedFeeds.length > 0) {
+      const normalizedSelectedFeeds = selectedFeeds.map(f => normalizeFeedUrl(f))
+      filtered = filtered.filter(item => 
+        normalizedSelectedFeeds.includes(normalizeFeedUrl(item.feedUrl))
+      )
     }
 
     // Filter by time
@@ -354,7 +387,49 @@ export default function RssFeedList() {
     }
 
     return filtered
-  }, [items, selectedFeed, timeFilter, searchQuery])
+  }, [items, selectedFeeds, timeFilter, searchQuery])
+
+  // Reset showCount when filters change
+  useEffect(() => {
+    setShowCount(25)
+  }, [selectedFeeds, timeFilter, searchQuery])
+
+  // Pagination: slice to showCount for display
+  const displayedItems = useMemo(() => {
+    return filteredItems.slice(0, showCount)
+  }, [filteredItems, showCount])
+
+  // IntersectionObserver for infinite scroll
+  useEffect(() => {
+    if (!bottomRef.current || displayedItems.length >= filteredItems.length) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && displayedItems.length < filteredItems.length) {
+          setShowCount((prev) => Math.min(prev + 25, filteredItems.length))
+        }
+      },
+      { root: null, rootMargin: '100px', threshold: 0.1 }
+    )
+
+    observer.observe(bottomRef.current)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [displayedItems.length, filteredItems.length])
+
+  // Get display text for feed selector
+  const feedSelectorText = useMemo(() => {
+    if (selectedFeeds.includes('all') || selectedFeeds.length === 0) {
+      return t('All feeds')
+    }
+    if (selectedFeeds.length === 1) {
+      const feed = availableFeeds.find(f => f.url === selectedFeeds[0])
+      return feed ? truncateText(feed.title, 50) : t('All feeds')
+    }
+    return t('{{count}} feeds', { count: selectedFeeds.length })
+  }, [selectedFeeds, availableFeeds, t])
 
   if (loading) {
     return (
@@ -384,24 +459,85 @@ export default function RssFeedList() {
 
   return (
     <div className="space-y-3">
+      {/* Feed Counter Header - Always visible */}
+      <div className="sticky top-0 z-10 bg-background border-b px-4 py-1.5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="compact-view"
+              checked={isCompactView}
+              onCheckedChange={setIsCompactView}
+            />
+            <Label htmlFor="compact-view" className="text-xs text-muted-foreground cursor-pointer">
+              {isCompactView ? t('Compact') : t('Full')}
+            </Label>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('Showing {{filtered}} of {{total}} items', { 
+              filtered: displayedItems.length, 
+              total: filteredItems.length 
+            })}
+          </p>
+        </div>
+      </div>
+
       {/* Filter Bar - Collapsible */}
       {showFilters && (
-        <div className="sticky top-0 z-10 bg-background border-b px-4 py-2">
+        <div className="sticky top-[2.5rem] z-10 bg-background border-b px-4 py-2">
           <div className={`flex ${isSmallScreen ? 'flex-col' : 'flex-row'} items-stretch gap-2`}>
-            {/* Feed Selector */}
-            <Select value={selectedFeed} onValueChange={setSelectedFeed}>
-              <SelectTrigger className="h-8 text-xs md:text-sm md:h-9 flex-shrink-0 w-full md:w-auto" style={{ minWidth: isSmallScreen ? '100%' : '150px' }}>
-                <SelectValue placeholder={t('All feeds')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('All feeds')}</SelectItem>
-                {availableFeeds.map((feed) => (
-                  <SelectItem key={feed.url} value={feed.url}>
-                    <span className="truncate max-w-[200px]">{feed.title}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Feed Selector - Multi-select with Popover */}
+            <Popover open={feedPopoverOpen} onOpenChange={setFeedPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="h-8 text-xs md:text-sm md:h-9 flex-shrink-0 w-full md:w-auto justify-between"
+                  style={{ minWidth: isSmallScreen ? '100%' : '300px' }}
+                >
+                  <span className="truncate">{feedSelectorText}</span>
+                  <ChevronDown className="ml-2 h-3 w-3 md:h-4 md:w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className={`${isSmallScreen ? 'w-[calc(100vw-2rem)]' : 'w-[calc(100vw-2rem)] max-w-[400px]'} p-0`} align="start">
+                <div className="max-h-[300px] overflow-y-auto">
+                  <div className="p-2">
+                    {/* All feeds option */}
+                    <div
+                      className="flex items-center space-x-2 p-2 rounded-sm hover:bg-accent cursor-pointer"
+                      onClick={() => {
+                        const isAllSelected = selectedFeeds.includes('all')
+                        handleFeedToggle('all', !isAllSelected)
+                      }}
+                    >
+                      <div className="flex items-center justify-center w-4 h-4 border border-border rounded">
+                        {selectedFeeds.includes('all') && <Check className="w-3 h-3" />}
+                      </div>
+                      <label className="text-sm cursor-pointer flex-1">
+                        {t('All feeds')}
+                      </label>
+                    </div>
+                    {/* Individual feed options */}
+                    {availableFeeds.map((feed) => {
+                      const isChecked = selectedFeeds.includes(feed.url)
+                      return (
+                        <div
+                          key={feed.url}
+                          className="flex items-center space-x-2 p-2 rounded-sm hover:bg-accent cursor-pointer"
+                          onClick={() => handleFeedToggle(feed.url, !isChecked)}
+                        >
+                          <div className="flex items-center justify-center w-4 h-4 border border-border rounded">
+                            {isChecked && <Check className="w-3 h-3" />}
+                          </div>
+                          <label className="text-sm cursor-pointer flex-1 truncate" title={feed.title}>
+                            {truncateText(feed.title, 50)}
+                          </label>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
 
             {/* Time Filter */}
             <Select value={timeFilter} onValueChange={setTimeFilter}>
@@ -441,18 +577,26 @@ export default function RssFeedList() {
           </div>
         )}
         
-        {filteredItems.length === 0 ? (
+        {displayedItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12">
             <p className="text-sm text-muted-foreground">
-              {searchQuery || selectedFeed !== 'all' || timeFilter !== 'all'
+              {searchQuery || (!selectedFeeds.includes('all') && selectedFeeds.length > 0) || timeFilter !== 'all'
                 ? t('No items match your filters')
                 : t('No RSS feed items available')}
             </p>
           </div>
         ) : (
-          filteredItems.map((item) => (
-            <RssFeedItem key={`${item.feedUrl}-${item.guid}`} item={item} />
-          ))
+          <>
+            {displayedItems.map((item) => (
+              <RssFeedItem key={`${item.feedUrl}-${item.guid}`} item={item} compact={isCompactView} />
+            ))}
+            {/* Bottom ref for infinite scroll */}
+            {displayedItems.length < filteredItems.length && (
+              <div ref={bottomRef} className="flex items-center justify-center py-4">
+                <Loader className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

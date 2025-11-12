@@ -421,7 +421,6 @@ export default {
     'See extra info for each notification': 'See extra info for each notification',
     'See more notifications at a glance': 'See more notifications at a glance',
     Detailed: 'Detailed',
-    Compact: 'Compact',
     'Submit Relay': 'Submit Relay',
     Homepage: 'Homepage',
     'Proof of Work (difficulty {{minPow}})': 'Proof of Work (difficulty {{minPow}})',
@@ -482,6 +481,11 @@ export default {
     'Last month': 'Last month',
     'No items match your filters': 'No items match your filters',
     'Search...': 'Search...',
-    'Toggle filters': 'Toggle filters'
+    '{{count}} feeds': '{{count}} feeds',
+    'Toggle filters': 'Toggle filters',
+    'Showing {{filtered}} of {{total}} items': 'Showing {{filtered}} of {{total}} items',
+    'Full': 'Full',
+    'Compact': 'Compact',
+    'Expand': 'Expand'
   }
 }
