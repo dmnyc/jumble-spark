@@ -43,6 +43,7 @@ const PostTextarea = forwardRef<
     onUploadEnd?: (file: File) => void
     kind?: number
     highlightData?: HighlightData
+    pollCreateData?: import('@/types').TPollCreateData
   }
 >(
   (
@@ -57,7 +58,8 @@ const PostTextarea = forwardRef<
       onUploadProgress,
       onUploadEnd,
       kind = 1,
-      highlightData
+      highlightData,
+      pollCreateData
     },
     ref
   ) => {
@@ -173,7 +175,7 @@ const PostTextarea = forwardRef<
           <EditorContent className="tiptap" editor={editor} />
         </TabsContent>
         <TabsContent value="preview">
-          <Preview content={text} className={className} kind={kind} highlightData={highlightData} />
+          <Preview content={text} className={className} kind={kind} highlightData={highlightData} pollCreateData={pollCreateData} />
         </TabsContent>
       </Tabs>
     )

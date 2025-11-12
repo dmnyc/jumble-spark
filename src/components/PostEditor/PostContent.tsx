@@ -491,6 +491,7 @@ export default function PostContent({
         onUploadEnd={handleUploadEnd}
         kind={isHighlight ? kinds.Highlights : isPublicMessage ? ExtendedKind.PUBLIC_MESSAGE : isPoll ? ExtendedKind.POLL : kinds.ShortTextNote}
         highlightData={isHighlight ? highlightData : undefined}
+        pollCreateData={isPoll ? pollCreateData : undefined}
       />
       {isPoll && (
         <PollEditor

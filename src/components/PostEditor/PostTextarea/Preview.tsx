@@ -1,10 +1,14 @@
 import { Card } from '@/components/ui/card'
+import { ExtendedKind, POLL_TYPE } from '@/constants'
 import { transformCustomEmojisInContent } from '@/lib/draft-event'
 import { createFakeEvent } from '@/lib/event'
+import { randomString } from '@/lib/random'
 import { cleanUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
+import { TPollCreateData } from '@/types'
 import { kinds, nip19 } from 'nostr-tools'
 import { useMemo } from 'react'
+import ContentPreview from '../../ContentPreview'
 import Content from '../../Content'
 import Highlight from '../../Note/Highlight'
 import { HighlightData } from '../HighlightEditor'
@@ -13,14 +17,16 @@ export default function Preview({
   content, 
   className,
   kind = 1,
-  highlightData
+  highlightData,
+  pollCreateData
 }: { 
   content: string
   className?: string
   kind?: number
   highlightData?: HighlightData
+  pollCreateData?: TPollCreateData
 }) {
-  const { content: processedContent, emojiTags, highlightTags } = useMemo(
+  const { content: processedContent, emojiTags, highlightTags, pollTags } = useMemo(
     () => {
       // Clean tracking parameters from URLs in the preview
       const cleanedContent = content.replace(
@@ -70,19 +76,36 @@ export default function Preview({
         }
       }
       
+      // Build poll tags if this is a poll
+      let pollTags: string[][] = []
+      if (kind === ExtendedKind.POLL && pollCreateData) {
+        const validOptions = pollCreateData.options.filter((opt) => opt.trim())
+        pollTags.push(...validOptions.map((option) => ['option', randomString(9), option.trim()]))
+        pollTags.push(['polltype', pollCreateData.isMultipleChoice ? POLL_TYPE.MULTIPLE_CHOICE : POLL_TYPE.SINGLE_CHOICE])
+        if (pollCreateData.endsAt) {
+          pollTags.push(['endsAt', pollCreateData.endsAt.toString()])
+        }
+        if (pollCreateData.relays.length > 0) {
+          pollCreateData.relays.forEach((relay) => {
+            pollTags.push(['relay', relay])
+          })
+        }
+      }
+      
       return {
         content: processed,
         emojiTags: tags,
-        highlightTags
+        highlightTags,
+        pollTags
       }
     },
-    [content, kind, highlightData]
+    [content, kind, highlightData, pollCreateData]
   )
   
-  // Combine emoji tags and highlight tags
+  // Combine emoji tags, highlight tags, and poll tags
   const allTags = useMemo(() => {
-    return [...emojiTags, ...highlightTags]
-  }, [emojiTags, highlightTags])
+    return [...emojiTags, ...highlightTags, ...pollTags]
+  }, [emojiTags, highlightTags, pollTags])
   
   const fakeEvent = useMemo(() => {
     return createFakeEvent({ 
@@ -91,6 +114,18 @@ export default function Preview({
       kind 
     })
   }, [processedContent, allTags, kind])
+  
+  // For polls, use ContentPreview to show poll properly
+  if (kind === ExtendedKind.POLL) {
+    return (
+      <Card className={cn('p-3', className)}>
+        <ContentPreview
+          event={fakeEvent}
+          className="pointer-events-none"
+        />
+      </Card>
+    )
+  }
   
   // For highlights, use the Highlight component for proper formatting
   if (kind === kinds.Highlights) {
