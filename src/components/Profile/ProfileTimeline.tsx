@@ -92,12 +92,19 @@ const ProfileTimeline = forwardRef<
       if (!searchQuery.trim()) {
         return eventsFilteredByKind
       }
-      const query = searchQuery.toLowerCase()
-      return eventsFilteredByKind.filter(
-        (event) =>
-          event.content.toLowerCase().includes(query) ||
-          event.tags.some((tag) => tag.length > 1 && tag[1]?.toLowerCase().includes(query))
-      )
+      // Pre-compute lowercase query once
+      const query = searchQuery.toLowerCase().trim()
+      // Pre-compute lowercase content and tags for each event to avoid repeated conversions
+      return eventsFilteredByKind.filter((event) => {
+        const contentLower = event.content.toLowerCase()
+        if (contentLower.includes(query)) return true
+        // Only check tags if content doesn't match
+        return event.tags.some((tag) => {
+          if (tag.length <= 1) return false
+          const tagValue = tag[1]
+          return tagValue && tagValue.toLowerCase().includes(query)
+        })
+      })
     }, [eventsFilteredByKind, searchQuery])
 
     // Reset showCount when filters change

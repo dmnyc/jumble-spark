@@ -79,6 +79,14 @@ const NoteList = forwardRef(
     const supportTouch = useMemo(() => isTouchDevice(), [])
     const bottomRef = useRef<HTMLDivElement | null>(null)
     const topRef = useRef<HTMLDivElement | null>(null)
+    
+    // Memoize subRequests serialization to avoid expensive JSON.stringify on every render
+    const subRequestsKey = useMemo(() => {
+      return JSON.stringify(subRequests.map(req => ({
+        urls: [...req.urls].sort(), // Create a copy before sorting to avoid mutation
+        filter: req.filter
+      })))
+    }, [subRequests])
 
     const shouldHideEvent = useCallback(
       (evt: Event) => {
@@ -252,7 +260,7 @@ const NoteList = forwardRef(
       return () => {
         promise.then((closer) => closer())
       }
-    }, [JSON.stringify(subRequests), refreshCount, showKinds])
+    }, [subRequestsKey, refreshCount, showKinds])
 
     useEffect(() => {
       const options = {

@@ -3,11 +3,11 @@ import { isMentioningMutedUsers } from '@/lib/event'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { Event, kinds } from 'nostr-tools'
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import MainNoteCard from './MainNoteCard'
 import RepostNoteCard from './RepostNoteCard'
 
-export default function NoteCard({
+const NoteCard = memo(function NoteCard({
   event,
   className,
   filterMutedNotes = true
@@ -35,7 +35,17 @@ export default function NoteCard({
     )
   }
   return <MainNoteCard event={event} className={className} />
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison function for memo
+  return (
+    prevProps.event.id === nextProps.event.id &&
+    prevProps.event.created_at === nextProps.event.created_at &&
+    prevProps.className === nextProps.className &&
+    prevProps.filterMutedNotes === nextProps.filterMutedNotes
+  )
+})
+
+export default NoteCard
 
 export function NoteCardLoadingSkeleton() {
   return (
