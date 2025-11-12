@@ -18,6 +18,7 @@ import SearchPage from './pages/secondary/SearchPage'
 import SettingsPage from './pages/secondary/SettingsPage'
 import TranslationPage from './pages/secondary/TranslationPage'
 import WalletPage from './pages/secondary/WalletPage'
+import FollowPacksPage from './pages/secondary/FollowPacksPage'
 
 const ROUTES = [
   { path: '/notes', element: <NoteListPage /> },
@@ -37,7 +38,8 @@ const ROUTES = [
   { path: '/settings/translation', element: <TranslationPage /> },
   { path: '/settings/rss-feeds', element: <RssFeedSettingsPage /> },
   { path: '/profile-editor', element: <ProfileEditorPage /> },
-  { path: '/mutes', element: <MuteListPage /> }
+  { path: '/mutes', element: <MuteListPage /> },
+  { path: '/follow-packs', element: <FollowPacksPage /> }
 ]
 
 export const routes = ROUTES.map(({ path, element }) => ({

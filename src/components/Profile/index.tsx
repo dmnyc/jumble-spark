@@ -43,8 +43,10 @@ import SmartFollowings from './SmartFollowings'
 import SmartMuteLink from './SmartMuteLink'
 import SmartRelays from './SmartRelays'
 import ProfileMedia from './ProfileMedia'
+import ProfileInteractions from './ProfileInteractions'
+import { toFollowPacks } from '@/lib/link'
 
-type ProfileTabValue = 'posts' | 'pins' | 'bookmarks' | 'interests' | 'articles' | 'media'
+type ProfileTabValue = 'posts' | 'pins' | 'bookmarks' | 'interests' | 'articles' | 'media' | 'you'
 
 export default function Profile({ id }: { id?: string }) {
   const { t } = useTranslation()
@@ -134,9 +136,11 @@ export default function Profile({ id }: { id?: string }) {
   const profileBookmarksRef = useRef<{ refresh: () => void }>(null)
   const profileArticlesRef = useRef<{ refresh: () => void; getEvents: () => Event[] }>(null)
   const profileMediaRef = useRef<{ refresh: () => void; getEvents: () => Event[] }>(null)
+  const profileInteractionsRef = useRef<{ refresh: () => void; getEvents?: () => Event[] }>(null)
   const [articleEvents, setArticleEvents] = useState<Event[]>([])
   const [postEvents, setPostEvents] = useState<Event[]>([])
   const [mediaEvents, setMediaEvents] = useState<Event[]>([])
+  const [interactionEvents, setInteractionEvents] = useState<Event[]>([])
   
   const isFollowingYou = useMemo(() => {
     // This will be handled by the FollowedBy component
@@ -156,38 +160,52 @@ export default function Profile({ id }: { id?: string }) {
       profileArticlesRef.current?.refresh()
     } else if (activeTab === 'media') {
       profileMediaRef.current?.refresh()
+    } else if (activeTab === 'you') {
+      profileInteractionsRef.current?.refresh()
     } else {
       profileBookmarksRef.current?.refresh()
     }
   }
 
   // Define tabs with refresh buttons
-  const tabs = useMemo(() => [
-    {
-      value: 'posts',
-      label: 'Posts'
-    },
-    {
-      value: 'articles',
-      label: 'Articles'
-    },
-    {
-      value: 'media',
-      label: 'Media'
-    },
-    {
-      value: 'pins',
-      label: 'Pins'
-    },
-    {
-      value: 'bookmarks',
-      label: 'Bookmarks'
-    },
-    {
-      value: 'interests',
-      label: 'Interests'
+  const tabs = useMemo(() => {
+    const baseTabs = [
+      {
+        value: 'posts',
+        label: 'Posts'
+      },
+      {
+        value: 'articles',
+        label: 'Articles'
+      },
+      {
+        value: 'media',
+        label: 'Media'
+      },
+      {
+        value: 'pins',
+        label: 'Pins'
+      },
+      {
+        value: 'bookmarks',
+        label: 'Bookmarks'
+      },
+      {
+        value: 'interests',
+        label: 'Interests'
+      }
+    ]
+    
+    // Add "You" tab if viewing another user's profile and logged in
+    if (!isSelf && accountPubkey) {
+      baseTabs.push({
+        value: 'you',
+        label: 'You'
+      })
     }
-  ], [])
+    
+    return baseTabs
+  }, [isSelf, accountPubkey])
 
   useEffect(() => {
     if (!profile?.pubkey) return
@@ -245,13 +263,22 @@ export default function Profile({ id }: { id?: string }) {
           <div className="flex justify-end h-8 gap-2 items-center">
             <ProfileOptions pubkey={pubkey} />
             {isSelf ? (
-              <Button
-                className="w-20 min-w-20 rounded-full"
-                variant="secondary"
-                onClick={() => push(toProfileEditor())}
-              >
-                {t('Edit')}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  className="rounded-full whitespace-nowrap"
+                  variant="secondary"
+                  onClick={() => push(toFollowPacks())}
+                >
+                  {t('Browse follow packs')}
+                </Button>
+                <Button
+                  className="w-20 min-w-20 rounded-full"
+                  variant="secondary"
+                  onClick={() => push(toProfileEditor())}
+                >
+                  {t('Edit')}
+                </Button>
+              </div>
             ) : (
               <>
                 {!!lightningAddress && <ProfileZapButton pubkey={pubkey} />}
@@ -440,6 +467,16 @@ export default function Profile({ id }: { id?: string }) {
             pubkey={pubkey} 
             initialTab={activeTab === 'pins' ? 'pins' : activeTab === 'bookmarks' ? 'bookmarks' : 'hashtags'}
             searchQuery={searchQuery}
+          />
+        )}
+        {activeTab === 'you' && accountPubkey && (
+          <ProfileInteractions
+            ref={profileInteractionsRef}
+            accountPubkey={accountPubkey}
+            profilePubkey={pubkey}
+            topSpace={0}
+            searchQuery={searchQuery}
+            onEventsChange={setInteractionEvents}
           />
         )}
       </div>
