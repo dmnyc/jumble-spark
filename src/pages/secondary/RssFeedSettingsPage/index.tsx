@@ -9,11 +9,13 @@ import { Switch } from '@/components/ui/switch'
 import storage from '@/services/local-storage.service'
 import { createRssFeedListDraftEvent } from '@/lib/draft-event'
 import { showPublishingFeedback, showSimplePublishSuccess, showPublishingError } from '@/lib/publishing-feedback'
-import { CloudUpload, Loader, Trash2, Plus } from 'lucide-react'
+import { CloudUpload, Loader, Trash2, Plus, Download, Upload } from 'lucide-react'
 import logger from '@/lib/logger'
 import { ExtendedKind } from '@/constants'
 import indexedDb from '@/services/indexed-db.service'
 import rssFeedService from '@/services/rss-feed.service'
+import { parseOpml, generateOpml, downloadFile } from '@/lib/opml'
+import { toast } from 'sonner'
 
 const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
@@ -105,6 +107,74 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
   const handleRemoveFeed = (url: string) => {
     setFeedUrls(feedUrls.filter(u => u !== url))
     setHasChange(true)
+  }
+
+  const handleImportOpml = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Reset input
+    event.target.value = ''
+
+    try {
+      const text = await file.text()
+      const feeds = parseOpml(text)
+      
+      if (feeds.length === 0) {
+        toast.error(t('No RSS feeds found in OPML file'))
+        return
+      }
+
+      // Extract URLs from OPML feeds
+      const urls = feeds.map(feed => feed.xmlUrl).filter((url): url is string => {
+        try {
+          new URL(url)
+          return true
+        } catch {
+          return false
+        }
+      })
+
+      if (urls.length === 0) {
+        toast.error(t('No valid RSS feed URLs found in OPML file'))
+        return
+      }
+
+      // Merge with existing feeds (avoid duplicates)
+      const existingUrls = new Set(feedUrls)
+      const newUrls = urls.filter(url => !existingUrls.has(url))
+      
+      if (newUrls.length === 0) {
+        toast.info(t('All feeds from OPML file are already added'))
+        return
+      }
+
+      setFeedUrls([...feedUrls, ...newUrls])
+      setHasChange(true)
+      toast.success(t('Imported {{count}} feed(s) from OPML file', { count: newUrls.length }))
+    } catch (error) {
+      logger.error('[RssFeedSettingsPage] Failed to import OPML file', { error })
+      toast.error(t('Failed to import OPML file: {{error}}', { 
+        error: error instanceof Error ? error.message : String(error) 
+      }))
+    }
+  }
+
+  const handleExportOpml = () => {
+    if (feedUrls.length === 0) {
+      toast.error(t('No feeds to export'))
+      return
+    }
+
+    try {
+      const opmlContent = generateOpml(feedUrls, 'Jumble RSS Feeds')
+      const filename = `jumble-rss-feeds-${new Date().toISOString().split('T')[0]}.opml`
+      downloadFile(opmlContent, filename, 'application/xml')
+      toast.success(t('RSS feeds exported to OPML file'))
+    } catch (error) {
+      logger.error('[RssFeedSettingsPage] Failed to export OPML file', { error })
+      toast.error(t('Failed to export OPML file'))
+    }
   }
 
   const handleSave = async () => {
@@ -368,7 +438,40 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
         {/* RSS Feed List */}
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>{t('RSS Feeds')}</Label>
+            <div className="flex items-center justify-between">
+              <Label>{t('RSS Feeds')}</Label>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportOpml}
+                  disabled={feedUrls.length === 0}
+                  className="text-xs"
+                >
+                  <Download className="h-3 w-3 mr-1" />
+                  {t('Export OPML')}
+                </Button>
+                <label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild
+                    className="text-xs cursor-pointer"
+                  >
+                    <span>
+                      <Upload className="h-3 w-3 mr-1" />
+                      {t('Import OPML')}
+                    </span>
+                  </Button>
+                  <input
+                    type="file"
+                    accept=".opml,application/xml,text/xml"
+                    onChange={handleImportOpml}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
             <div className="text-muted-foreground text-xs">
               {t('Add RSS feed URLs to subscribe to. If no feeds are configured, the default feed will be used.')}
             </div>
