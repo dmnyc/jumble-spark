@@ -50,10 +50,14 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
   const [isExpanded, setIsExpanded] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const selectionTimeoutRef = useRef<NodeJS.Timeout>()
+  const isSelectingRef = useRef(false)
+  const touchEndTimeoutRef = useRef<NodeJS.Timeout>()
+  const lastSelectionChangeRef = useRef<number>(0)
+  const selectionStableTimeoutRef = useRef<NodeJS.Timeout>()
 
   // Handle text selection
   useEffect(() => {
-    const handleSelection = () => {
+    const handleSelection = (forceShow = false) => {
       const selection = window.getSelection()
       if (!selection || selection.rangeCount === 0) {
         setShowHighlightButton(false)
@@ -131,10 +135,14 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
       if (text.length > 0) {
         setSelectedText(text)
         
-        // On mobile, show drawer; on desktop, show floating button
+        // On mobile, only show drawer after selection is complete (not while actively selecting)
+        // On desktop, show floating button immediately
         if (isSmallScreen) {
-          setShowHighlightDrawer(true)
-          setShowHighlightButton(false)
+          // On mobile, wait until user finishes selecting before showing drawer
+          if (forceShow || !isSelectingRef.current) {
+            setShowHighlightDrawer(true)
+            setShowHighlightButton(false)
+          }
         } else {
           // Get selection position for button placement
           const rect = range.getBoundingClientRect()
@@ -163,7 +171,7 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
       if (selectionTimeoutRef.current) {
         clearTimeout(selectionTimeoutRef.current)
       }
-      selectionTimeoutRef.current = setTimeout(handleSelection, 50)
+      selectionTimeoutRef.current = setTimeout(() => handleSelection(true), 50)
     }
 
     const handleClick = (e: MouseEvent) => {
@@ -180,17 +188,102 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
       }
     }
 
+    // Handle touch events for mobile
+    const handleTouchStart = () => {
+      if (isSmallScreen) {
+        isSelectingRef.current = true
+        // Clear any pending drawer show
+        setShowHighlightDrawer(false)
+      }
+    }
+
+    const handleTouchMove = () => {
+      if (isSmallScreen) {
+        isSelectingRef.current = true
+        // Clear any pending drawer show while actively selecting
+        if (touchEndTimeoutRef.current) {
+          clearTimeout(touchEndTimeoutRef.current)
+        }
+      }
+    }
+
+    const handleTouchEnd = () => {
+      if (isSmallScreen) {
+        // Wait a bit longer on mobile to allow native selection UI to appear first
+        if (touchEndTimeoutRef.current) {
+          clearTimeout(touchEndTimeoutRef.current)
+        }
+        touchEndTimeoutRef.current = setTimeout(() => {
+          isSelectingRef.current = false
+          // Don't immediately show drawer - let selection stability check handle it
+          // This allows user to continue dragging selection handles if needed
+        }, 200) // Shorter delay since we're using stability check
+      }
+    }
+
     // Also listen for selectionchange events which fire more reliably
     const handleSelectionChange = () => {
-      if (selectionTimeoutRef.current) {
-        clearTimeout(selectionTimeoutRef.current)
+      if (isSmallScreen) {
+        // On mobile, track when selection last changed
+        lastSelectionChangeRef.current = Date.now()
+        
+        // Clear any pending drawer shows
+        if (selectionStableTimeoutRef.current) {
+          clearTimeout(selectionStableTimeoutRef.current)
+        }
+        setShowHighlightDrawer(false)
+        
+        // If we're actively selecting (touch events), don't process yet
+        if (isSelectingRef.current) {
+          return
+        }
+        
+        // Wait for selection to be stable (no changes for 500ms) before showing drawer
+        selectionStableTimeoutRef.current = setTimeout(() => {
+          const timeSinceLastChange = Date.now() - lastSelectionChangeRef.current
+          // Only show if selection hasn't changed in the last 500ms
+          if (timeSinceLastChange >= 500 && !isSelectingRef.current) {
+            handleSelection(true)
+          }
+        }, 500)
+      } else {
+        // Desktop: shorter delay
+        if (selectionTimeoutRef.current) {
+          clearTimeout(selectionTimeoutRef.current)
+        }
+        selectionTimeoutRef.current = setTimeout(() => handleSelection(true), 50)
       }
-      selectionTimeoutRef.current = setTimeout(handleSelection, 50)
     }
 
     document.addEventListener('mouseup', handleMouseUp)
     document.addEventListener('click', handleClick, true) // Use capture phase
     document.addEventListener('selectionchange', handleSelectionChange)
+    
+    // Add touch event listeners for mobile
+    if (isSmallScreen && contentRef.current) {
+      const contentElement = contentRef.current
+      contentElement.addEventListener('touchstart', handleTouchStart, { passive: true })
+      contentElement.addEventListener('touchmove', handleTouchMove, { passive: true })
+      contentElement.addEventListener('touchend', handleTouchEnd, { passive: true })
+      
+      return () => {
+        document.removeEventListener('mouseup', handleMouseUp)
+        document.removeEventListener('click', handleClick, true)
+        document.removeEventListener('selectionchange', handleSelectionChange)
+        contentElement.removeEventListener('touchstart', handleTouchStart)
+        contentElement.removeEventListener('touchmove', handleTouchMove)
+        contentElement.removeEventListener('touchend', handleTouchEnd)
+        if (selectionTimeoutRef.current) {
+          clearTimeout(selectionTimeoutRef.current)
+        }
+        if (touchEndTimeoutRef.current) {
+          clearTimeout(touchEndTimeoutRef.current)
+        }
+        if (selectionStableTimeoutRef.current) {
+          clearTimeout(selectionStableTimeoutRef.current)
+        }
+      }
+    }
 
     return () => {
       document.removeEventListener('mouseup', handleMouseUp)
@@ -198,6 +291,12 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
       document.removeEventListener('selectionchange', handleSelectionChange)
       if (selectionTimeoutRef.current) {
         clearTimeout(selectionTimeoutRef.current)
+      }
+      if (touchEndTimeoutRef.current) {
+        clearTimeout(touchEndTimeoutRef.current)
+      }
+      if (selectionStableTimeoutRef.current) {
+        clearTimeout(selectionStableTimeoutRef.current)
       }
     }
   }, [showHighlightButton, isSmallScreen])
