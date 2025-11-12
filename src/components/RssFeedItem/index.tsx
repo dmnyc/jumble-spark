@@ -9,6 +9,8 @@ import PostEditor from '@/components/PostEditor'
 import { HighlightData } from '@/components/PostEditor/HighlightEditor'
 import { cn } from '@/lib/utils'
 import MediaPlayer from '@/components/MediaPlayer'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
+import { useScreenSize } from '@/providers/ScreenSizeProvider'
 
 /**
  * Convert HTML to plain text by extracting text content and cleaning up whitespace
@@ -37,9 +39,11 @@ function htmlToPlainText(html: string): string {
 export default function RssFeedItem({ item, className }: { item: TRssFeedItem; className?: string }) {
   const { t } = useTranslation()
   const { pubkey, checkLogin } = useNostr()
+  const { isSmallScreen } = useScreenSize()
   const [selectedText, setSelectedText] = useState('')
   const [highlightText, setHighlightText] = useState('') // Text to use in highlight editor
   const [showHighlightButton, setShowHighlightButton] = useState(false)
+  const [showHighlightDrawer, setShowHighlightDrawer] = useState(false)
   const [selectionPosition, setSelectionPosition] = useState<{ x: number; y: number } | null>(null)
   const [isPostEditorOpen, setIsPostEditorOpen] = useState(false)
   const [highlightData, setHighlightData] = useState<HighlightData | undefined>(undefined)
@@ -127,15 +131,23 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
       if (text.length > 0) {
         setSelectedText(text)
         
-        // Get selection position for button placement
-        const rect = range.getBoundingClientRect()
-        setSelectionPosition({
-          x: rect.left + rect.width / 2,
-          y: rect.top - 10
-        })
-        setShowHighlightButton(true)
+        // On mobile, show drawer; on desktop, show floating button
+        if (isSmallScreen) {
+          setShowHighlightDrawer(true)
+          setShowHighlightButton(false)
+        } else {
+          // Get selection position for button placement
+          const rect = range.getBoundingClientRect()
+          setSelectionPosition({
+            x: rect.left + rect.width / 2,
+            y: rect.top - 10
+          })
+          setShowHighlightButton(true)
+          setShowHighlightDrawer(false)
+        }
       } else {
         setShowHighlightButton(false)
+        setShowHighlightDrawer(false)
         setSelectedText('')
         setSelectionPosition(null)
       }
@@ -188,7 +200,7 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
         clearTimeout(selectionTimeoutRef.current)
       }
     }
-  }, [showHighlightButton])
+  }, [showHighlightButton, isSmallScreen])
 
   const handleCreateHighlight = () => {
     const currentSelection = window.getSelection()
@@ -502,8 +514,8 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
           </div>
         )}
         
-        {/* Highlight Button */}
-        {showHighlightButton && selectedText && selectionPosition && (
+        {/* Highlight Button (Desktop) */}
+        {!isSmallScreen && showHighlightButton && selectedText && selectionPosition && (
           <div
             className="highlight-button-container fixed z-50"
             style={{
@@ -524,6 +536,46 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
               {t('Create Highlight')}
             </Button>
           </div>
+        )}
+
+        {/* Highlight Drawer (Mobile) */}
+        {isSmallScreen && (
+          <Drawer 
+            open={showHighlightDrawer} 
+            onOpenChange={(open) => {
+              setShowHighlightDrawer(open)
+              if (!open) {
+                // Clear selection when drawer closes
+                window.getSelection()?.removeAllRanges()
+                setSelectedText('')
+                setShowHighlightButton(false)
+              }
+            }}
+          >
+            <DrawerContent>
+              <DrawerHeader>
+                <DrawerTitle>{t('Create Highlight')}</DrawerTitle>
+              </DrawerHeader>
+              <div className="p-4 space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  {t('Selected text')}:
+                </div>
+                <div className="p-3 bg-muted rounded-lg text-sm break-words">
+                  "{selectedText}"
+                </div>
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    handleCreateHighlight()
+                    setShowHighlightDrawer(false)
+                  }}
+                >
+                  <Highlighter className="h-4 w-4 mr-2" />
+                  {t('Create Highlight')}
+                </Button>
+              </div>
+            </DrawerContent>
+          </Drawer>
         )}
       </div>
 
