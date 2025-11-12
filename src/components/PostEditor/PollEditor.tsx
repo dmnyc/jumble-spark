@@ -12,7 +12,7 @@ import { useTranslation } from 'react-i18next'
 export default function PollEditor({
   pollCreateData,
   setPollCreateData,
-  setIsPoll
+  setIsPoll: _setIsPoll
 }: {
   pollCreateData: TPollCreateData
   setPollCreateData: Dispatch<SetStateAction<TPollCreateData>>

@@ -1,7 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ExtendedKind } from '@/constants'
 import { useFollowList } from '@/providers/FollowListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { getPubkeysFromPTags } from '@/lib/tag'
@@ -12,7 +11,7 @@ import { toast } from 'sonner'
 import client from '@/services/client.service'
 import { FAST_READ_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
-import { Users, Loader2 } from 'lucide-react'
+import { Users } from 'lucide-react'
 import logger from '@/lib/logger'
 import ProfileSearchBar from '@/components/ui/ProfileSearchBar'
 import { SimpleUserAvatar } from '@/components/UserAvatar'
@@ -25,7 +24,7 @@ const FollowPacksPage = forwardRef<HTMLDivElement, { index?: number; hideTitleba
   const { followings, follow } = useFollowList()
   const [packs, setPacks] = useState<Event[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [followingPacks, setFollowingPacks] = useState<Set<string>>(new Set())
+  const [_followingPacks, setFollowingPacks] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {

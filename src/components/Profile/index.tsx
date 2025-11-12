@@ -140,7 +140,7 @@ export default function Profile({ id }: { id?: string }) {
   const [articleEvents, setArticleEvents] = useState<Event[]>([])
   const [postEvents, setPostEvents] = useState<Event[]>([])
   const [mediaEvents, setMediaEvents] = useState<Event[]>([])
-  const [interactionEvents, setInteractionEvents] = useState<Event[]>([])
+  const [_interactionEvents, setInteractionEvents] = useState<Event[]>([])
   
   const isFollowingYou = useMemo(() => {
     // This will be handled by the FollowedBy component
