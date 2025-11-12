@@ -127,16 +127,23 @@ export function usePrimaryNoteView() {
   return context
 }
 
-// Fixed: Note navigation now uses primary note view since secondary panel is disabled
+// Fixed: Note navigation now uses primary note view on mobile, secondary routing on desktop
 export function useSmartNoteNavigation() {
   const { setPrimaryNoteView } = usePrimaryNoteView()
+  const { push: pushSecondaryPage } = useSecondaryPage()
+  const { isSmallScreen } = useScreenSize()
   
   const navigateToNote = (url: string) => {
-    // Use primary note view to show notes since secondary panel is disabled
-    // Extract note ID from URL (e.g., "/notes/note1..." -> "note1...")
-    const noteId = url.replace('/notes/', '')
-    window.history.pushState(null, '', url)
-    setPrimaryNoteView(<NotePage id={noteId} index={0} hideTitlebar={true} />, 'note')
+    if (isSmallScreen) {
+      // Use primary note view on mobile
+      // Extract note ID from URL (e.g., "/notes/note1..." -> "note1...")
+      const noteId = url.replace('/notes/', '')
+      window.history.pushState(null, '', url)
+      setPrimaryNoteView(<NotePage id={noteId} index={0} hideTitlebar={true} />, 'note')
+    } else {
+      // Use secondary routing on desktop
+      pushSecondaryPage(url)
+    }
   }
   
   return { navigateToNote }
@@ -687,14 +694,19 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         return prevStack
       }
 
-      logger.component('PageManager', 'Creating new page for URL', { url })
+      logger.component('PageManager', 'Creating new page for URL', { url, prevStackLength: prevStack.length })
       const { newStack, newItem } = pushNewPageToStack(prevStack, url, maxStackSize, index)
       logger.component('PageManager', 'New page created', { 
         newStackLength: newStack.length, 
-        hasNewItem: !!newItem 
+        prevStackLength: prevStack.length,
+        hasNewItem: !!newItem,
+        newItemUrl: newItem?.url,
+        newItemIndex: newItem?.index
       })
       if (newItem) {
         window.history.pushState({ index: newItem.index, url }, '', url)
+      } else {
+        logger.error('PageManager', 'Failed to create component for URL - component will not be displayed', { url, path: url.split('?')[0].split('#')[0] })
       }
       return newStack
     })
@@ -934,26 +946,33 @@ function findAndCreateComponent(url: string, index: number) {
   
   for (const { matcher, element } of routes) {
     const match = matcher(path)
-    logger.component('PageManager', 'Trying route matcher', { matchResult: !!match })
+    logger.component('PageManager', 'Trying route matcher', { path, matchResult: !!match, matchParams: match ? (match as any).params : null })
     if (!match) continue
 
     if (!element) {
-      logger.component('PageManager', 'No element for this route')
+      logger.component('PageManager', 'No element for this route', { path })
       return {}
     }
     const ref = createRef<TPageRef>()
     
     // Decode URL parameters for relay pages
-    const params = { ...match.params }
+    const params = { ...(match as any).params }
     if (params.url && typeof params.url === 'string') {
       params.url = decodeURIComponent(params.url)
       logger.component('PageManager', 'Decoded URL parameter', { url: params.url })
     }
     
-    logger.component('PageManager', 'Creating component with params', params)
-    return { component: cloneElement(element, { ...params, index, ref } as any), ref }
+    logger.component('PageManager', 'Creating component with params', { params, index })
+    try {
+      const component = cloneElement(element, { ...params, index, ref } as any)
+      logger.component('PageManager', 'Component created successfully', { hasComponent: !!component })
+      return { component, ref }
+    } catch (error) {
+      logger.error('PageManager', 'Error creating component', { error, params })
+      return {}
+    }
   }
-  logger.component('PageManager', 'No matching route found', { path })
+  logger.component('PageManager', 'No matching route found', { path, url })
   return {}
 }
 
@@ -967,7 +986,10 @@ function pushNewPageToStack(
   const currentIndex = specificIndex ?? (currentItem ? currentItem.index + 1 : 0)
 
   const { component, ref } = findAndCreateComponent(url, currentIndex)
-  if (!component) return { newStack: stack, newItem: null }
+  if (!component) {
+    logger.error('PageManager', 'pushNewPageToStack: No component created', { url, currentIndex, path: url.split('?')[0].split('#')[0] })
+    return { newStack: stack, newItem: null }
+  }
 
   const newItem = { component, ref, url, index: currentIndex }
   const newStack = [...stack, newItem]
@@ -976,5 +998,6 @@ function pushNewPageToStack(
   if (newStack.length - lastCachedIndex > maxStackSize) {
     newStack[lastCachedIndex].component = null
   }
+  logger.component('PageManager', 'pushNewPageToStack: Success', { url, newStackLength: newStack.length, newItemIndex: currentIndex })
   return { newStack, newItem }
 }
