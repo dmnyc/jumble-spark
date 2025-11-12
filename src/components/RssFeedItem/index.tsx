@@ -517,7 +517,7 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
                   <img
                     src={imageUrl}
                     alt={item.title}
-                    className={`${hasThumbnail ? 'max-w-[120px] h-auto' : 'w-full max-h-96'} rounded-lg ${hasThumbnail ? 'object-contain' : 'object-cover'} cursor-pointer hover:opacity-90 transition-opacity`}
+                    className={`${hasThumbnail ? 'max-w-[120px] h-auto' : 'max-w-full md:max-w-[400px] max-h-96'} rounded-lg ${hasThumbnail ? 'object-contain' : 'object-cover'} cursor-pointer hover:opacity-90 transition-opacity`}
                     onClick={(e) => {
                       e.stopPropagation()
                       // Open full image in new tab
@@ -566,7 +566,8 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
           ref={contentRef}
           className={cn(
             'prose prose-sm dark:prose-invert max-w-none break-words rss-feed-content transition-all duration-200',
-            needsCollapse && !isExpanded && 'max-h-[400px] overflow-hidden'
+            needsCollapse && !isExpanded && 'max-h-[400px] overflow-hidden',
+            '[&_img]:max-w-full [&_img]:md:max-w-[400px] [&_img]:h-auto [&_img]:rounded-lg'
           )}
           style={{
             userSelect: 'text',

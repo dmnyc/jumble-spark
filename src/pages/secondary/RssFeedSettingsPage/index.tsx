@@ -108,6 +108,8 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
   const handleShowRssFeedChange = (checked: boolean) => {
     setShowRssFeed(checked)
     storage.setShowRssFeed(checked)
+    // Dispatch event to notify other components of the change
+    window.dispatchEvent(new CustomEvent('rssFeedSettingChanged'))
     // No need to set hasChange here as this is a local storage setting, not a Nostr event
   }
 

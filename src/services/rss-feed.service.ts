@@ -1088,11 +1088,16 @@ class RssFeedService {
 
   /**
    * Get feed URLs to use (from event or default)
+   * If eventFeedUrls is an empty array, return empty array (user has event but no feeds)
+   * If eventFeedUrls is null/undefined, return default feeds (no event exists)
    */
   getFeedUrls(eventFeedUrls: string[] | null | undefined): string[] {
-    if (eventFeedUrls && eventFeedUrls.length > 0) {
+    // If eventFeedUrls is explicitly an array (even if empty), use it
+    // This means the user has an event, so respect their choice
+    if (Array.isArray(eventFeedUrls)) {
       return eventFeedUrls
     }
+    // If null/undefined, no event exists - use defaults for demo
     return DEFAULT_RSS_FEEDS
   }
 

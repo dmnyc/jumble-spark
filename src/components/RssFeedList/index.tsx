@@ -1,19 +1,41 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
 import rssFeedService, { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
 import { DEFAULT_RSS_FEEDS } from '@/constants'
 import RssFeedItem from '../RssFeedItem'
-import { Loader, AlertCircle } from 'lucide-react'
+import { Loader, AlertCircle, Search } from 'lucide-react'
 import logger from '@/lib/logger'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { useScreenSize } from '@/providers/ScreenSizeProvider'
 
 export default function RssFeedList() {
   const { t } = useTranslation()
   const { pubkey, rssFeedListEvent } = useNostr()
+  const { isSmallScreen } = useScreenSize()
   const [items, setItems] = useState<TRssFeedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  
+  // Filter states
+  const [selectedFeed, setSelectedFeed] = useState<string>('all')
+  const [timeFilter, setTimeFilter] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [showFilters, setShowFilters] = useState<boolean>(false)
+
+  // Listen for filter toggle events
+  useEffect(() => {
+    const handleToggleFilters = () => {
+      setShowFilters(prev => !prev)
+    }
+
+    window.addEventListener('toggleRssFilters', handleToggleFilters)
+    return () => {
+      window.removeEventListener('toggleRssFilters', handleToggleFilters)
+    }
+  }, [])
 
   useEffect(() => {
     // Create AbortController for this effect
@@ -62,9 +84,11 @@ export default function RssFeedList() {
 
       try {
         // Get feed URLs from event or use default
-        let feedUrls: string[] = DEFAULT_RSS_FEEDS
+        let feedUrls: string[] = []
+        let useDefaultFeeds = false
 
         if (pubkey && rssFeedListEvent) {
+          // User has an event - use only feeds from that event (even if empty)
           try {
             // Extract URLs from "u" tags
             const urls = rssFeedListEvent.tags
@@ -83,31 +107,39 @@ export default function RssFeedList() {
                 return true
               })
             
+            feedUrls = urls
             if (urls.length > 0) {
-              feedUrls = urls
               logger.info('[RssFeedList] Loaded RSS feed list from context', { 
                 feedCount: urls.length,
                 eventId: rssFeedListEvent.id,
                 urls
               })
             } else {
-              logger.info('[RssFeedList] RSS feed list is empty or contains no valid URLs, using default feeds')
+              logger.info('[RssFeedList] RSS feed list event exists but is empty - will show empty feed')
             }
           } catch (e) {
             logger.error('[RssFeedList] Failed to parse RSS feed list from tags', { 
               error: e,
               tags: rssFeedListEvent.tags
             })
-            // Use default feeds on parse error
+            // On parse error, treat as empty event (don't use defaults)
+            feedUrls = []
           }
         } else if (pubkey) {
+          // No event exists - use default feeds for demo
           logger.info('[RssFeedList] No RSS feed list event in context, using default feeds')
+          feedUrls = DEFAULT_RSS_FEEDS
+          useDefaultFeeds = true
           // Trigger background refresh for default feeds when no event exists
           rssFeedService.backgroundRefreshFeeds(feedUrls, abortController.signal).catch(err => {
             if (!(err instanceof DOMException && err.name === 'AbortError')) {
               logger.error('[RssFeedList] Background refresh of default feeds failed', { error: err })
             }
           })
+        } else {
+          // No pubkey - use default feeds
+          feedUrls = DEFAULT_RSS_FEEDS
+          useDefaultFeeds = true
         }
 
         // Check if aborted before fetching
@@ -254,6 +286,76 @@ export default function RssFeedList() {
     }
   }, [pubkey, rssFeedListEvent, t])
 
+  // Normalize feed URL to prevent duplicates (e.g., with/without trailing slash)
+  // This matches the normalization used in rss-feed.service.ts
+  const normalizeFeedUrl = (url: string): string => {
+    return url.trim().replace(/\/$/, '')
+  }
+
+  // Get unique feed URLs and titles from items
+  // Normalize URLs to prevent duplicates (e.g., with/without trailing slash)
+  const availableFeeds = useMemo(() => {
+    const feedMap = new Map<string, { url: string; title: string }>()
+    
+    items.forEach(item => {
+      const normalizedUrl = normalizeFeedUrl(item.feedUrl)
+      if (!feedMap.has(normalizedUrl)) {
+        feedMap.set(normalizedUrl, { url: normalizedUrl, title: item.feedTitle || item.feedUrl })
+      }
+    })
+    return Array.from(feedMap.values())
+  }, [items])
+
+  // Filter items based on selected filters
+  const filteredItems = useMemo(() => {
+    let filtered = items
+
+    // Filter by feed
+    if (selectedFeed !== 'all') {
+      const normalizedSelectedFeed = normalizeFeedUrl(selectedFeed)
+      filtered = filtered.filter(item => normalizeFeedUrl(item.feedUrl) === normalizedSelectedFeed)
+    }
+
+    // Filter by time
+    if (timeFilter !== 'all') {
+      const now = Date.now()
+      let cutoffTime = 0
+      
+      switch (timeFilter) {
+        case 'hour':
+          cutoffTime = now - 60 * 60 * 1000
+          break
+        case 'day':
+          cutoffTime = now - 24 * 60 * 60 * 1000
+          break
+        case 'week':
+          cutoffTime = now - 7 * 24 * 60 * 60 * 1000
+          break
+        case 'month':
+          cutoffTime = now - 30 * 24 * 60 * 60 * 1000
+          break
+      }
+      
+      filtered = filtered.filter(item => {
+        if (!item.pubDate) return false
+        return item.pubDate.getTime() >= cutoffTime
+      })
+    }
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim()
+      filtered = filtered.filter(item => {
+        const titleMatch = item.title.toLowerCase().includes(query)
+        const descMatch = item.description.toLowerCase().includes(query)
+        const feedMatch = (item.feedTitle || '').toLowerCase().includes(query)
+        return titleMatch || descMatch || feedMatch
+      })
+    }
+
+    return filtered
+  }, [items, selectedFeed, timeFilter, searchQuery])
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-12">
@@ -281,16 +383,78 @@ export default function RssFeedList() {
   }
 
   return (
-    <div className="space-y-4 px-4 py-3">
-      {refreshing && (
-        <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground border-b">
-          <Loader className="h-4 w-4 animate-spin" />
-          <span>{t('Refreshing feeds...')}</span>
+    <div className="space-y-3">
+      {/* Filter Bar - Collapsible */}
+      {showFilters && (
+        <div className="sticky top-0 z-10 bg-background border-b px-4 py-2">
+          <div className={`flex ${isSmallScreen ? 'flex-col' : 'flex-row'} items-stretch gap-2`}>
+            {/* Feed Selector */}
+            <Select value={selectedFeed} onValueChange={setSelectedFeed}>
+              <SelectTrigger className="h-8 text-xs md:text-sm md:h-9 flex-shrink-0 w-full md:w-auto" style={{ minWidth: isSmallScreen ? '100%' : '150px' }}>
+                <SelectValue placeholder={t('All feeds')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('All feeds')}</SelectItem>
+                {availableFeeds.map((feed) => (
+                  <SelectItem key={feed.url} value={feed.url}>
+                    <span className="truncate max-w-[200px]">{feed.title}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Time Filter */}
+            <Select value={timeFilter} onValueChange={setTimeFilter}>
+              <SelectTrigger className="h-8 text-xs md:text-sm md:h-9 flex-shrink-0 w-full md:w-auto" style={{ minWidth: isSmallScreen ? '100%' : '120px' }}>
+                <SelectValue placeholder={t('All time')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('All time')}</SelectItem>
+                <SelectItem value="hour">{t('Last hour')}</SelectItem>
+                <SelectItem value="day">{t('Last day')}</SelectItem>
+                <SelectItem value="week">{t('Last week')}</SelectItem>
+                <SelectItem value="month">{t('Last month')}</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Search Box */}
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 md:h-4 md:w-4 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder={t('Search...')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 md:h-9 pl-7 md:pl-8 text-xs md:text-sm w-full"
+              />
+            </div>
+          </div>
         </div>
       )}
-      {items.map((item) => (
-        <RssFeedItem key={`${item.feedUrl}-${item.guid}`} item={item} />
-      ))}
+
+      {/* Content */}
+      <div className="space-y-4 px-4 py-3">
+        {refreshing && (
+          <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground border-b">
+            <Loader className="h-4 w-4 animate-spin" />
+            <span>{t('Refreshing feeds...')}</span>
+          </div>
+        )}
+        
+        {filteredItems.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12">
+            <p className="text-sm text-muted-foreground">
+              {searchQuery || selectedFeed !== 'all' || timeFilter !== 'all'
+                ? t('No items match your filters')
+                : t('No RSS feed items available')}
+            </p>
+          </div>
+        ) : (
+          filteredItems.map((item) => (
+            <RssFeedItem key={`${item.feedUrl}-${item.guid}`} item={item} />
+          ))
+        )}
+      </div>
     </div>
   )
 }

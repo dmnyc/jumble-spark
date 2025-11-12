@@ -6,13 +6,15 @@ import { useUserTrust } from '@/providers/UserTrustProvider'
 import storage from '@/services/local-storage.service'
 import { TFeedSubRequest, TNoteListMode } from '@/types'
 import { forwardRef, useMemo, useRef, useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import KindFilter from '../KindFilter'
 import { RefreshButton } from '../RefreshButton'
 import RssFeedList from '../RssFeedList'
 import { useNostr } from '@/providers/NostrProvider'
 import rssFeedService from '@/services/rss-feed.service'
 import { DEFAULT_RSS_FEEDS } from '@/constants'
-import { Rss } from 'lucide-react'
+import { Rss, Search } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 const NormalFeed = forwardRef<TNoteListRef, {
   subRequests: TFeedSubRequest[]
@@ -26,6 +28,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
   showRelayCloseReason = false
 }, ref) {
   logger.debug('NormalFeed component rendering with:', { subRequests, areAlgoRelays, isMainFeed })
+  const { t } = useTranslation()
   const { hideUntrustedNotes } = useUserTrust()
   const { showKinds } = useKindFilter()
   const [temporaryShowKinds, setTemporaryShowKinds] = useState(showKinds)
@@ -52,10 +55,29 @@ const NormalFeed = forwardRef<TNoteListRef, {
     }
   }, [listMode, activeTab])
 
-  // Check showRssFeed setting on mount
+  // Check showRssFeed setting on mount and listen for changes
   useEffect(() => {
-    const currentShowRssFeed = storage.getShowRssFeed()
-    setShowRssFeed(currentShowRssFeed)
+    const checkShowRssFeed = () => {
+      const currentShowRssFeed = storage.getShowRssFeed()
+      setShowRssFeed(currentShowRssFeed)
+    }
+    
+    // Check on mount
+    checkShowRssFeed()
+    
+    // Listen for storage changes (polling approach - check every second)
+    const intervalId = setInterval(checkShowRssFeed, 1000)
+    
+    // Also listen for custom event if RSS setting changes
+    const handleRssSettingChange = () => {
+      checkShowRssFeed()
+    }
+    window.addEventListener('rssFeedSettingChanged', handleRssSettingChange)
+    
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener('rssFeedSettingChanged', handleRssSettingChange)
+    }
   }, [])
   
   // Handle RSS tab visibility when showRssFeed changes
@@ -72,6 +94,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
     const handleSwitchToRss = () => {
       if (showRssFeed) {
         setActiveTab('rss')
+        // Dispatch event to notify sidebar that RSS tab is active
+        window.dispatchEvent(new CustomEvent('rssTabStateChanged', { detail: { active: true } }))
         if (noteListRef && typeof noteListRef !== 'function') {
           noteListRef.current?.scrollToTop('smooth')
         }
@@ -84,14 +108,47 @@ const NormalFeed = forwardRef<TNoteListRef, {
     }
   }, [showRssFeed, noteListRef])
 
+  // Listen for custom event to switch to Notes tab
+  useEffect(() => {
+    const handleSwitchToNotes = () => {
+      // Switch to posts (Notes) tab
+      setListMode('posts')
+      setActiveTab('posts')
+      // Dispatch event to notify sidebar that RSS tab is not active
+      window.dispatchEvent(new CustomEvent('rssTabStateChanged', { detail: { active: false } }))
+      if (isMainFeed) {
+        storage.setNoteListMode('posts')
+      }
+      if (noteListRef && typeof noteListRef !== 'function') {
+        noteListRef.current?.scrollToTop('smooth')
+      }
+    }
+
+    window.addEventListener('switchToNotesTab', handleSwitchToNotes)
+    return () => {
+      window.removeEventListener('switchToNotesTab', handleSwitchToNotes)
+    }
+  }, [isMainFeed, noteListRef])
+
+  // Dispatch initial RSS tab state on mount and when activeTab changes
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('rssTabStateChanged', { 
+      detail: { active: activeTab === 'rss' } 
+    }))
+  }, [activeTab])
+
   const handleListModeChange = (mode: TNoteListMode | string) => {
     if (mode === 'rss') {
       setActiveTab('rss')
+      // Dispatch event to notify sidebar that RSS tab is active
+      window.dispatchEvent(new CustomEvent('rssTabStateChanged', { detail: { active: true } }))
       return
     }
     const noteListMode = mode as TNoteListMode
     setListMode(noteListMode)
     setActiveTab(noteListMode)
+    // Dispatch event to notify sidebar that RSS tab is not active
+    window.dispatchEvent(new CustomEvent('rssTabStateChanged', { detail: { active: false } }))
     if (isMainFeed) {
       storage.setNoteListMode(noteListMode)
     }
@@ -134,12 +191,25 @@ const NormalFeed = forwardRef<TNoteListRef, {
         }}
         options={
           <>
+            {activeTab === 'rss' && showRssFeed && (
+              <Button
+                variant="ghost"
+                size="titlebar-icon"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('toggleRssFilters'))
+                }}
+                title={t('Toggle filters')}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+            )}
             <RefreshButton onClick={() => {
               if (activeTab === 'rss') {
                 // Refresh RSS feeds
                 // Get feed URLs from event or use default
-                let feedUrls: string[] = DEFAULT_RSS_FEEDS
+                let feedUrls: string[] = []
                 if (pubkey && rssFeedListEvent) {
+                  // User has an event - use only feeds from that event (even if empty)
                   try {
                     const urls = rssFeedListEvent.tags
                       .filter(tag => tag[0] === 'u' && tag[1])
@@ -149,12 +219,14 @@ const NormalFeed = forwardRef<TNoteListRef, {
                         const trimmed = url.trim()
                         return trimmed.length > 0
                       })
-                    if (urls.length > 0) {
-                      feedUrls = urls
-                    }
+                    feedUrls = urls // Use even if empty (respect user's choice)
                   } catch (e) {
-                    // Use default feeds on error
+                    // On parse error, treat as empty event
+                    feedUrls = []
                   }
+                } else {
+                  // No event exists - use default feeds for demo
+                  feedUrls = DEFAULT_RSS_FEEDS
                 }
                 
                 // Trigger background refresh and UI update

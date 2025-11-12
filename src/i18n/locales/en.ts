@@ -470,6 +470,18 @@ export default {
     Connect: 'Connect',
     'Set up your wallet to send and receive sats!': 'Set up your wallet to send and receive sats!',
     'Set up': 'Set up',
-    'nested events': 'nested events'
+    'nested events': 'nested events',
+    'Loading RSS feeds...': 'Loading RSS feeds...',
+    'No RSS feed items available': 'No RSS feed items available',
+    'Refreshing feeds...': 'Refreshing feeds...',
+    'All feeds': 'All feeds',
+    'All time': 'All time',
+    'Last hour': 'Last hour',
+    'Last day': 'Last day',
+    'Last week': 'Last week',
+    'Last month': 'Last month',
+    'No items match your filters': 'No items match your filters',
+    'Search...': 'Search...',
+    'Toggle filters': 'Toggle filters'
   }
 }
