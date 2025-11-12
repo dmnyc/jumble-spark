@@ -123,14 +123,14 @@ export default function RssFeedList() {
         
         const fetchedItems = await rssFeedService.fetchMultipleFeeds(feedUrls, abortController.signal)
         
-        // Check if aborted after fetching
-        if (abortController.signal.aborted || !isMounted) {
-          if (isMounted) {
-            setRefreshing(false)
-          }
+        // Always set items if we got them, even if signal was aborted (abort might happen after fetch completes)
+        // Only skip setting items if component unmounted
+        if (!isMounted) {
+          setRefreshing(false)
           return
         }
         
+        // Set items regardless of abort status (abort might have happened after fetch completed)
         if (fetchedItems.length === 0) {
           // No items were successfully fetched, but don't show error if we tried
           // The fetchMultipleFeeds already logs warnings for failed feeds
@@ -138,6 +138,13 @@ export default function RssFeedList() {
         }
         
         setItems(fetchedItems)
+        
+        // Check if aborted after setting items (for cleanup)
+        if (abortController.signal.aborted) {
+          logger.debug('[RssFeedList] Signal was aborted after fetching, but items were set', {
+            itemCount: fetchedItems.length
+          })
+        }
         
         // Set up a listener for cache updates (background refresh may add new items)
         // Re-check cache after a delay to see if background refresh added items

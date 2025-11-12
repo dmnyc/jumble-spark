@@ -57,6 +57,8 @@ class RssFeedService {
   private feedCache: Map<string, { feed: RssFeed; timestamp: number }> = new Map()
   private readonly CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
   private backgroundRefreshController: AbortController | null = null
+  private monthMapCache: Record<string, string> | null = null
+  private activeFetchPromises: Map<string, Promise<RssFeed>> = new Map() // Track active fetches by URL
 
   constructor() {
     if (!RssFeedService.instance) {
@@ -72,44 +74,74 @@ class RssFeedService {
     // Check cache first
     const cached = this.feedCache.get(url)
     if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
+      logger.debug('[RssFeedService] Returning cached feed', { url })
       return cached.feed
     }
 
     // Check if already aborted
     if (signal?.aborted) {
+      logger.warn('[RssFeedService] Signal already aborted before fetchFeed', { url })
       throw new DOMException('The operation was aborted.', 'AbortError')
     }
 
-    // Try multiple fetch strategies in order
-    const strategies = this.getFetchStrategies(url)
-    
-    for (const strategy of strategies) {
-      // Check if aborted before trying next strategy
-      if (signal?.aborted) {
-        throw new DOMException('The operation was aborted.', 'AbortError')
-      }
-
-      try {
-        const xmlText = await this.fetchWithStrategy(url, strategy, signal)
-        if (xmlText) {
-          const feed = this.parseFeed(xmlText, url)
-          // Cache the feed
-          this.feedCache.set(url, { feed, timestamp: Date.now() })
-          return feed
-        }
-      } catch (error) {
-        // Don't log abort errors as warnings - they're expected during cleanup
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          throw error // Re-throw abort errors immediately
-        }
-        logger.warn('[RssFeedService] Strategy failed', { url, strategy: strategy.name, error })
-        // Continue to next strategy
-        continue
-      }
+    // Check if there's already an active fetch for this URL (deduplicate simultaneous requests)
+    const activeFetch = this.activeFetchPromises.get(url)
+    if (activeFetch) {
+      logger.debug('[RssFeedService] Reusing active fetch for URL', { url })
+      return activeFetch
     }
 
-    // All strategies failed
-    throw new Error(`Failed to fetch RSS feed from ${url} after trying all available methods`)
+    // Create fetch promise and track it
+    const fetchPromise = (async () => {
+      try {
+        // Try multiple fetch strategies in order
+        const strategies = this.getFetchStrategies(url)
+        
+        for (const strategy of strategies) {
+          // Check if aborted before trying next strategy
+          if (signal?.aborted) {
+            logger.warn('[RssFeedService] Signal aborted during fetch strategies', { url, strategy: strategy.name })
+            throw new DOMException('The operation was aborted.', 'AbortError')
+          }
+
+          try {
+            logger.debug('[RssFeedService] Trying fetch strategy', { url, strategy: strategy.name })
+            const xmlText = await this.fetchWithStrategy(url, strategy, signal)
+            if (xmlText) {
+              const feed = this.parseFeed(xmlText, url)
+              // Cache the feed
+              this.feedCache.set(url, { feed, timestamp: Date.now() })
+              logger.info('[RssFeedService] Successfully fetched and parsed feed', { 
+                url, 
+                itemCount: feed.items.length,
+                strategy: strategy.name
+              })
+              return feed
+            }
+          } catch (error) {
+            // Don't log abort errors as warnings - they're expected during cleanup
+            if (error instanceof DOMException && error.name === 'AbortError') {
+              logger.warn('[RssFeedService] Fetch aborted', { url, strategy: strategy.name })
+              throw error // Re-throw abort errors immediately
+            }
+            logger.warn('[RssFeedService] Strategy failed', { url, strategy: strategy.name, error })
+            // Continue to next strategy
+            continue
+          }
+        }
+
+        // All strategies failed
+        throw new Error(`Failed to fetch RSS feed from ${url} after trying all available methods`)
+      } finally {
+        // Remove from active fetches when done
+        this.activeFetchPromises.delete(url)
+      }
+    })()
+
+    // Store the promise to deduplicate simultaneous requests
+    this.activeFetchPromises.set(url, fetchPromise)
+    
+    return fetchPromise
   }
 
   /**
@@ -160,9 +192,16 @@ class RssFeedService {
     }
 
     const controller = new AbortController()
+    // Use a longer timeout for RSS feeds (30 seconds) since they can be slow
+    // Don't abort on timeout - just log a warning, let the fetch continue
     const timeoutId = setTimeout(() => {
-      controller.abort()
-    }, 15000) // 15 second timeout
+      logger.warn('[RssFeedService] Fetch taking longer than expected', { 
+        url: originalUrl, 
+        strategy: strategy.name,
+        elapsed: '30s'
+      })
+      // Don't abort - just log. The fetch will continue or fail naturally
+    }, 30000) // 30 second warning (but don't abort)
 
     // If external signal is provided, abort our controller when external signal aborts
     if (externalSignal) {
@@ -448,8 +487,19 @@ class RssFeedService {
             .trim()
         }
       }
-      const itemPubDate = this.parseDate(this.getTextContent(item, 'pubDate'))
+      const pubDateText = this.getTextContent(item, 'pubDate')
+      const itemPubDate = this.parseDate(pubDateText)
       const itemGuid = this.getTextContent(item, 'guid') || itemLink || ''
+      
+      // Log item parsing for debugging
+      if (!itemPubDate && pubDateText) {
+        logger.warn('[RssFeedService] Failed to parse pubDate for item', {
+          url: feedUrl,
+          title: itemTitle.substring(0, 50),
+          pubDateText,
+          link: itemLink
+        })
+      }
       
       // Extract enclosure element (for audio/video files)
       let enclosure: RssFeedItemEnclosure | undefined
@@ -904,15 +954,136 @@ class RssFeedService {
   }
 
   /**
+   * Build a map of foreign month names to English abbreviations using Intl.DateTimeFormat
+   * This handles month names in various languages automatically
+   */
+  private buildMonthMap(): Record<string, string> {
+    // Common locales that might appear in RSS feeds
+    const locales = ['de', 'fr', 'es', 'it', 'pt', 'pt-BR', 'ru', 'pl', 'nl', 'sv', 'no', 'da', 'fi', 'cs', 'hu', 'ro', 'sk', 'sl', 'hr', 'bg', 'el', 'tr', 'ja', 'ko', 'zh', 'ar', 'he', 'th', 'vi', 'hi', 'fa']
+    
+    const monthMap: Record<string, string> = {}
+    const year = new Date().getFullYear()
+    
+    // English month abbreviations (0-11 index to English abbrev)
+    const englishMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    
+    // Build map for each locale
+    for (const locale of locales) {
+      try {
+        const formatter = new Intl.DateTimeFormat(locale, { month: 'short' })
+        for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
+          const foreignMonth = formatter.format(new Date(year, monthIndex))
+          const englishMonth = englishMonths[monthIndex]
+          
+          // Add both the full foreign month name and its lowercase version
+          if (foreignMonth && englishMonth) {
+            monthMap[foreignMonth] = englishMonth
+            monthMap[foreignMonth.toLowerCase()] = englishMonth
+            // Also handle common variations (first 3 letters)
+            if (foreignMonth.length >= 3) {
+              const abbrev = foreignMonth.substring(0, 3)
+              monthMap[abbrev] = englishMonth
+              monthMap[abbrev.toLowerCase()] = englishMonth
+            }
+          }
+        }
+      } catch {
+        // Skip locales that fail to format
+        continue
+      }
+    }
+    
+    return monthMap
+  }
+
+  /**
    * Parse date string into Date object
+   * Handles non-standard formats by skipping weekday and mapping foreign month names
    */
   private parseDate(dateString: string | null): Date | null {
     if (!dateString) return null
+    
+    // First, try standard Date parsing
     try {
-      return new Date(dateString)
+      const standardDate = new Date(dateString)
+      if (!isNaN(standardDate.getTime())) {
+        return standardDate
+      }
     } catch {
-      return null
+      // Continue to fallback parsing
     }
+    
+    // Handle non-standard formats (e.g., "Don, 06 Nov 2025 15:24:25")
+    // Skip the weekday part (everything up to and including the first comma)
+    let dateToParse = dateString.trim()
+    const commaIndex = dateToParse.indexOf(',')
+    if (commaIndex > 0) {
+      // Skip weekday and comma, keep the rest
+      dateToParse = dateToParse.substring(commaIndex + 1).trim()
+    }
+    
+    // Build month map using Intl.DateTimeFormat (lazy initialization)
+    if (!this.monthMapCache) {
+      this.monthMapCache = this.buildMonthMap()
+      logger.debug('[RssFeedService] Built month map', { 
+        monthCount: Object.keys(this.monthMapCache).length,
+        sampleMonths: Object.entries(this.monthMapCache).slice(0, 5)
+      })
+    }
+    
+    // Replace foreign month names with English equivalents
+    let monthReplaced = false
+    for (const [foreign, english] of Object.entries(this.monthMapCache)) {
+      // Match month name (case-insensitive, word boundary)
+      const regex = new RegExp(`\\b${this.escapeRegex(foreign)}\\b`, 'i')
+      if (regex.test(dateToParse)) {
+        dateToParse = dateToParse.replace(regex, english)
+        monthReplaced = true
+        logger.debug('[RssFeedService] Replaced month name', { foreign, english, original: dateString, afterReplace: dateToParse })
+        break
+      }
+    }
+    
+    // If no timezone is specified, assume UTC (common for RSS feeds)
+    const hasTimezone = /[+-]\d{4}|GMT|UTC|EST|PST|CET|CEST|CST|EDT|PDT$/i.test(dateToParse)
+    if (!hasTimezone && dateToParse.match(/\d{2}:\d{2}:\d{2}$/)) {
+      // Add UTC timezone if time is present but no timezone
+      dateToParse += ' UTC'
+    }
+    
+    try {
+      const parsedDate = new Date(dateToParse)
+      if (!isNaN(parsedDate.getTime())) {
+        logger.debug('[RssFeedService] Successfully parsed date', { 
+          original: dateString, 
+          parsed: dateToParse, 
+          result: parsedDate.toISOString() 
+        })
+        return parsedDate
+      } else {
+        logger.warn('[RssFeedService] Date parsing resulted in invalid date', { 
+          original: dateString, 
+          parsed: dateToParse,
+          monthReplaced 
+        })
+      }
+    } catch (error) {
+      logger.warn('[RssFeedService] Date parsing threw error', { 
+        original: dateString, 
+        parsed: dateToParse,
+        error: error instanceof Error ? error.message : String(error),
+        monthReplaced 
+      })
+    }
+    
+    return null
+  }
+
+  /**
+   * Escape special regex characters in a string
+   */
+  private escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   }
 
   /**
@@ -1005,20 +1176,67 @@ class RssFeedService {
     }
 
     const cacheWasEmpty = cachedItems.length === 0
+    
+    // Check which feeds are missing from cache
+    const normalizeUrl = (url: string) => url.trim().replace(/\/$/, '')
+    const cachedFeedUrls = new Set(cachedItems.map(item => normalizeUrl(item.feedUrl)))
+    const missingFeeds = feedUrls.filter(url => !cachedFeedUrls.has(normalizeUrl(url)))
+    
+    if (missingFeeds.length > 0) {
+      logger.info('[RssFeedService] Some feeds are missing from cache, will fetch them', {
+        missingFeeds,
+        cachedFeedUrls: Array.from(cachedFeedUrls),
+        requestedFeeds: feedUrls
+      })
+    }
 
     // Step 2: Background refresh to merge new items
     // If cache is empty, we'll wait a bit for the refresh to complete
-    const backgroundRefresh = async () => {
-      if (signal?.aborted) {
+    const backgroundRefresh = async (refreshSignal?: AbortSignal) => {
+      // Use the provided signal, or fall back to the original signal
+      const activeSignal = refreshSignal || signal
+      
+      if (activeSignal?.aborted) {
+        return
+      }
+
+      logger.info('[RssFeedService] Starting background refresh', { 
+        feedCount: feedUrls.length,
+        feedUrls,
+        cacheWasEmpty,
+        cachedItemCount: cachedItems.length
+      })
+
+      // Check if already aborted before starting
+      if (activeSignal?.aborted) {
+        logger.warn('[RssFeedService] Background refresh aborted before starting', { 
+          feedCount: feedUrls.length 
+        })
         return
       }
 
       try {
+        logger.info('[RssFeedService] Starting to fetch feeds', { 
+          feedCount: feedUrls.length,
+          feedUrls,
+          signalAborted: activeSignal?.aborted 
+        })
+        
         const results = await Promise.allSettled(
-          feedUrls.map(url => this.fetchFeed(url, signal))
+          feedUrls.map(url => {
+            if (activeSignal?.aborted) {
+              logger.warn('[RssFeedService] Signal aborted before fetching feed', { url })
+              return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'))
+            }
+            logger.debug('[RssFeedService] Fetching feed', { url, signalAborted: activeSignal?.aborted })
+            return this.fetchFeed(url, activeSignal)
+          })
         )
 
-        if (signal?.aborted) {
+        if (activeSignal?.aborted) {
+          logger.warn('[RssFeedService] Signal aborted after fetching feeds', { 
+            feedCount: feedUrls.length 
+          })
           return
         }
 
@@ -1031,23 +1249,41 @@ class RssFeedService {
           if (result.status === 'fulfilled') {
             newItems.push(...result.value.items)
             successCount++
-            logger.debug('[RssFeedService] Successfully fetched feed', { url: feedUrls[index], itemCount: result.value.items.length })
+            logger.info('[RssFeedService] Successfully fetched feed', { 
+              url: feedUrls[index], 
+              itemCount: result.value.items.length,
+              feedTitle: result.value.title
+            })
           } else {
             failureCount++
             const error = result.reason
             if (error instanceof DOMException && error.name === 'AbortError') {
               abortCount++
+              logger.warn('[RssFeedService] Feed fetch was aborted', { 
+                url: feedUrls[index],
+                reason: error.message || 'AbortError'
+              })
               return
             }
             const errorMessage = error instanceof Error ? error.message : String(error)
             logger.warn('[RssFeedService] Failed to fetch feed after trying all strategies', { 
               url: feedUrls[index], 
-              error: errorMessage
+              error: errorMessage,
+              errorStack: error instanceof Error ? error.stack : undefined,
+              errorType: error?.constructor?.name
             })
           }
         })
+        
+        logger.info('[RssFeedService] Background refresh completed', {
+          successCount,
+          failureCount,
+          abortCount,
+          newItemCount: newItems.length,
+          totalFeeds: feedUrls.length
+        })
 
-        if (!signal?.aborted && successCount > 0) {
+        if (!activeSignal?.aborted && successCount > 0) {
           // Merge new items with cached items (deduplicate by feedUrl:guid)
           const itemMap = new Map<string, RssFeedItem>()
           
@@ -1095,22 +1331,41 @@ class RssFeedService {
       }
     }
 
-    // If cache is empty, wait a bit for background refresh to populate it
-    if (cacheWasEmpty) {
-      logger.info('[RssFeedService] Cache is empty, waiting for background refresh to complete', { feedCount: feedUrls.length })
+    // If cache is empty OR some feeds are missing, wait a bit for background refresh
+    const shouldWaitForRefresh = cacheWasEmpty || missingFeeds.length > 0
+    
+    if (shouldWaitForRefresh) {
+      logger.info('[RssFeedService] Waiting for background refresh to complete', { 
+        feedCount: feedUrls.length,
+        cacheWasEmpty,
+        missingFeedsCount: missingFeeds.length,
+        missingFeeds
+      })
       try {
-        // Wait up to 10 seconds for background refresh to complete
+        // For missing feeds, create a separate abort controller that won't be aborted by component cleanup
+        // This allows the fetch to complete even if the component re-renders
+        const backgroundAbortController = new AbortController()
+        const backgroundSignal = signal ? (() => {
+          // Combine signals: abort if either the external signal OR our background controller aborts
+          const combined = new AbortController()
+          const abort = () => combined.abort()
+          signal.addEventListener('abort', abort, { once: true })
+          backgroundAbortController.signal.addEventListener('abort', abort, { once: true })
+          return combined.signal
+        })() : backgroundAbortController.signal
+        
+        // Wait up to 30 seconds for background refresh to complete (longer for missing feeds)
         await Promise.race([
-          backgroundRefresh(),
-          new Promise(resolve => setTimeout(resolve, 10000))
+          backgroundRefresh(backgroundSignal),
+          new Promise(resolve => setTimeout(resolve, 30000))
         ])
         
         // Re-read from cache after background refresh
         try {
           const refreshedItems = await indexedDb.getRssFeedItems()
-          const feedUrlSet = new Set(feedUrls)
+          const feedUrlSet = new Set(feedUrls.map(normalizeUrl))
           cachedItems = refreshedItems
-            .filter(item => feedUrlSet.has(item.feedUrl))
+            .filter(item => feedUrlSet.has(normalizeUrl(item.feedUrl)))
             .map(item => ({
               ...item,
               pubDate: item.pubDate ? new Date(item.pubDate) : null
@@ -1118,7 +1373,7 @@ class RssFeedService {
           
           logger.info('[RssFeedService] Loaded items after background refresh', { 
             itemCount: cachedItems.length,
-            feedCount: feedUrls.length 
+            feedCount: feedUrls.length
           })
         } catch (error) {
           logger.warn('[RssFeedService] Failed to reload cached items after background refresh', { error })
@@ -1129,7 +1384,8 @@ class RssFeedService {
         }
       }
     } else {
-      // Cache has items, start background refresh in background (don't wait)
+      // Cache has all requested feeds, start background refresh in background (don't wait)
+      logger.debug('[RssFeedService] All feeds in cache, starting background refresh without waiting')
       backgroundRefresh().catch(err => {
         if (!(err instanceof DOMException && err.name === 'AbortError')) {
           logger.error('[RssFeedService] Background refresh error', { error: err })
