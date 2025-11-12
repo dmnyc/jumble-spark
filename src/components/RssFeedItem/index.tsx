@@ -193,6 +193,9 @@ export default function RssFeedItem({ item, className, compact = false }: { item
       if (isSmallScreen) {
         isSelectingRef.current = true
         // Clear any pending drawer show
+        if (selectionStableTimeoutRef.current) {
+          clearTimeout(selectionStableTimeoutRef.current)
+        }
         setShowHighlightDrawer(false)
       }
     }
@@ -201,23 +204,36 @@ export default function RssFeedItem({ item, className, compact = false }: { item
       if (isSmallScreen) {
         isSelectingRef.current = true
         // Clear any pending drawer show while actively selecting
-        if (touchEndTimeoutRef.current) {
-          clearTimeout(touchEndTimeoutRef.current)
+        if (selectionStableTimeoutRef.current) {
+          clearTimeout(selectionStableTimeoutRef.current)
         }
+        setShowHighlightDrawer(false)
       }
     }
 
     const handleTouchEnd = () => {
       if (isSmallScreen) {
-        // Wait a bit longer on mobile to allow native selection UI to appear first
+        // Mark that touch selection has ended
+        // Wait a bit for native selection UI to appear
         if (touchEndTimeoutRef.current) {
           clearTimeout(touchEndTimeoutRef.current)
         }
         touchEndTimeoutRef.current = setTimeout(() => {
           isSelectingRef.current = false
-          // Don't immediately show drawer - let selection stability check handle it
-          // This allows user to continue dragging selection handles if needed
-        }, 200) // Shorter delay since we're using stability check
+          // Now check if there's a selection and show drawer after stability period
+          lastSelectionChangeRef.current = Date.now()
+          // Wait for selection to be stable (no changes for 1600ms)
+          if (selectionStableTimeoutRef.current) {
+            clearTimeout(selectionStableTimeoutRef.current)
+          }
+          selectionStableTimeoutRef.current = setTimeout(() => {
+            const timeSinceLastChange = Date.now() - lastSelectionChangeRef.current
+            // Only show if selection hasn't changed in the last 1600ms and we're not actively selecting
+            if (timeSinceLastChange >= 1600 && !isSelectingRef.current) {
+              handleSelection(true)
+            }
+          }, 1600)
+        }, 600) // Wait 600ms for native selection UI
       }
     }
 
@@ -227,25 +243,37 @@ export default function RssFeedItem({ item, className, compact = false }: { item
         // On mobile, track when selection last changed
         lastSelectionChangeRef.current = Date.now()
         
-        // Clear any pending drawer shows
-        if (selectionStableTimeoutRef.current) {
-          clearTimeout(selectionStableTimeoutRef.current)
-        }
-        setShowHighlightDrawer(false)
-        
         // If we're actively selecting (touch events), don't process yet
         if (isSelectingRef.current) {
           return
         }
         
-        // Wait for selection to be stable (no changes for 1500ms) before showing drawer
+        // Check if there's actually a selection
+        const selection = window.getSelection()
+        const hasSelection = selection && !selection.isCollapsed && selection.rangeCount > 0 && selection.toString().trim().length > 0
+        
+        // If no selection, clear drawer immediately
+        if (!hasSelection) {
+          if (selectionStableTimeoutRef.current) {
+            clearTimeout(selectionStableTimeoutRef.current)
+          }
+          setShowHighlightDrawer(false)
+          return
+        }
+        
+        // Clear any pending drawer shows and reset the timeout
+        if (selectionStableTimeoutRef.current) {
+          clearTimeout(selectionStableTimeoutRef.current)
+        }
+        
+        // Wait for selection to be stable (no changes for 1600ms) before showing drawer
         selectionStableTimeoutRef.current = setTimeout(() => {
           const timeSinceLastChange = Date.now() - lastSelectionChangeRef.current
-          // Only show if selection hasn't changed in the last 1500ms (3x original delay)
-          if (timeSinceLastChange >= 2000 && !isSelectingRef.current) {
+          // Only show if selection hasn't changed in the last 1600ms and we're not actively selecting
+          if (timeSinceLastChange >= 1600 && !isSelectingRef.current) {
             handleSelection(true)
           }
-        }, 1500)
+        }, 1600)
       } else {
         // Desktop: shorter delay
         if (selectionTimeoutRef.current) {
@@ -741,5 +769,6 @@ export default function RssFeedItem({ item, className, compact = false }: { item
     </div>
   )
 }
+
 
 
