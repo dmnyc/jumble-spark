@@ -233,7 +233,15 @@ function ReplyNoteList({ index, event, sort = 'oldest' }: { index?: number; even
 
   const onNewReply = useCallback((evt: NEvent) => {
     addReplies([evt])
-  }, [])
+    // Also update the discussion cache so the reply persists
+    if (rootInfo) {
+      const cachedReplies = discussionFeedCache.getCachedReplies(rootInfo) || []
+      const existingReplyIds = new Set(cachedReplies.map(r => r.id))
+      if (!existingReplyIds.has(evt.id)) {
+        discussionFeedCache.setCachedReplies(rootInfo, [...cachedReplies, evt])
+      }
+    }
+  }, [addReplies, rootInfo])
 
   useEffect(() => {
     if (!rootInfo) return

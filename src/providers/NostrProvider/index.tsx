@@ -932,6 +932,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         }, 100)
       }
       
+      // Emit newEvent immediately after publishing so UI components can react
+      // This ensures replies appear immediately in the note view
+      client.emitNewEvent(event)
+      
       console.log('✅ [Publish] Returning event', { eventId: event.id?.substring(0, 8), hasRelayStatuses: !!relayStatuses })
       return event
     } catch (error) {
