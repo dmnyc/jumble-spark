@@ -28,6 +28,7 @@ const StoreNames = {
   BLOCKED_RELAYS_EVENTS: 'blockedRelaysEvents',
   CACHE_RELAYS_EVENTS: 'cacheRelaysEvents',
   RSS_FEED_LIST_EVENTS: 'rssFeedListEvents',
+  RSS_FEED_ITEMS: 'rssFeedItems',
   RELAY_SETS: 'relaySets',
   FOLLOWING_FAVORITE_RELAYS: 'followingFavoriteRelays',
   RELAY_INFOS: 'relayInfos',
@@ -51,7 +52,7 @@ class IndexedDbService {
   init(): Promise<void> {
     if (!this.initPromise) {
       this.initPromise = new Promise((resolve, reject) => {
-        const request = window.indexedDB.open('jumble', 16)
+        const request = window.indexedDB.open('jumble', 17)
 
         request.onerror = (event) => {
           reject(event)
@@ -123,6 +124,11 @@ class IndexedDbService {
           }
           if (!db.objectStoreNames.contains(StoreNames.RSS_FEED_LIST_EVENTS)) {
             db.createObjectStore(StoreNames.RSS_FEED_LIST_EVENTS, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.RSS_FEED_ITEMS)) {
+            const store = db.createObjectStore(StoreNames.RSS_FEED_ITEMS, { keyPath: 'key' })
+            store.createIndex('feedUrl', 'feedUrl', { unique: false })
+            store.createIndex('pubDate', 'pubDate', { unique: false })
           }
         }
       })
@@ -1300,6 +1306,139 @@ class IndexedDbService {
         })
       })
     )
+  }
+
+  /**
+   * Store RSS feed items in IndexedDB
+   */
+  async putRssFeedItems(items: import('./rss-feed.service').RssFeedItem[]): Promise<void> {
+    await this.initPromise
+    const storeName = StoreNames.RSS_FEED_ITEMS
+    
+    if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
+      logger.warn('[IndexedDB] RSS feed items store not found', { storeName })
+      return
+    }
+
+    return new Promise((resolve) => {
+      const transaction = this.db!.transaction(storeName, 'readwrite')
+      const store = transaction.objectStore(storeName)
+      
+      let completed = 0
+      let errors = 0
+      
+      items.forEach((item) => {
+        // Create a unique key from feedUrl and guid
+        const key = `${item.feedUrl}:${item.guid}`
+        // Store in TValue format for consistency with other stores
+        const value: TValue<import('./rss-feed.service').RssFeedItem> = {
+          key,
+          value: item,
+          addedAt: Date.now()
+        }
+        
+        const request = store.put(value)
+        request.onsuccess = () => {
+          completed++
+          if (completed + errors === items.length) {
+            resolve()
+          }
+        }
+        request.onerror = () => {
+          errors++
+          if (completed + errors === items.length) {
+            resolve() // Don't reject, just log
+          }
+        }
+      })
+      
+      if (items.length === 0) {
+        resolve()
+      }
+    })
+  }
+
+  /**
+   * Get all RSS feed items from IndexedDB
+   */
+  async getRssFeedItems(): Promise<import('./rss-feed.service').RssFeedItem[]> {
+    await this.initPromise
+    const storeName = StoreNames.RSS_FEED_ITEMS
+    
+    if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
+      logger.warn('[IndexedDB] RSS feed items store not found', { storeName })
+      return []
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(storeName, 'readonly')
+      const store = transaction.objectStore(storeName)
+      const request = store.getAll()
+      
+      request.onsuccess = () => {
+        const items = request.result.map((entry: TValue<import('./rss-feed.service').RssFeedItem> | any) => {
+          let item: import('./rss-feed.service').RssFeedItem | null = null
+          
+          // Handle new format (with value property)
+          if (entry.value) {
+            item = entry.value
+          }
+          // Fallback for old format (with item property)
+          else if ((entry as any).item) {
+            item = (entry as any).item as import('./rss-feed.service').RssFeedItem
+          }
+          
+          if (!item) {
+            return null
+          }
+          
+          // Ensure pubDate is properly handled (IndexedDB may serialize Date as string)
+          if (item.pubDate && typeof item.pubDate === 'string') {
+            item.pubDate = new Date(item.pubDate)
+          } else if (item.pubDate && typeof item.pubDate === 'number') {
+            item.pubDate = new Date(item.pubDate)
+          }
+          
+          return item
+        }).filter((item): item is import('./rss-feed.service').RssFeedItem => item !== null)
+        
+        logger.debug('[IndexedDB] Retrieved RSS feed items', { 
+          totalRetrieved: request.result.length,
+          validItems: items.length 
+        })
+        resolve(items)
+      }
+      
+      request.onerror = () => {
+        reject(request.error)
+      }
+    })
+  }
+
+  /**
+   * Clear RSS feed items from IndexedDB
+   */
+  async clearRssFeedItems(): Promise<void> {
+    await this.initPromise
+    const storeName = StoreNames.RSS_FEED_ITEMS
+    
+    if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
+      return
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(storeName, 'readwrite')
+      const store = transaction.objectStore(storeName)
+      const request = store.clear()
+      
+      request.onsuccess = () => {
+        resolve()
+      }
+      
+      request.onerror = () => {
+        reject(request.error)
+      }
+    })
   }
 }
 

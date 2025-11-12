@@ -13,22 +13,52 @@ export default function RssFeedList() {
   const [items, setItems] = useState<TRssFeedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     // Create AbortController for this effect
-    const abortController = new AbortController()
+    let abortController = new AbortController()
     let isMounted = true
     let isLoading = false
+    let timeoutId: NodeJS.Timeout | null = null
 
-    const loadRssFeeds = async () => {
+    const loadRssFeeds = async (forceNewController = false) => {
+      // If forced, create a new controller (for manual refreshes)
+      if (forceNewController) {
+        abortController.abort() // Abort old one
+        abortController = new AbortController()
+      }
+
       // Check if already aborted or if a load is already in progress
       if (abortController.signal.aborted || isLoading) {
+        logger.debug('[RssFeedList] Skipping load - already aborted or loading', { 
+          aborted: abortController.signal.aborted, 
+          isLoading 
+        })
         return
+      }
+
+      // Clear any existing timeout
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
       }
 
       isLoading = true
       setLoading(true)
       setError(null)
+      
+      // Set a timeout to prevent infinite loading (30 seconds)
+      timeoutId = setTimeout(() => {
+        if (isMounted && isLoading) {
+          logger.warn('[RssFeedList] Feed loading timeout - aborting and showing partial results')
+          abortController.abort()
+          isLoading = false
+          if (isMounted) {
+            setLoading(false)
+          }
+        }
+      }, 30000)
 
       try {
         // Get feed URLs from event or use default
@@ -72,6 +102,12 @@ export default function RssFeedList() {
           }
         } else if (pubkey) {
           logger.info('[RssFeedList] No RSS feed list event in context, using default feeds')
+          // Trigger background refresh for default feeds when no event exists
+          rssFeedService.backgroundRefreshFeeds(feedUrls, abortController.signal).catch(err => {
+            if (!(err instanceof DOMException && err.name === 'AbortError')) {
+              logger.error('[RssFeedList] Background refresh of default feeds failed', { error: err })
+            }
+          })
         }
 
         // Check if aborted before fetching
@@ -79,11 +115,19 @@ export default function RssFeedList() {
           return
         }
 
-        // Fetch and merge feeds (this handles errors gracefully and returns partial results)
+        // Fetch and merge feeds (cache-first: returns cached items immediately, background-refreshes)
+        // Show refreshing indicator (background refresh will run in background, or we'll wait if cache is empty)
+        if (isMounted) {
+          setRefreshing(true)
+        }
+        
         const fetchedItems = await rssFeedService.fetchMultipleFeeds(feedUrls, abortController.signal)
         
         // Check if aborted after fetching
         if (abortController.signal.aborted || !isMounted) {
+          if (isMounted) {
+            setRefreshing(false)
+          }
           return
         }
         
@@ -94,6 +138,40 @@ export default function RssFeedList() {
         }
         
         setItems(fetchedItems)
+        
+        // Set up a listener for cache updates (background refresh may add new items)
+        // Re-check cache after a delay to see if background refresh added items
+        const checkForUpdates = async () => {
+          if (abortController.signal.aborted || !isMounted) {
+            if (isMounted) {
+              setRefreshing(false)
+            }
+            return
+          }
+          
+          try {
+            const updatedItems = await rssFeedService.fetchMultipleFeeds(feedUrls, abortController.signal)
+            if (!abortController.signal.aborted && isMounted) {
+              setRefreshing(false)
+              if (updatedItems.length > fetchedItems.length) {
+                // New items were added by background refresh
+                setItems(updatedItems)
+                logger.info('[RssFeedList] Updated items from background refresh', {
+                  previousCount: fetchedItems.length,
+                  newCount: updatedItems.length
+                })
+              }
+            }
+          } catch (err) {
+            if (isMounted) {
+              setRefreshing(false)
+            }
+            // Ignore errors in update check
+          }
+        }
+        
+        // Check for updates after 5 seconds (background refresh should be done by then)
+        setTimeout(checkForUpdates, 5000)
       } catch (err) {
         // Don't handle abort errors - they're expected during cleanup
         if (err instanceof DOMException && err.name === 'AbortError') {
@@ -116,9 +194,17 @@ export default function RssFeedList() {
         }
       } finally {
         isLoading = false
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+          timeoutId = null
+        }
         // Only update loading state if still mounted
         if (isMounted) {
           setLoading(false)
+          // If we had no cached items, background refresh was awaited, so stop refreshing indicator
+          if (items.length === 0) {
+            setRefreshing(false)
+          }
         }
       }
     }
@@ -134,7 +220,16 @@ export default function RssFeedList() {
           eventId: detail.eventId,
           feedCount: detail.feedUrls.length 
         })
-        loadRssFeeds()
+        
+        // For manual refresh, show refreshing indicator
+        if (detail.eventId === 'manual-refresh' && isMounted) {
+          setRefreshing(true)
+        }
+        
+        // For manual refresh, the background refresh is already triggered by the button
+        // Just reload to show updated items (background refresh will update cache in the background)
+        // For other updates (like event changes), also just reload
+        loadRssFeeds(true)
       }
     }
 
@@ -143,7 +238,11 @@ export default function RssFeedList() {
     return () => {
       isMounted = false
       isLoading = false
-      abortController.abort() // Cancel all in-flight requests
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+      // Abort any in-flight requests
+      abortController.abort()
       window.removeEventListener('rssFeedListUpdated', handleRssFeedListUpdate as EventListener)
     }
   }, [pubkey, rssFeedListEvent, t])
@@ -176,6 +275,12 @@ export default function RssFeedList() {
 
   return (
     <div className="space-y-4 px-4 py-3">
+      {refreshing && (
+        <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground border-b">
+          <Loader className="h-4 w-4 animate-spin" />
+          <span>{t('Refreshing feeds...')}</span>
+        </div>
+      )}
       {items.map((item) => (
         <RssFeedItem key={`${item.feedUrl}-${item.guid}`} item={item} />
       ))}

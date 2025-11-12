@@ -404,8 +404,22 @@ export default function CacheRelaysSetting() {
   }
 
   // Check if an event is invalid
-  const isInvalidEvent = useCallback((item: { key: string; value: any; addedAt: number }): boolean => {
-    if (!item || !item.value) return true
+  const isInvalidEvent = useCallback((item: { key: string; value: any; addedAt: number }, storeName?: string | null): boolean => {
+    if (!item) return true
+    
+    // RSS feed items are not Nostr events, so skip validation for that store
+    // Handle both old format (with item property) and new format (with value property)
+    if (storeName === 'rssFeedItems') {
+      // Old format has item property, new format has value property - both are valid for RSS items
+      if (item.value || (item as any).item) {
+        return false
+      }
+      // If neither exists, it's invalid
+      return true
+    }
+    
+    // For other stores, check if value exists
+    if (!item.value) return true
     
     const event = item.value as Event
     // Check for required Nostr event fields
@@ -690,7 +704,7 @@ export default function CacheRelaysSetting() {
                         ) : (
                           filteredStoreItems.map((item, index) => {
                             const nestedCount = (item as any).nestedCount
-                            const invalid = isInvalidEvent(item)
+                            const invalid = isInvalidEvent(item, selectedStore)
                             const invalidExplanation = invalid ? getInvalidEventExplanation(item) : ''
                             return (
                               <div key={item.key || index} className="border rounded-lg p-3 break-words relative">
@@ -870,7 +884,7 @@ export default function CacheRelaysSetting() {
                           ) : (
                             filteredStoreItems.map((item, index) => {
                               const nestedCount = (item as any).nestedCount
-                              const invalid = isInvalidEvent(item)
+                              const invalid = isInvalidEvent(item, selectedStore)
                               const invalidExplanation = invalid ? getInvalidEventExplanation(item) : ''
                               return (
                                 <div key={item.key || index} className="border rounded-lg p-3 break-words relative">

@@ -1368,14 +1368,15 @@ function parseMarkdownContent(
           }
         }
         const displayUrl = thumbnailUrl || url
+        const hasThumbnail = !!thumbnailUrl
         
         parts.push(
-          <div key={`img-${patternIdx}`} className="my-2 block max-w-[400px] mx-auto">
+          <div key={`img-${patternIdx}`} className={`my-2 block ${hasThumbnail ? 'max-w-[120px]' : 'max-w-[400px]'}`}>
             <Image
               image={{ url: displayUrl, pubkey: eventPubkey }}
-              className="w-full rounded-lg cursor-zoom-in"
+              className={`${hasThumbnail ? 'h-auto' : 'w-full'} rounded-lg cursor-zoom-in`}
               classNames={{
-                wrapper: 'rounded-lg block w-full',
+                wrapper: `rounded-lg block ${hasThumbnail ? '' : 'w-full'}`,
                 errorPlaceholder: 'aspect-square h-[30vh]'
               }}
               onClick={(e) => {
@@ -3064,14 +3065,15 @@ export default function MarkdownArticle({
                   }
                 }
                 const displayUrl = thumbnailUrl || media.url
+                const hasThumbnail = !!thumbnailUrl
                 
                 return (
-                  <div key={`tag-media-${cleaned}`} className="my-2">
+                  <div key={`tag-media-${cleaned}`} className={`my-2 ${hasThumbnail ? 'max-w-[120px]' : 'max-w-[400px]'}`}>
                     <Image
                       image={{ url: displayUrl, pubkey: event.pubkey }}
-                      className="max-w-[400px] rounded-lg cursor-zoom-in"
+                      className={`${hasThumbnail ? 'h-auto' : 'w-full'} rounded-lg cursor-zoom-in`}
                       classNames={{
-                        wrapper: 'rounded-lg',
+                        wrapper: `rounded-lg ${hasThumbnail ? '' : 'w-full'}`,
                         errorPlaceholder: 'aspect-square h-[30vh]'
                       }}
                       onClick={(e) => {

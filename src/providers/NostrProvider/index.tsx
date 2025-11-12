@@ -94,6 +94,7 @@ type TNostrContext = {
   updateInterestListEvent: (interestListEvent: Event) => Promise<void>
   updateFavoriteRelaysEvent: (favoriteRelaysEvent: Event) => Promise<void>
   updateBlockedRelaysEvent: (blockedRelaysEvent: Event) => Promise<void>
+  updateRssFeedListEvent: (rssFeedListEvent: Event) => Promise<void>
   updateNotificationsSeenAt: (skipPublish?: boolean) => Promise<void>
 }
 
@@ -1094,6 +1095,13 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     setBlockedRelaysEvent(newBlockedRelaysEvent)
   }
 
+  const updateRssFeedListEvent = async (rssFeedListEvent: Event) => {
+    const newRssFeedListEvent = await indexedDb.putReplaceableEvent(rssFeedListEvent)
+    if (newRssFeedListEvent.id !== rssFeedListEvent.id) return
+
+    setRssFeedListEvent(newRssFeedListEvent)
+  }
+
   const updateNotificationsSeenAt = async (skipPublish = false) => {
     if (!account) return
 
@@ -1163,6 +1171,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         updateInterestListEvent,
         updateFavoriteRelaysEvent,
         updateBlockedRelaysEvent,
+        updateRssFeedListEvent,
         updateNotificationsSeenAt
       }}
     >

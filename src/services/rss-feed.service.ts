@@ -1,5 +1,6 @@
 import { DEFAULT_RSS_FEEDS } from '@/constants'
 import logger from '@/lib/logger'
+import indexedDb from '@/services/indexed-db.service'
 
 export interface RssFeedItemMedia {
   url: string
@@ -55,6 +56,7 @@ class RssFeedService {
   static instance: RssFeedService
   private feedCache: Map<string, { feed: RssFeed; timestamp: number }> = new Map()
   private readonly CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+  private backgroundRefreshController: AbortController | null = null
 
   constructor() {
     if (!RssFeedService.instance) {
@@ -925,7 +927,7 @@ class RssFeedService {
 
   /**
    * Fetch multiple feeds and merge items
-   * This method gracefully handles failures - if some feeds fail, it returns items from successful feeds
+   * Cache-first: reads from IndexedDB, displays immediately, then background-refreshes to merge new items
    */
   async fetchMultipleFeeds(feedUrls: string[], signal?: AbortSignal): Promise<RssFeedItem[]> {
     if (feedUrls.length === 0) {
@@ -937,70 +939,345 @@ class RssFeedService {
       throw new DOMException('The operation was aborted.', 'AbortError')
     }
 
-    const results = await Promise.allSettled(
-      feedUrls.map(url => this.fetchFeed(url, signal))
-    )
-
-    // Check if aborted after fetching
-    if (signal?.aborted) {
-      throw new DOMException('The operation was aborted.', 'AbortError')
+    // Step 1: Read from IndexedDB cache first (cache-first strategy)
+    let cachedItems: RssFeedItem[] = []
+    try {
+      const allCachedItems = await indexedDb.getRssFeedItems()
+      logger.info('[RssFeedService] Retrieved all cached items from IndexedDB', { 
+        totalCached: allCachedItems.length
+      })
+      
+      // Filter to only items from the requested feeds
+      // Normalize URLs for comparison (remove trailing slashes, ensure consistent format)
+      const normalizeUrl = (url: string) => url.trim().replace(/\/$/, '')
+      const normalizedRequestedUrls = new Set(feedUrls.map(normalizeUrl))
+      
+      cachedItems = allCachedItems.filter(item => {
+        const normalizedItemUrl = normalizeUrl(item.feedUrl)
+        const matches = normalizedRequestedUrls.has(normalizedItemUrl)
+        if (!matches && allCachedItems.length > 0 && allCachedItems.length < 10) {
+          // Only log for small sets to avoid spam
+          logger.debug('[RssFeedService] Item filtered out (feed URL not in requested list)', {
+            itemFeedUrl: item.feedUrl,
+            normalizedItemUrl,
+            requestedFeeds: feedUrls,
+            normalizedRequestedUrls: Array.from(normalizedRequestedUrls),
+            itemGuid: item.guid?.substring(0, 20)
+          })
+        }
+        return matches
+      })
+      
+      logger.info('[RssFeedService] Filtered cached items by feed URLs', {
+        beforeFilter: allCachedItems.length,
+        afterFilter: cachedItems.length,
+        requestedFeedCount: feedUrls.length,
+        uniqueCachedFeedUrls: [...new Set(allCachedItems.map(i => i.feedUrl))],
+        requestedFeedUrls: feedUrls
+      })
+      
+      // Convert pubDate back to Date objects (handle both Date objects and timestamps/strings)
+      cachedItems = cachedItems.map(item => {
+        let pubDate: Date | null = null
+        if (item.pubDate) {
+          if (item.pubDate instanceof Date) {
+            pubDate = item.pubDate
+          } else if (typeof item.pubDate === 'number') {
+            pubDate = new Date(item.pubDate)
+          } else if (typeof item.pubDate === 'string') {
+            pubDate = new Date(item.pubDate)
+          }
+        }
+        return {
+          ...item,
+          pubDate
+        }
+      })
+      
+      logger.info('[RssFeedService] Loaded cached items from IndexedDB', { 
+        cachedCount: cachedItems.length,
+        feedCount: feedUrls.length,
+        filteredCount: cachedItems.length,
+        feedUrls: feedUrls
+      })
+    } catch (error) {
+      logger.warn('[RssFeedService] Failed to load cached items from IndexedDB', { error })
     }
 
-    const allItems: RssFeedItem[] = []
-    let successCount = 0
-    let failureCount = 0
-    let abortCount = 0
+    const cacheWasEmpty = cachedItems.length === 0
 
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        allItems.push(...result.value.items)
-        successCount++
-        logger.debug('[RssFeedService] Successfully fetched feed', { url: feedUrls[index], itemCount: result.value.items.length })
-      } else {
-        failureCount++
-        const error = result.reason
-        // Don't log abort errors - they're expected during cleanup
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          abortCount++
-          // Silently skip aborted requests
+    // Step 2: Background refresh to merge new items
+    // If cache is empty, we'll wait a bit for the refresh to complete
+    const backgroundRefresh = async () => {
+      if (signal?.aborted) {
+        return
+      }
+
+      try {
+        const results = await Promise.allSettled(
+          feedUrls.map(url => this.fetchFeed(url, signal))
+        )
+
+        if (signal?.aborted) {
           return
         }
-        // Log warning but don't throw - we want to return partial results
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        logger.warn('[RssFeedService] Failed to fetch feed after trying all strategies', { 
-          url: feedUrls[index], 
-          error: errorMessage
-        })
-      }
-    })
 
-    // Log summary (only if not aborted)
-    if (!signal?.aborted) {
-      if (successCount > 0) {
-        logger.info('[RssFeedService] Feed fetch summary', { 
-          total: feedUrls.length, 
-          successful: successCount, 
-          failed: failureCount - abortCount, // Don't count aborts as failures
-          aborted: abortCount,
-          itemsFound: allItems.length
+        const newItems: RssFeedItem[] = []
+        let successCount = 0
+        let failureCount = 0
+        let abortCount = 0
+
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            newItems.push(...result.value.items)
+            successCount++
+            logger.debug('[RssFeedService] Successfully fetched feed', { url: feedUrls[index], itemCount: result.value.items.length })
+          } else {
+            failureCount++
+            const error = result.reason
+            if (error instanceof DOMException && error.name === 'AbortError') {
+              abortCount++
+              return
+            }
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            logger.warn('[RssFeedService] Failed to fetch feed after trying all strategies', { 
+              url: feedUrls[index], 
+              error: errorMessage
+            })
+          }
         })
-      } else if (failureCount > abortCount) {
-        // Only log error if there were actual failures (not just aborts)
-        logger.error('[RssFeedService] All feeds failed to fetch', { 
-          total: feedUrls.length, 
-          urls: feedUrls 
-        })
+
+        if (!signal?.aborted && successCount > 0) {
+          // Merge new items with cached items (deduplicate by feedUrl:guid)
+          const itemMap = new Map<string, RssFeedItem>()
+          
+          // Add cached items first
+          cachedItems.forEach(item => {
+            const key = `${item.feedUrl}:${item.guid}`
+            itemMap.set(key, item)
+          })
+          
+          // Add/update with new items (newer items replace older ones)
+          newItems.forEach(item => {
+            const key = `${item.feedUrl}:${item.guid}`
+            const existing = itemMap.get(key)
+            // Keep the newer item, or add if it doesn't exist
+            if (!existing || (item.pubDate && existing.pubDate && item.pubDate > existing.pubDate)) {
+              itemMap.set(key, item)
+            }
+          })
+          
+          const mergedItems = Array.from(itemMap.values())
+          
+          // Sort by publication date (newest first)
+          mergedItems.sort((a, b) => {
+            const dateA = a.pubDate?.getTime() || 0
+            const dateB = b.pubDate?.getTime() || 0
+            return dateB - dateA
+          })
+          
+          // Write merged items back to IndexedDB
+          try {
+            await indexedDb.putRssFeedItems(mergedItems)
+            logger.info('[RssFeedService] Updated IndexedDB cache with merged items', { 
+              totalItems: mergedItems.length,
+              newItems: newItems.length,
+              cachedItems: cachedItems.length
+            })
+          } catch (error) {
+            logger.error('[RssFeedService] Failed to update IndexedDB cache', { error })
+          }
+        }
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          logger.error('[RssFeedService] Background refresh failed', { error })
+        }
       }
     }
 
+    // If cache is empty, wait a bit for background refresh to populate it
+    if (cacheWasEmpty) {
+      logger.info('[RssFeedService] Cache is empty, waiting for background refresh to complete', { feedCount: feedUrls.length })
+      try {
+        // Wait up to 10 seconds for background refresh to complete
+        await Promise.race([
+          backgroundRefresh(),
+          new Promise(resolve => setTimeout(resolve, 10000))
+        ])
+        
+        // Re-read from cache after background refresh
+        try {
+          const refreshedItems = await indexedDb.getRssFeedItems()
+          const feedUrlSet = new Set(feedUrls)
+          cachedItems = refreshedItems
+            .filter(item => feedUrlSet.has(item.feedUrl))
+            .map(item => ({
+              ...item,
+              pubDate: item.pubDate ? new Date(item.pubDate) : null
+            }))
+          
+          logger.info('[RssFeedService] Loaded items after background refresh', { 
+            itemCount: cachedItems.length,
+            feedCount: feedUrls.length 
+          })
+        } catch (error) {
+          logger.warn('[RssFeedService] Failed to reload cached items after background refresh', { error })
+        }
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          logger.error('[RssFeedService] Background refresh error during initial load', { error })
+        }
+      }
+    } else {
+      // Cache has items, start background refresh in background (don't wait)
+      backgroundRefresh().catch(err => {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          logger.error('[RssFeedService] Background refresh error', { error: err })
+        }
+      })
+    }
+
+    // Return cached items (now potentially updated from background refresh)
     // Sort by publication date (newest first)
-    allItems.sort((a, b) => {
+    cachedItems.sort((a, b) => {
       const dateA = a.pubDate?.getTime() || 0
       const dateB = b.pubDate?.getTime() || 0
       return dateB - dateA
     })
 
-    return allItems
+    return cachedItems
+  }
+
+  /**
+   * Trigger a background refresh for specific feed URLs (without returning cached items)
+   * This is useful when you want to force a refresh after updating the feed list
+   * Aborts any existing background refresh before starting a new one
+   */
+  async backgroundRefreshFeeds(feedUrls: string[], signal?: AbortSignal): Promise<void> {
+    if (feedUrls.length === 0) {
+      return
+    }
+
+    // Abort any existing background refresh
+    if (this.backgroundRefreshController) {
+      logger.info('[RssFeedService] Aborting existing background refresh before starting new one')
+      this.backgroundRefreshController.abort()
+      this.backgroundRefreshController = null
+    }
+
+    // Create a new AbortController for this refresh
+    const controller = new AbortController()
+    this.backgroundRefreshController = controller
+
+    // Combine with external signal if provided
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort()
+        this.backgroundRefreshController = null
+        return
+      }
+      signal.addEventListener('abort', () => {
+        controller.abort()
+        this.backgroundRefreshController = null
+      }, { once: true })
+    }
+
+    const combinedSignal = signal ? (() => {
+      const combined = new AbortController()
+      const abort = () => combined.abort()
+      signal.addEventListener('abort', abort, { once: true })
+      controller.signal.addEventListener('abort', abort, { once: true })
+      return combined.signal
+    })() : controller.signal
+
+    try {
+      const results = await Promise.allSettled(
+        feedUrls.map(url => this.fetchFeed(url, combinedSignal))
+      )
+
+      if (combinedSignal.aborted || controller.signal.aborted) {
+        this.backgroundRefreshController = null
+        return
+      }
+
+      const newItems: RssFeedItem[] = []
+      let successCount = 0
+
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          newItems.push(...result.value.items)
+          successCount++
+          logger.debug('[RssFeedService] Background refresh: successfully fetched feed', { 
+            url: feedUrls[index], 
+            itemCount: result.value.items.length 
+          })
+        }
+      })
+
+      if (!combinedSignal.aborted && !controller.signal.aborted && successCount > 0) {
+        // Get existing cached items
+        let cachedItems: RssFeedItem[] = []
+        try {
+          cachedItems = await indexedDb.getRssFeedItems()
+          const feedUrlSet = new Set(feedUrls)
+          cachedItems = cachedItems.filter(item => feedUrlSet.has(item.feedUrl))
+          cachedItems = cachedItems.map(item => ({
+            ...item,
+            pubDate: item.pubDate ? new Date(item.pubDate) : null
+          }))
+        } catch (error) {
+          logger.warn('[RssFeedService] Failed to load cached items for background refresh', { error })
+        }
+
+        // Merge new items with cached items (deduplicate by feedUrl:guid)
+        const itemMap = new Map<string, RssFeedItem>()
+        
+        // Add cached items first
+        cachedItems.forEach(item => {
+          const key = `${item.feedUrl}:${item.guid}`
+          itemMap.set(key, item)
+        })
+        
+        // Add/update with new items (newer items replace older ones)
+        newItems.forEach(item => {
+          const key = `${item.feedUrl}:${item.guid}`
+          const existing = itemMap.get(key)
+          if (!existing || (item.pubDate && existing.pubDate && item.pubDate > existing.pubDate)) {
+            itemMap.set(key, item)
+          }
+        })
+        
+        const mergedItems = Array.from(itemMap.values())
+        
+        // Sort by publication date (newest first)
+        mergedItems.sort((a, b) => {
+          const dateA = a.pubDate?.getTime() || 0
+          const dateB = b.pubDate?.getTime() || 0
+          return dateB - dateA
+        })
+        
+        // Write merged items back to IndexedDB
+        try {
+          await indexedDb.putRssFeedItems(mergedItems)
+          logger.info('[RssFeedService] Background refresh: updated IndexedDB cache', { 
+            totalItems: mergedItems.length,
+            newItems: newItems.length,
+            cachedItems: cachedItems.length
+          })
+        } catch (error) {
+          logger.error('[RssFeedService] Background refresh: failed to update IndexedDB cache', { error })
+        }
+      }
+      
+      // Clear the controller when done
+      this.backgroundRefreshController = null
+    } catch (error) {
+      // Clear the controller on error
+      this.backgroundRefreshController = null
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        logger.error('[RssFeedService] Background refresh failed', { error })
+      }
+    }
   }
 
   /**
@@ -1009,8 +1286,21 @@ class RssFeedService {
   clearCache(url?: string) {
     if (url) {
       this.feedCache.delete(url)
+      // Also clear from IndexedDB (filter by feedUrl)
+      indexedDb.getRssFeedItems().then(items => {
+        const filtered = items.filter(item => item.feedUrl !== url)
+        indexedDb.putRssFeedItems(filtered).catch(err => {
+          logger.error('[RssFeedService] Failed to clear feed from IndexedDB', { url, error: err })
+        })
+      }).catch(err => {
+        logger.error('[RssFeedService] Failed to get items for cache clear', { url, error: err })
+      })
     } else {
       this.feedCache.clear()
+      // Clear all from IndexedDB
+      indexedDb.clearRssFeedItems().catch(err => {
+        logger.error('[RssFeedService] Failed to clear IndexedDB cache', { error: err })
+      })
     }
   }
 }

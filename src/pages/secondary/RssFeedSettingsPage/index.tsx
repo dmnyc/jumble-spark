@@ -13,10 +13,11 @@ import { CloudUpload, Loader, Trash2, Plus } from 'lucide-react'
 import logger from '@/lib/logger'
 import { ExtendedKind } from '@/constants'
 import indexedDb from '@/services/indexed-db.service'
+import rssFeedService from '@/services/rss-feed.service'
 
 const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
-  const { pubkey, publish, checkLogin, rssFeedListEvent } = useNostr()
+  const { pubkey, publish, checkLogin, rssFeedListEvent, updateRssFeedListEvent } = useNostr()
   const [feedUrls, setFeedUrls] = useState<string[]>([])
   const [newFeedUrl, setNewFeedUrl] = useState('')
   const [showRssFeed, setShowRssFeed] = useState(true)
@@ -262,10 +263,19 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
         })
       }
       
+      // Update the context with the new event
+      await updateRssFeedListEvent(result)
+      
       // Dispatch custom event to notify other components (like RssFeedList) to refresh
       window.dispatchEvent(new CustomEvent('rssFeedListUpdated', { 
         detail: { pubkey, feedUrls, eventId: result.id } 
       }))
+      
+      // Trigger background refresh of feeds (don't wait for it)
+      logger.info('[RssFeedSettingsPage] Triggering background refresh of RSS feeds', { feedCount: feedUrls.length })
+      rssFeedService.backgroundRefreshFeeds(feedUrls).catch(err => {
+        logger.error('[RssFeedSettingsPage] Background refresh failed', { error: err })
+      })
       
       // Read relayStatuses immediately before it might be deleted
       const relayStatuses = (result as any).relayStatuses

@@ -398,29 +398,33 @@ export default function RssFeedItem({ item, className }: { item: TRssFeedItem; c
         <div className="space-y-2">
           {item.media
             .filter(m => m.type?.startsWith('image/') || !m.type || m.type === 'image')
-            .map((media, index) => (
-              <div key={index} className="relative">
-                <img
-                  src={media.thumbnail || media.url}
-                  alt={item.title}
-                  className="w-full rounded-lg object-cover max-h-96 cursor-pointer hover:opacity-90 transition-opacity"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    // Open image in new tab
-                    window.open(media.url, '_blank', 'noopener,noreferrer')
-                  }}
-                  onError={(e) => {
-                    // Hide image on error
-                    e.currentTarget.style.display = 'none'
-                  }}
-                />
-                {media.credit && (
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {t('Photo')}: {media.credit}
-                  </div>
-                )}
-              </div>
-            ))}
+            .map((media, index) => {
+              const hasThumbnail = !!media.thumbnail
+              const imageUrl = media.thumbnail || media.url
+              return (
+                <div key={index} className="relative">
+                  <img
+                    src={imageUrl}
+                    alt={item.title}
+                    className={`${hasThumbnail ? 'max-w-[120px] h-auto' : 'w-full max-h-96'} rounded-lg ${hasThumbnail ? 'object-contain' : 'object-cover'} cursor-pointer hover:opacity-90 transition-opacity`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      // Open full image in new tab
+                      window.open(media.url, '_blank', 'noopener,noreferrer')
+                    }}
+                    onError={(e) => {
+                      // Hide image on error
+                      e.currentTarget.style.display = 'none'
+                    }}
+                  />
+                  {media.credit && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {t('Photo')}: {media.credit}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
         </div>
       )}
 
