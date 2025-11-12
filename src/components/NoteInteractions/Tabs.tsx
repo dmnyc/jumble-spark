@@ -45,7 +45,8 @@ export function Tabs({
         // Calculate the indicator's top position relative to the container
         // Position it at the bottom of the active tab's row
         const relativeTop = tabTop - containerTop + offsetHeight
-        const padding = 32 // 16px padding on each side
+        // Responsive padding: smaller on mobile, larger on desktop
+        const padding = window.innerWidth < 640 ? 16 : window.innerWidth < 768 ? 32 : 48
         
         setIndicatorStyle({
           width: offsetWidth - padding,
@@ -57,14 +58,14 @@ export function Tabs({
   }, [selectedTab, visibleTabs])
 
   return (
-    <div className="w-full">
-      <div ref={containerRef} className="flex flex-wrap relative gap-1">
+    <div className="w-full min-w-0">
+      <div ref={containerRef} className="flex relative gap-1 overflow-x-auto scrollbar-hide">
         {visibleTabs.map((tab, index) => (
           <div
             key={tab.value}
             ref={(el) => (tabRefs.current[index] = el)}
             className={cn(
-              `text-center px-4 py-2 font-semibold whitespace-nowrap clickable cursor-pointer rounded-lg`,
+              `text-center py-2 px-2 sm:px-4 md:px-6 font-semibold whitespace-nowrap clickable cursor-pointer rounded-lg text-xs sm:text-sm md:text-base shrink-0`,
               selectedTab === tab.value ? '' : 'text-muted-foreground'
             )}
             onClick={() => onTabChange(tab.value)}

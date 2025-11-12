@@ -64,8 +64,8 @@ export default function NoteInteractions({
             <Separator orientation="vertical" className="h-6" />
           </>
         )}
-        <div className="size-10 flex items-center justify-center">
-          <HideUntrustedContentButton type="interactions" />
+        <div className="size-8 flex items-center justify-center shrink-0">
+          <HideUntrustedContentButton type="interactions" size="icon" />
         </div>
       </div>
       <Separator />

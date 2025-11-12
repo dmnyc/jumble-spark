@@ -21,23 +21,23 @@ export default function ReplySort({ selectedSort, onSortChange }: { selectedSort
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="flex items-center gap-1 h-8 px-2">
-          <selectedOption.icon className="w-4 h-4" />
-          <span className="text-sm">{selectedOption.label}</span>
-          <ChevronDown className="w-4 h-4" />
+        <Button variant="outline" className="flex items-center gap-1 h-8 px-2 text-xs [&_svg]:size-2">
+          <selectedOption.icon className="size-2" />
+          <span className="text-xs">{selectedOption.label}</span>
+          <ChevronDown className="size-2" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      <DropdownMenuContent align="start" className="min-w-32 p-0.5">
         {sortOptions.map(option => (
           <DropdownMenuItem
             key={option.id}
             onClick={() => onSortChange(option.id)}
-            className="flex items-center gap-2"
+            className="flex items-center gap-1.5 text-xs py-0.5 px-1.5 [&_svg]:size-2.5"
           >
-            <option.icon className="w-4 h-4" />
-            <span>{option.label}</span>
+            <option.icon className="size-2.5" />
+            <span className="text-xs">{option.label}</span>
             {option.id === selectedSort && (
-              <span className="ml-auto text-primary">✓</span>
+              <span className="ml-auto text-primary text-xs">✓</span>
             )}
           </DropdownMenuItem>
         ))}

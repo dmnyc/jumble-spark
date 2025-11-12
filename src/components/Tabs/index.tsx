@@ -127,14 +127,14 @@ export default function Tabs({
         deepBrowsing && lastScrollTop > threshold ? '-translate-y-[calc(100%+12rem)]' : ''
       )}
     >
-      <div className="flex-1 w-0">
-        <div ref={tabsContainerRef} className="flex flex-wrap relative gap-1">
+      <div className="flex-1 w-0 min-w-0">
+        <div ref={tabsContainerRef} className="flex relative gap-1 overflow-x-auto scrollbar-hide">
           {tabs.map((tab, index) => (
             <div
               key={tab.value}
               ref={(el) => (tabRefs.current[index] = el)}
               className={cn(
-                `text-center py-2 px-6 font-semibold whitespace-nowrap clickable cursor-pointer rounded-lg`,
+                `text-center py-2 px-2 sm:px-4 md:px-6 font-semibold whitespace-nowrap clickable cursor-pointer rounded-lg text-xs sm:text-sm md:text-base shrink-0`,
                 value === tab.value ? '' : 'text-muted-foreground'
               )}
               onClick={() => {
@@ -154,7 +154,7 @@ export default function Tabs({
           />
         </div>
       </div>
-      {options && <div className="py-1 flex items-center">{options}</div>}
+      {options && <div className="py-1 flex items-center shrink-0 gap-1">{options}</div>}
     </div>
   )
 }

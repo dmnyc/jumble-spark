@@ -40,7 +40,7 @@ export default function HideUntrustedContentButton({
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="ghost" size={size}>
+        <Button variant="ghost" size={size} className="[&_svg]:size-3.5">
           {enabled ? (
             <ShieldCheck className="text-green-400" />
           ) : (

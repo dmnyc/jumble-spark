@@ -16,7 +16,7 @@ export function RefreshButton({ onClick }: { onClick: () => void }) {
         onClick()
         setTimeout(() => setRefreshing(false), 500)
       }}
-      className="text-muted-foreground focus:text-foreground [&_svg]:size-4"
+      className="text-muted-foreground focus:text-foreground [&_svg]:size-3 h-8 px-2 text-xs"
     >
       <RefreshCcw className={cn(refreshing ? 'animate-spin' : '')} />
     </Button>

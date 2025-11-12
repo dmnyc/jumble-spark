@@ -1,7 +1,6 @@
 import NoteList, { TNoteListRef } from '@/components/NoteList'
 import Tabs from '@/components/Tabs'
 import logger from '@/lib/logger'
-import { isTouchDevice } from '@/lib/utils'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import storage from '@/services/local-storage.service'
@@ -38,7 +37,6 @@ const NormalFeed = forwardRef<TNoteListRef, {
     const storedMode = storage.getNoteListMode()
     return storedMode || 'posts'
   })
-  const supportTouch = useMemo(() => isTouchDevice(), [])
   const internalNoteListRef = useRef<TNoteListRef>(null)
   const noteListRef = ref || internalNoteListRef
   const [showRssFeed, setShowRssFeed] = useState(() => storage.getShowRssFeed())
@@ -117,18 +115,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
           handleListModeChange(tab)
         }}
         options={
-          activeTab !== 'rss' ? (
-            <>
-              {!supportTouch && <RefreshButton onClick={() => {
-                if (noteListRef && typeof noteListRef !== 'function') {
-                  noteListRef.current?.refresh()
-                }
-              }} />}
-              <KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />
-            </>
-          ) : (
-            <>
-              {!supportTouch && <RefreshButton onClick={() => {
+          <>
+            <RefreshButton onClick={() => {
+              if (activeTab === 'rss') {
+                // Refresh RSS feeds
                 // Get feed URLs from event or use default
                 let feedUrls: string[] = DEFAULT_RSS_FEEDS
                 if (pubkey && rssFeedListEvent) {
@@ -150,7 +140,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
                 }
                 
                 // Trigger background refresh and UI update
-                logger.info('[NormalFeed] Manual refresh: triggering background refresh', { feedCount: feedUrls.length })
+                logger.info('[NormalFeed] Manual refresh: triggering RSS background refresh', { feedCount: feedUrls.length })
                 // Start background refresh (don't wait for it)
                 rssFeedService.backgroundRefreshFeeds(feedUrls).catch(err => {
                   logger.error('[NormalFeed] Manual refresh: background refresh failed', { error: err })
@@ -163,9 +153,17 @@ const NormalFeed = forwardRef<TNoteListRef, {
                 }
                 // Also force re-render by updating key
                 setRssRefreshKey(prev => prev + 1)
-              }} />}
-            </>
-          )
+              } else {
+                // Refresh Notes/Replies
+                if (noteListRef && typeof noteListRef !== 'function') {
+                  noteListRef.current?.refresh()
+                }
+              }
+            }} />
+            {activeTab !== 'rss' && (
+              <KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />
+            )}
+          </>
         }
       />
       {activeTab === 'rss' ? (

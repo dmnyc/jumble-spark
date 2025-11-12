@@ -79,7 +79,7 @@ export default function KindFilter({
       variant="ghost"
       size="titlebar-icon"
       className={cn(
-        'relative w-fit px-3 focus:text-foreground',
+        'relative w-fit px-2 h-8 text-xs focus:text-foreground',
         !isDifferentFromSaved && 'text-muted-foreground'
       )}
       onClick={() => {
@@ -88,10 +88,10 @@ export default function KindFilter({
         }
       }}
     >
-      <ListFilter size={16} />
-      {t('Filter')}
+      <ListFilter className="size-2.5" />
+      <span className="ml-1 text-xs">{t('Filter')}</span>
       {isDifferentFromSaved && (
-        <div className="absolute size-2 rounded-full bg-primary left-7 top-2 ring-2 ring-background" />
+        <div className="absolute size-1.5 rounded-full bg-primary left-6 top-1.5 ring-1 ring-background" />
       )}
     </Button>
   )
