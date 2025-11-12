@@ -283,25 +283,25 @@ export function useSmartSettingsNavigation() {
     // Use primary note view to show settings since secondary panel is disabled
     if (url === '/settings') {
       window.history.pushState(null, '', url)
-      setPrimaryNoteView(<SettingsPage index={0} hideTitlebar={true} />, 'settings')
+      setPrimaryNoteView(<SettingsPage key="settings" index={0} hideTitlebar={true} />, 'settings')
     } else if (url.startsWith('/settings/relays')) {
       window.history.pushState(null, '', url)
-      setPrimaryNoteView(<RelaySettingsPage index={0} hideTitlebar={true} />, 'settings-sub')
+      setPrimaryNoteView(<RelaySettingsPage key="relay-settings" index={0} hideTitlebar={true} />, 'settings-sub')
     } else if (url === '/settings/wallet') {
       window.history.pushState(null, '', url)
-      setPrimaryNoteView(<WalletPage index={0} hideTitlebar={true} />, 'settings-sub')
+      setPrimaryNoteView(<WalletPage key="wallet" index={0} hideTitlebar={true} />, 'settings-sub')
     } else if (url === '/settings/posts') {
       window.history.pushState(null, '', url)
-      setPrimaryNoteView(<PostSettingsPage index={0} hideTitlebar={true} />, 'settings-sub')
+      setPrimaryNoteView(<PostSettingsPage key="post-settings" index={0} hideTitlebar={true} />, 'settings-sub')
     } else if (url === '/settings/general') {
       window.history.pushState(null, '', url)
-      setPrimaryNoteView(<GeneralSettingsPage index={0} hideTitlebar={true} />, 'settings-sub')
+      setPrimaryNoteView(<GeneralSettingsPage key="general-settings" index={0} hideTitlebar={true} />, 'settings-sub')
     } else if (url === '/settings/translation') {
       window.history.pushState(null, '', url)
-      setPrimaryNoteView(<TranslationPage index={0} hideTitlebar={true} />, 'settings-sub')
+      setPrimaryNoteView(<TranslationPage key="translation" index={0} hideTitlebar={true} />, 'settings-sub')
     } else if (url === '/settings/rss-feeds') {
       window.history.pushState(null, '', url)
-      setPrimaryNoteView(<RssFeedSettingsPage index={0} hideTitlebar={true} />, 'settings-sub')
+      setPrimaryNoteView(<RssFeedSettingsPage key="rss-feed-settings" index={0} hideTitlebar={true} />, 'settings-sub')
     }
   }
   

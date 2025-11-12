@@ -1,5 +1,5 @@
 import NoteList, { TNoteListRef } from '@/components/NoteList'
-import Tabs from '@/components/Tabs'
+import Tabs, { TabDefinition } from '@/components/Tabs'
 import logger from '@/lib/logger'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
@@ -12,6 +12,7 @@ import RssFeedList from '../RssFeedList'
 import { useNostr } from '@/providers/NostrProvider'
 import rssFeedService from '@/services/rss-feed.service'
 import { DEFAULT_RSS_FEEDS } from '@/constants'
+import { Rss } from 'lucide-react'
 
 const NormalFeed = forwardRef<TNoteListRef, {
   subRequests: TFeedSubRequest[]
@@ -66,6 +67,23 @@ const NormalFeed = forwardRef<TNoteListRef, {
     }
   }, [showRssFeed, activeTab])
 
+  // Listen for custom event to switch to RSS tab
+  useEffect(() => {
+    const handleSwitchToRss = () => {
+      if (showRssFeed) {
+        setActiveTab('rss')
+        if (noteListRef && typeof noteListRef !== 'function') {
+          noteListRef.current?.scrollToTop('smooth')
+        }
+      }
+    }
+
+    window.addEventListener('switchToRssFeed', handleSwitchToRss)
+    return () => {
+      window.removeEventListener('switchToRssFeed', handleSwitchToRss)
+    }
+  }, [showRssFeed, noteListRef])
+
   const handleListModeChange = (mode: TNoteListMode | string) => {
     if (mode === 'rss') {
       setActiveTab('rss')
@@ -90,14 +108,14 @@ const NormalFeed = forwardRef<TNoteListRef, {
   }
 
   // Build tabs array conditionally
-  const tabs = useMemo(() => {
-    const baseTabs = [
+  const tabs = useMemo((): TabDefinition[] => {
+    const baseTabs: TabDefinition[] = [
       { value: 'posts', label: 'Notes' },
       { value: 'postsAndReplies', label: 'Replies' }
     ]
     
     if (showRssFeed) {
-      baseTabs.push({ value: 'rss', label: 'RSS' })
+      baseTabs.push({ value: 'rss', label: 'RSS', icon: <Rss className="size-4" /> })
     }
     
     return baseTabs

@@ -8,11 +8,14 @@ import HomeButton from './HomeButton'
 import NotificationsButton from './NotificationButton'
 import PostButton from './PostButton'
 import ProfileButton from './ProfileButton'
+import RssButton from './RssButton'
 import SearchButton from './SearchButton'
 import SettingsButton from './SettingsButton'
+import storage from '@/services/local-storage.service'
 
 export default function PrimaryPageSidebar() {
   const { isSmallScreen } = useScreenSize()
+  const showRssFeed = storage.getShowRssFeed()
   if (isSmallScreen) return null
 
   return (
@@ -33,6 +36,7 @@ export default function PrimaryPageSidebar() {
         <NotificationsButton />
         <SearchButton />
         <ProfileButton />
+        {showRssFeed && <RssButton />}
         <SettingsButton />
         <PostButton />
       </div>

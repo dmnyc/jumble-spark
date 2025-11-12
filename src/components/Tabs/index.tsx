@@ -3,9 +3,10 @@ import { useDeepBrowsing } from '@/providers/DeepBrowsingProvider'
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-type TabDefinition = {
+export type TabDefinition = {
   value: string
   label: string
+  icon?: ReactNode
 }
 
 export default function Tabs({
@@ -134,13 +135,14 @@ export default function Tabs({
               key={tab.value}
               ref={(el) => (tabRefs.current[index] = el)}
               className={cn(
-                `text-center py-2 px-2 sm:px-4 md:px-6 font-semibold whitespace-nowrap clickable cursor-pointer rounded-lg text-xs sm:text-sm md:text-base shrink-0`,
+                `text-center py-2 px-2 sm:px-4 md:px-6 font-semibold whitespace-nowrap clickable cursor-pointer rounded-lg text-xs sm:text-sm md:text-base shrink-0 flex items-center gap-2 justify-center`,
                 value === tab.value ? '' : 'text-muted-foreground'
               )}
               onClick={() => {
                 onTabChange?.(tab.value)
               }}
             >
+              {tab.icon && <span className="shrink-0">{tab.icon}</span>}
               {t(tab.label)}
             </div>
           ))}
