@@ -47,7 +47,27 @@ export default function Notification({
     [isNew, isNotificationRead, notificationId]
   )
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    // Don't navigate if clicking on interactive elements (buttons, links, etc.)
+    const target = e.target as HTMLElement
+    if (target.closest('button') || target.closest('[role="button"]') || target.closest('a')) {
+      return
+    }
+    
+    // Don't navigate if clicking within NoteStats (which contains the ReplyButton)
+    // NoteStats is rendered inside the notification, so we need to check for it
+    if (target.closest('[data-note-stats]')) {
+      return
+    }
+    
+    // Don't navigate if a modal/dialog/sheet is currently open
+    // Check for Radix UI dialog/sheet elements in the DOM
+    // Radix UI uses data-radix-dialog-content for the dialog content
+    const hasOpenModal = document.querySelector('[data-radix-dialog-content][data-state="open"]')
+    if (hasOpenModal) {
+      return
+    }
+    
     markNotificationAsRead(notificationId)
     if (targetEvent) {
       navigateToNote(toNote(targetEvent.id))

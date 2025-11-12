@@ -70,7 +70,7 @@ export default function NoteStats({
 
   if (isSmallScreen) {
     return (
-      <div className={cn('select-none', className)}>
+      <div className={cn('select-none', className)} data-note-stats onClick={(e) => e.stopPropagation()}>
         {displayTopZapsAndLikes && (
           <>
             <TopZaps event={event} />
@@ -96,7 +96,7 @@ export default function NoteStats({
   }
 
   return (
-    <div className={cn('select-none', className)}>
+    <div className={cn('select-none', className)} data-note-stats onClick={(e) => e.stopPropagation()}>
       {displayTopZapsAndLikes && (
         <>
           <TopZaps event={event} />
