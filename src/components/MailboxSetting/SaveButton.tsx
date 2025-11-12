@@ -74,7 +74,7 @@ export default function SaveButton({
   return (
     <Button className="w-full" disabled={!pubkey || pushing || !hasChange} onClick={save}>
       {pushing ? <Loader className="animate-spin" /> : <CloudUpload />}
-      Save
+      {t('Save')}
     </Button>
   )
 }

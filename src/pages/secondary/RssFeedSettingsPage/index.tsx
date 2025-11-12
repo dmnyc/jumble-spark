@@ -16,6 +16,27 @@ import indexedDb from '@/services/indexed-db.service'
 import rssFeedService from '@/services/rss-feed.service'
 import { parseOpml, generateOpml, downloadFile } from '@/lib/opml'
 import { toast } from 'sonner'
+import { normalizeHttpUrl } from '@/lib/url'
+
+// Helper function to normalize and deduplicate feed URLs
+const normalizeAndDeduplicateUrls = (urls: string[]): string[] => {
+  const normalizedUrls = urls
+    .map(url => normalizeHttpUrl(url.trim()))
+    .filter((url): url is string => url.length > 0) // Filter out invalid URLs
+  
+  // Deduplicate by creating a Set of normalized URLs, preserving order
+  const seen = new Set<string>()
+  const unique: string[] = []
+  
+  for (const url of normalizedUrls) {
+    if (!seen.has(url)) {
+      seen.add(url)
+      unique.push(url)
+    }
+  }
+  
+  return unique
+}
 
 const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
@@ -40,7 +61,7 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
 
     if (rssFeedListEvent) {
       try {
-        // Extract URLs from "u" tags
+        // Extract URLs from "u" tags and normalize them
         const urls = rssFeedListEvent.tags
           .filter(tag => tag[0] === 'u' && tag[1])
           .map(tag => tag[1] as string)
@@ -56,10 +77,18 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
             }
             return true
           })
+          .map(url => url.trim())
         
-        if (urls.length > 0) {
-          setFeedUrls(urls)
-          logger.info('[RssFeedSettingsPage] Loaded RSS feed list from context', { count: urls.length, urls })
+        // Normalize and deduplicate URLs
+        const normalizedUrls = normalizeAndDeduplicateUrls(urls)
+        
+        if (normalizedUrls.length > 0) {
+          setFeedUrls(normalizedUrls)
+          logger.info('[RssFeedSettingsPage] Loaded RSS feed list from context', { 
+            count: normalizedUrls.length, 
+            urls: normalizedUrls,
+            originalCount: urls.length 
+          })
         } else {
           logger.info('[RssFeedSettingsPage] RSS feed list is empty or contains no valid URLs')
         }
@@ -86,20 +115,25 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
     const url = newFeedUrl.trim()
     if (!url) return
 
-    // Basic URL validation
-    try {
-      new URL(url)
-    } catch {
+    // Normalize and deduplicate all URLs (including the new one)
+    const allUrls = [...feedUrls, url]
+    const normalizedUrls = normalizeAndDeduplicateUrls(allUrls)
+    
+    // Check if the new URL was actually added (not a duplicate)
+    const normalizedExistingUrls = normalizeAndDeduplicateUrls(feedUrls)
+    const normalizedNewUrl = normalizeHttpUrl(url)
+    
+    if (!normalizedNewUrl) {
       // Invalid URL
       return
     }
-
-    if (feedUrls.includes(url)) {
+    
+    if (normalizedExistingUrls.includes(normalizedNewUrl)) {
       // Feed already exists
       return
     }
 
-    setFeedUrls([...feedUrls, url])
+    setFeedUrls(normalizedUrls)
     setNewFeedUrl('')
     setHasChange(true)
   }
@@ -126,30 +160,37 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
       }
 
       // Extract URLs from OPML feeds
-      const urls = feeds.map(feed => feed.xmlUrl).filter((url): url is string => {
-        try {
-          new URL(url)
-          return true
-        } catch {
-          return false
-        }
-      })
+      const opmlUrls = feeds
+        .map(feed => feed.xmlUrl)
+        .filter((url): url is string => {
+          try {
+            new URL(url)
+            return true
+          } catch {
+            return false
+          }
+        })
 
-      if (urls.length === 0) {
+      if (opmlUrls.length === 0) {
         toast.error(t('No valid RSS feed URLs found in OPML file'))
         return
       }
 
-      // Merge with existing feeds (avoid duplicates)
-      const existingUrls = new Set(feedUrls)
-      const newUrls = urls.filter(url => !existingUrls.has(url))
+      // Merge with existing feeds and normalize/deduplicate everything
+      const allUrls = [...feedUrls, ...opmlUrls]
+      const normalizedUrls = normalizeAndDeduplicateUrls(allUrls)
+      
+      // Check how many new URLs were actually added
+      const normalizedExistingUrls = new Set(normalizeAndDeduplicateUrls(feedUrls))
+      const newUrls = normalizedUrls.filter(url => !normalizedExistingUrls.has(url))
       
       if (newUrls.length === 0) {
         toast.info(t('All feeds from OPML file are already added'))
         return
       }
 
-      setFeedUrls([...feedUrls, ...newUrls])
+      // Update with normalized and deduplicated URLs
+      setFeedUrls(normalizedUrls)
       setHasChange(true)
       toast.success(t('Imported {{count}} feed(s) from OPML file', { count: newUrls.length }))
     } catch (error) {
@@ -161,13 +202,16 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
   }
 
   const handleExportOpml = () => {
-    if (feedUrls.length === 0) {
+    // Normalize and deduplicate before exporting
+    const normalizedUrls = normalizeAndDeduplicateUrls(feedUrls)
+    
+    if (normalizedUrls.length === 0) {
       toast.error(t('No feeds to export'))
       return
     }
 
     try {
-      const opmlContent = generateOpml(feedUrls, 'Jumble RSS Feeds')
+      const opmlContent = generateOpml(normalizedUrls, 'Jumble RSS Feeds')
       const filename = `jumble-rss-feeds-${new Date().toISOString().split('T')[0]}.opml`
       downloadFile(opmlContent, filename, 'application/xml')
       toast.success(t('RSS feeds exported to OPML file'))
@@ -185,13 +229,17 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
 
     setPushing(true)
     try {
+      // Normalize and deduplicate URLs before saving
+      const normalizedUrls = normalizeAndDeduplicateUrls(feedUrls)
+      
       logger.info('[RssFeedSettingsPage] Creating RSS feed list event', { 
         pubkey: pubkey.substring(0, 8),
-        feedCount: feedUrls.length,
-        feedUrls 
+        feedCount: normalizedUrls.length,
+        originalCount: feedUrls.length,
+        feedUrls: normalizedUrls 
       })
       
-      const event = createRssFeedListDraftEvent(feedUrls)
+      const event = createRssFeedListDraftEvent(normalizedUrls)
       
       // Validate the event structure before publishing
       logger.info('[RssFeedSettingsPage] Draft event created', { 
@@ -338,14 +386,20 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
       
       // Dispatch custom event to notify other components (like RssFeedList) to refresh
       window.dispatchEvent(new CustomEvent('rssFeedListUpdated', { 
-        detail: { pubkey, feedUrls, eventId: result.id } 
+        detail: { pubkey, feedUrls: normalizedUrls, eventId: result.id } 
       }))
       
       // Trigger background refresh of feeds (don't wait for it)
-      logger.info('[RssFeedSettingsPage] Triggering background refresh of RSS feeds', { feedCount: feedUrls.length })
-      rssFeedService.backgroundRefreshFeeds(feedUrls).catch(err => {
+      logger.info('[RssFeedSettingsPage] Triggering background refresh of RSS feeds', { feedCount: normalizedUrls.length })
+      rssFeedService.backgroundRefreshFeeds(normalizedUrls).catch(err => {
         logger.error('[RssFeedSettingsPage] Background refresh failed', { error: err })
       })
+      
+      // Update local state with normalized URLs if they changed
+      if (normalizedUrls.length !== feedUrls.length || 
+          JSON.stringify(normalizedUrls.sort()) !== JSON.stringify(feedUrls.sort())) {
+        setFeedUrls(normalizedUrls)
+      }
       
       // Read relayStatuses immediately before it might be deleted
       const relayStatuses = (result as any).relayStatuses

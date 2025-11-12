@@ -102,14 +102,14 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
     >
       <div className="px-4 pt-4">
         <div className="text-2xl font-bold mb-4">Search Nostr</div>
-        <div className="flex items-center gap-2 mb-4 relative z-40">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-4 relative z-40">
           <div className="flex-1 relative">
             <SearchBar ref={searchBarRef} input={input} setInput={setInput} onSearch={onSearch} />
           </div>
-          <div className="flex-shrink-0 relative z-50">
+          <div className="flex-shrink-0 relative z-50 w-full sm:w-auto">
             <Button
               variant="ghost"
-              className="h-9 shrink-0 text-muted-foreground hover:text-foreground border border-border/50 hover:border-border rounded-md px-3 gap-2"
+              className="h-9 shrink-0 text-muted-foreground hover:text-foreground border border-border/50 hover:border-border rounded-md px-3 gap-2 w-full sm:w-auto"
               asChild
             >
               <a

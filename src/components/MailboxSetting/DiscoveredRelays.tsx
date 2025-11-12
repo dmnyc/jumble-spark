@@ -207,7 +207,7 @@ export default function DiscoveredRelays({ onAdd, localOnly = false }: { onAdd: 
         ))}
       </div>
 
-      <div className="flex items-center justify-between gap-2 pt-2">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2">
         <div className="flex gap-2">
           <Button variant="ghost" size="sm" onClick={handleSelectAll}>
             {t('Select All')}
@@ -219,10 +219,11 @@ export default function DiscoveredRelays({ onAdd, localOnly = false }: { onAdd: 
         <Button
           onClick={handleAddSelected}
           disabled={selectedCount === 0 || isAdding}
+          className="text-xs px-2 py-1.5 h-auto w-full sm:w-auto"
         >
           {isAdding ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
               {t('Adding...')}
             </>
           ) : (
