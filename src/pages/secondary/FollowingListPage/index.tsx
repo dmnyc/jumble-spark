@@ -14,9 +14,11 @@ const FollowingListPage = forwardRef(({ id, index, hideTitlebar = false }: { id?
       ref={ref}
       index={index}
       title={
-        profile?.username
-          ? t("username's following", { username: profile.username })
-          : t('Following')
+        hideTitlebar
+          ? undefined
+          : profile?.username
+            ? t("username's following", { username: profile.username })
+            : t('Following')
       }
       hideBackButton={hideTitlebar}
       displayScrollToTopButton

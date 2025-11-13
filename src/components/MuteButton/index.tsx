@@ -64,12 +64,12 @@ export default function MuteButton({ pubkey }: { pubkey: string }) {
   if (isMuted) {
     return (
       <Button
-        className="w-20 min-w-20 rounded-full"
+        className="rounded-full min-w-20 max-w-full text-destructive whitespace-normal break-words px-3"
         variant="secondary"
         onClick={handleUnmute}
         disabled={updating || changing}
       >
-        {updating ? <Loader className="animate-spin" /> : t('Unmute')}
+        {updating ? <Loader className="animate-spin" /> : <span className="text-destructive text-center">{t('Unmute')}</span>}
       </Button>
     )
   }

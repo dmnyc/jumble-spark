@@ -60,7 +60,7 @@ const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: numb
     <SecondaryPageLayout
       ref={ref}
       index={index}
-      title={t("username's muted", { username: profile.username })}
+      title={hideTitlebar ? undefined : t("username's muted", { username: profile.username })}
       hideBackButton={hideTitlebar}
       displayScrollToTopButton
     >

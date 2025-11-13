@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFollowList } from '@/providers/FollowListProvider'
+import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { getPubkeysFromPTags } from '@/lib/tag'
 import { Event } from 'nostr-tools'
@@ -22,6 +23,7 @@ const FollowPacksPage = forwardRef<HTMLDivElement, { index?: number; hideTitleba
   const { t } = useTranslation()
   const { pubkey } = useNostr()
   const { followings, follow } = useFollowList()
+  const { mutePubkeySet } = useMuteList()
   const [packs, setPacks] = useState<Event[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [_followingPacks, setFollowingPacks] = useState<Set<string>>(new Set())
@@ -77,22 +79,29 @@ const FollowPacksPage = forwardRef<HTMLDivElement, { index?: number; hideTitleba
     
     const packPubkeys = getPubkeysFromPTags(pack.tags)
     const followingSet = new Set(followings)
-    const toFollow = packPubkeys.filter(p => !followingSet.has(p))
+    // Filter out users that are already followed OR muted
+    const toFollow = packPubkeys.filter(p => !followingSet.has(p) && !mutePubkeySet.has(p))
     
     if (toFollow.length === 0) {
-      toast.info(t('You are already following all members of this pack'))
+      const mutedCount = packPubkeys.filter(p => mutePubkeySet.has(p) && !followingSet.has(p)).length
+      if (mutedCount > 0) {
+        toast.info(t('All available members are already followed or muted'))
+      } else {
+        toast.info(t('You are already following all members of this pack'))
+      }
       return
     }
     
     try {
-      // Follow all pubkeys in the pack
+      // Follow all pubkeys in the pack (excluding muted users)
       for (const pubkeyToFollow of toFollow) {
         await follow(pubkeyToFollow)
       }
       toast.success(t('Followed {{count}} users', { count: toFollow.length }))
       
-      // Update followingPacks if all members are now followed
-      if (packPubkeys.every(p => followingSet.has(p) || toFollow.includes(p))) {
+      // Update followingPacks if all non-muted members are now followed
+      const nonMutedPackPubkeys = packPubkeys.filter(p => !mutePubkeySet.has(p))
+      if (nonMutedPackPubkeys.length > 0 && nonMutedPackPubkeys.every(p => followingSet.has(p) || toFollow.includes(p))) {
         setFollowingPacks(prev => new Set([...prev, pack.id]))
       }
     } catch (error) {
@@ -127,7 +136,7 @@ const FollowPacksPage = forwardRef<HTMLDivElement, { index?: number; hideTitleba
 
   if (!pubkey) {
     return (
-      <SecondaryPageLayout ref={ref} index={index} title={t('Browse Follow Packs')} hideBackButton={hideTitlebar}>
+      <SecondaryPageLayout ref={ref} index={index} title={hideTitlebar ? undefined : t('Browse Follow Packs')} hideBackButton={hideTitlebar}>
         <div className="flex flex-col items-center justify-center py-16">
           <div className="text-lg font-semibold mb-2">{t('Please log in')}</div>
           <div className="text-sm text-muted-foreground">{t('You need to be logged in to browse follow packs')}</div>
@@ -137,7 +146,7 @@ const FollowPacksPage = forwardRef<HTMLDivElement, { index?: number; hideTitleba
   }
 
   return (
-    <SecondaryPageLayout ref={ref} index={index} title={t('Browse Follow Packs')} hideBackButton={hideTitlebar} displayScrollToTopButton>
+    <SecondaryPageLayout ref={ref} index={index} title={hideTitlebar ? undefined : t('Browse Follow Packs')} hideBackButton={hideTitlebar} displayScrollToTopButton>
       <div className="space-y-4 p-4">
         {!isLoading && packs.length > 0 && (
           <div className="flex items-center gap-2">
@@ -178,8 +187,10 @@ const FollowPacksPage = forwardRef<HTMLDivElement, { index?: number; hideTitleba
           {filteredPacks.map((pack) => {
             const packPubkeys = getPubkeysFromPTags(pack.tags)
             const followingSet = new Set(followings)
-            const alreadyFollowingAll = packPubkeys.length > 0 && packPubkeys.every(p => followingSet.has(p))
-            const toFollowCount = packPubkeys.filter(p => !followingSet.has(p)).length
+            // Exclude muted users from calculations
+            const availablePubkeys = packPubkeys.filter(p => !mutePubkeySet.has(p))
+            const alreadyFollowingAll = availablePubkeys.length > 0 && availablePubkeys.every(p => followingSet.has(p))
+            const toFollowCount = availablePubkeys.filter(p => !followingSet.has(p)).length
             
             return (
               <Card key={pack.id}>
@@ -192,12 +203,12 @@ const FollowPacksPage = forwardRef<HTMLDivElement, { index?: number; hideTitleba
                 <CardContent className="space-y-4">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Users className="size-4" />
-                    <span>{t('{{count}} profiles', { count: packPubkeys.length })}</span>
+                    <span>{t('{{count}} profiles', { count: availablePubkeys.length })}</span>
                   </div>
                   
-                  {packPubkeys.length > 0 && (
+                  {availablePubkeys.length > 0 && (
                     <div className="flex -space-x-2">
-                      {packPubkeys.slice(0, 5).map((pubkey) => (
+                      {availablePubkeys.slice(0, 5).map((pubkey) => (
                         <SimpleUserAvatar 
                           key={pubkey} 
                           userId={pubkey} 
@@ -205,9 +216,9 @@ const FollowPacksPage = forwardRef<HTMLDivElement, { index?: number; hideTitleba
                           className="border-2 border-background"
                         />
                       ))}
-                      {packPubkeys.length > 5 && (
+                      {availablePubkeys.length > 5 && (
                         <div className="size-8 rounded-full border-2 border-background bg-muted flex items-center justify-center text-xs">
-                          +{packPubkeys.length - 5}
+                          +{availablePubkeys.length - 5}
                         </div>
                       )}
                     </div>

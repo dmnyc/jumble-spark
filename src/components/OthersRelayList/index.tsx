@@ -1,4 +1,4 @@
-import { useSecondaryPage } from '@/PageManager'
+import { useSmartRelayNavigation } from '@/PageManager'
 import { Badge } from '@/components/ui/badge'
 import { useFetchRelayInfo, useFetchRelayList } from '@/hooks'
 import { toRelay } from '@/lib/link'
@@ -28,12 +28,12 @@ export default function OthersRelayList({ userId }: { userId: string }) {
 
 function RelayItem({ relay }: { relay: TMailboxRelay }) {
   const { t } = useTranslation()
-  const { push } = useSecondaryPage()
+  const { navigateToRelay } = useSmartRelayNavigation()
   const { relayInfo } = useFetchRelayInfo(relay.url)
   const { url, scope } = relay
 
   return (
-    <div className="p-4 rounded-lg border clickable space-y-1" onClick={() => push(toRelay(url))}>
+    <div className="p-4 rounded-lg border clickable space-y-1" onClick={() => navigateToRelay(toRelay(url))}>
       <RelaySimpleInfo relayInfo={relayInfo} />
       <div className="flex gap-2">
         {['both', 'read'].includes(scope) && (

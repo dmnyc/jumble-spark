@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { useFollowList } from '@/providers/FollowListProvider'
+import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { Loader } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -21,9 +22,11 @@ export default function FollowButton({ pubkey }: { pubkey: string }) {
   const { t } = useTranslation()
   const { pubkey: accountPubkey, checkLogin } = useNostr()
   const { followings, follow, unfollow } = useFollowList()
+  const { mutePubkeySet, unmutePubkey } = useMuteList()
   const [updating, setUpdating] = useState(false)
   const [hover, setHover] = useState(false)
   const isFollowing = useMemo(() => followings.includes(pubkey), [followings, pubkey])
+  const isMuted = useMemo(() => mutePubkeySet.has(pubkey), [mutePubkeySet, pubkey])
 
   if (!accountPubkey || (pubkey && pubkey === accountPubkey)) return null
 
@@ -57,6 +60,54 @@ export default function FollowButton({ pubkey }: { pubkey: string }) {
         setUpdating(false)
       }
     })
+  }
+
+  const handleUnmute = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    checkLogin(async () => {
+      if (!isMuted) return
+
+      setUpdating(true)
+      try {
+        await unmutePubkey(pubkey)
+        toast.success(t('User unmuted'))
+      } catch (error) {
+        toast.error(t('Unmute failed') + ': ' + (error as Error).message)
+      } finally {
+        setUpdating(false)
+      }
+    })
+  }
+
+  // If following and muted, show "Muted" button instead of "Following"
+  if (isFollowing && isMuted) {
+    return (
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button
+            className="rounded-full min-w-28 max-w-full text-destructive whitespace-normal break-words px-3"
+            variant="secondary"
+            disabled={updating}
+          >
+            {updating ? <Loader className="animate-spin" /> : <span className="text-destructive text-center">{t('Muted')}</span>}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Unmute user')}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('Are you sure you want to unmute this user? This will restore the follow button.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleUnmute}>
+              {t('Unmute')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    )
   }
 
   return isFollowing ? (

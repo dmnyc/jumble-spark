@@ -16,7 +16,7 @@ const RelaySettingsPage = forwardRef(({ id, index, hideTitlebar = false }: { id?
     <SecondaryPageLayout
       ref={ref}
       index={index}
-      title={t("username's used relays", { username: profile.username })}
+      title={hideTitlebar ? undefined : t("username's used relays", { username: profile.username })}
       hideBackButton={hideTitlebar}
     >
       <div className="px-4 pt-3">
