@@ -286,10 +286,13 @@ export default function PostContent({
             quietDays
           })
         } else {
+          // For regular kind 1 note OPs (no parentEvent), never use protectedEvent
+          // protectedEvent should only be used for public messages and discussions
+          const shouldUseProtectedEvent = parentEvent ? isProtectedEvent : false
           draftEvent = await createShortTextNoteDraftEvent(cleanedText, mentions, {
             parentEvent,
             addClientTag,
-            protectedEvent: isProtectedEvent,
+            protectedEvent: shouldUseProtectedEvent,
             isNsfw,
             addExpirationTag,
             expirationMonths,

@@ -11,6 +11,7 @@ import { useMemo } from 'react'
 import ContentPreview from '../../ContentPreview'
 import Content from '../../Content'
 import Highlight from '../../Note/Highlight'
+import MarkdownArticle from '../../Note/MarkdownArticle/MarkdownArticle'
 import { HighlightData } from '../HighlightEditor'
 
 export default function Preview({ 
@@ -138,7 +139,21 @@ export default function Preview({
       </Card>
     )
   }
-  
+
+  // For kind 1 notes, use MarkdownArticle to match actual rendering
+  // This ensures preview matches the final result (no Links section, correct image placement, proper line breaks)
+  if (kind === kinds.ShortTextNote || kind === ExtendedKind.COMMENT || kind === ExtendedKind.VOICE_COMMENT) {
+    return (
+      <Card className={cn('p-3', className)}>
+        <MarkdownArticle
+          event={fakeEvent}
+          className="pointer-events-none"
+          hideMetadata={true}
+        />
+      </Card>
+    )
+  }
+
   return (
     <Card className={cn('p-3', className)}>
       <Content
