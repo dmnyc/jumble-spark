@@ -131,12 +131,11 @@ function CodeBlock({ id, code, language }: { id: string; code: string; language:
   
   return (
     <div className="my-4 overflow-x-auto">
-      <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg border border-gray-300 dark:border-gray-700">
+      <pre className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
         <code
           ref={codeRef}
           id={id}
-          className={`hljs language-${language || 'plaintext'}`}
-          style={{ color: 'inherit' }}
+          className={`hljs language-${language || 'plaintext'} text-gray-900 dark:text-gray-100`}
         >
           {code}
         </code>
@@ -188,7 +187,7 @@ function InlineCode({ code, keyPrefix }: { code: string; keyPrefix: string }) {
         // On error, fall back to showing the code as-is
         if (elementRef.current) {
           elementRef.current.textContent = code
-          elementRef.current.className = 'bg-muted px-1 py-0.5 rounded text-sm font-mono'
+          elementRef.current.className = 'bg-muted px-1 py-0.5 rounded text-sm font-mono text-foreground'
         }
       }
     }
@@ -208,7 +207,7 @@ function InlineCode({ code, keyPrefix }: { code: string; keyPrefix: string }) {
   
   // Regular inline code
   return (
-    <code key={keyPrefix} className="bg-muted px-1 py-0.5 rounded text-sm font-mono">
+    <code key={keyPrefix} className="bg-muted px-1 py-0.5 rounded text-sm font-mono text-foreground">
       {code}
     </code>
   )
@@ -2933,6 +2932,10 @@ export default function MarkdownArticle({
         }
         .hljs {
           background: transparent !important;
+          color: #1f2937 !important;
+        }
+        .dark .hljs {
+          color: #f3f4f6 !important;
         }
         .hljs-keyword,
         .hljs-selector-tag,
