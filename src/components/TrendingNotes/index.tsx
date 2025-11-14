@@ -53,6 +53,27 @@ export default function TrendingNotes() {
   const isFetchingNostrRef = useRef(false)
   const hasUserClickedNostrTabRef = useRef(false)
 
+  // Listen for tab restoration from PageManager
+  useEffect(() => {
+    const handleRestore = (e: CustomEvent<{ page: string, tab: string }>) => {
+      if (e.detail.page === 'search' && e.detail.tab && ['nostr', 'relays', 'hashtags'].includes(e.detail.tab)) {
+        // If restoring to 'nostr' tab, mark it as clicked and clear events to force a fresh load
+        if (e.detail.tab === 'nostr') {
+          hasUserClickedNostrTabRef.current = true
+          // Clear any existing events and error state to force a fresh load (only for API tab)
+          setNostrEvents([])
+          setNostrError(null)
+        }
+        // For 'relays' and 'hashtags' tabs, just set the active tab
+        // The cache should already be loaded, but if it's empty, the initialization useEffect will handle it
+        // Then set the active tab - this will trigger the useEffect that loads the feed
+        setActiveTab(e.detail.tab as TrendingTab)
+      }
+    }
+    window.addEventListener('restorePageTab', handleRestore as EventListener)
+    return () => window.removeEventListener('restorePageTab', handleRestore as EventListener)
+  }, [])
+
   // Load Nostr.band trending feed only when user explicitly clicks the nostr tab
   useEffect(() => {
     const loadTrending = async () => {
@@ -588,7 +609,12 @@ export default function TrendingNotes() {
           <span className="text-sm font-medium text-muted-foreground">Trending:</span>
           <div className="flex gap-1">
             <button
-              onClick={() => setActiveTab('relays')}
+              onClick={() => {
+                setActiveTab('relays')
+                window.dispatchEvent(new CustomEvent('pageTabChanged', { 
+                  detail: { page: 'search', tab: 'relays' } 
+                }))
+              }}
               className={`px-3 py-1 text-sm rounded-md transition-colors ${
                 activeTab === 'relays'
                   ? 'bg-primary text-primary-foreground'
@@ -598,7 +624,12 @@ export default function TrendingNotes() {
               on your relays
             </button>
             <button
-              onClick={() => setActiveTab('hashtags')}
+              onClick={() => {
+                setActiveTab('hashtags')
+                window.dispatchEvent(new CustomEvent('pageTabChanged', { 
+                  detail: { page: 'search', tab: 'hashtags' } 
+                }))
+              }}
               className={`px-3 py-1 text-sm rounded-md transition-colors ${
                 activeTab === 'hashtags'
                   ? 'bg-primary text-primary-foreground'
@@ -611,6 +642,9 @@ export default function TrendingNotes() {
               onClick={() => {
                 hasUserClickedNostrTabRef.current = true
                 setActiveTab('nostr')
+                window.dispatchEvent(new CustomEvent('pageTabChanged', { 
+                  detail: { page: 'search', tab: 'nostr' } 
+                }))
               }}
               className={`px-3 py-1 text-sm rounded-md transition-colors ${
                 activeTab === 'nostr'

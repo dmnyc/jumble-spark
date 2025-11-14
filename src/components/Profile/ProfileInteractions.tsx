@@ -11,6 +11,14 @@ import { useZap } from '@/providers/ZapProvider'
 
 const INITIAL_SHOW_COUNT = 25
 const LOAD_MORE_COUNT = 25
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
+type InteractionsCacheEntry = {
+  events: Event[]
+  lastUpdated: number
+}
+
+const interactionsCache = new Map<string, InteractionsCacheEntry>()
 
 interface ProfileInteractionsProps {
   accountPubkey: string
@@ -42,8 +50,23 @@ const ProfileInteractions = forwardRef<
   const [refreshToken, setRefreshToken] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Create cache key based on account and profile pubkeys
+  const cacheKey = useMemo(() => `${accountPubkey}-${profilePubkey}-${zapReplyThreshold}`, [accountPubkey, profilePubkey, zapReplyThreshold])
+
   const fetchInteractions = useCallback(async () => {
-      setIsLoading(true)
+      // Check cache first
+      const cachedEntry = interactionsCache.get(cacheKey)
+      const cacheAge = cachedEntry ? Date.now() - cachedEntry.lastUpdated : Infinity
+      const isCacheFresh = cacheAge < CACHE_DURATION
+      
+      // If cache is fresh, show it immediately
+      if (isCacheFresh && cachedEntry) {
+        setEvents(cachedEntry.events)
+        setIsLoading(false)
+        // Still fetch in background to get updates
+      } else {
+        setIsLoading(!cachedEntry)
+      }
       try {
         const relayUrls = FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url)
         
@@ -147,6 +170,12 @@ const ProfileInteractions = forwardRef<
         // Sort by created_at descending
         uniqueEvents.sort((a, b) => b.created_at - a.created_at)
         
+        // Update cache
+        interactionsCache.set(cacheKey, {
+          events: uniqueEvents,
+          lastUpdated: Date.now()
+        })
+        
         setEvents(uniqueEvents)
       } catch (error) {
         console.error('Failed to fetch interactions', error)
@@ -155,7 +184,7 @@ const ProfileInteractions = forwardRef<
         setIsLoading(false)
         setIsRefreshing(false)
       }
-    }, [accountPubkey, profilePubkey, zapReplyThreshold])
+    }, [accountPubkey, profilePubkey, zapReplyThreshold, cacheKey])
 
     useEffect(() => {
       if (!accountPubkey || !profilePubkey) return
@@ -171,6 +200,8 @@ const ProfileInteractions = forwardRef<
       () => ({
         refresh: () => {
           setIsRefreshing(true)
+          // Clear cache on refresh
+          interactionsCache.delete(cacheKey)
           setRefreshToken((prev) => prev + 1)
         },
         getEvents: () => events

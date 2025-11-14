@@ -30,6 +30,7 @@ import {
   createRef,
   ReactNode,
   RefObject,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -134,9 +135,10 @@ export function useSmartNoteNavigation() {
   const { isSmallScreen } = useScreenSize()
   
   const navigateToNote = (url: string) => {
+    // Event ID will be saved when setPrimaryNoteView or pushSecondaryPage is called
+    
     if (isSmallScreen) {
       // Use primary note view on mobile
-      // Extract note ID from URL (e.g., "/notes/note1..." -> "note1...")
       const noteId = url.replace('/notes/', '')
       window.history.pushState(null, '', url)
       setPrimaryNoteView(<NotePage id={noteId} index={0} hideTitlebar={true} />, 'note')
@@ -444,11 +446,630 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   const [primaryViewType, setPrimaryViewType] = useState<'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null>(null)
   const [savedPrimaryPage, setSavedPrimaryPage] = useState<TPrimaryPageName | null>(null)
   const navigationCounterRef = useRef(0)
+  const savedEventIdsRef = useRef<Map<TPrimaryPageName, string>>(new Map())
+  const savedFeedStateRef = useRef<Map<TPrimaryPageName, { 
+    eventIds: string[], 
+    scrollPosition: number, 
+    tab?: string,
+    discussionsState?: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' },
+    trendingTab?: 'nostr' | 'relays' | 'hashtags'
+  }>>(new Map())
+  const restoringScrollRef = useRef<Set<string>>(new Set()) // Track which eventIds are currently being restored
+  const currentTabStateRef = useRef<Map<TPrimaryPageName, string>>(new Map()) // Track current tab state for each page
+  
+  // Helper function to wait for an event element to appear and scroll to it
+  // Optionally uses cached feed state to restore scroll position first
+  const waitForEventAndScroll = useCallback((eventId: string, page: TPrimaryPageName, maxAttempts = 100, delay = 100) => {
+    // Prevent duplicate restoration attempts
+    if (restoringScrollRef.current.has(eventId)) {
+      logger.debug('PageManager: Already restoring scroll for event', { eventId })
+      return
+    }
+    restoringScrollRef.current.add(eventId)
+    
+    logger.info('PageManager: Starting waitForEventAndScroll', { eventId, page, isSmallScreen })
+    
+    let attempts = 0
+    let timeoutId: NodeJS.Timeout | null = null
+    let observer: MutationObserver | null = null
+    let isResolved = false
+    let lastScrollHeight = 0
+    let stuckAttempts = 0
+    
+    const scrollToEvent = () => {
+      if (isResolved) return
+      
+      if (isSmallScreen) {
+        // Find all elements with this event ID (there might be multiple - original and embedded quotes)
+        const allEventElements = Array.from(document.querySelectorAll(`[data-event-id="${eventId}"]`)) as HTMLElement[]
+        
+        // Filter out embedded notes - they're inside [data-embedded-note] containers or are embedded themselves
+        const mainEventElements = allEventElements.filter(el => {
+          // Check if this element is inside an embedded note container
+          const isInsideEmbedded = el.closest('[data-embedded-note]') !== null
+          // Check if this element itself is an embedded note
+          const isEmbedded = el.hasAttribute('data-embedded-note')
+          return !isInsideEmbedded && !isEmbedded
+        })
+        
+        // If we have cached scroll position, find the element closest to it
+        // Otherwise, just use the first main event element
+        let eventElement: HTMLElement | null = null
+        if (mainEventElements.length > 0) {
+          const cachedFeedState = savedFeedStateRef.current.get(page)
+          if (cachedFeedState && cachedFeedState.scrollPosition > 0) {
+            // Find the element closest to the cached scroll position
+            let closestElement: HTMLElement | null = null
+            let closestDistance = Infinity
+            
+            mainEventElements.forEach(el => {
+              const rect = el.getBoundingClientRect()
+              const elementTop = rect.top + window.scrollY
+              const distance = Math.abs(elementTop - cachedFeedState.scrollPosition)
+              if (distance < closestDistance) {
+                closestDistance = distance
+                closestElement = el
+              }
+            })
+            
+            eventElement = closestElement || mainEventElements[0]
+          } else {
+            eventElement = mainEventElements[0]
+          }
+        }
+        
+        if (eventElement) {
+          // Scroll to top of the feed (event at the top)
+          eventElement.scrollIntoView({ behavior: 'instant', block: 'start' })
+          logger.info('PageManager: Mobile - Scrolled to saved event at top', { 
+            eventId, 
+            attempts,
+            totalElements: allEventElements.length,
+            mainElements: mainEventElements.length
+          })
+          isResolved = true
+          cleanup()
+          return true
+        }
+      } else {
+        const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
+        if (scrollArea) {
+          // Find all elements with this event ID (there might be multiple - original and embedded quotes)
+          const allEventElements = Array.from(scrollArea.querySelectorAll(`[data-event-id="${eventId}"]`)) as HTMLElement[]
+          
+          // Filter out embedded notes - they're inside [data-embedded-note] containers or are embedded themselves
+          const mainEventElements = allEventElements.filter(el => {
+            // Check if this element is inside an embedded note container
+            const isInsideEmbedded = el.closest('[data-embedded-note]') !== null
+            // Check if this element itself is an embedded note
+            const isEmbedded = el.hasAttribute('data-embedded-note')
+            return !isInsideEmbedded && !isEmbedded
+          })
+          
+          // If we have cached scroll position, find the element closest to it
+          // Otherwise, just use the first main event element
+          let eventElement: HTMLElement | null = null
+          if (mainEventElements.length > 0) {
+            const cachedFeedState = savedFeedStateRef.current.get(page)
+            if (cachedFeedState && cachedFeedState.scrollPosition > 0) {
+              // Find the element closest to the cached scroll position
+              let closestElement: HTMLElement | null = null
+              let closestDistance = Infinity
+              
+              mainEventElements.forEach(el => {
+                const rect = el.getBoundingClientRect()
+                const scrollAreaRect = scrollArea.getBoundingClientRect()
+                const elementTop = rect.top - scrollAreaRect.top + scrollArea.scrollTop
+                const distance = Math.abs(elementTop - cachedFeedState.scrollPosition)
+                if (distance < closestDistance) {
+                  closestDistance = distance
+                  closestElement = el
+                }
+              })
+              
+              eventElement = closestElement || mainEventElements[0]
+            } else {
+              eventElement = mainEventElements[0]
+            }
+          }
+          
+          if (eventElement) {
+            // Get the element's current position relative to the scroll container
+            const scrollAreaRect = scrollArea.getBoundingClientRect()
+            const elementRect = eventElement.getBoundingClientRect()
+            
+            // Calculate where the element currently is relative to the scroll container's viewport
+            const elementTopInViewport = elementRect.top - scrollAreaRect.top
+            
+            // The element's position in the scroll container's content = current viewport position + current scroll position
+            const elementTopInContent = elementTopInViewport + scrollArea.scrollTop
+            
+            // Scroll to position the element at the top (scrollTop = element's position in content)
+            scrollArea.scrollTop = elementTopInContent
+            
+            // Verify after a brief delay to allow scroll to complete
+            setTimeout(() => {
+              const verifyRect = eventElement.getBoundingClientRect()
+              const verifyScrollAreaRect = scrollArea.getBoundingClientRect()
+              const actualTop = verifyRect.top - verifyScrollAreaRect.top
+              
+              // If still not at top, try one more time with a small adjustment
+              if (Math.abs(actualTop) > 10) {
+                const adjustedScrollTop = scrollArea.scrollTop + actualTop
+                scrollArea.scrollTop = adjustedScrollTop
+                
+                // Verify again
+                setTimeout(() => {
+                  const finalRect = eventElement.getBoundingClientRect()
+                  const finalScrollAreaRect = scrollArea.getBoundingClientRect()
+                  const finalTop = finalRect.top - finalScrollAreaRect.top
+                  logger.info('PageManager: Desktop - Scrolled to saved event at top (adjusted)', { 
+                    eventId, 
+                    attempts,
+                    elementTopInContent,
+                    adjustedScrollTop,
+                    actualScrollTop: scrollArea.scrollTop,
+                    elementTopRelativeToViewport: finalTop
+                  })
+                }, 10)
+              } else {
+                logger.info('PageManager: Desktop - Scrolled to saved event at top', { 
+                  eventId, 
+                  attempts,
+                  elementTopInContent,
+                  actualScrollTop: scrollArea.scrollTop,
+                  elementTopRelativeToViewport: actualTop
+                })
+              }
+            }, 10)
+            
+            isResolved = true
+            cleanup()
+            return true
+          } else {
+            // Event not found - check if we need to trigger lazy loading by scrolling down
+            const allEvents = scrollArea.querySelectorAll('[data-event-id]')
+            const loadedEventIds = Array.from(allEvents).map(el => el.getAttribute('data-event-id'))
+            const eventIsLoaded = loadedEventIds.includes(eventId)
+            
+            // If event is not loaded, try to trigger lazy loading
+            if (!eventIsLoaded) {
+              const currentScrollTop = scrollArea.scrollTop
+              const scrollHeight = scrollArea.scrollHeight
+              const clientHeight = scrollArea.clientHeight
+              const maxScroll = Math.max(0, scrollHeight - clientHeight)
+              const cachedFeedState = savedFeedStateRef.current.get(page)
+              
+              // Check if the target event is in the cached event IDs - if so, we know it should be loaded
+              const eventIsInCachedList = cachedFeedState?.eventIds.includes(eventId) ?? false
+              
+              // If we have cached state and the event is in the cached list, we know it should exist
+              // Scroll to bottom to trigger lazy loading, but only if we're not already at the bottom
+              if (eventIsInCachedList && cachedFeedState) {
+                // Track if scroll height is increasing (content is loading)
+                const scrollHeightIncreased = scrollHeight > lastScrollHeight
+                if (scrollHeightIncreased) {
+                  lastScrollHeight = scrollHeight
+                  stuckAttempts = 0
+                } else if (lastScrollHeight > 0) {
+                  stuckAttempts++
+                } else {
+                  lastScrollHeight = scrollHeight
+                }
+                
+                // If cached position is beyond current scroll height, we need to load more content
+                // Scroll to the bottom to trigger the IntersectionObserver
+                if (cachedFeedState.scrollPosition > maxScroll) {
+                  // If we're stuck (scroll height not increasing), wait longer before trying again
+                  if (stuckAttempts > 5 && attempts > 10) {
+                    // Wait a bit longer - content might be loading but DOM hasn't updated yet
+                    if (attempts % 10 === 0) {
+                      logger.debug('PageManager: Desktop - Scroll height not increasing, waiting for content to load', { 
+                        eventId, 
+                        attempts,
+                        stuckAttempts,
+                        scrollHeight,
+                        lastScrollHeight,
+                        loadedEvents: allEvents.length
+                      })
+                    }
+                    return false
+                  }
+                  
+                  // Scroll to bottom to trigger lazy loading
+                  scrollArea.scrollTop = maxScroll
+                  
+                  if (attempts % 3 === 0 || attempts < 5) {
+                    logger.info('PageManager: Desktop - Scrolling to bottom to trigger lazy loading (event in cached list)', { 
+                      eventId, 
+                      attempts,
+                      currentScrollTop,
+                      maxScroll,
+                      cachedPosition: cachedFeedState.scrollPosition,
+                      scrollHeight,
+                      loadedEvents: allEvents.length,
+                      cachedEventCount: cachedFeedState.eventIds.length,
+                      scrollHeightIncreased
+                    })
+                  }
+                  return false
+                } else {
+                  // Cached position is within current scroll height, but event not found yet
+                  // This might mean the event order changed or it's not rendered yet
+                  // Scroll towards cached position to trigger loading
+                  const distanceToCached = Math.abs(currentScrollTop - cachedFeedState.scrollPosition)
+                  if (distanceToCached > 10) {
+                    const targetScroll = Math.min(cachedFeedState.scrollPosition, maxScroll)
+                    scrollArea.scrollTop = targetScroll
+                    
+                    if (attempts % 3 === 0 || attempts < 5) {
+                      logger.info('PageManager: Desktop - Scrolling towards cached position (event in cached list)', { 
+                        eventId, 
+                        attempts,
+                        currentScrollTop,
+                        targetScroll,
+                        cachedPosition: cachedFeedState.scrollPosition,
+                        scrollHeight,
+                        maxScroll,
+                        loadedEvents: allEvents.length
+                      })
+                    }
+                    return false
+                  }
+                }
+              } else {
+                // Event not in cached list or no cached state - scroll down gradually to trigger lazy loading
+                if (maxScroll > 0 && currentScrollTop < maxScroll * 0.95) {
+                  // Scroll down more aggressively - by a full viewport or 1000px, whichever is smaller
+                  const scrollIncrement = Math.min(clientHeight * 1.0, 1000)
+                  const newScrollTop = Math.min(currentScrollTop + scrollIncrement, maxScroll)
+                  scrollArea.scrollTop = newScrollTop
+                  
+                  if (attempts % 5 === 0) {
+                    logger.info('PageManager: Desktop - Scrolling down to trigger lazy loading', { 
+                      eventId, 
+                      attempts,
+                      currentScrollTop,
+                      newScrollTop,
+                      scrollHeight,
+                      maxScroll,
+                      loadedEvents: allEvents.length,
+                      scrollIncrement
+                    })
+                  }
+                } else {
+                  if (attempts % 10 === 0) {
+                    logger.debug('PageManager: Desktop - Cannot scroll further or at bottom', { 
+                      eventId, 
+                      attempts,
+                      currentScrollTop,
+                      maxScroll,
+                      scrollPercentage: maxScroll > 0 ? (currentScrollTop / maxScroll).toFixed(2) : 'N/A',
+                      loadedEvents: allEvents.length
+                    })
+                  }
+                }
+              }
+            }
+            
+            // Log debug info periodically
+            if (attempts === 0 || attempts % 10 === 0) {
+              logger.debug('PageManager: Desktop - Event not found yet', { 
+                eventId, 
+                attempts,
+                totalEventsInDocument: document.querySelectorAll('[data-event-id]').length,
+                totalEventsInScrollArea: allEvents.length,
+                eventIsLoaded
+              })
+            }
+          }
+        } else {
+          if (attempts === 0 || attempts % 10 === 0) {
+            logger.debug('PageManager: Desktop - ScrollArea not found yet', { eventId, attempts })
+          }
+        }
+      }
+      return false
+    }
+    
+    const tryScroll = () => {
+      if (isResolved) return
+      attempts++
+      
+      if (scrollToEvent()) {
+        return
+      }
+      
+      if (attempts < maxAttempts) {
+        timeoutId = setTimeout(tryScroll, delay)
+      } else {
+        // Final debug: Check what events are actually in the DOM
+        const allEvents = document.querySelectorAll('[data-event-id]')
+        const eventIds = Array.from(allEvents).slice(0, 10).map(el => el.getAttribute('data-event-id'))
+        const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
+        const scrollAreaEvents = scrollArea ? scrollArea.querySelectorAll('[data-event-id]') : []
+        const scrollAreaEventIds = Array.from(scrollAreaEvents).slice(0, 10).map(el => el.getAttribute('data-event-id'))
+        
+        logger.warn('PageManager: Could not find saved event element after max attempts', { 
+          eventId, 
+          page, 
+          attempts,
+          totalEventsInDocument: allEvents.length,
+          totalEventsInScrollArea: scrollAreaEvents.length,
+          sampleEventIds: eventIds,
+          sampleScrollAreaEventIds: scrollAreaEventIds
+        })
+        cleanup()
+      }
+    }
+    
+    const cleanup = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
+      }
+      if (observer) {
+        observer.disconnect()
+        observer = null
+      }
+      restoringScrollRef.current.delete(eventId)
+    }
+    
+    // Wait a bit for the page to render before trying
+    setTimeout(() => {
+      // First, restore scroll position from cached feed state to trigger lazy loading
+      const cachedFeedState = savedFeedStateRef.current.get(page)
+      const eventIsInCachedList = cachedFeedState?.eventIds.includes(eventId) ?? false
+      logger.debug('PageManager: Checking cached feed state for restoration', { 
+        page, 
+        hasCachedState: !!cachedFeedState,
+        cachedScrollPosition: cachedFeedState?.scrollPosition,
+        cachedEventCount: cachedFeedState?.eventIds.length,
+        eventIdInCachedList: eventIsInCachedList,
+        allCachedPages: Array.from(savedFeedStateRef.current.keys())
+      })
+      
+      if (cachedFeedState && !eventIsInCachedList) {
+        logger.warn('PageManager: Target event not in cached event list - may not exist in feed', { 
+          eventId, 
+          page,
+          cachedEventCount: cachedFeedState.eventIds.length,
+          sampleCachedIds: cachedFeedState.eventIds.slice(0, 5)
+        })
+      }
+      
+      if (cachedFeedState && cachedFeedState.scrollPosition > 0) {
+        if (isSmallScreen) {
+          window.scrollTo({ top: cachedFeedState.scrollPosition, behavior: 'instant' })
+          logger.info('PageManager: Mobile - Restored scroll position from cache', { 
+            page, 
+            scrollPosition: cachedFeedState.scrollPosition,
+            cachedEventCount: cachedFeedState.eventIds.length
+          })
+        } else {
+          const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
+          if (scrollArea) {
+            const maxScroll = Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight)
+            const needsMoreContent = cachedFeedState.scrollPosition > maxScroll
+            
+            // If cached position is beyond current scroll height, scroll to bottom to trigger loading
+            // Otherwise, scroll to the cached position
+            const targetScroll = needsMoreContent ? maxScroll : Math.min(cachedFeedState.scrollPosition, maxScroll)
+            scrollArea.scrollTop = targetScroll
+            
+            logger.info('PageManager: Desktop - Restored scroll position from cache', { 
+              page, 
+              scrollPosition: cachedFeedState.scrollPosition,
+              targetScroll,
+              cachedEventCount: cachedFeedState.eventIds.length,
+              scrollAreaScrollHeight: scrollArea.scrollHeight,
+              maxScroll,
+              needsMoreContent,
+              eventIdInCachedList: cachedFeedState.eventIds.includes(eventId)
+            })
+          } else {
+            logger.warn('PageManager: Desktop - ScrollArea not found when trying to restore cached position', { page })
+          }
+        }
+      } else {
+        logger.debug('PageManager: No cached scroll position to restore', { 
+          page, 
+          hasCachedState: !!cachedFeedState,
+          cachedScrollPosition: cachedFeedState?.scrollPosition
+        })
+      }
+      
+      // Wait a bit longer for lazy loading to trigger after restoring scroll position
+      setTimeout(() => {
+        // Try to find and scroll to the event
+        if (scrollToEvent()) {
+          return
+        }
+        
+        // Set up MutationObserver to watch for when the element appears
+        const targetNode = isSmallScreen ? document.body : document.querySelector('[data-radix-scroll-area-viewport]') || document.body
+        if (targetNode) {
+          observer = new MutationObserver(() => {
+            if (!isResolved && scrollToEvent()) {
+              return
+            }
+          })
+          
+          observer.observe(targetNode, {
+            childList: true,
+            subtree: true,
+            attributes: false
+          })
+          logger.debug('PageManager: MutationObserver set up', { eventId, targetNode: targetNode.tagName })
+        } else {
+          logger.warn('PageManager: Could not find target node for MutationObserver', { eventId, isSmallScreen })
+        }
+        
+        // Also poll as a fallback
+        timeoutId = setTimeout(tryScroll, delay)
+      }, 300) // Wait 300ms after restoring scroll position for lazy loading to trigger
+      
+      // Cleanup after max time (maxAttempts * delay)
+      setTimeout(() => {
+        if (!isResolved) {
+          // Final debug: Check what events are actually in the DOM
+          const allEvents = document.querySelectorAll('[data-event-id]')
+          const eventIds = Array.from(allEvents).slice(0, 20).map(el => el.getAttribute('data-event-id'))
+          const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
+          const scrollAreaEvents = scrollArea ? scrollArea.querySelectorAll('[data-event-id]') : []
+          const scrollAreaEventIds = Array.from(scrollAreaEvents).slice(0, 20).map(el => el.getAttribute('data-event-id'))
+          const eventExistsInDocument = Array.from(allEvents).some(el => el.getAttribute('data-event-id') === eventId)
+          const eventExistsInScrollArea = scrollArea ? Array.from(scrollAreaEvents).some(el => el.getAttribute('data-event-id') === eventId) : false
+          
+          logger.warn('PageManager: waitForEventAndScroll timed out', { 
+            eventId, 
+            page, 
+            attempts,
+            totalEventsInDocument: allEvents.length,
+            totalEventsInScrollArea: scrollAreaEvents.length,
+            eventExistsInDocument,
+            eventExistsInScrollArea,
+            sampleEventIds: eventIds,
+            sampleScrollAreaEventIds: scrollAreaEventIds,
+            scrollAreaExists: !!scrollArea
+          })
+          cleanup()
+        }
+      }, maxAttempts * delay)
+    }, 200) // Wait 200ms for initial render
+  }, [isSmallScreen])
   
   const setPrimaryNoteView = (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => {
     if (view && !primaryNoteView) {
       // Saving current primary page before showing overlay
       setSavedPrimaryPage(currentPrimaryPage)
+      
+      // Find the event that's currently visible in the viewport and save its ID
+      // Also cache the feed state (all visible event IDs and scroll position)
+      const findVisibleEventIdAndCacheFeedState = () => {
+        if (isSmallScreen) {
+          // On mobile, find event in window viewport
+          const viewportCenter = window.scrollY + window.innerHeight / 2
+          const allEvents = document.querySelectorAll('[data-event-id]')
+          let closestEvent: HTMLElement | null = null
+          let closestDistance = Infinity
+          const eventIds: string[] = []
+          
+          allEvents.forEach((el) => {
+            const eventId = el.getAttribute('data-event-id')
+            if (eventId) {
+              eventIds.push(eventId)
+            }
+            const rect = el.getBoundingClientRect()
+            const elementCenter = rect.top + window.scrollY + rect.height / 2
+            const distance = Math.abs(elementCenter - viewportCenter)
+            if (distance < closestDistance) {
+              closestDistance = distance
+              closestEvent = el as HTMLElement
+            }
+          })
+          
+          const visibleEventId = (closestEvent as HTMLElement | null)?.getAttribute('data-event-id')
+          const scrollPosition = window.scrollY
+          
+          return { visibleEventId, eventIds, scrollPosition }
+        } else {
+          // On desktop, find event in ScrollArea viewport
+          const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
+          if (scrollArea) {
+            const viewportCenter = scrollArea.scrollTop + scrollArea.clientHeight / 2
+            const allEvents = scrollArea.querySelectorAll('[data-event-id]')
+            let closestEvent: HTMLElement | null = null
+            let closestDistance = Infinity
+            const eventIds: string[] = []
+            
+            allEvents.forEach((el) => {
+              const eventId = el.getAttribute('data-event-id')
+              if (eventId) {
+                eventIds.push(eventId)
+              }
+              const rect = el.getBoundingClientRect()
+              const scrollAreaRect = scrollArea.getBoundingClientRect()
+              const elementTop = rect.top - scrollAreaRect.top + scrollArea.scrollTop
+              const elementCenter = elementTop + rect.height / 2
+              const distance = Math.abs(elementCenter - viewportCenter)
+              if (distance < closestDistance) {
+                closestDistance = distance
+                closestEvent = el as HTMLElement
+              }
+            })
+            
+            const visibleEventId = (closestEvent as HTMLElement | null)?.getAttribute('data-event-id')
+            const scrollPosition = scrollArea.scrollTop
+            
+            return { visibleEventId, eventIds, scrollPosition }
+          }
+        }
+        return { visibleEventId: null, eventIds: [], scrollPosition: 0 }
+      }
+      
+      const { visibleEventId, eventIds, scrollPosition } = findVisibleEventIdAndCacheFeedState()
+      
+      // Get current tab state from ref (updated by components via events)
+      const currentTab = currentTabStateRef.current.get(currentPrimaryPage)
+      
+      // Get Discussions state if on discussions page
+      let discussionsState: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' } | undefined = undefined
+      if (currentPrimaryPage === 'discussions') {
+        // Request discussions state from component
+        const stateEvent = new CustomEvent('requestDiscussionsState')
+        let receivedState: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' } | null = null
+        const handler = ((e: CustomEvent) => {
+          receivedState = e.detail
+        }) as EventListener
+        window.addEventListener('discussionsStateResponse', handler)
+        window.dispatchEvent(stateEvent)
+        setTimeout(() => {
+          window.removeEventListener('discussionsStateResponse', handler)
+          if (receivedState) {
+            discussionsState = receivedState
+          }
+        }, 10)
+      }
+      
+      // Get trending tab if on search page
+      const trendingTab = currentTabStateRef.current.get('search') as 'nostr' | 'relays' | 'hashtags' | undefined
+      
+      if (visibleEventId) {
+        logger.info('PageManager: Saving visible event ID and feed state', { 
+          page: currentPrimaryPage, 
+          eventId: visibleEventId,
+          eventCount: eventIds.length,
+          scrollPosition,
+          tab: currentTab,
+          discussionsState,
+          trendingTab
+        })
+        savedEventIdsRef.current.set(currentPrimaryPage, visibleEventId)
+        savedFeedStateRef.current.set(currentPrimaryPage, { 
+          eventIds, 
+          scrollPosition, 
+          tab: currentTab,
+          discussionsState,
+          trendingTab
+        })
+      } else if (scrollPosition > 0 || currentTab || discussionsState || trendingTab) {
+        // Save scroll position even if no event ID (for pages without event IDs like notifications, explore)
+        logger.info('PageManager: Saving scroll position and state (no event ID)', { 
+          page: currentPrimaryPage, 
+          scrollPosition,
+          tab: currentTab,
+          discussionsState,
+          trendingTab
+        })
+        savedFeedStateRef.current.set(currentPrimaryPage, { 
+          eventIds: [], 
+          scrollPosition, 
+          tab: currentTab,
+          discussionsState,
+          trendingTab
+        })
+      }
     }
     
     // Increment navigation counter when setting a new view to ensure unique keys
@@ -466,6 +1087,78 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     if (!view && savedPrimaryPage) {
       const newUrl = savedPrimaryPage === 'home' ? '/' : `/?page=${savedPrimaryPage}`
       window.history.replaceState(null, '', newUrl)
+      
+      const savedFeedState = savedFeedStateRef.current.get(savedPrimaryPage)
+      const savedEventId = savedEventIdsRef.current.get(savedPrimaryPage)
+      
+      // Restore tab state first
+      if (savedFeedState?.tab) {
+        logger.info('PageManager: Restoring tab state', { page: savedPrimaryPage, tab: savedFeedState.tab })
+        window.dispatchEvent(new CustomEvent('restorePageTab', { 
+          detail: { page: savedPrimaryPage, tab: savedFeedState.tab } 
+        }))
+        currentTabStateRef.current.set(savedPrimaryPage, savedFeedState.tab)
+      }
+      
+      // Restore Discussions state
+      if (savedFeedState?.discussionsState && savedPrimaryPage === 'discussions') {
+        logger.info('PageManager: Restoring Discussions state', { 
+          page: savedPrimaryPage, 
+          discussionsState: savedFeedState.discussionsState 
+        })
+        window.dispatchEvent(new CustomEvent('restoreDiscussionsState', { 
+          detail: { page: savedPrimaryPage, discussionsState: savedFeedState.discussionsState } 
+        }))
+      }
+      
+      // Restore trending tab for search page
+      if (savedFeedState?.trendingTab && savedPrimaryPage === 'search') {
+        logger.info('PageManager: Restoring trending tab', { 
+          page: savedPrimaryPage, 
+          trendingTab: savedFeedState.trendingTab 
+        })
+        window.dispatchEvent(new CustomEvent('restorePageTab', { 
+          detail: { page: 'search', tab: savedFeedState.trendingTab } 
+        }))
+        currentTabStateRef.current.set('search', savedFeedState.trendingTab)
+      }
+      
+      // Scroll to the saved event or position
+      if (savedEventId) {
+        logger.info('PageManager: Restoring to saved event', { page: savedPrimaryPage, eventId: savedEventId })
+        try {
+          waitForEventAndScroll(savedEventId, savedPrimaryPage)
+        } catch (error) {
+          logger.error('PageManager: Error calling waitForEventAndScroll', { error, savedEventId, savedPrimaryPage })
+        }
+      } else if (savedFeedState && savedFeedState.scrollPosition > 0) {
+        // Restore scroll position for pages without event IDs
+        logger.info('PageManager: Restoring scroll position (no event ID)', { 
+          page: savedPrimaryPage, 
+          scrollPosition: savedFeedState.scrollPosition 
+        })
+        // Wait longer for content to load, then restore scroll position
+        setTimeout(() => {
+          const restoreScroll = () => {
+            if (isSmallScreen) {
+              window.scrollTo({ top: savedFeedState.scrollPosition, behavior: 'instant' })
+            } else {
+              const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
+              if (scrollArea) {
+                const maxScroll = Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight)
+                const targetScroll = Math.min(savedFeedState.scrollPosition, maxScroll)
+                scrollArea.scrollTop = targetScroll
+                
+                // If content hasn't loaded enough yet, try again after a delay
+                if (targetScroll < savedFeedState.scrollPosition && maxScroll < savedFeedState.scrollPosition) {
+                  setTimeout(restoreScroll, 200)
+                }
+              }
+            }
+          }
+          restoreScroll()
+        }, 300)
+      }
     }
   }
 
@@ -631,6 +1324,97 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     }
   }, [])
 
+  // Listen for tab state changes from components
+  useEffect(() => {
+    const handleTabChange = (e: CustomEvent<{ page: TPrimaryPageName, tab: string }>) => {
+      currentTabStateRef.current.set(e.detail.page, e.detail.tab)
+      logger.debug('PageManager: Tab state updated', { page: e.detail.page, tab: e.detail.tab })
+    }
+    
+    window.addEventListener('pageTabChanged', handleTabChange as EventListener)
+    return () => {
+      window.removeEventListener('pageTabChanged', handleTabChange as EventListener)
+    }
+  }, [])
+  
+  // Restore scroll position and tab state when returning to primary page from browser back button
+  useEffect(() => {
+    if (secondaryStack.length === 0 && currentPrimaryPage) {
+      const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
+      const savedEventId = savedEventIdsRef.current.get(currentPrimaryPage)
+      
+      // Restore tab state first
+      if (savedFeedState?.tab) {
+        logger.info('PageManager: Browser back - Restoring tab state', { page: currentPrimaryPage, tab: savedFeedState.tab })
+        window.dispatchEvent(new CustomEvent('restorePageTab', { 
+          detail: { page: currentPrimaryPage, tab: savedFeedState.tab } 
+        }))
+        // Update ref immediately
+        currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
+      }
+      
+      // Restore Discussions state
+      if (savedFeedState?.discussionsState && currentPrimaryPage === 'discussions') {
+        logger.info('PageManager: Browser back - Restoring Discussions state', { 
+          page: currentPrimaryPage, 
+          discussionsState: savedFeedState.discussionsState 
+        })
+        window.dispatchEvent(new CustomEvent('restoreDiscussionsState', { 
+          detail: { page: currentPrimaryPage, discussionsState: savedFeedState.discussionsState } 
+        }))
+      }
+      
+      // Restore trending tab for search page
+      if (savedFeedState?.trendingTab && currentPrimaryPage === 'search') {
+        logger.info('PageManager: Browser back - Restoring trending tab', { 
+          page: currentPrimaryPage, 
+          trendingTab: savedFeedState.trendingTab 
+        })
+        window.dispatchEvent(new CustomEvent('restorePageTab', { 
+          detail: { page: 'search', tab: savedFeedState.trendingTab } 
+        }))
+        currentTabStateRef.current.set('search', savedFeedState.trendingTab)
+      }
+      
+      // Restore scroll position
+      if (savedEventId) {
+        logger.info('PageManager: Browser back - Restoring to saved event', { page: currentPrimaryPage, eventId: savedEventId })
+        try {
+          waitForEventAndScroll(savedEventId, currentPrimaryPage)
+        } catch (error) {
+          logger.error('PageManager: Error calling waitForEventAndScroll from useEffect', { error, savedEventId, currentPrimaryPage })
+        }
+      } else if (savedFeedState && savedFeedState.scrollPosition > 0) {
+        // Restore scroll position for pages without event IDs
+        logger.info('PageManager: Browser back - Restoring scroll position (no event ID)', { 
+          page: currentPrimaryPage, 
+          scrollPosition: savedFeedState.scrollPosition 
+        })
+        // Wait longer for content to load, then restore scroll position
+        setTimeout(() => {
+          const restoreScroll = () => {
+            if (isSmallScreen) {
+              window.scrollTo({ top: savedFeedState.scrollPosition, behavior: 'instant' })
+            } else {
+              const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
+              if (scrollArea) {
+                const maxScroll = Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight)
+                const targetScroll = Math.min(savedFeedState.scrollPosition, maxScroll)
+                scrollArea.scrollTop = targetScroll
+                
+                // If content hasn't loaded enough yet, try again after a delay
+                if (targetScroll < savedFeedState.scrollPosition && maxScroll < savedFeedState.scrollPosition) {
+                  setTimeout(restoreScroll, 200)
+                }
+              }
+            }
+          }
+          restoreScroll()
+        }, 300)
+      }
+    }
+  }, [secondaryStack.length, currentPrimaryPage, waitForEventAndScroll, isSmallScreen])
+
 
   const navigatePrimaryPage = (page: TPrimaryPageName, props?: any) => {
     const needScrollToTop = page === currentPrimaryPage
@@ -668,6 +1452,69 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
 
   const pushSecondaryPage = (url: string, index?: number) => {
     logger.component('PageManager', 'pushSecondaryPage called', { url })
+    
+    // Find and save the visible event ID and feed state before navigating
+    const findVisibleEventIdAndCacheFeedState = () => {
+      const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
+      if (scrollArea) {
+        const viewportCenter = scrollArea.scrollTop + scrollArea.clientHeight / 2
+        const allEvents = scrollArea.querySelectorAll('[data-event-id]')
+        let closestEvent: HTMLElement | null = null
+        let closestDistance = Infinity
+        const eventIds: string[] = []
+        
+        allEvents.forEach((el) => {
+          const eventId = el.getAttribute('data-event-id')
+          if (eventId) {
+            eventIds.push(eventId)
+          }
+          const rect = el.getBoundingClientRect()
+          const scrollAreaRect = scrollArea.getBoundingClientRect()
+          const elementTop = rect.top - scrollAreaRect.top + scrollArea.scrollTop
+          const elementCenter = elementTop + rect.height / 2
+          const distance = Math.abs(elementCenter - viewportCenter)
+          if (distance < closestDistance) {
+            closestDistance = distance
+            closestEvent = el as HTMLElement
+          }
+        })
+        
+        const visibleEventId = (closestEvent as HTMLElement | null)?.getAttribute('data-event-id')
+        const scrollPosition = scrollArea.scrollTop
+        
+        return { visibleEventId, eventIds, scrollPosition }
+      }
+      return { visibleEventId: null, eventIds: [], scrollPosition: 0 }
+    }
+    
+    const { visibleEventId, eventIds, scrollPosition } = findVisibleEventIdAndCacheFeedState()
+    const currentTab = currentTabStateRef.current.get(currentPrimaryPage)
+    
+    // Get trending tab if on search page
+    const trendingTab = currentTabStateRef.current.get('search') as 'nostr' | 'relays' | 'hashtags' | undefined
+    
+    if (visibleEventId && currentPrimaryPage) {
+      logger.info('PageManager: Desktop - Saving visible event ID and feed state', { 
+        page: currentPrimaryPage, 
+        eventId: visibleEventId,
+        eventCount: eventIds.length,
+        scrollPosition,
+        tab: currentTab,
+        trendingTab
+      })
+      savedEventIdsRef.current.set(currentPrimaryPage, visibleEventId)
+      savedFeedStateRef.current.set(currentPrimaryPage, { eventIds, scrollPosition, tab: currentTab, trendingTab })
+    } else if (currentPrimaryPage && (scrollPosition > 0 || currentTab || trendingTab)) {
+      // Save scroll position even if no event ID (for pages without event IDs)
+      logger.info('PageManager: Desktop - Saving scroll position and state (no event ID)', { 
+        page: currentPrimaryPage, 
+        scrollPosition,
+        tab: currentTab,
+        trendingTab
+      })
+      savedFeedStateRef.current.set(currentPrimaryPage, { eventIds: [], scrollPosition, tab: currentTab, trendingTab })
+    }
+    
     setSecondaryStack((prevStack) => {
       logger.component('PageManager', 'Current secondary stack length', { length: prevStack.length })
       
@@ -714,9 +1561,81 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
 
   const popSecondaryPage = () => {
     if (secondaryStack.length === 1) {
-      // back to home page
+      // back to home page - restore to saved event
       window.history.replaceState(null, '', '/')
       setSecondaryStack([])
+      
+      const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
+      const savedEventId = savedEventIdsRef.current.get(currentPrimaryPage)
+      
+      // Restore tab state first
+      if (savedFeedState?.tab) {
+        logger.info('PageManager: Desktop - Restoring tab state', { page: currentPrimaryPage, tab: savedFeedState.tab })
+        window.dispatchEvent(new CustomEvent('restorePageTab', { 
+          detail: { page: currentPrimaryPage, tab: savedFeedState.tab } 
+        }))
+        currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
+      }
+      
+      // Restore Discussions state
+      if (savedFeedState?.discussionsState && currentPrimaryPage === 'discussions') {
+        logger.info('PageManager: Desktop - Restoring Discussions state', { 
+          page: currentPrimaryPage, 
+          discussionsState: savedFeedState.discussionsState 
+        })
+        window.dispatchEvent(new CustomEvent('restoreDiscussionsState', { 
+          detail: { page: currentPrimaryPage, discussionsState: savedFeedState.discussionsState } 
+        }))
+      }
+      
+      // Restore trending tab for search page
+      if (savedFeedState?.trendingTab && currentPrimaryPage === 'search') {
+        logger.info('PageManager: Desktop - Restoring trending tab', { 
+          page: currentPrimaryPage, 
+          trendingTab: savedFeedState.trendingTab 
+        })
+        window.dispatchEvent(new CustomEvent('restorePageTab', { 
+          detail: { page: 'search', tab: savedFeedState.trendingTab } 
+        }))
+        currentTabStateRef.current.set('search', savedFeedState.trendingTab)
+      }
+      
+      // Scroll to the saved event or position
+      if (savedEventId) {
+        logger.info('PageManager: Desktop - Restoring to saved event', { page: currentPrimaryPage, eventId: savedEventId })
+        try {
+          waitForEventAndScroll(savedEventId, currentPrimaryPage)
+        } catch (error) {
+          logger.error('PageManager: Error calling waitForEventAndScroll from popSecondaryPage', { error, savedEventId, currentPrimaryPage })
+        }
+      } else if (savedFeedState && savedFeedState.scrollPosition > 0) {
+        // Restore scroll position for pages without event IDs
+        logger.info('PageManager: Desktop - Restoring scroll position (no event ID)', { 
+          page: currentPrimaryPage, 
+          scrollPosition: savedFeedState.scrollPosition 
+        })
+        // Wait longer for content to load, then restore scroll position
+        setTimeout(() => {
+          const restoreScroll = () => {
+            if (isSmallScreen) {
+              window.scrollTo({ top: savedFeedState.scrollPosition, behavior: 'instant' })
+            } else {
+              const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
+              if (scrollArea) {
+                const maxScroll = Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight)
+                const targetScroll = Math.min(savedFeedState.scrollPosition, maxScroll)
+                scrollArea.scrollTop = targetScroll
+                
+                // If content hasn't loaded enough yet, try again after a delay
+                if (targetScroll < savedFeedState.scrollPosition && maxScroll < savedFeedState.scrollPosition) {
+                  setTimeout(restoreScroll, 200)
+                }
+              }
+            }
+          }
+          restoreScroll()
+        }, 300)
+      }
     } else {
       window.history.go(-1)
     }

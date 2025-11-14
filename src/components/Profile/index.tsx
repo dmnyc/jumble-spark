@@ -219,6 +219,17 @@ export default function Profile({ id }: { id?: string }) {
     forceUpdateCache()
   }, [profile?.pubkey])
 
+  // Listen for tab restoration from PageManager
+  useEffect(() => {
+    const handleRestore = (e: CustomEvent<{ page: string, tab: string }>) => {
+      if (e.detail.page === 'profile' && e.detail.tab) {
+        setActiveTab(e.detail.tab as ProfileTabValue)
+      }
+    }
+    window.addEventListener('restorePageTab', handleRestore as EventListener)
+    return () => window.removeEventListener('restorePageTab', handleRestore as EventListener)
+  }, [])
+
 
   if (!profile && isFetching) {
     return (
@@ -340,7 +351,13 @@ export default function Profile({ id }: { id?: string }) {
           <Tabs
             value={activeTab}
             tabs={tabs}
-            onTabChange={(tab) => setActiveTab(tab as ProfileTabValue)}
+            onTabChange={(tab) => {
+              setActiveTab(tab as ProfileTabValue)
+              // Dispatch tab change event for PageManager
+              window.dispatchEvent(new CustomEvent('pageTabChanged', { 
+                detail: { page: 'profile', tab: tab } 
+              }))
+            }}
             threshold={800}
           />
           <div className="flex items-center gap-2 pr-2 px-1">

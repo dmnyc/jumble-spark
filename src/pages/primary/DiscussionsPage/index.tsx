@@ -756,6 +756,29 @@ const DiscussionsPage = forwardRef((_, ref) => {
       filterEventMapForDisplay()
     }
   }, [allEventMap, timeSpan, selectedTopic]) // Run when allEventMap, timeSpan, or selectedTopic changes
+
+  // Listen for state requests and restoration from PageManager
+  useEffect(() => {
+    const handleStateRequest = () => {
+      window.dispatchEvent(new CustomEvent('discussionsStateResponse', {
+        detail: { selectedTopic, timeSpan }
+      }))
+    }
+    
+    const handleRestore = (e: CustomEvent<{ page: string, discussionsState?: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' } }>) => {
+      if (e.detail.page === 'discussions' && e.detail.discussionsState) {
+        setSelectedTopic(e.detail.discussionsState.selectedTopic)
+        setTimeSpan(e.detail.discussionsState.timeSpan)
+      }
+    }
+    
+    window.addEventListener('requestDiscussionsState', handleStateRequest as EventListener)
+    window.addEventListener('restoreDiscussionsState', handleRestore as EventListener)
+    return () => {
+      window.removeEventListener('requestDiscussionsState', handleStateRequest as EventListener)
+      window.removeEventListener('restoreDiscussionsState', handleRestore as EventListener)
+    }
+  }, [selectedTopic, timeSpan])
   
   // Get available topics sorted by most recent activity (including dynamic topics)
   // Topic counts are calculated based on the current time span filter

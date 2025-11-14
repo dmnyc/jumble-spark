@@ -11,6 +11,29 @@ import NoteCard from '../NoteCard'
 import { Skeleton } from '../ui/skeleton'
 
 type TabValue = 'bookmarks' | 'hashtags' | 'pins'
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
+type BookmarksCacheEntry = {
+  events: Event[]
+  listEvent: Event | null
+  lastUpdated: number
+}
+
+type HashtagsCacheEntry = {
+  events: Event[]
+  listEvent: Event | null
+  lastUpdated: number
+}
+
+type PinsCacheEntry = {
+  events: Event[]
+  listEvent: Event | null
+  lastUpdated: number
+}
+
+const bookmarksCache = new Map<string, BookmarksCacheEntry>()
+const hashtagsCache = new Map<string, HashtagsCacheEntry>()
+const pinsCache = new Map<string, PinsCacheEntry>()
 
 const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
   pubkey: string
@@ -66,11 +89,30 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
 
   // Fetch bookmark list event and associated events
   const fetchBookmarks = useCallback(async (isRetry = false, isRefresh = false) => {
-    if (!isRetry && !isRefresh) {
-      setLoadingBookmarks(true)
-      setRetryCountBookmarks(0)
-    } else if (isRetry) {
-      setIsRetryingBookmarks(true)
+    const cacheKey = `${pubkey}-bookmarks`
+    
+    // Check cache first
+    const cachedEntry = bookmarksCache.get(cacheKey)
+    const cacheAge = cachedEntry ? Date.now() - cachedEntry.lastUpdated : Infinity
+    const isCacheFresh = cacheAge < CACHE_DURATION
+    
+    // If cache is fresh, show it immediately
+    if (isCacheFresh && cachedEntry && !isRetry && !isRefresh) {
+      // Add cached events to client cache so they're available in note view
+      cachedEntry.events.forEach(event => {
+        client.addEventToCache(event)
+      })
+      setBookmarkEvents(cachedEntry.events)
+      setBookmarkListEvent(cachedEntry.listEvent)
+      setLoadingBookmarks(false)
+      // Still fetch in background to get updates
+    } else {
+      if (!isRetry && !isRefresh) {
+        setLoadingBookmarks(true)
+        setRetryCountBookmarks(0)
+      } else if (isRetry) {
+        setIsRetryingBookmarks(true)
+      }
     }
     
     try {
@@ -150,27 +192,51 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
             const events = eventArrays.flat()
             logger.debug('[ProfileBookmarksAndHashtags] Fetched', events.length, 'bookmark events')
             
+            // Add all events to client cache so they're available immediately in note view
+            events.forEach(event => {
+              client.addEventToCache(event)
+            })
+            
+            let finalEvents: Event[]
             if (isRefresh) {
               // For refresh, append new events and deduplicate
-              setBookmarkEvents(prevEvents => {
-                const existingIds = new Set(prevEvents.map(e => e.id))
-                const newEvents = events.filter(event => !existingIds.has(event.id))
-                const combinedEvents = [...newEvents, ...prevEvents]
-                // Re-sort the combined events
-                return combinedEvents.sort((a, b) => b.created_at - a.created_at)
-              })
+              // Compute final events before setting state
+              const existingIds = new Set(bookmarkEvents.map(e => e.id))
+              const newEvents = events.filter(event => !existingIds.has(event.id))
+              finalEvents = [...newEvents, ...bookmarkEvents].sort((a, b) => b.created_at - a.created_at)
+              setBookmarkEvents(finalEvents)
             } else {
+              finalEvents = events
               setBookmarkEvents(events)
             }
+            
+            // Update cache
+            bookmarksCache.set(cacheKey, {
+              events: finalEvents,
+              listEvent: bookmarkList,
+              lastUpdated: Date.now()
+            })
           } catch (error) {
             logger.warn('[ProfileBookmarksAndHashtags] Error fetching bookmark events:', error)
             setBookmarkEvents([])
           }
         } else {
           setBookmarkEvents([])
+          // Update cache with empty result
+          bookmarksCache.set(cacheKey, {
+            events: [],
+            listEvent: bookmarkList,
+            lastUpdated: Date.now()
+          })
         }
       } else {
         setBookmarkEvents([])
+        // Update cache with empty result
+        bookmarksCache.set(cacheKey, {
+          events: [],
+          listEvent: bookmarkList,
+          lastUpdated: Date.now()
+        })
       }
       
       // Reset retry count on successful fetch
@@ -204,13 +270,17 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
     }
   }, [pubkey, buildComprehensiveRelayList, retryCountBookmarks, maxRetries])
 
-  // Fetch interest list event and associated events
-  const fetchHashtags = useCallback(async (isRetry = false, isRefresh = false) => {
-    if (!isRetry && !isRefresh) {
-      setLoadingHashtags(true)
-      setRetryCountHashtags(0)
-    } else if (isRetry) {
-      setIsRetryingHashtags(true)
+  // Internal function to actually fetch hashtags (without cache check)
+  const fetchHashtagsInternal = useCallback(async (isRetry = false, isRefresh = false, isBackgroundUpdate = false) => {
+    const cacheKey = `${pubkey}-hashtags`
+    
+    if (!isBackgroundUpdate) {
+      if (!isRetry && !isRefresh) {
+        setLoadingHashtags(true)
+        setRetryCountHashtags(0)
+      } else if (isRetry) {
+        setIsRetryingHashtags(true)
+      }
     }
     
     try {
@@ -230,8 +300,10 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
         interestList = await client.fetchInterestListEvent(pubkey)
       }
       
-      // console.log('[ProfileBookmarksAndHashtags] Interest list event:', interestList)
-      setInterestListEvent(interestList)
+      // Only update interest list event if we're not doing a background update
+      if (!isBackgroundUpdate) {
+        setInterestListEvent(interestList)
+      }
       
       if (interestList && interestList.tags.length > 0) {
         // Extract hashtags from interest list
@@ -251,27 +323,73 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
             })
             // console.log('[ProfileBookmarksAndHashtags] Fetched', events.length, 'hashtag events')
             
+            // Add all events to client cache so they're available immediately in note view
+            events.forEach(event => {
+              client.addEventToCache(event)
+            })
+            
+            let finalEvents: Event[]
             if (isRefresh) {
               // For refresh, append new events and deduplicate
-              setHashtagEvents(prevEvents => {
-                const existingIds = new Set(prevEvents.map(e => e.id))
-                const newEvents = events.filter(event => !existingIds.has(event.id))
-                const combinedEvents = [...newEvents, ...prevEvents]
-                // Re-sort the combined events
-                return combinedEvents.sort((a, b) => b.created_at - a.created_at)
-              })
+              // Compute final events before setting state
+              const existingIds = new Set(hashtagEvents.map(e => e.id))
+              const newEvents = events.filter(event => !existingIds.has(event.id))
+              finalEvents = [...newEvents, ...hashtagEvents].sort((a, b) => b.created_at - a.created_at)
+              setHashtagEvents(finalEvents)
+            } else if (isBackgroundUpdate) {
+              // For background update, merge with existing cached events
+              const existingIds = new Set(hashtagEvents.map(e => e.id))
+              const newEvents = events.filter(event => !existingIds.has(event.id))
+              if (newEvents.length > 0) {
+                finalEvents = [...newEvents, ...hashtagEvents].sort((a, b) => b.created_at - a.created_at)
+                setHashtagEvents(finalEvents)
+              } else {
+                // No new events, keep existing ones
+                finalEvents = hashtagEvents
+              }
             } else {
+              finalEvents = events
               setHashtagEvents(events)
+            }
+            
+            // Update cache only if we got events or if this is not a background update
+            if (!isBackgroundUpdate || (finalEvents && finalEvents.length > 0)) {
+              hashtagsCache.set(cacheKey, {
+                events: finalEvents,
+                listEvent: interestList,
+                lastUpdated: Date.now()
+              })
             }
           } catch (error) {
             logger.component('ProfileBookmarksAndHashtags', 'Error fetching hashtag events', { error: (error as Error).message })
-            setHashtagEvents([])
+            // Only clear events if this is not a background update
+            if (!isBackgroundUpdate) {
+              setHashtagEvents([])
+            }
           }
         } else {
-          setHashtagEvents([])
+          // Only clear events if this is not a background update
+          if (!isBackgroundUpdate) {
+            setHashtagEvents([])
+            // Update cache with empty result
+            hashtagsCache.set(cacheKey, {
+              events: [],
+              listEvent: interestList,
+              lastUpdated: Date.now()
+            })
+          }
         }
       } else {
-        setHashtagEvents([])
+        // Only clear events if this is not a background update
+        if (!isBackgroundUpdate) {
+          setHashtagEvents([])
+          // Update cache with empty result
+          hashtagsCache.set(cacheKey, {
+            events: [],
+            listEvent: interestList,
+            lastUpdated: Date.now()
+          })
+        }
       }
       
       // Reset retry count on successful fetch
@@ -282,7 +400,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
       logger.component('ProfileBookmarksAndHashtags', 'Error fetching hashtags', { error: (error as Error).message, retryCount: isRetry ? retryCountHashtags + 1 : 0 })
       
       // If this is not a retry and we haven't exceeded max retries, schedule a retry
-      if (!isRetry && retryCountHashtags < maxRetries) {
+      if (!isRetry && retryCountHashtags < maxRetries && !isBackgroundUpdate) {
         logger.debug('[ProfileBookmarksAndHashtags] Scheduling hashtag retry', {
           attempt: retryCountHashtags + 1,
           maxRetries
@@ -293,25 +411,84 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
           setRetryCountHashtags(prev => prev + 1)
           fetchHashtags(true)
         }, delay)
-      } else {
+      } else if (!isBackgroundUpdate) {
+        // Only clear events if this is not a background update
         setHashtagEvents([])
       }
     } finally {
-      setLoadingHashtags(false)
-      setIsRetryingHashtags(false)
-      if (isRefresh) {
-        setIsRefreshing(false)
+      // Only update loading state if this is not a background update
+      if (!isBackgroundUpdate) {
+        setLoadingHashtags(false)
+        setIsRetryingHashtags(false)
+        if (isRefresh) {
+          setIsRefreshing(false)
+        }
       }
     }
-  }, [pubkey, buildComprehensiveRelayList, retryCountHashtags, maxRetries])
+  }, [pubkey, buildComprehensiveRelayList, retryCountHashtags, maxRetries, hashtagEvents])
+  
+  // Main fetch function with cache check
+  const fetchHashtags = useCallback(async (isRetry = false, isRefresh = false) => {
+    const cacheKey = `${pubkey}-hashtags`
+    
+    // Check cache first
+    const cachedEntry = hashtagsCache.get(cacheKey)
+    const cacheAge = cachedEntry ? Date.now() - cachedEntry.lastUpdated : Infinity
+    const isCacheFresh = cacheAge < CACHE_DURATION
+    
+    // Track if we're doing a background update (cache is fresh, just checking for new events)
+    const isBackgroundUpdate = isCacheFresh && cachedEntry && !isRetry && !isRefresh
+    
+    // If cache is fresh, show it immediately and defer background fetch
+    if (isBackgroundUpdate) {
+      // Add cached events to client cache so they're available in note view
+      cachedEntry.events.forEach(event => {
+        client.addEventToCache(event)
+      })
+      setHashtagEvents(cachedEntry.events)
+      setInterestListEvent(cachedEntry.listEvent)
+      setLoadingHashtags(false)
+      
+      // Defer background fetch to next tick to avoid blocking UI
+      setTimeout(() => {
+        // Run background fetch asynchronously without blocking
+        fetchHashtagsInternal(false, false, true).catch(() => {
+          // Silently fail background updates
+        })
+      }, 100) // Small delay to let UI render first
+      return // Exit early, background fetch will run asynchronously
+    }
+    
+    // Not a background update, proceed with normal fetch
+    return fetchHashtagsInternal(isRetry, isRefresh, false)
+  }, [pubkey, fetchHashtagsInternal])
 
   // Fetch pin list event and associated events
   const fetchPins = useCallback(async (isRetry = false, isRefresh = false) => {
-    if (!isRetry && !isRefresh) {
-      setLoadingPins(true)
-      setRetryCountPins(0)
-    } else if (isRetry) {
-      setIsRetryingPins(true)
+    const cacheKey = `${pubkey}-pins`
+    
+    // Check cache first
+    const cachedEntry = pinsCache.get(cacheKey)
+    const cacheAge = cachedEntry ? Date.now() - cachedEntry.lastUpdated : Infinity
+    const isCacheFresh = cacheAge < CACHE_DURATION
+    
+    // If cache is fresh, show it immediately
+    if (isCacheFresh && cachedEntry && !isRetry && !isRefresh) {
+      // Add cached events to client cache so they're available in note view
+      cachedEntry.events.forEach(event => {
+        client.addEventToCache(event)
+      })
+      setPinEvents(cachedEntry.events)
+      setPinListEvent(cachedEntry.listEvent)
+      setLoadingPins(false)
+      // Still fetch in background to get updates
+    } else {
+      if (!isRetry && !isRefresh) {
+        setLoadingPins(true)
+        setRetryCountPins(0)
+      } else if (isRetry) {
+        setIsRetryingPins(true)
+      }
     }
     
     try {
@@ -395,27 +572,51 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
             const events = eventArrays.flat()
             logger.debug('[ProfileBookmarksAndHashtags] Fetched', events.length, 'pin events')
             
+            // Add all events to client cache so they're available immediately in note view
+            events.forEach(event => {
+              client.addEventToCache(event)
+            })
+            
+            let finalEvents: Event[]
             if (isRefresh) {
               // For refresh, append new events and deduplicate
-              setPinEvents(prevEvents => {
-                const existingIds = new Set(prevEvents.map(e => e.id))
-                const newEvents = events.filter(event => !existingIds.has(event.id))
-                const combinedEvents = [...newEvents, ...prevEvents]
-                // Re-sort the combined events
-                return combinedEvents.sort((a, b) => b.created_at - a.created_at)
-              })
+              // Compute final events before setting state
+              const existingIds = new Set(pinEvents.map(e => e.id))
+              const newEvents = events.filter(event => !existingIds.has(event.id))
+              finalEvents = [...newEvents, ...pinEvents].sort((a, b) => b.created_at - a.created_at)
+              setPinEvents(finalEvents)
             } else {
+              finalEvents = events
               setPinEvents(events)
             }
+            
+            // Update cache
+            pinsCache.set(cacheKey, {
+              events: finalEvents,
+              listEvent: pinList,
+              lastUpdated: Date.now()
+            })
           } catch (error) {
             logger.warn('[ProfileBookmarksAndHashtags] Error fetching pin events:', error)
             setPinEvents([])
           }
         } else {
           setPinEvents([])
+          // Update cache with empty result
+          pinsCache.set(cacheKey, {
+            events: [],
+            listEvent: pinList,
+            lastUpdated: Date.now()
+          })
         }
       } else {
         setPinEvents([])
+        // Update cache with empty result
+        pinsCache.set(cacheKey, {
+          events: [],
+          listEvent: pinList,
+          lastUpdated: Date.now()
+        })
       }
       
       // Reset retry count on successful fetch
@@ -452,6 +653,11 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
 
   // Expose refresh function to parent component
   const refresh = useCallback(() => {
+    // Clear all caches on refresh
+    bookmarksCache.delete(`${pubkey}-bookmarks`)
+    hashtagsCache.delete(`${pubkey}-hashtags`)
+    pinsCache.delete(`${pubkey}-pins`)
+    
     setRetryCountBookmarks(0)
     setRetryCountHashtags(0)
     setRetryCountPins(0)
@@ -459,7 +665,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
     fetchBookmarks(false, true) // isRetry = false, isRefresh = true
     fetchHashtags(false, true) // isRetry = false, isRefresh = true
     fetchPins(false, true) // isRetry = false, isRefresh = true
-  }, [fetchBookmarks, fetchHashtags, fetchPins])
+  }, [pubkey, fetchBookmarks, fetchHashtags, fetchPins])
 
   useImperativeHandle(ref, () => ({
     refresh

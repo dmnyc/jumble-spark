@@ -10,6 +10,7 @@ type ProfileTimelineCacheEntry = {
 }
 
 const timelineCache = new Map<string, ProfileTimelineCacheEntry>()
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes - cache is considered fresh for this long
 const relayGroupCache = new Map<string, string[][]>()
 
 type UseProfileTimelineOptions = {
@@ -114,7 +115,22 @@ export function useProfileTimeline({
     let cancelled = false
 
     const subscribe = async () => {
-      setIsLoading(!timelineCache.has(cacheKey))
+      // Check if we have fresh cached data
+      const cachedEntry = timelineCache.get(cacheKey)
+      const cacheAge = cachedEntry ? Date.now() - cachedEntry.lastUpdated : Infinity
+      const isCacheFresh = cacheAge < CACHE_DURATION
+      
+      // If cache is fresh, show it immediately and skip subscribing
+      if (isCacheFresh && cachedEntry) {
+        setEvents(cachedEntry.events)
+        setIsLoading(false)
+        // Still subscribe in background to get updates, but don't show loading
+        // This ensures we get new events without disrupting the UI
+      } else {
+        // Cache is stale or missing - show loading and fetch
+        setIsLoading(!cachedEntry)
+      }
+      
       try {
         const relayGroups = await getRelayGroups(pubkey)
         if (cancelled) {

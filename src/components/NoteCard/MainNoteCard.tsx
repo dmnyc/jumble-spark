@@ -25,6 +25,7 @@ export default function MainNoteCard({
   return (
     <div
       className={className}
+      data-event-id={event.id}
       onClick={(e) => {
         // Don't navigate if clicking on interactive elements
         const target = e.target as HTMLElement

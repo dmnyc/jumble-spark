@@ -4,13 +4,24 @@ import Tabs from '@/components/Tabs'
 import { Button } from '@/components/ui/button'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import { Compass, Plus } from 'lucide-react'
-import { forwardRef, useState } from 'react'
+import { forwardRef, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 type TExploreTabs = 'following' | 'explore'
 
 const ExplorePage = forwardRef((_, ref) => {
   const [tab, setTab] = useState<TExploreTabs>('explore')
+  
+  // Listen for tab restoration from PageManager
+  useEffect(() => {
+    const handleRestore = (e: CustomEvent<{ page: string, tab: string }>) => {
+      if (e.detail.page === 'explore' && e.detail.tab) {
+        setTab(e.detail.tab as TExploreTabs)
+      }
+    }
+    window.addEventListener('restorePageTab', handleRestore as EventListener)
+    return () => window.removeEventListener('restorePageTab', handleRestore as EventListener)
+  }, [])
 
   return (
     <PrimaryPageLayout
@@ -25,7 +36,13 @@ const ExplorePage = forwardRef((_, ref) => {
           { value: 'explore', label: 'Explore' },
           { value: 'following', label: "Following's Favorites" }
         ]}
-        onTabChange={(tab) => setTab(tab as TExploreTabs)}
+        onTabChange={(tab) => {
+          setTab(tab as TExploreTabs)
+          // Dispatch tab change event for PageManager
+          window.dispatchEvent(new CustomEvent('pageTabChanged', { 
+            detail: { page: 'explore', tab: tab } 
+          }))
+        }}
       />
       {tab === 'following' ? <FollowingFavoriteRelayList /> : <Explore />}
     </PrimaryPageLayout>

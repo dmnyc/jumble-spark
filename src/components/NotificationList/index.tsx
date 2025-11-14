@@ -92,6 +92,18 @@ const NotificationList = forwardRef((_, ref) => {
     [loading]
   )
 
+  // Listen for tab restoration from PageManager
+  useEffect(() => {
+    const handleRestore = (e: CustomEvent<{ page: string, tab: string }>) => {
+      if (e.detail.page === 'notifications' && e.detail.tab) {
+        setNotificationType(e.detail.tab as TNotificationType)
+        setShowCount(SHOW_COUNT)
+      }
+    }
+    window.addEventListener('restorePageTab', handleRestore as EventListener)
+    return () => window.removeEventListener('restorePageTab', handleRestore as EventListener)
+  }, [])
+
   const handleNewEvent = useCallback(
     (event: NostrEvent) => {
       if (event.pubkey === pubkey) return
@@ -317,6 +329,10 @@ const NotificationList = forwardRef((_, ref) => {
         onTabChange={(type) => {
           setShowCount(SHOW_COUNT)
           setNotificationType(type as TNotificationType)
+          // Dispatch tab change event for PageManager
+          window.dispatchEvent(new CustomEvent('pageTabChanged', { 
+            detail: { page: 'notifications', tab: type } 
+          }))
         }}
         options={!supportTouch ? <RefreshButton onClick={() => refresh()} /> : null}
       />
