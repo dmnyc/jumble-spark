@@ -47,10 +47,10 @@ const SearchPage = forwardRef((_, ref) => {
       <div className="px-4 pt-4">
         <div className="text-2xl font-bold mb-4">Search Nostr</div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-4 relative z-40">
-          <div className="flex-1 relative">
+          <div className="flex-1 relative order-2 sm:order-1">
             <SearchBar ref={searchBarRef} onSearch={onSearch} input={input} setInput={setInput} />
           </div>
-          <div className="flex-shrink-0 relative z-50 w-full sm:w-auto">
+          <div className="flex-shrink-0 relative z-50 w-full sm:w-auto order-1 sm:order-2">
             <Button
               variant="ghost"
               className="h-9 shrink-0 text-muted-foreground hover:text-foreground border border-border/50 hover:border-border rounded-md px-3 gap-2 w-full sm:w-auto"
