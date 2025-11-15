@@ -233,14 +233,14 @@ function convertMarkdownToAsciidoc(content: string): string {
   // Then we match [text] where text can contain anything except ]
   // Use a more permissive pattern - match URL until [ then match [text]
   // The URL part can contain most characters except whitespace and [
-  asciidoc = asciidoc.replace(/(https?:\/\/[^\s\[\]]+\[[^\]]+\])/g, (match, link) => {
+  asciidoc = asciidoc.replace(/(https?:\/\/[^\s\[\]]+\[[^\]]+\])/g, (_match, link) => {
     // This is an AsciiDoc link format (url[text]), protect it
     const placeholder = `__ASCIIDOC_LINK_${asciidocLinkPlaceholders.length}__`
     asciidocLinkPlaceholders.push(link)
     return placeholder
   })
   // Also protect link:url[text] format
-  asciidoc = asciidoc.replace(/(link:[^\s\[\]]+\[[^\]]+\])/g, (match, link) => {
+  asciidoc = asciidoc.replace(/(link:[^\s\[\]]+\[[^\]]+\])/g, (_match, link) => {
     const placeholder = `__ASCIIDOC_LINK_${asciidocLinkPlaceholders.length}__`
     asciidocLinkPlaceholders.push(link)
     return placeholder
@@ -431,28 +431,7 @@ export default function AsciidocArticle({
     return youtubeUrls
   }, [event.id, JSON.stringify(event.tags)])
   
-  // Extract non-media links from tags (excluding YouTube URLs)
-  const tagLinks = useMemo(() => {
-    const links: string[] = []
-    const seenUrls = new Set<string>()
-    
-    event.tags
-      .filter(tag => tag[0] === 'r' && tag[1])
-      .forEach(tag => {
-        const url = tag[1]
-        if (!url.startsWith('http://') && !url.startsWith('https://')) return
-        if (isImage(url) || isMedia(url)) return
-        if (isYouTubeUrl(url)) return // Exclude YouTube URLs
-        
-        const cleaned = cleanUrl(url)
-        if (cleaned && !seenUrls.has(cleaned)) {
-          links.push(cleaned)
-          seenUrls.add(cleaned)
-        }
-      })
-    
-    return links
-  }, [event.id, JSON.stringify(event.tags)])
+  // Note: tagLinks removed - WebPreview is disabled for AsciiDoc articles
   
   // Get all images for gallery (deduplicated)
   const allImages = useMemo(() => {
@@ -520,24 +499,7 @@ export default function AsciidocArticle({
     return urls
   }, [event.content])
   
-  // Extract non-media links from content (excluding YouTube URLs)
-  const contentLinks = useMemo(() => {
-    const links: string[] = []
-    const seenUrls = new Set<string>()
-    const urlRegex = /https?:\/\/[^\s<>"']+/g
-    let match
-    while ((match = urlRegex.exec(event.content)) !== null) {
-      const url = match[0]
-      if ((url.startsWith('http://') || url.startsWith('https://')) && !isImage(url) && !isMedia(url) && !isYouTubeUrl(url)) {
-        const cleaned = cleanUrl(url)
-        if (cleaned && !seenUrls.has(cleaned)) {
-          links.push(cleaned)
-          seenUrls.add(cleaned)
-        }
-      }
-    }
-    return links
-  }, [event.content])
+  // Note: contentLinks removed - WebPreview is disabled for AsciiDoc articles
   
   // Image gallery state
   const [lightboxIndex, setLightboxIndex] = useState(-1)
@@ -568,14 +530,7 @@ export default function AsciidocArticle({
     })
   }, [tagYouTubeUrls, youtubeUrlsInContent])
   
-  // Filter tag links to only show what's not in content (to avoid duplicate WebPreview cards)
-  const leftoverTagLinks = useMemo(() => {
-    const contentLinksSet = new Set(contentLinks.map(link => cleanUrl(link)).filter(Boolean))
-    return tagLinks.filter(link => {
-      const cleaned = cleanUrl(link)
-      return cleaned && !contentLinksSet.has(cleaned)
-    })
-  }, [tagLinks, contentLinks])
+  // Note: leftoverTagLinks removed - WebPreview is disabled for AsciiDoc articles
   
   // Extract hashtags from content (for deduplication with metadata tags)
   const hashtagsInContent = useMemo(() => {
@@ -759,7 +714,7 @@ export default function AsciidocArticle({
         
         // Replace only special links in reverse order to preserve indices
         for (let i = linkMatches.length - 1; i >= 0; i--) {
-          const { match, href, linkText, index } = linkMatches[i]
+          const { match, href, linkText } = linkMatches[i]
           let replacement = match
           
           // Check if the href is a YouTube URL
