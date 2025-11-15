@@ -23,8 +23,9 @@ import { useTranslation } from 'react-i18next'
 import Emoji from '../Emoji'
 import EmojiPicker from '../EmojiPicker'
 import SuggestedEmojis from '../SuggestedEmojis'
-import DiscussionEmojis from '../SuggestedEmojis/DiscussionEmojis'
 import { formatCount } from './utils'
+
+const DISCUSSION_EMOJIS = ['⬆️', '⬇️']
 
 export default function LikeButton({ event, hideCount = false }: { event: Event; hideCount?: boolean }) {
   const { t } = useTranslation()
@@ -57,17 +58,22 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
       })
     }
   }, [event.id, isDiscussion])
-  const { myLastEmoji, likeCount, hasVoted } = useMemo(() => {
+  const { myLastEmoji, likeCount, upVoteCount, downVoteCount } = useMemo(() => {
     const stats = noteStats || {}
     const myLike = stats.likes?.find((like) => like.pubkey === pubkey)
     const likes = hideUntrustedInteractions
       ? stats.likes?.filter((like) => isUserTrusted(like.pubkey))
       : stats.likes
     
-    // For discussion events and replies to discussions, check if user has voted (either up or down)
-    const hasVoted = (isDiscussion || isReplyToDiscussion) && myLike && (myLike.emoji === '⬆️' || myLike.emoji === '⬇️')
+    // Calculate separate up/down vote counts for discussions
+    let upVoteCount = 0
+    let downVoteCount = 0
+    if (isDiscussion || isReplyToDiscussion) {
+      upVoteCount = likes?.filter(like => like.emoji === '⬆️').length || 0
+      downVoteCount = likes?.filter(like => like.emoji === '⬇️').length || 0
+    }
     
-    return { myLastEmoji: myLike?.emoji, likeCount: likes?.length, hasVoted }
+    return { myLastEmoji: myLike?.emoji, likeCount: likes?.length, upVoteCount, downVoteCount }
   }, [noteStats, pubkey, hideUntrustedInteractions, isDiscussion, isReplyToDiscussion])
 
   const like = async (emoji: string | TEmoji) => {
@@ -136,7 +142,7 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
     <button
       className="flex items-center enabled:hover:text-primary gap-1 px-3 h-full text-muted-foreground"
       title={t('Like')}
-      disabled={liking || ((isDiscussion || isReplyToDiscussion) && hasVoted)}
+      disabled={liking}
       onClick={() => {
         // If user has already reacted, clicking the button again should toggle it off
         if (myLastEmoji && !isEmojiReactionsOpen) {
@@ -164,6 +170,42 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
     </button>
   )
 
+  // For discussions, show the two arrow emojis directly as buttons
+  if (isDiscussion || isReplyToDiscussion) {
+    return (
+      <div className="flex items-center gap-1">
+        {DISCUSSION_EMOJIS.map((emoji, index) => {
+          const isSelected = myLastEmoji === emoji
+          const count = index === 0 ? upVoteCount : downVoteCount
+          return (
+            <button
+              key={index}
+              className={`flex items-center enabled:hover:text-primary gap-1 px-2 h-full text-muted-foreground rounded ${
+                isSelected ? 'text-primary bg-muted' : ''
+              }`}
+              title={emoji === '⬆️' ? t('Upvote') : t('Downvote')}
+              disabled={liking}
+              onClick={() => {
+                like(emoji)
+              }}
+            >
+              {liking && index === 0 ? (
+                <Loader className="animate-spin" />
+              ) : (
+                <>
+                  <span className="text-base">{emoji}</span>
+                  {!hideCount && !!count && (
+                    <div className="text-sm">{formatCount(count)}</div>
+                  )}
+                </>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
   if (isSmallScreen) {
     return (
       <>
@@ -174,23 +216,14 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
             <DrawerHeader className="sr-only">
               <DrawerTitle>React</DrawerTitle>
             </DrawerHeader>
-            {(isDiscussion || isReplyToDiscussion) ? (
-              <DiscussionEmojis
-                onEmojiClick={(emoji) => {
-                  setIsEmojiReactionsOpen(false)
-                  like(emoji)
-                }}
-              />
-            ) : (
-              <EmojiPicker
-                onEmojiClick={(emoji) => {
-                  setIsEmojiReactionsOpen(false)
-                  if (!emoji) return
+            <EmojiPicker
+              onEmojiClick={(emoji) => {
+                setIsEmojiReactionsOpen(false)
+                if (!emoji) return
 
-                  like(emoji)
-                }}
-              />
-            )}
+                like(emoji)
+              }}
+            />
           </DrawerContent>
         </Drawer>
       </>
@@ -201,7 +234,6 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
     <DropdownMenu
       open={isEmojiReactionsOpen}
       onOpenChange={(open) => {
-        if ((isDiscussion || isReplyToDiscussion) && hasVoted) return // Don't open if user has already voted
         setIsEmojiReactionsOpen(open)
         if (open) {
           setIsPickerOpen(false)
@@ -209,7 +241,7 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
       }}
     >
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      <DropdownMenuContent side="top" className={(isDiscussion || isReplyToDiscussion) ? "p-0 w-fit min-w-0 max-w-fit" : "p-0 w-fit"} style={(isDiscussion || isReplyToDiscussion) ? { width: '60px', maxWidth: '60px', minWidth: '60px' } : undefined}>
+      <DropdownMenuContent side="top" className="p-0 w-fit">
         {isPickerOpen ? (
           <EmojiPicker
             onEmojiClick={(emoji, e) => {
@@ -217,13 +249,6 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
               setIsEmojiReactionsOpen(false)
               if (!emoji) return
 
-              like(emoji)
-            }}
-          />
-        ) : (isDiscussion || isReplyToDiscussion) ? (
-          <DiscussionEmojis
-            onEmojiClick={(emoji) => {
-              setIsEmojiReactionsOpen(false)
               like(emoji)
             }}
           />

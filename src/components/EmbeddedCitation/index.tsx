@@ -29,9 +29,9 @@ export default function EmbeddedCitation({ citationId, displayType = 'end', clas
     eventId = citationId
   }
 
-  const { event, isLoading } = useFetchEvent(eventId || '')
+  const { event, isFetching } = useFetchEvent(eventId || '')
 
-  if (isLoading) {
+  if (isFetching) {
     return (
       <div className={className}>
         <Skeleton className="h-24 w-full" />

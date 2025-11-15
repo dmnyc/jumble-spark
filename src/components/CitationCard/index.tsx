@@ -2,9 +2,12 @@ import { ExtendedKind } from '@/constants'
 import { Event } from 'nostr-tools'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getTagValue } from '@/lib/tag'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ExternalLink, Book, FileText, Bot } from 'lucide-react'
+
+function getTagValue(event: Event, tagName: string): string {
+  return event.tags.find(tag => tag[0] === tagName)?.[1] || ''
+}
 
 interface CitationCardProps {
   event: Event
