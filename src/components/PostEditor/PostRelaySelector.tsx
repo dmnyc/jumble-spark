@@ -123,6 +123,7 @@ export default function PostRelaySelector({
           parentEvent: _parentEvent,
           isPublicMessage,
           content: isDiscussionReply ? '' : postContent, // Don't use content for discussion replies
+          mentions: isPublicMessage ? mentions : undefined, // Pass mentions for PMs
           userPubkey: pubkey || undefined,
           openFrom: memoizedOpenFrom
         })
@@ -161,7 +162,7 @@ export default function PostRelaySelector({
     }
 
     updateRelaySelection()
-  }, [memoizedOpenFrom, _parentEvent, memoizedFavoriteRelays, memoizedBlockedRelays, memoizedRelaySets, isPublicMessage, pubkey, relayList, isDiscussionReply])
+  }, [memoizedOpenFrom, _parentEvent, memoizedFavoriteRelays, memoizedBlockedRelays, memoizedRelaySets, isPublicMessage, pubkey, relayList, isDiscussionReply, postContent, mentions])
 
   // Separate effect for mention changes in non-discussion replies
   useEffect(() => {
@@ -213,7 +214,8 @@ export default function PostRelaySelector({
             relaySets: memoizedRelaySets,
             parentEvent: _parentEvent,
             isPublicMessage,
-            content: postContent,
+            content: isDiscussionReply ? '' : postContent, // Don't use content for discussion replies
+            mentions: isPublicMessage ? mentions : undefined, // Pass mentions for PMs
             userPubkey: pubkey || undefined,
             openFrom: memoizedOpenFrom
           })
@@ -311,22 +313,33 @@ export default function PostRelaySelector({
         <div className="text-sm text-muted-foreground p-2">{t('No relays available')}</div>
       ) : (
         <div className="space-y-1">
-          {selectableRelays.map((url) => {
-            const isChecked = selectedRelayUrls.includes(url)
-            return (
-              <div
-                key={url}
-                className="flex items-center gap-2 p-2 hover:bg-accent rounded cursor-pointer touch-manipulation"
-                onClick={() => handleRelayCheckedChange(!isChecked, url)}
-              >
-                <div className="flex items-center justify-center w-4 h-4 border border-border rounded">
-                  {isChecked && <Check className="w-3 h-3" />}
+          {(() => {
+            // Sort relays so selected ones appear at the top
+            const sortedRelays = [...selectableRelays].sort((a, b) => {
+              const aSelected = selectedRelayUrls.includes(a)
+              const bSelected = selectedRelayUrls.includes(b)
+              if (aSelected && !bSelected) return -1
+              if (!aSelected && bSelected) return 1
+              return 0
+            })
+            
+            return sortedRelays.map((url) => {
+              const isChecked = selectedRelayUrls.includes(url)
+              return (
+                <div
+                  key={url}
+                  className="flex items-center gap-2 p-2 hover:bg-accent rounded cursor-pointer touch-manipulation"
+                  onClick={() => handleRelayCheckedChange(!isChecked, url)}
+                >
+                  <div className="flex items-center justify-center w-4 h-4 border border-border rounded">
+                    {isChecked && <Check className="w-3 h-3" />}
+                  </div>
+                  <RelayIcon url={url} className="w-4 h-4" />
+                  <span className="text-sm flex-1 truncate">{simplifyUrl(url)}</span>
                 </div>
-                <RelayIcon url={url} className="w-4 h-4" />
-                <span className="text-sm flex-1 truncate">{simplifyUrl(url)}</span>
-              </div>
-            )
-          })}
+              )
+            })
+          })()}
         </div>
       )}
     </>

@@ -301,6 +301,7 @@ export async function createPublicMessageReplyDraftEvent(
     expirationMonths?: number
     addQuietTag?: boolean
     quietDays?: number
+    mediaImetaTags?: string[][] // Allow media imeta tags for audio/video
   } = {}
 ): Promise<TDraftEvent> {
   // Process content to prefix nostr addresses before other transformations
@@ -316,6 +317,11 @@ export async function createPublicMessageReplyDraftEvent(
     .concat(hashtags.map((hashtag) => buildTTag(hashtag)))
     .concat(quoteEventHexIds.map((eventId) => buildQTag(eventId)))
     .concat(quoteReplaceableCoordinates.map((coordinate) => buildReplaceableQTag(coordinate)))
+
+  // Add media imeta tags if provided (for audio/video)
+  if (options.mediaImetaTags && options.mediaImetaTags.length > 0) {
+    tags.push(...options.mediaImetaTags)
+  }
 
   const images = extractImagesFromContent(transformedEmojisContent)
   if (images && images.length) {
@@ -383,6 +389,7 @@ export async function createPublicMessageDraftEvent(
     expirationMonths?: number
     addQuietTag?: boolean
     quietDays?: number
+    mediaImetaTags?: string[][] // Allow media imeta tags for audio/video
   } = {}
 ): Promise<TDraftEvent> {
   // Process content to prefix nostr addresses before other transformations
@@ -392,6 +399,11 @@ export async function createPublicMessageDraftEvent(
 
   const tags = emojiTags
     .concat(hashtags.map((hashtag) => buildTTag(hashtag)))
+
+  // Add media imeta tags if provided (for audio/video)
+  if (options.mediaImetaTags && options.mediaImetaTags.length > 0) {
+    tags.push(...options.mediaImetaTags)
+  }
 
   const images = extractImagesFromContent(transformedEmojisContent)
   if (images && images.length) {

@@ -262,6 +262,13 @@ export default function PostContent({
 
   // Helper function to determine the kind that will be created
   const getDeterminedKind = useMemo((): number => {
+    // Public messages always take priority - even with media, they stay as PMs
+    if (isPublicMessage) {
+      return ExtendedKind.PUBLIC_MESSAGE
+    } else if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
+      return ExtendedKind.PUBLIC_MESSAGE
+    }
+    
     // For voice comments in replies, check mediaNoteKind even if mediaUrl is not set yet (for preview)
     // Debug logging
     console.log('🔍 getDeterminedKind: checking', { 
@@ -293,12 +300,8 @@ export default function PostContent({
       return ExtendedKind.CITATION_PROMPT
     } else if (isHighlight) {
       return kinds.Highlights
-    } else if (isPublicMessage) {
-      return ExtendedKind.PUBLIC_MESSAGE
     } else if (isPoll) {
       return ExtendedKind.POLL
-    } else if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
-      return ExtendedKind.PUBLIC_MESSAGE
     } else if (parentEvent && parentEvent.kind !== kinds.ShortTextNote) {
       console.log('⚠️ getDeterminedKind: falling through to COMMENT', {
         parentEvent: !!parentEvent,
@@ -349,7 +352,31 @@ export default function PostContent({
       shouldUseProtectedEvent = isParentOP && parentHasProtectedTag
     }
 
-    // Check for voice comments first
+    // Public messages - check BEFORE media notes to ensure PMs with media stay as PMs
+    if (isPublicMessage) {
+      return await createPublicMessageDraftEvent(cleanedText, extractedMentions, {
+        addClientTag,
+        isNsfw,
+        addExpirationTag: false,
+        expirationMonths,
+        addQuietTag,
+        quietDays,
+        mediaImetaTags: mediaNoteKind !== null && mediaUrl ? mediaImetaTags : undefined
+      })
+    } else if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
+      // For PM replies, always create PM even if there's media
+      return await createPublicMessageReplyDraftEvent(cleanedText, parentEvent, mentions, {
+        addClientTag,
+        isNsfw,
+        addExpirationTag: false,
+        expirationMonths,
+        addQuietTag,
+        quietDays,
+        mediaImetaTags: mediaNoteKind !== null && mediaUrl ? mediaImetaTags : undefined
+      })
+    }
+
+    // Check for voice comments (only for non-PM replies)
     if (parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT) {
       const url = mediaUrl || 'placeholder://audio'
       const tags = mediaImetaTags.length > 0 ? mediaImetaTags : [['imeta', `url ${url}`, 'm audio/mpeg']]
@@ -527,26 +554,6 @@ export default function PostContent({
       )
     }
 
-    // Public messages
-    if (isPublicMessage) {
-      return await createPublicMessageDraftEvent(cleanedText, extractedMentions, {
-        addClientTag,
-        isNsfw,
-        addExpirationTag: false,
-        expirationMonths,
-        addQuietTag,
-        quietDays
-      })
-    } else if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
-      return await createPublicMessageReplyDraftEvent(cleanedText, parentEvent, mentions, {
-        addClientTag,
-        isNsfw,
-        addExpirationTag: false,
-        expirationMonths,
-        addQuietTag,
-        quietDays
-      })
-    }
 
     // Comments and replies
     if (parentEvent && parentEvent.kind !== kinds.ShortTextNote) {
@@ -862,14 +869,14 @@ export default function PostContent({
     if (file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/')) {
       uploadedMediaFileMap.current.set(file.name, file)
       
-      // For replies, if it's an audio file, set mediaNoteKind immediately for preview
-      if (parentEvent) {
+      // For replies and PMs, if it's an audio file, set mediaNoteKind immediately for preview
+      if (parentEvent || isPublicMessage) {
         const fileType = file.type
         const fileName = file.name.toLowerCase()
         // Mobile browsers may report m4a files as audio/m4a, audio/mp4, audio/x-m4a, or even video/mp4
         const isAudioMime = fileType.startsWith('audio/') || fileType === 'audio/mp4' || fileType === 'audio/x-m4a' || fileType === 'audio/m4a' || fileType === 'audio/webm' || fileType === 'audio/mpeg'
         const isAudioExt = /\.(mp3|m4a|ogg|wav|opus|aac|flac|mpeg|mp4)$/i.test(fileName)
-        // For replies, webm/ogg/mp3/m4a files should be treated as audio since the microphone button only accepts audio/*
+        // For replies/PMs, webm/ogg/mp3/m4a files should be treated as audio since the microphone button only accepts audio/*
         // Even if the MIME type is incorrect, if it came through the audio uploader, it's audio
         const isWebmFile = /\.webm$/i.test(fileName)
         const isOggFile = /\.ogg$/i.test(fileName)
@@ -878,7 +885,7 @@ export default function PostContent({
         const isM4aFile = /\.m4a$/i.test(fileName)
         const isMp4Audio = /\.mp4$/i.test(fileName) && isAudioMime
         
-        // For replies, treat webm/ogg/mp3/m4a as audio (since accept="audio/*" should filter out video files)
+        // For replies/PMs, treat webm/ogg/mp3/m4a as audio (since accept="audio/*" should filter out video files)
         // m4a files are always audio, even if MIME type is wrong
         const isAudio = isAudioMime || isAudioExt || isM4aFile || isMp4Audio || isWebmFile || isOggFile || isMp3File
         
@@ -895,15 +902,28 @@ export default function PostContent({
         })
         
         if (isAudio) {
-          console.log('✅ handleUploadStart: setting VOICE_COMMENT for reply', { 
-            mediaNoteKind: ExtendedKind.VOICE_COMMENT,
-            fileType,
-            fileName
-          })
-          setMediaNoteKind(ExtendedKind.VOICE_COMMENT)
+          // For PM replies, don't set mediaNoteKind - let PM reply handle it with imeta tags
+          if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
+            console.log('✅ handleUploadStart: PM reply with audio - will use imeta tags, not setting mediaNoteKind')
+            // Don't set mediaNoteKind - PM replies stay as kind 24 with imeta tags
+          } else if (parentEvent) {
+            console.log('✅ handleUploadStart: setting VOICE_COMMENT for reply', { 
+              mediaNoteKind: ExtendedKind.VOICE_COMMENT,
+              fileType,
+              fileName
+            })
+            setMediaNoteKind(ExtendedKind.VOICE_COMMENT)
+          } else if (isPublicMessage) {
+            console.log('✅ handleUploadStart: setting VOICE for PM', { 
+              mediaNoteKind: ExtendedKind.VOICE,
+              fileType,
+              fileName
+            })
+            setMediaNoteKind(ExtendedKind.VOICE)
+          }
           // Note: URL will be inserted when upload completes in handleMediaUploadSuccess
         } else {
-          console.log('❌ handleUploadStart: file is not audio, not setting VOICE_COMMENT')
+          console.log('❌ handleUploadStart: file is not audio, not setting media note kind')
         }
       } else {
         // For new posts, detect the kind from the file (async)
@@ -1142,14 +1162,15 @@ export default function PostContent({
 
       // Determine media kind from file
       // For replies, only audio comments are supported (kind 1244)
+      // For new PMs, audio messages are supported (kind 1222)
       // For new posts, all media types are supported
-      if (parentEvent) {
-        // For replies, only allow audio comments
+      if (parentEvent || isPublicMessage) {
+        // For replies and PMs, only allow audio
         const fileType = uploadingFile.type
         const fileName = uploadingFile.name.toLowerCase()
         // Check for audio files - including mp4/m4a/webm/ogg/mp3 which can be audio
         // mp4/m4a/webm/ogg/mp3 files can be audio if MIME type is audio/*
-        // For replies, webm/ogg/mp3 files should be treated as audio since the microphone button only accepts audio/*
+        // For replies/PMs, webm/ogg/mp3 files should be treated as audio since the microphone button only accepts audio/*
         // Mobile browsers may report m4a files as audio/m4a, audio/mp4, audio/x-m4a, or even video/mp4
         const isAudioMime = fileType.startsWith('audio/') || fileType === 'audio/mp4' || fileType === 'audio/x-m4a' || fileType === 'audio/m4a' || fileType === 'audio/webm' || fileType === 'audio/mpeg'
         const isAudioExt = /\.(mp3|m4a|ogg|wav|opus|aac|flac|mpeg|mp4)$/i.test(fileName)
@@ -1160,7 +1181,7 @@ export default function PostContent({
         const isOggFile = /\.ogg$/i.test(fileName)
         const isMp3File = /\.mp3$/i.test(fileName)
         
-        // For replies, treat webm/ogg/mp3/m4a as audio (since accept="audio/*" should filter out video files)
+        // For replies/PMs, treat webm/ogg/mp3/m4a as audio (since accept="audio/*" should filter out video files)
         // m4a files are always audio, even if MIME type is wrong
         const isAudio = isAudioMime || isAudioExt || isM4aFile || isMp4Audio || isWebmFile || isOggFile || isMp3File
         
@@ -1177,12 +1198,26 @@ export default function PostContent({
         })
         
         if (isAudio) {
-          // For replies, always create voice comments (kind 1244), regardless of duration
-          console.log('✅ handleMediaUploadSuccess: setting VOICE_COMMENT for reply', { 
-            mediaNoteKind: ExtendedKind.VOICE_COMMENT,
-            url 
-          })
-          setMediaNoteKind(ExtendedKind.VOICE_COMMENT)
+          // For PM replies, don't set mediaNoteKind - let PM reply handle it with imeta tags
+          if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
+            console.log('✅ handleMediaUploadSuccess: PM reply with audio - will use imeta tags, not setting mediaNoteKind')
+            // Don't set mediaNoteKind - PM replies stay as kind 24 with imeta tags
+            // Just set the URL and imeta tags
+          } else if (parentEvent) {
+            // For regular replies, always create voice comments (kind 1244), regardless of duration
+            console.log('✅ handleMediaUploadSuccess: setting VOICE_COMMENT for reply', { 
+              mediaNoteKind: ExtendedKind.VOICE_COMMENT,
+              url 
+            })
+            setMediaNoteKind(ExtendedKind.VOICE_COMMENT)
+          } else if (isPublicMessage) {
+            // For new PMs, create voice notes (kind 1222)
+            console.log('✅ handleMediaUploadSuccess: setting VOICE for PM', { 
+              mediaNoteKind: ExtendedKind.VOICE,
+              url 
+            })
+            setMediaNoteKind(ExtendedKind.VOICE)
+          }
           setMediaUrl(url)
           // Get imeta tag from media upload service
           const imetaTag = mediaUpload.getImetaTagByUrl(url)
@@ -1195,18 +1230,16 @@ export default function PostContent({
             // For webm/ogg/mp3/m4a files uploaded via microphone, ensure MIME type is set to audio/*
             // even if the browser reports video/webm or video/mp4 (mobile browsers sometimes do this)
             let mimeType = uploadingFile.type
-            if (parentEvent) {
-              const fileName = uploadingFile.name.toLowerCase()
-              if (/\.m4a$/i.test(fileName)) {
-                // m4a files are always audio, use audio/mp4 or audio/x-m4a
-                mimeType = 'audio/mp4'
-              } else if (/\.webm$/i.test(fileName) && !mimeType.startsWith('audio/')) {
-                mimeType = 'audio/webm'
-              } else if (/\.ogg$/i.test(fileName) && !mimeType.startsWith('audio/')) {
-                mimeType = 'audio/ogg'
-              } else if (/\.mp3$/i.test(fileName) && !mimeType.startsWith('audio/')) {
-                mimeType = 'audio/mpeg'
-              }
+            const fileName = uploadingFile.name.toLowerCase()
+            if (/\.m4a$/i.test(fileName)) {
+              // m4a files are always audio, use audio/mp4 or audio/x-m4a
+              mimeType = 'audio/mp4'
+            } else if (/\.webm$/i.test(fileName) && !mimeType.startsWith('audio/')) {
+              mimeType = 'audio/webm'
+            } else if (/\.ogg$/i.test(fileName) && !mimeType.startsWith('audio/')) {
+              mimeType = 'audio/ogg'
+            } else if (/\.mp3$/i.test(fileName) && !mimeType.startsWith('audio/')) {
+              mimeType = 'audio/mpeg'
             }
             if (mimeType) {
               basicImetaTag.push(`m ${mimeType}`)
@@ -1225,7 +1258,7 @@ export default function PostContent({
             }
           }, 100)
         } else {
-          // Non-audio media in replies - don't set mediaNoteKind, will be handled as regular comment
+          // Non-audio media in replies/PMs - don't set mediaNoteKind, will be handled as regular comment/PM
           // Clear any existing media note kind
           console.log('❌ handleMediaUploadSuccess: file is not audio, clearing mediaNoteKind', {
             fileType,
@@ -1237,7 +1270,7 @@ export default function PostContent({
           setMediaImetaTags([])
           // Just add the media URL to the text content
           textareaRef.current?.appendText(url, true)
-          return // Don't set media note kind for non-audio in replies
+          return // Don't set media note kind for non-audio in replies/PMs
         }
       } else {
         // For new posts, check if file is ambiguous (could be audio or video)
@@ -1731,8 +1764,8 @@ export default function PostContent({
       )}
       <div className="flex items-center justify-between">
         <div className="flex gap-2 items-center">
-          {/* Audio button for replies - placed before image button */}
-          {parentEvent && (
+          {/* Audio button for replies and new PMs - placed before image button */}
+          {(parentEvent || isPublicMessage) && (
             <Uploader
               onUploadSuccess={handleMediaUploadSuccess}
               onUploadStart={handleUploadStart}
@@ -1744,8 +1777,8 @@ export default function PostContent({
                 type="button"
                 variant="ghost" 
                 size="icon" 
-                title={t('Upload Audio Comment')}
-                className={mediaNoteKind === ExtendedKind.VOICE_COMMENT ? 'bg-accent' : ''}
+                title={parentEvent ? t('Upload Audio Comment') : t('Upload Audio Message')}
+                className={mediaNoteKind === ExtendedKind.VOICE_COMMENT || (isPublicMessage && mediaNoteKind === ExtendedKind.VOICE) ? 'bg-accent' : ''}
               >
                 <Mic className="h-4 w-4" />
               </Button>

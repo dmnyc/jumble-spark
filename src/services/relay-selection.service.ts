@@ -20,6 +20,7 @@ export interface RelaySelectionContext {
   parentEvent?: Event
   isPublicMessage?: boolean
   content?: string
+  mentions?: string[] // Pre-extracted mentions (for PMs)
   userPubkey?: string
   openFrom?: string[]
 }
@@ -385,77 +386,175 @@ class RelaySelectionService {
 
   /**
    * Get relays for public messages: sender outboxes + receiver inboxes
+   * Only includes outboxes from sender and inboxes from all recipients
+   * Normalized and deduplicated. If more than 10, limits to one per member,
+   * preferring relays that multiple people have.
    */
   private async getPublicMessageRelays(context: RelaySelectionContext): Promise<string[]> {
-    const { userWriteRelays, parentEvent, isPublicMessage, content, userPubkey } = context
-    const relays = new Set<string>()
+    const { userWriteRelays, parentEvent, isPublicMessage, content, mentions, userPubkey } = context
+    
+    // Map to track which relays belong to which members
+    const relayToMembers = new Map<string, Set<string>>()
+    const allMembers = new Set<string>()
 
     try {
-      // Add sender's write relays (outboxes) - fallback to fast write relays if no user relays
-      const senderRelays = userWriteRelays.length > 0 ? userWriteRelays : FAST_WRITE_RELAY_URLS
-      senderRelays.forEach(url => {
-        const normalized = normalizeUrl(url)
-        if (normalized) {
-          relays.add(normalized)
-        } else {
-          relays.add(url)
-        }
-      })
-
-      // Add receiver's read relays (inboxes)
-      if (isPublicMessage && content && userPubkey) {
-        // For new public messages, get mentioned users' read relays
-        const mentions = await this.extractMentions(content, parentEvent)
-        const mentionedPubkeys = mentions.filter(p => p !== userPubkey)
+      // Get sender's outboxes (write relays)
+      if (userPubkey) {
+        allMembers.add(userPubkey)
+        let senderRelays = userWriteRelays
         
-        if (mentionedPubkeys.length > 0) {
-          const receiverRelayLists = await Promise.all(
-            mentionedPubkeys.map(async (pubkey) => {
-              try {
-                const relayList = await client.fetchRelayList(pubkey)
-                const userRelays = relayList?.read || []
-                // Filter out local relays from other users
-                return this.filterLocalRelaysFromOthers(userRelays)
-              } catch (error) {
-                logger.warn('Failed to fetch relay list', { pubkey, error })
-                return []
-              }
-            })
-          )
-          receiverRelayLists.flat().forEach(url => {
-            const normalized = normalizeUrl(url)
-            if (normalized) {
-              relays.add(normalized)
+        // If userWriteRelays is empty, try to fetch the user's relay list
+        if (senderRelays.length === 0) {
+          try {
+            const userRelayList = await this.getCachedRelayList(userPubkey)
+            if (userRelayList?.write && userRelayList.write.length > 0) {
+              senderRelays = userRelayList.write
             } else {
-              relays.add(url)
+              // Only fall back to fast write relays if we truly have no user relays
+              senderRelays = FAST_WRITE_RELAY_URLS
             }
-          })
+          } catch (error) {
+            logger.warn('Failed to fetch user relay list for PM', { error, userPubkey })
+            // Fall back to fast write relays if fetch fails
+            senderRelays = FAST_WRITE_RELAY_URLS
+          }
+        }
+        
+        senderRelays.forEach(url => {
+          const normalized = normalizeUrl(url)
+          if (normalized) {
+            if (!relayToMembers.has(normalized)) {
+              relayToMembers.set(normalized, new Set())
+            }
+            relayToMembers.get(normalized)!.add(userPubkey)
+          }
+        })
+      }
+
+      // Get recipients and their inboxes (read relays)
+      let recipientPubkeys: string[] = []
+      
+      if (isPublicMessage && userPubkey) {
+        // For new public messages, use provided mentions or extract from content
+        if (mentions && mentions.length > 0) {
+          recipientPubkeys = mentions.filter(p => p !== userPubkey)
+        } else if (content) {
+          // Fallback to extracting from content if mentions not provided
+          const extractedMentions = await this.extractMentions(content, parentEvent)
+          recipientPubkeys = extractedMentions.filter(p => p !== userPubkey)
         }
       } else if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
-        // For public message replies, get original sender's read relays (filter out their local relays)
-        // Use cached version from IndexedDB instead of fetching from relays
-        try {
-          const senderRelayList = await this.getCachedRelayList(parentEvent.pubkey)
-          if (senderRelayList?.read) {
-            const filteredRelays = this.filterLocalRelaysFromOthers(senderRelayList.read)
-            filteredRelays.forEach(url => {
-              const normalized = normalizeUrl(url)
-              if (normalized) {
-                relays.add(normalized)
-              } else {
-                relays.add(url)
+        // For public message replies, get all recipients from parent event
+        // Include original sender and all p tags
+        recipientPubkeys = [parentEvent.pubkey]
+        parentEvent.tags.forEach(([tagName, tagValue]) => {
+          if (tagName === 'p' && tagValue && tagValue !== userPubkey) {
+            recipientPubkeys.push(tagValue)
+          }
+        })
+        // Deduplicate
+        recipientPubkeys = Array.from(new Set(recipientPubkeys))
+      }
+
+      // Fetch read relays (inboxes) for all recipients
+      if (recipientPubkeys.length > 0) {
+        const recipientRelayLists = await Promise.all(
+          recipientPubkeys.map(async (pubkey) => {
+            try {
+              allMembers.add(pubkey)
+              // Use cached version from IndexedDB
+              const relayList = await this.getCachedRelayList(pubkey)
+              if (!relayList) return []
+              const userRelays = relayList.read || []
+              // Filter out local relays from other users
+              return this.filterLocalRelaysFromOthers(userRelays)
+            } catch (error) {
+              logger.warn('Failed to fetch relay list', { pubkey, error })
+              return []
+            }
+          })
+        )
+
+        // Track which relays belong to which recipients
+        recipientRelayLists.forEach((relays, index) => {
+          const pubkey = recipientPubkeys[index]
+          relays.forEach(url => {
+            const normalized = normalizeUrl(url)
+            if (normalized) {
+              if (!relayToMembers.has(normalized)) {
+                relayToMembers.set(normalized, new Set())
+              }
+              relayToMembers.get(normalized)!.add(pubkey)
+            }
+          })
+        })
+      }
+
+      // Build final relay list
+      const relays: string[] = []
+      
+      // If we have 10 or fewer relays, use all of them
+      if (relayToMembers.size <= 10) {
+        relays.push(...Array.from(relayToMembers.keys()))
+      } else {
+        // More than 10 relays - need to limit to one per member
+        // Prefer relays that multiple people have
+        
+        // Sort relays by number of members (descending), then by URL for stability
+        const sortedRelays = Array.from(relayToMembers.entries())
+          .sort((a, b) => {
+            const aCount = a[1].size
+            const bCount = b[1].size
+            if (aCount !== bCount) {
+              return bCount - aCount // Prefer relays with more members
+            }
+            return a[0].localeCompare(b[0]) // Stable sort by URL
+          })
+
+        // Track which members already have a relay selected
+        const selectedForMember = new Map<string, string>()
+        
+        // First pass: assign relays that multiple people have
+        for (const [relayUrl, members] of sortedRelays) {
+          if (members.size > 1) {
+            // This relay is used by multiple people - add it
+            relays.push(relayUrl)
+            // Mark all members as having a relay
+            members.forEach(member => {
+              selectedForMember.set(member, relayUrl)
+            })
+          }
+        }
+        
+        // Second pass: ensure each member has at least one relay
+        for (const [relayUrl, members] of sortedRelays) {
+          if (relays.length >= 10) break
+          
+          // Check if any member still needs a relay
+          const needsRelay = Array.from(members).some(member => !selectedForMember.has(member))
+          if (needsRelay) {
+            relays.push(relayUrl)
+            members.forEach(member => {
+              if (!selectedForMember.has(member)) {
+                selectedForMember.set(member, relayUrl)
               }
             })
           }
-        } catch (error) {
-          logger.warn('Failed to fetch relay list for parent event', { parentPubkey: parentEvent.pubkey, error })
         }
       }
+
+      // Normalize and deduplicate final list
+      const normalizedRelays = relays
+        .map(url => normalizeUrl(url))
+        .filter((url): url is string => !!url)
+      
+      return Array.from(new Set(normalizedRelays))
     } catch (error) {
       logger.error('Failed to get public message relays', { error, parentEvent: context.parentEvent?.id })
+      // Fallback to sender's write relays
+      const senderRelays = userWriteRelays.length > 0 ? userWriteRelays : FAST_WRITE_RELAY_URLS
+      return senderRelays.map(url => normalizeUrl(url) || url).filter(Boolean)
     }
-
-    return Array.from(relays)
   }
 
 

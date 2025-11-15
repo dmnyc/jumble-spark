@@ -471,6 +471,19 @@ export function useMenuActions({
       }
     ]
 
+    // Add "View on Alexandria" menu item for public messages (PMs)
+    if (event.kind === ExtendedKind.PUBLIC_MESSAGE) {
+      actions.push({
+        icon: Globe,
+        label: t('View on Alexandria'),
+        onClick: () => {
+          closeDrawer()
+          window.open('https://next-alexandria.gitcitadel.eu/profile/notifications', '_blank', 'noopener,noreferrer')
+        },
+        separator: true
+      })
+    }
+
     // Add "Create Highlight" action for OP events
     if (isOPEvent && openHighlightEditor) {
       actions.push({

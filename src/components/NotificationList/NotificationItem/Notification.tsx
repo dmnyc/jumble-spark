@@ -24,7 +24,8 @@ export default function Notification({
   middle = null,
   targetEvent,
   isNew = false,
-  showStats = false
+  showStats = false,
+  rightAction = null
 }: {
   icon: React.ReactNode
   notificationId: string
@@ -35,6 +36,7 @@ export default function Notification({
   targetEvent?: NostrEvent
   isNew?: boolean
   showStats?: boolean
+  rightAction?: React.ReactNode
 }) {
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigation()
@@ -122,16 +124,19 @@ export default function Notification({
             />
             <div className="shrink-0 text-muted-foreground text-sm">{description}</div>
           </div>
-          {unread && (
-            <button
-              className="m-0.5 size-3 bg-primary rounded-full shrink-0 transition-all hover:ring-4 hover:ring-primary/20"
-              title={t('Mark as read')}
-              onClick={(e) => {
-                e.stopPropagation()
-                markNotificationAsRead(notificationId)
-              }}
-            />
-          )}
+          <div className="flex items-center gap-1 shrink-0">
+            {rightAction}
+            {unread && (
+              <button
+                className="m-0.5 size-3 bg-primary rounded-full shrink-0 transition-all hover:ring-4 hover:ring-primary/20"
+                title={t('Mark as read')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  markNotificationAsRead(notificationId)
+                }}
+              />
+            )}
+          </div>
         </div>
         {middle}
         {targetEvent && (
