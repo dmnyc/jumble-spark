@@ -38,7 +38,7 @@ import logger from '@/lib/logger'
 import postEditorCache from '@/services/post-editor-cache.service'
 import storage from '@/services/local-storage.service'
 import { TPollCreateData } from '@/types'
-import { ImageUp, ListTodo, LoaderCircle, MessageCircle, Settings, Smile, X, Highlighter, FileText, Quote, Upload, Mic } from 'lucide-react'
+import { ImageUp, ListTodo, LoaderCircle, MessageCircle, Settings, Smile, X, Highlighter, FileText, Quote, Upload, Mic, Music, Video } from 'lucide-react'
 import { getMediaKindFromFile } from '@/lib/media-kind-detection'
 import { hasPrivateRelays, getPrivateRelayUrls, hasCacheRelays, getCacheRelayUrls } from '@/lib/private-relays'
 import mediaUpload from '@/services/media-upload.service'
@@ -49,6 +49,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { showPublishingFeedback, showSimplePublishSuccess, showPublishingError } from '@/lib/publishing-feedback'
 import EmojiPickerDialog from '../EmojiPickerDialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import Mentions, { extractMentions } from './Mentions'
 import PollEditor from './PollEditor'
 import PostOptions from './PostOptions'
@@ -117,6 +118,8 @@ export default function PostContent({
   const [hasPrivateRelaysAvailable, setHasPrivateRelaysAvailable] = useState(false)
   const [hasCacheRelaysAvailable, setHasCacheRelaysAvailable] = useState(false)
   const [useCacheOnlyForPrivateNotes, setUseCacheOnlyForPrivateNotes] = useState(true) // Default ON
+  const [showMediaKindDialog, setShowMediaKindDialog] = useState(false)
+  const [pendingMediaUpload, setPendingMediaUpload] = useState<{ url: string; tags: string[][]; file: File } | null>(null)
   const uploadedMediaFileMap = useRef<Map<string, File>>(new Map())
   const isFirstRender = useRef(true)
   const canPost = useMemo(() => {
@@ -1115,6 +1118,192 @@ export default function PostContent({
     // Keep file in map until upload success is called
   }
 
+  // Helper function to check if a file could be either audio or video
+  const isAmbiguousMediaFile = (file: File): boolean => {
+    if (parentEvent) {
+      // For replies, we don't show the dialog - audio button only accepts audio/*
+      return false
+    }
+    
+    const fileType = file.type
+    const fileName = file.name.toLowerCase()
+    
+    // Check if it's a webm or mp4 file that could be either audio or video
+    const isWebm = /\.webm$/i.test(fileName)
+    const isMp4 = /\.mp4$/i.test(fileName)
+    
+    if (isWebm || isMp4) {
+      // If MIME type is missing, it's ambiguous
+      if (!fileType || fileType === 'application/octet-stream') {
+        return true
+      }
+      
+      const isAudioMime = fileType.startsWith('audio/')
+      const isVideoMime = fileType.startsWith('video/')
+      
+      // If MIME type doesn't clearly indicate one or the other, it's ambiguous
+      // Some browsers report video/webm for audio-only webm files, so we show the dialog
+      // to let the user choose
+      if (isWebm) {
+        // WebM files are often misreported, so show dialog
+        return true
+      }
+      
+      if (isMp4) {
+        // MP4 files can be audio or video - if MIME type is video/mp4 but could be audio,
+        // or if it's unclear, show dialog
+        // Only show if MIME type suggests it could be either
+        if (!isAudioMime && !isVideoMime) {
+          return true
+        }
+        // If it's video/mp4, it could still be audio-only, so show dialog
+        if (isVideoMime) {
+          return true
+        }
+      }
+    }
+    
+    return false
+  }
+
+  const handleMediaKindSelection = (selectedKind: number) => {
+    if (!pendingMediaUpload) return
+    
+    const { url, tags, file } = pendingMediaUpload
+    setShowMediaKindDialog(false)
+    setPendingMediaUpload(null)
+    
+    // Process the upload with the selected kind
+    processMediaUpload(url, tags, file, selectedKind)
+  }
+
+  const processMediaUpload = async (url: string, tags: string[][], uploadingFile: File, selectedKind?: number) => {
+    try {
+      let kind: number
+      
+      if (selectedKind !== undefined) {
+        // Use the selected kind
+        kind = selectedKind
+      } else {
+        // Auto-detect the kind
+        kind = await getMediaKindFromFile(uploadingFile, false)
+      }
+      
+      setMediaNoteKind(kind)
+      
+      // For picture notes, support multiple images by accumulating imeta tags
+      if (kind === ExtendedKind.PICTURE) {
+        // Get imeta tag from media upload service
+        const imetaTag = mediaUpload.getImetaTagByUrl(url)
+        let newImetaTag: string[]
+        if (imetaTag) {
+          newImetaTag = imetaTag
+        } else if (tags && tags.length > 0 && tags[0]) {
+          newImetaTag = tags[0]
+        } else {
+          // Create a basic imeta tag if none exists
+          newImetaTag = ['imeta', `url ${url}`]
+          if (uploadingFile.type) {
+            newImetaTag.push(`m ${uploadingFile.type}`)
+          }
+        }
+        
+        // Accumulate multiple imeta tags for picture notes
+        setMediaImetaTags(prev => {
+          // Check if this URL already exists in the tags
+          const urlExists = prev.some(tag => {
+            const urlItem = tag.find(item => item.startsWith('url '))
+            return urlItem && urlItem.slice(4) === url
+          })
+          if (urlExists) {
+            return prev // Don't add duplicate
+          }
+          return [...prev, newImetaTag]
+        })
+        
+        // Set the first URL as the primary mediaUrl (for backwards compatibility)
+        if (!mediaUrl) {
+          setMediaUrl(url)
+        }
+        
+        // Insert the URL into the editor content so it shows in the edit pane
+        // Use setTimeout to ensure the state has updated and editor is ready
+        setTimeout(() => {
+          if (textareaRef.current) {
+            // Check the actual editor content, not the state variable (which might be stale)
+            const currentText = textareaRef.current.getText()
+            if (!currentText.includes(url)) {
+              textareaRef.current.appendText(url, true)
+            }
+          }
+        }, 100)
+      } else {
+        // For non-picture media, replace the existing tags (single media)
+        setMediaUrl(url)
+        const imetaTag = mediaUpload.getImetaTagByUrl(url)
+        if (imetaTag) {
+          setMediaImetaTags([imetaTag])
+        } else if (tags && tags.length > 0) {
+          setMediaImetaTags(tags)
+        } else {
+          const basicImetaTag: string[] = ['imeta', `url ${url}`]
+          // Update MIME type based on selected kind
+          let mimeType = uploadingFile.type
+          if (selectedKind === ExtendedKind.VOICE || selectedKind === ExtendedKind.VOICE_COMMENT) {
+            // Ensure audio MIME type
+            const fileName = uploadingFile.name.toLowerCase()
+            if (/\.webm$/i.test(fileName)) {
+              mimeType = 'audio/webm'
+            } else if (/\.mp4$/i.test(fileName)) {
+              mimeType = 'audio/mp4'
+            }
+          } else if (selectedKind === ExtendedKind.VIDEO || selectedKind === ExtendedKind.SHORT_VIDEO) {
+            // Ensure video MIME type
+            const fileName = uploadingFile.name.toLowerCase()
+            if (/\.webm$/i.test(fileName)) {
+              mimeType = 'video/webm'
+            } else if (/\.mp4$/i.test(fileName)) {
+              mimeType = 'video/mp4'
+            }
+          }
+          if (mimeType) {
+            basicImetaTag.push(`m ${mimeType}`)
+          }
+          setMediaImetaTags([basicImetaTag])
+        }
+        
+        // Insert the URL into the editor content so it shows in the edit pane
+        // Use setTimeout to ensure the state has updated and editor is ready
+        setTimeout(() => {
+          if (textareaRef.current) {
+            // Check the actual editor content, not the state variable (which might be stale)
+            const currentText = textareaRef.current.getText()
+            if (!currentText.includes(url)) {
+              textareaRef.current.appendText(url, true)
+            }
+          }
+        }, 100)
+      }
+    } catch (error) {
+      logger.error('Error processing media upload', { error, file: uploadingFile.name })
+      // Fallback to picture if processing fails
+      setMediaNoteKind(ExtendedKind.PICTURE)
+      const imetaTag = mediaUpload.getImetaTagByUrl(url)
+      if (imetaTag) {
+        setMediaImetaTags(prev => [...prev, imetaTag])
+      } else {
+        const basicImetaTag: string[] = ['imeta', `url ${url}`]
+        if (uploadingFile.type) {
+          basicImetaTag.push(`m ${uploadingFile.type}`)
+        }
+        setMediaImetaTags(prev => [...prev, basicImetaTag])
+      }
+      if (!mediaUrl) {
+        setMediaUrl(url)
+      }
+    }
+  }
+
   const handleMediaUploadSuccess = async ({ url, tags }: { url: string; tags: string[][] }) => {
     try {
       // Find the file from the map - try to match by URL or get the most recent
@@ -1236,79 +1425,16 @@ export default function PostContent({
           return // Don't set media note kind for non-audio in replies
         }
       } else {
-        // For new posts, use the detected kind (which handles audio > 60s → video)
-        try {
-          const kind = await getMediaKindFromFile(uploadingFile, false)
-          setMediaNoteKind(kind)
-          
-          // For picture notes, support multiple images by accumulating imeta tags
-          if (kind === ExtendedKind.PICTURE) {
-            // Get imeta tag from media upload service
-            const imetaTag = mediaUpload.getImetaTagByUrl(url)
-            let newImetaTag: string[]
-            if (imetaTag) {
-              newImetaTag = imetaTag
-            } else if (tags && tags.length > 0 && tags[0]) {
-              newImetaTag = tags[0]
-            } else {
-              // Create a basic imeta tag if none exists
-              newImetaTag = ['imeta', `url ${url}`]
-              if (uploadingFile.type) {
-                newImetaTag.push(`m ${uploadingFile.type}`)
-              }
-            }
-            
-            // Accumulate multiple imeta tags for picture notes
-            setMediaImetaTags(prev => {
-              // Check if this URL already exists in the tags
-              const urlExists = prev.some(tag => {
-                const urlItem = tag.find(item => item.startsWith('url '))
-                return urlItem && urlItem.slice(4) === url
-              })
-              if (urlExists) {
-                return prev // Don't add duplicate
-              }
-              return [...prev, newImetaTag]
-            })
-            
-            // Set the first URL as the primary mediaUrl (for backwards compatibility)
-            if (!mediaUrl) {
-              setMediaUrl(url)
-            }
-          } else {
-            // For non-picture media, replace the existing tags (single media)
-            setMediaUrl(url)
-            const imetaTag = mediaUpload.getImetaTagByUrl(url)
-            if (imetaTag) {
-              setMediaImetaTags([imetaTag])
-            } else if (tags && tags.length > 0) {
-              setMediaImetaTags(tags)
-            } else {
-              const basicImetaTag: string[] = ['imeta', `url ${url}`]
-              if (uploadingFile.type) {
-                basicImetaTag.push(`m ${uploadingFile.type}`)
-              }
-              setMediaImetaTags([basicImetaTag])
-            }
-          }
-        } catch (error) {
-          logger.error('Error detecting media kind', { error, file: uploadingFile.name })
-          // Fallback to picture if detection fails
-          setMediaNoteKind(ExtendedKind.PICTURE)
-          const imetaTag = mediaUpload.getImetaTagByUrl(url)
-          if (imetaTag) {
-            setMediaImetaTags(prev => [...prev, imetaTag])
-          } else {
-            const basicImetaTag: string[] = ['imeta', `url ${url}`]
-            if (uploadingFile.type) {
-              basicImetaTag.push(`m ${uploadingFile.type}`)
-            }
-            setMediaImetaTags(prev => [...prev, basicImetaTag])
-          }
-          if (!mediaUrl) {
-            setMediaUrl(url)
-          }
+        // For new posts, check if file is ambiguous (could be audio or video)
+        if (isAmbiguousMediaFile(uploadingFile)) {
+          // Show dialog to let user choose
+          setPendingMediaUpload({ url, tags, file: uploadingFile })
+          setShowMediaKindDialog(true)
+          return
         }
+        
+        // Not ambiguous, auto-detect and process
+        await processMediaUpload(url, tags, uploadingFile)
       }
     } catch (error) {
       logger.error('Error in handleMediaUploadSuccess', { error })
@@ -1815,6 +1941,88 @@ export default function PostContent({
           {parentEvent ? t('Reply') : t('Post')}
         </Button>
       </div>
+      
+      {/* Media Kind Selection Dialog */}
+      <Dialog open={showMediaKindDialog} onOpenChange={setShowMediaKindDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Select Media Type')}</DialogTitle>
+            <DialogDescription>
+              {pendingMediaUpload && (
+                <>
+                  {t('This file could be either audio or video. Please select the correct type:')}
+                  <br />
+                  <span className="text-xs text-muted-foreground mt-2 block">
+                    {pendingMediaUpload.file.name}
+                  </span>
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 py-4">
+            <Button
+              variant="outline"
+              className="flex items-center justify-start gap-3 h-auto p-4"
+              onClick={() => {
+                // User selected audio - always use VOICE (kind 1222)
+                handleMediaKindSelection(ExtendedKind.VOICE)
+              }}
+            >
+              <Music className="h-5 w-5" />
+              <div className="flex flex-col items-start">
+                <span className="font-medium">{t('Audio')}</span>
+                <span className="text-xs text-muted-foreground">{t('Voice note or audio file')}</span>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="flex items-center justify-start gap-3 h-auto p-4"
+              onClick={() => {
+                // Get duration to determine if it should be VIDEO (kind 21) or SHORT_VIDEO (kind 22)
+                const file = pendingMediaUpload?.file
+                if (file) {
+                  // Create a temporary media element to get duration
+                  const url = URL.createObjectURL(file)
+                  const media = document.createElement('video')
+                  
+                  media.onloadedmetadata = () => {
+                    const duration = media.duration || 0
+                    URL.revokeObjectURL(url)
+                    // Video files longer than 10 minutes (600 seconds) are long videos (kind 21)
+                    // Otherwise use short video (kind 22)
+                    const selectedKind = duration > 600 ? ExtendedKind.VIDEO : ExtendedKind.SHORT_VIDEO
+                    handleMediaKindSelection(selectedKind)
+                  }
+                  
+                  media.onerror = () => {
+                    URL.revokeObjectURL(url)
+                    // Fallback to SHORT_VIDEO if we can't determine duration
+                    handleMediaKindSelection(ExtendedKind.SHORT_VIDEO)
+                  }
+                  
+                  media.src = url
+                  media.load()
+                  
+                  // Timeout after 3 seconds
+                  setTimeout(() => {
+                    URL.revokeObjectURL(url)
+                    handleMediaKindSelection(ExtendedKind.SHORT_VIDEO)
+                  }, 3000)
+                } else {
+                  // Fallback to SHORT_VIDEO if no file
+                  handleMediaKindSelection(ExtendedKind.SHORT_VIDEO)
+                }
+              }}
+            >
+              <Video className="h-5 w-5" />
+              <div className="flex flex-col items-start">
+                <span className="font-medium">{t('Video')}</span>
+                <span className="text-xs text-muted-foreground">{t('Video file')}</span>
+              </div>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

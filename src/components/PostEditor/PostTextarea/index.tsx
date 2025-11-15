@@ -29,6 +29,7 @@ export type TPostTextareaHandle = {
   insertText: (text: string) => void
   insertEmoji: (emoji: string | TEmoji) => void
   clear: () => void
+  getText: () => string
 }
 
 const PostTextarea = forwardRef<
@@ -202,6 +203,12 @@ const PostTextarea = forwardRef<
           postEditorCache.setPostContentCache({ defaultContent, parentEvent }, editor.getJSON())
           setText('')
         }
+      },
+      getText: () => {
+        if (editor) {
+          return editor.getText()
+        }
+        return ''
       }
     }))
 

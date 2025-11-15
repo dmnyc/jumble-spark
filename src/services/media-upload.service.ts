@@ -148,17 +148,35 @@ class MediaUploadService {
 
     // Check if service worker might be interfering
     const hasServiceWorker = 'serviceWorker' in navigator && navigator.serviceWorker.controller
+    const isFirefoxMobile = /Firefox/i.test(navigator.userAgent) && /Mobile/i.test(navigator.userAgent)
+    
     if (hasServiceWorker) {
-      console.warn('⚠️ Service worker is active - this may interfere with uploads on mobile', { uploadUrl })
+      console.warn('⚠️ Service worker is active - this may interfere with uploads on mobile', { uploadUrl, isFirefoxMobile })
+    }
+
+    // For Firefox mobile, add a cache-busting parameter to help bypass service worker
+    // Also add a timestamp to ensure the request is unique
+    let finalUploadUrl = uploadUrl as string
+    if (isFirefoxMobile && hasServiceWorker) {
+      const separator = finalUploadUrl.includes('?') ? '&' : '?'
+      finalUploadUrl = `${finalUploadUrl}${separator}_nocache=${Date.now()}&_bypass_sw=1`
+      console.log('🔧 Firefox mobile: Added cache-busting parameters to upload URL', { finalUploadUrl })
     }
 
     // Use XMLHttpRequest for upload progress support
-    // Note: XMLHttpRequest should bypass service workers, but on mobile this isn't always reliable
+    // Note: XMLHttpRequest should bypass service workers, but on mobile Firefox this isn't always reliable
+    // We add cache-busting parameters for Firefox mobile to help bypass service worker
     const result = await new Promise<{ url: string; tags: string[][] }>((resolve, reject) => {
       const xhr = new XMLHttpRequest()
-      xhr.open('POST', uploadUrl as string)
+      xhr.open('POST', finalUploadUrl, true) // async=true to ensure it's not cached
       xhr.responseType = 'json'
       xhr.setRequestHeader('Authorization', auth)
+      // Add headers to prevent caching on Firefox mobile
+      if (isFirefoxMobile) {
+        xhr.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+        xhr.setRequestHeader('Pragma', 'no-cache')
+        xhr.setRequestHeader('Expires', '0')
+      }
       
       // Log upload start for debugging
       console.log('📤 Starting upload', { 
@@ -222,7 +240,11 @@ class MediaUploadService {
         let errorMessage = 'Network error'
         if (xhr.status === 0) {
           // On mobile, status 0 often means CORS or service worker issue, not necessarily connection failure
-          errorMessage = 'Upload failed - this may be due to a service worker or CORS issue. Please try refreshing the page or clearing your browser cache.'
+          if (isFirefoxMobile) {
+            errorMessage = 'Upload failed on Firefox mobile - this is often due to a service worker issue. Try: 1) Refreshing the page, 2) Clearing browser cache, or 3) Disabling service workers in Firefox settings.'
+          } else {
+            errorMessage = 'Upload failed - this may be due to a service worker or CORS issue. Please try refreshing the page or clearing your browser cache.'
+          }
         } else if (xhr.status >= 400) {
           errorMessage = `Upload failed with status ${xhr.status}: ${xhr.statusText || 'Unknown error'}`
         }
