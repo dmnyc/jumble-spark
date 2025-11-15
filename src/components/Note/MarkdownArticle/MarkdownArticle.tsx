@@ -107,206 +107,41 @@ function isYouTubeUrl(url: string): boolean {
 }
 
 /**
- * Parse inline markdown formatting while preserving newlines (for code blocks)
- */
-function parseInlineMarkdownPreserveNewlines(text: string, keyPrefix: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = []
-  let lastIndex = 0
-  const inlinePatterns: Array<{ index: number; end: number; type: string; data: any }> = []
-  
-  // Bold: **text** (double asterisk) - allow newlines within
-  const doubleBoldAsteriskRegex = /\*\*([\s\S]+?)\*\*/g
-  const doubleBoldAsteriskMatches = Array.from(text.matchAll(doubleBoldAsteriskRegex))
-  doubleBoldAsteriskMatches.forEach(match => {
-    if (match.index !== undefined) {
-      inlinePatterns.push({
-        index: match.index,
-        end: match.index + match[0].length,
-        type: 'bold',
-        data: match[1]
-      })
-    }
-  })
-  
-  // Double underscore bold - allow newlines within
-  const doubleBoldUnderscoreRegex = /__([\s\S]+?)__/g
-  const doubleBoldUnderscoreMatches = Array.from(text.matchAll(doubleBoldUnderscoreRegex))
-  doubleBoldUnderscoreMatches.forEach(match => {
-    if (match.index !== undefined) {
-      const isInOther = inlinePatterns.some(p => 
-        (p.type === 'bold') &&
-        match.index! >= p.index && 
-        match.index! < p.end
-      )
-      if (!isInOther) {
-        inlinePatterns.push({
-          index: match.index,
-          end: match.index + match[0].length,
-          type: 'bold',
-          data: match[1]
-        })
-      }
-    }
-  })
-  
-  // Italic: _text_ (single underscore, not part of __bold__) - allow newlines within
-  const singleItalicUnderscoreRegex = /(?<!_)_([\s\S]+?)_(?!_)/g
-  const singleItalicUnderscoreMatches = Array.from(text.matchAll(singleItalicUnderscoreRegex))
-  singleItalicUnderscoreMatches.forEach(match => {
-    if (match.index !== undefined) {
-      const isInOther = inlinePatterns.some(p => 
-        (p.type === 'bold') &&
-        match.index! >= p.index && 
-        match.index! < p.end
-      )
-      if (!isInOther) {
-        inlinePatterns.push({
-          index: match.index,
-          end: match.index + match[0].length,
-          type: 'italic',
-          data: match[1]
-        })
-      }
-    }
-  })
-  
-  // Sort by index
-  inlinePatterns.sort((a, b) => a.index - b.index)
-  
-  // Remove overlaps (keep first)
-  const filtered: typeof inlinePatterns = []
-  let lastEnd = 0
-  inlinePatterns.forEach(pattern => {
-    if (pattern.index >= lastEnd) {
-      filtered.push(pattern)
-      lastEnd = pattern.end
-    }
-  })
-  
-  // Build React nodes, preserving newlines
-  filtered.forEach((pattern, i) => {
-    // Add text before pattern (preserving newlines)
-    if (pattern.index > lastIndex) {
-      const textBefore = text.substring(lastIndex, pattern.index)
-      if (textBefore) {
-        // Split by newlines and render each part
-        const lines = textBefore.split('\n')
-        lines.forEach((line, lineIdx) => {
-          if (lineIdx > 0) {
-            parts.push(<br key={`${keyPrefix}-br-${i}-${lineIdx}`} />)
-          }
-          if (line) {
-            parts.push(<span key={`${keyPrefix}-text-${i}-${lineIdx}`}>{line}</span>)
-          }
-        })
-      }
-    }
-    
-    // Render pattern (preserving newlines within the pattern)
-    if (pattern.type === 'bold') {
-      const boldLines = pattern.data.split('\n')
-      boldLines.forEach((line: string, lineIdx: number) => {
-        if (lineIdx > 0) {
-          parts.push(<br key={`${keyPrefix}-bold-br-${i}-${lineIdx}`} />)
-        }
-        if (line) {
-          parts.push(<strong key={`${keyPrefix}-bold-${i}-${lineIdx}`}>{line}</strong>)
-        }
-      })
-    } else if (pattern.type === 'italic') {
-      const italicLines = pattern.data.split('\n')
-      italicLines.forEach((line: string, lineIdx: number) => {
-        if (lineIdx > 0) {
-          parts.push(<br key={`${keyPrefix}-italic-br-${i}-${lineIdx}`} />)
-        }
-        if (line) {
-          parts.push(<em key={`${keyPrefix}-italic-${i}-${lineIdx}`}>{line}</em>)
-        }
-      })
-    }
-    
-    lastIndex = pattern.end
-  })
-  
-  // Add remaining text (preserving newlines)
-  if (lastIndex < text.length) {
-    const remaining = text.substring(lastIndex)
-    const lines = remaining.split('\n')
-    lines.forEach((line, lineIdx) => {
-      if (lineIdx > 0) {
-        parts.push(<br key={`${keyPrefix}-br-final-${lineIdx}`} />)
-      }
-      if (line) {
-        parts.push(<span key={`${keyPrefix}-text-final-${lineIdx}`}>{line}</span>)
-      }
-    })
-  }
-  
-  return parts
-}
-
-/**
  * CodeBlock component that renders code with syntax highlighting using highlight.js
- * Also processes inline markdown formatting (bold, italic) within the code
  */
 function CodeBlock({ id, code, language }: { id: string; code: string; language: string }) {
   const codeRef = useRef<HTMLDivElement>(null)
   
-  // Check if code contains markdown formatting
-  const hasMarkdownFormatting = /\*\*.*?\*\*|__.*?__|_.*?_|\*.*?\*/.test(code)
-  
-  // Process inline markdown formatting (bold, italic) in code blocks while preserving newlines
-  const processedCode = useMemo(() => {
-    if (hasMarkdownFormatting) {
-      // Parse inline markdown while preserving newlines
-      return parseInlineMarkdownPreserveNewlines(code, `code-${id}`)
-    }
-    return code
-  }, [code, id, hasMarkdownFormatting])
-  
   useEffect(() => {
-    // Only apply syntax highlighting if there's no markdown formatting
-    // (highlight.js would interfere with HTML formatting)
-    if (!hasMarkdownFormatting) {
-      const initHighlight = async () => {
-        if (typeof window !== 'undefined' && codeRef.current) {
-          try {
-            const hljs = await import('highlight.js')
-            const codeElement = codeRef.current.querySelector('code')
-            if (codeElement) {
-              hljs.default.highlightElement(codeElement)
-            }
-          } catch (error) {
-            logger.error('Error loading highlight.js:', error)
+    const initHighlight = async () => {
+      if (typeof window !== 'undefined' && codeRef.current) {
+        try {
+          const hljs = await import('highlight.js')
+          const codeElement = codeRef.current.querySelector('code')
+          if (codeElement) {
+            hljs.default.highlightElement(codeElement)
           }
+        } catch (error) {
+          logger.error('Error loading highlight.js:', error)
         }
       }
-      
-      // Small delay to ensure DOM is ready
-      const timeoutId = setTimeout(initHighlight, 0)
-      return () => clearTimeout(timeoutId)
     }
-  }, [code, language, hasMarkdownFormatting])
+    
+    // Small delay to ensure DOM is ready
+    const timeoutId = setTimeout(initHighlight, 0)
+    return () => clearTimeout(timeoutId)
+  }, [code, language])
   
   return (
     <div className="my-4 overflow-x-auto">
       <pre className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-700 whitespace-pre-wrap">
         <div ref={codeRef}>
-          {hasMarkdownFormatting ? (
-            <code
-              id={id}
-              className="text-gray-900 dark:text-gray-100 font-mono text-sm"
-            >
-              {processedCode}
-            </code>
-          ) : (
-            <code
-              id={id}
-              className={`hljs language-${language || 'plaintext'} text-gray-900 dark:text-gray-100`}
-            >
-              {code}
-            </code>
-          )}
+          <code
+            id={id}
+            className={`hljs language-${language || 'plaintext'} text-gray-900 dark:text-gray-100`}
+          >
+            {code}
+          </code>
         </div>
       </pre>
     </div>

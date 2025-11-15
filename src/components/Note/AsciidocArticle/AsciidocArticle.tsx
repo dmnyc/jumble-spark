@@ -1,7 +1,6 @@
 import { useSecondaryPage, useSmartHashtagNavigation, useSmartRelayNavigation } from '@/PageManager'
 import Image from '@/components/Image'
 import MediaPlayer from '@/components/MediaPlayer'
-import WebPreview from '@/components/WebPreview'
 import YoutubeEmbeddedPlayer from '@/components/YoutubeEmbeddedPlayer'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
 import { toNoteList } from '@/lib/link'
@@ -225,6 +224,28 @@ function convertMarkdownToAsciidoc(content: string): string {
   // Ordered lists: 1., 2., etc.
   asciidoc = asciidoc.replace(/^(\s*)\d+\.\s+(.+)$/gm, '$1. $2')
   
+  // Protect existing AsciiDoc links (both url[text] and link:url[text] formats)
+  // Do this FIRST before any other processing to avoid double-processing
+  const asciidocLinkPlaceholders: string[] = []
+  // Match AsciiDoc link format: url[text] or link:url[text]
+  // Pattern matches: http(s)://url[text] or link:url[text]
+  // URL can contain dots, slashes, hyphens, etc., but stops at whitespace or [
+  // Then we match [text] where text can contain anything except ]
+  // Use a more permissive pattern - match URL until [ then match [text]
+  // The URL part can contain most characters except whitespace and [
+  asciidoc = asciidoc.replace(/(https?:\/\/[^\s\[\]]+\[[^\]]+\])/g, (match, link) => {
+    // This is an AsciiDoc link format (url[text]), protect it
+    const placeholder = `__ASCIIDOC_LINK_${asciidocLinkPlaceholders.length}__`
+    asciidocLinkPlaceholders.push(link)
+    return placeholder
+  })
+  // Also protect link:url[text] format
+  asciidoc = asciidoc.replace(/(link:[^\s\[\]]+\[[^\]]+\])/g, (match, link) => {
+    const placeholder = `__ASCIIDOC_LINK_${asciidocLinkPlaceholders.length}__`
+    asciidocLinkPlaceholders.push(link)
+    return placeholder
+  })
+  
   // Convert images: ![alt](url) -> image:url[alt] (single colon for inline, but AsciiDoc will render as block)
   // For block images in AsciiDoc, we can use image:: or just ensure it's on its own line
   asciidoc = asciidoc.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match, alt, url) => {
@@ -242,6 +263,11 @@ function convertMarkdownToAsciidoc(content: string): string {
     // Escape brackets in link text
     const escapedText = text.replace(/\[/g, '\\[').replace(/\]/g, '\\]')
     return `link:${url}[${escapedText}]`
+  })
+  
+  // Restore AsciiDoc links
+  asciidocLinkPlaceholders.forEach((link, index) => {
+    asciidoc = asciidoc.replace(`__ASCIIDOC_LINK_${index}__`, link)
   })
   
   // Nostr addresses are already converted to link: format above, no need to restore
@@ -714,8 +740,8 @@ export default function AsciidocArticle({
         })
         
         // Handle YouTube URLs and relay URLs in links
-        // Process all link matches first to determine which are standalone
-        const linkMatches: Array<{ match: string; href: string; linkText: string; index: number; isStandalone: boolean }> = []
+        // Only replace links that need special handling - leave AsciiDoc-generated links alone
+        const linkMatches: Array<{ match: string; href: string; linkText: string; index: number }> = []
         const linkRegex = /<a[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/g
         let linkMatch
         while ((linkMatch = linkRegex.exec(htmlString)) !== null) {
@@ -724,67 +750,16 @@ export default function AsciidocArticle({
           const linkText = linkMatch[2]
           const index = linkMatch.index
           
-          // Check if link is standalone (on its own line, not part of a sentence/list/quote)
-          let isStandalone = false
-          if (href.startsWith('http://') || href.startsWith('https://')) {
-            // Get context around the link
-            const beforeMatch = htmlString.substring(Math.max(0, index - 500), index)
-            const afterMatch = htmlString.substring(index + match.length, Math.min(htmlString.length, index + match.length + 500))
-            
-            // Extract the parent paragraph/div content
-            const paragraphMatch = beforeMatch.match(/<p[^>]*>([^<]*)$/)
-            const divMatch = beforeMatch.match(/<div[^>]*>([^<]*)$/)
-            
-            // If link is in a paragraph, check if paragraph contains only the link
-            if (paragraphMatch) {
-              const paragraphEnd = afterMatch.match(/^([^<]*)<\/p>/)
-              const paragraphContent = paragraphMatch[1] + linkText + (paragraphEnd?.[1] || '')
-              const trimmedContent = paragraphContent.trim()
-              // If paragraph contains only the link (possibly with whitespace), it's standalone
-              if (trimmedContent === linkText.trim() || trimmedContent === '') {
-                // Check if it's in a list or blockquote by looking further back
-                const contextBefore = htmlString.substring(Math.max(0, index - 1000), index)
-                if (!contextBefore.match(/<[uo]l[^>]*>/) && !contextBefore.match(/<blockquote[^>]*>/)) {
-                  isStandalone = true
-                }
-              }
-            }
-            
-            // If link is in a div and the div contains only the link, it's standalone
-            if (!isStandalone && divMatch) {
-              const divEnd = afterMatch.match(/^([^<]*)<\/div>/)
-              const divContent = divMatch[1] + linkText + (divEnd?.[1] || '')
-              const trimmedContent = divContent.trim()
-              if (trimmedContent === linkText.trim() || trimmedContent === '') {
-                const contextBefore = htmlString.substring(Math.max(0, index - 1000), index)
-                if (!contextBefore.match(/<[uo]l[^>]*>/) && !contextBefore.match(/<blockquote[^>]*>/)) {
-                  isStandalone = true
-                }
-              }
-            }
-            
-            // If link appears to be on its own line (surrounded by block-level tags or whitespace)
-            if (!isStandalone) {
-              const beforeTrimmed = beforeMatch.replace(/\s*$/, '')
-              const afterTrimmed = afterMatch.replace(/^\s*/, '')
-              if (
-                (beforeTrimmed.endsWith('</p>') || beforeTrimmed.endsWith('</div>') || beforeTrimmed.endsWith('<br') || beforeTrimmed === '') &&
-                (afterTrimmed.startsWith('</p>') || afterTrimmed.startsWith('</div>') || afterTrimmed.startsWith('<p') || afterTrimmed.startsWith('<div') || afterTrimmed === '')
-              ) {
-                const contextBefore = htmlString.substring(Math.max(0, index - 1000), index)
-                if (!contextBefore.match(/<[uo]l[^>]*>/) && !contextBefore.match(/<blockquote[^>]*>/)) {
-                  isStandalone = true
-                }
-              }
-            }
+          // Only process links that need special handling (YouTube, relay URLs)
+          // Leave regular HTTP/HTTPS links as-is since AsciiDoc already formatted them correctly
+          if (isYouTubeUrl(href) || isWebsocketUrl(href)) {
+            linkMatches.push({ match, href, linkText, index })
           }
-          
-          linkMatches.push({ match, href, linkText, index, isStandalone })
         }
         
-        // Replace links in reverse order to preserve indices
+        // Replace only special links in reverse order to preserve indices
         for (let i = linkMatches.length - 1; i >= 0; i--) {
-          const { match, href, linkText, isStandalone } = linkMatches[i]
+          const { match, href, linkText, index } = linkMatches[i]
           let replacement = match
           
           // Check if the href is a YouTube URL
@@ -796,23 +771,6 @@ export default function AsciidocArticle({
           else if (isWebsocketUrl(href)) {
             const relayPath = `/relays/${encodeURIComponent(href)}`
             replacement = `<a href="${relayPath}" class="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words cursor-pointer" data-relay-url="${href}" data-original-text="${linkText.replace(/"/g, '&quot;')}">${linkText}</a>`
-          }
-          // For regular HTTP/HTTPS links, check if standalone
-          else if (href.startsWith('http://') || href.startsWith('https://')) {
-            if (isStandalone) {
-              // Standalone link - render as WebPreview
-              const cleanedUrl = cleanUrl(href)
-              replacement = `<div data-webpreview-url="${cleanedUrl.replace(/"/g, '&quot;')}" class="webpreview-placeholder my-2"></div>`
-            } else {
-              // Inline link - keep as regular link
-              const escapedLinkText = linkText.replace(/"/g, '&quot;')
-              replacement = `<a href="${href}" class="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words" target="_blank" rel="noopener noreferrer" data-original-text="${escapedLinkText}">${linkText}</a>`
-            }
-          }
-          // For other links (like relative links), keep as-is but add data attribute
-          else {
-            const escapedLinkText = linkText.replace(/"/g, '&quot;')
-            replacement = match.replace(/<a/, `<a data-original-text="${escapedLinkText}"`)
           }
           
           htmlString = htmlString.substring(0, linkMatches[i].index) + replacement + htmlString.substring(linkMatches[i].index + match.length)
@@ -840,7 +798,8 @@ export default function AsciidocArticle({
           return match
         })
         
-        // Handle plain HTTP/HTTPS URLs in text (not in <a> tags, not YouTube, not relay) - convert to WebPreview placeholders
+        // Handle plain HTTP/HTTPS URLs in text (not in <a> tags, not YouTube, not relay) - convert to regular links
+        // NO WebPreview conversion for AsciiDoc articles
         const httpUrlRegex = /https?:\/\/[^\s<>"']+/g
         htmlString = htmlString.replace(httpUrlRegex, (match) => {
           // Only replace if not already in a tag (basic check)
@@ -853,8 +812,9 @@ export default function AsciidocArticle({
             if (isImage(match) || isVideo(match) || isAudio(match)) {
               return match
             }
+            // Convert to regular link - NO WebPreview
             const cleanedUrl = cleanUrl(match)
-            return `<div data-webpreview-url="${cleanedUrl.replace(/"/g, '&quot;')}" class="webpreview-placeholder my-2"></div>`
+            return `<a href="${cleanedUrl}" class="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words" target="_blank" rel="noopener noreferrer">${match}</a>`
           }
           return match
         })
@@ -1056,23 +1016,6 @@ export default function AsciidocArticle({
       // Use React to render the component
       const root = createRoot(container)
       root.render(<Wikilink dTag={dtag} displayText={displayText} />)
-      reactRootsRef.current.set(container, root)
-    })
-    
-    // Process WebPreview placeholders - replace with React components
-    const webpreviewPlaceholders = contentRef.current.querySelectorAll('.webpreview-placeholder[data-webpreview-url]')
-    webpreviewPlaceholders.forEach((element) => {
-      const url = element.getAttribute('data-webpreview-url')
-      if (!url) return
-      
-      // Create a container for React component
-      const container = document.createElement('div')
-      container.className = 'my-2'
-      element.parentNode?.replaceChild(container, element)
-      
-      // Use React to render the component
-      const root = createRoot(container)
-      root.render(<WebPreview url={url} className="w-full" />)
       reactRootsRef.current.set(container, root)
     })
     
@@ -1431,15 +1374,6 @@ export default function AsciidocArticle({
           </div>
         )}
 
-                {/* WebPreview cards for links from tags (only if not already in content) */}
-                {/* Note: Links in content are already rendered as links in the AsciiDoc HTML above, so we don't show WebPreview for them */}
-                {leftoverTagLinks.length > 0 && (
-                  <div className="space-y-3 mt-6">
-                    {leftoverTagLinks.map((url, index) => (
-                      <WebPreview key={`tag-${index}-${url}`} url={url} className="w-full" />
-                    ))}
-                  </div>
-                )}
       </div>
       
       {/* Image gallery lightbox */}

@@ -149,6 +149,13 @@ export function preprocessAsciidocMediaLinks(content: string): string {
       continue
     }
     
+    // Check if this URL is part of an AsciiDoc link format url[text]
+    // If URL is immediately followed by [text], it's already an AsciiDoc link - skip it
+    const contextAfter = content.substring(urlEnd, Math.min(content.length, urlEnd + 50))
+    if (contextAfter.match(/^\s*\[[^\]]+\]/)) {
+      continue
+    }
+    
     const before = content.substring(Math.max(0, index - 30), index)
     
     // Check if this URL is already part of AsciiDoc syntax
