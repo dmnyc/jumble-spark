@@ -16,21 +16,35 @@ export async function getMediaKindFromFile(file: File, isReply: boolean = false)
   }
   
   // Check if it's audio or video
-  const isAudio = fileType.startsWith('audio/') || /\.(mp3|m4a|ogg|wav|webm|opus|aac|flac)$/i.test(fileName)
-  const isVideo = fileType.startsWith('video/') || /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(fileName)
+  // mp4, m4a, and webm files can be either audio or video, so check MIME type first
+  // Mobile browsers may report m4a files as audio/m4a, audio/mp4, audio/x-m4a, or even video/mp4
+  const isAudioMime = fileType.startsWith('audio/') || fileType === 'audio/mp4' || fileType === 'audio/x-m4a' || fileType === 'audio/m4a' || fileType === 'audio/webm' || fileType === 'audio/mpeg'
+  const isVideoMime = fileType.startsWith('video/')
+  const isAudioExt = /\.(mp3|m4a|ogg|wav|opus|aac|flac|mpeg|mp4)$/i.test(fileName)
+  const isVideoExt = /\.(mp4|ogg|mov|avi|mkv|m4v)$/i.test(fileName)
+  
+  // m4a files are always audio, even if MIME type is video/mp4 (mobile browsers sometimes report this)
+  const isM4aFile = /\.m4a$/i.test(fileName)
+  // mp4 files: check MIME type to determine if audio or video
+  const isMp4Audio = /\.mp4$/i.test(fileName) && isAudioMime
+  const isWebmAudio = /\.webm$/i.test(fileName) && isAudioMime
+  const isWebmVideo = /\.webm$/i.test(fileName) && isVideoMime
+  
+  const isAudio = isAudioMime || isAudioExt || isM4aFile || isMp4Audio || isWebmAudio
+  const isVideo = isVideoMime || (isVideoExt && !isM4aFile && !isMp4Audio) || isWebmVideo
   
   if (isAudio || isVideo) {
     // Get duration for audio/video files
     const duration = await getMediaDuration(file)
     
     if (isAudio) {
-      // Audio mp4 files longer than 60 seconds should be treated as video
-      if ((fileType === 'audio/mp4' || fileName.endsWith('.m4a')) && duration > 60) {
+      // Audio mp4/m4a files longer than 60 seconds should be treated as video (for new posts only)
+      if (!isReply && (fileType === 'audio/mp4' || fileType === 'audio/x-m4a' || fileName.endsWith('.m4a') || fileName.endsWith('.mp4')) && duration > 60) {
         // Determine if it should be long or short video based on duration
         return duration > 600 ? ExtendedKind.VIDEO : ExtendedKind.SHORT_VIDEO
       }
       
-      // Audio files <= 60 seconds
+      // Audio files <= 60 seconds, or any audio in replies
       return isReply ? ExtendedKind.VOICE_COMMENT : ExtendedKind.VOICE
     }
     

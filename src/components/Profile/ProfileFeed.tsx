@@ -11,7 +11,9 @@ const POST_KIND_LIST = [
   ExtendedKind.COMMENT,
   ExtendedKind.DISCUSSION,
   ExtendedKind.POLL,
-  ExtendedKind.ZAP_RECEIPT
+  ExtendedKind.ZAP_RECEIPT,
+  ExtendedKind.VOICE,
+  ExtendedKind.VOICE_COMMENT
 ]
 
 interface ProfileFeedProps {
@@ -50,6 +52,8 @@ const ProfileFeed = forwardRef<{ refresh: () => void; getEvents?: () => Event[] 
       if (kindNum === ExtendedKind.DISCUSSION) return 'discussions'
       if (kindNum === ExtendedKind.POLL) return 'polls'
       if (kindNum === ExtendedKind.ZAP_RECEIPT) return 'zaps'
+      if (kindNum === ExtendedKind.VOICE) return 'voice posts'
+      if (kindNum === ExtendedKind.VOICE_COMMENT) return 'voice comments'
       return 'posts'
     }
 

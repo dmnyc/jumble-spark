@@ -239,7 +239,9 @@ export function isAudio(url: string) {
       '.m4a',
       '.opus',
       '.wma',
-      '.ogg' // ogg can be audio
+      '.ogg', // ogg can be audio
+      '.webm', // webm can be audio (when uploaded via microphone button)
+      '.mp4' // mp4 can be audio (m4a files)
     ]
     return audioExtensions.some((ext) => new URL(url).pathname.toLowerCase().endsWith(ext))
   } catch {

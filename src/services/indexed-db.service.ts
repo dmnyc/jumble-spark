@@ -196,13 +196,6 @@ class IndexedDbService {
       created_at: cleanEvent.created_at,
       fullEventId: cleanEvent.id
     })
-    logger.info('[IndexedDB] Putting replaceable event', { 
-      kind: cleanEvent.kind,
-      storeName,
-      eventId: cleanEvent.id?.substring(0, 8),
-      pubkey: cleanEvent.pubkey?.substring(0, 8),
-      created_at: cleanEvent.created_at 
-    })
     
     await this.initPromise
     
@@ -252,13 +245,13 @@ class IndexedDbService {
       const store = transaction.objectStore(storeName)
 
       const key = this.getReplaceableEventKeyFromEvent(cleanEvent)
-      logger.info('[IndexedDB] Getting existing event', { storeName, key, eventId: cleanEvent.id?.substring(0, 8) })
+      logger.debug('[IndexedDB] Getting existing event', { storeName, key, eventId: cleanEvent.id?.substring(0, 8) })
       
       const getRequest = store.get(key)
       getRequest.onsuccess = () => {
         const oldValue = getRequest.result as TValue<Event> | undefined
         if (oldValue?.value) {
-          logger.info('[IndexedDB] Found existing event', { 
+          logger.debug('[IndexedDB] Found existing event', { 
             storeName,
             key,
             oldEventId: oldValue.value.id?.substring(0, 8),
@@ -267,11 +260,11 @@ class IndexedDbService {
             willUpdate: cleanEvent.created_at > oldValue.value.created_at 
           })
         } else {
-          logger.info('[IndexedDB] No existing event found', { storeName, key })
+          logger.debug('[IndexedDB] No existing event found', { storeName, key })
         }
         
         if (oldValue?.value && oldValue.value.created_at >= cleanEvent.created_at) {
-          logger.info('[IndexedDB] Keeping existing event (newer or same timestamp)', { 
+          logger.debug('[IndexedDB] Keeping existing event (newer or same timestamp)', { 
             storeName,
             key,
             existingEventId: oldValue.value.id?.substring(0, 8) 
@@ -287,16 +280,14 @@ class IndexedDbService {
           fullEventId: cleanEvent.id,
           content: cleanEvent.content?.substring(0, 50) 
         })
-        logger.info('[IndexedDB] Putting new event', { storeName, key, eventId: cleanEvent.id?.substring(0, 8) })
         const putRequest = store.put(this.formatValue(key, cleanEvent))
         putRequest.onsuccess = () => {
-          logger.debug('[IndexedDB] Successfully put event!', { 
+          logger.debug('[IndexedDB] Successfully put event', { 
             storeName, 
             key, 
             eventId: cleanEvent.id?.substring(0, 8),
             content: cleanEvent.content?.substring(0, 50)
           })
-          logger.info('[IndexedDB] Successfully put event', { storeName, key, eventId: cleanEvent.id?.substring(0, 8) })
           transaction.commit()
           resolve(cleanEvent)
         }

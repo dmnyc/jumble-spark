@@ -38,7 +38,7 @@ import logger from '@/lib/logger'
 import postEditorCache from '@/services/post-editor-cache.service'
 import storage from '@/services/local-storage.service'
 import { TPollCreateData } from '@/types'
-import { ImageUp, ListTodo, LoaderCircle, MessageCircle, Settings, Smile, X, Highlighter, FileText, Quote, Upload } from 'lucide-react'
+import { ImageUp, ListTodo, LoaderCircle, MessageCircle, Settings, Smile, X, Highlighter, FileText, Quote, Upload, Mic } from 'lucide-react'
 import { getMediaKindFromFile } from '@/lib/media-kind-detection'
 import { hasPrivateRelays, getPrivateRelayUrls, hasCacheRelays, getCacheRelayUrls } from '@/lib/private-relays'
 import mediaUpload from '@/services/media-upload.service'
@@ -249,11 +249,380 @@ export default function PostContent({
   }, [pubkey])
 
   // Load cache-only preference from localStorage
+  // Default depends on whether cache relays exist
   useEffect(() => {
-    const stored = window.localStorage.getItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES)
-    // Default to true (ON) if not set
-    setUseCacheOnlyForPrivateNotes(stored === null ? true : stored === 'true')
-  }, [])
+    const updateCachePreference = async () => {
+      if (!pubkey) {
+        setUseCacheOnlyForPrivateNotes(false)
+        return
+      }
+      
+      const hasCache = await hasCacheRelays(pubkey).catch(() => false)
+      
+      if (hasCache) {
+        // If cache exists, load from localStorage or default to true (ON)
+        const stored = window.localStorage.getItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES)
+        setUseCacheOnlyForPrivateNotes(stored === null ? true : stored === 'true')
+      } else {
+        // If no cache, default to false (OFF) - use only outboxes
+        setUseCacheOnlyForPrivateNotes(false)
+      }
+    }
+    
+    updateCachePreference()
+  }, [pubkey])
+
+  // Helper function to determine the kind that will be created
+  const getDeterminedKind = useMemo((): number => {
+    // For voice comments in replies, check mediaNoteKind even if mediaUrl is not set yet (for preview)
+    // Debug logging
+    console.log('🔍 getDeterminedKind: checking', { 
+      parentEvent: !!parentEvent, 
+      mediaNoteKind, 
+      VOICE_COMMENT: ExtendedKind.VOICE_COMMENT,
+      match: parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT
+    })
+    if (parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT) {
+      console.log('✅ getDeterminedKind: returning VOICE_COMMENT')
+      return ExtendedKind.VOICE_COMMENT
+    } else if (mediaNoteKind !== null && mediaUrl) {
+      return mediaNoteKind
+    } else if (isLongFormArticle) {
+      return kinds.LongFormArticle
+    } else if (isWikiArticle) {
+      return ExtendedKind.WIKI_ARTICLE
+    } else if (isWikiArticleMarkdown) {
+      return ExtendedKind.WIKI_ARTICLE_MARKDOWN
+    } else if (isPublicationContent) {
+      return ExtendedKind.PUBLICATION_CONTENT
+    } else if (isCitationInternal) {
+      return ExtendedKind.CITATION_INTERNAL
+    } else if (isCitationExternal) {
+      return ExtendedKind.CITATION_EXTERNAL
+    } else if (isCitationHardcopy) {
+      return ExtendedKind.CITATION_HARDCOPY
+    } else if (isCitationPrompt) {
+      return ExtendedKind.CITATION_PROMPT
+    } else if (isHighlight) {
+      return kinds.Highlights
+    } else if (isPublicMessage) {
+      return ExtendedKind.PUBLIC_MESSAGE
+    } else if (isPoll) {
+      return ExtendedKind.POLL
+    } else if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
+      return ExtendedKind.PUBLIC_MESSAGE
+    } else if (parentEvent && parentEvent.kind !== kinds.ShortTextNote) {
+      console.log('⚠️ getDeterminedKind: falling through to COMMENT', {
+        parentEvent: !!parentEvent,
+        parentEventKind: parentEvent?.kind,
+        mediaNoteKind,
+        mediaUrl
+      })
+      return ExtendedKind.COMMENT
+    } else {
+      return kinds.ShortTextNote
+    }
+  }, [
+    mediaNoteKind,
+    mediaUrl,
+    isLongFormArticle,
+    isWikiArticle,
+    isWikiArticleMarkdown,
+    isPublicationContent,
+    isCitationInternal,
+    isCitationExternal,
+    isCitationHardcopy,
+    isCitationPrompt,
+    isHighlight,
+    isPublicMessage,
+    isPoll,
+    parentEvent
+  ])
+
+  // Function to generate draft event JSON for preview
+  const getDraftEventJson = useCallback(async (): Promise<string> => {
+    if (!pubkey) {
+      return JSON.stringify({ error: 'Not logged in' }, null, 2)
+    }
+
+    try {
+      // Clean tracking parameters from URLs in the post content
+      const cleanedText = text.replace(
+        /(https?:\/\/[^\s]+)/g,
+        (url) => {
+          try {
+            return cleanUrl(url)
+          } catch {
+            return url
+          }
+        }
+      )
+      
+      // Get expiration and quiet settings
+      // Only add expiration tags to chatting kinds: 1, 1111, 1222, 1244
+      const isChattingKind = (kind: number) => 
+        kind === kinds.ShortTextNote || 
+        kind === ExtendedKind.COMMENT || 
+        kind === ExtendedKind.VOICE || 
+        kind === ExtendedKind.VOICE_COMMENT
+      
+      const addExpirationTag = storage.getDefaultExpirationEnabled()
+      const expirationMonths = storage.getDefaultExpirationMonths()
+      const addQuietTag = storage.getDefaultQuietEnabled()
+      const quietDays = storage.getDefaultQuietDays()
+      
+      // Determine if we should use protected event tag
+      // Only use it when replying to an OP event that also has the "-" tag
+      let shouldUseProtectedEvent = false
+      if (parentEvent) {
+        // Check if parent event is an OP (not a reply itself) and has the "-" tag
+        const isParentOP = !isReplyNoteEvent(parentEvent)
+        const parentHasProtectedTag = isEventProtected(parentEvent)
+        shouldUseProtectedEvent = isParentOP && parentHasProtectedTag
+      }
+
+      let draftEvent: any = null
+
+      // Check for voice comments first - even if mediaUrl is not set yet (for preview purposes)
+      console.log('🔍 getDraftEventJson: checking voice comment', { 
+        parentEvent: !!parentEvent, 
+        mediaNoteKind, 
+        VOICE_COMMENT: ExtendedKind.VOICE_COMMENT,
+        match: parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT,
+        typeof_mediaNoteKind: typeof mediaNoteKind
+      })
+      if (parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT) {
+        // Voice comment - use placeholder URL if mediaUrl not set yet
+        console.log('✅ getDraftEventJson: creating voice comment draft event')
+        const url = mediaUrl || 'placeholder://audio'
+        const tags = mediaImetaTags.length > 0 ? mediaImetaTags : [['imeta', `url ${url}`, 'm audio/mpeg']]
+        draftEvent = await createVoiceCommentDraftEvent(
+          cleanedText,
+          parentEvent,
+          url,
+          tags,
+          mentions,
+          {
+            addClientTag,
+            protectedEvent: shouldUseProtectedEvent,
+            isNsfw,
+            addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.VOICE_COMMENT),
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          }
+        )
+      } else if (mediaNoteKind !== null && mediaUrl) {
+          // Media notes
+          if (mediaNoteKind === ExtendedKind.VOICE) {
+            // Voice note
+            draftEvent = await createVoiceDraftEvent(
+              cleanedText,
+              mediaUrl,
+              mediaImetaTags,
+              mentions,
+              {
+                addClientTag,
+                isNsfw,
+                addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.VOICE),
+                expirationMonths,
+                addQuietTag,
+                quietDays
+              }
+            )
+          } else if (mediaNoteKind === ExtendedKind.PICTURE) {
+            // Picture note
+            draftEvent = await createPictureDraftEvent(
+              cleanedText,
+              mediaImetaTags,
+              mentions,
+              {
+                addClientTag,
+                isNsfw,
+                addExpirationTag: false, // Picture notes are not chatting kinds
+                expirationMonths,
+                addQuietTag,
+                quietDays
+              }
+            )
+          } else if (mediaNoteKind === ExtendedKind.VIDEO || mediaNoteKind === ExtendedKind.SHORT_VIDEO) {
+            // Video note
+            draftEvent = await createVideoDraftEvent(
+              cleanedText,
+              mediaImetaTags,
+              mentions,
+              mediaNoteKind,
+              {
+                addClientTag,
+                isNsfw,
+                addExpirationTag: false, // Video notes are not chatting kinds
+                expirationMonths,
+                addQuietTag,
+                quietDays
+              }
+            )
+          }
+        } else if (isLongFormArticle) {
+          draftEvent = await createLongFormArticleDraftEvent(cleanedText, mentions, {
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Articles are not chatting kinds
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (isWikiArticle) {
+          draftEvent = await createWikiArticleDraftEvent(cleanedText, mentions, {
+            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Wiki articles are not chatting kinds
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (isWikiArticleMarkdown) {
+          draftEvent = await createWikiArticleMarkdownDraftEvent(cleanedText, mentions, {
+            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Wiki articles are not chatting kinds
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (isPublicationContent) {
+          draftEvent = await createPublicationContentDraftEvent(cleanedText, mentions, {
+            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Publication content is not a chatting kind
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (isCitationInternal) {
+          // For now, use a simple format - in a real implementation, this would have a form
+          draftEvent = createCitationInternalDraftEvent(cleanedText, {
+            cTag: '', // Would need to be filled from a form
+            title: cleanedText.substring(0, 100)
+          })
+        } else if (isCitationExternal) {
+          draftEvent = createCitationExternalDraftEvent(cleanedText, {
+            url: '', // Would need to be filled from a form
+            accessedOn: new Date().toISOString(),
+            title: cleanedText.substring(0, 100)
+          })
+        } else if (isCitationHardcopy) {
+          draftEvent = createCitationHardcopyDraftEvent(cleanedText, {
+            accessedOn: new Date().toISOString(),
+            title: cleanedText.substring(0, 100)
+          })
+        } else if (isCitationPrompt) {
+          draftEvent = createCitationPromptDraftEvent(cleanedText, {
+            llm: '', // Would need to be filled from a form
+            accessedOn: new Date().toISOString()
+          })
+        } else if (isHighlight) {
+          // For highlights, pass the original sourceValue which contains the full identifier
+          // The createHighlightDraftEvent function will parse it correctly
+        draftEvent = await createHighlightDraftEvent(
+          cleanedText,
+          highlightData.sourceType,
+          highlightData.sourceValue,
+          highlightData.context,
+          undefined, // description parameter (not used)
+          {
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Highlights are not chatting kinds
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          }
+        )
+        } else if (isPublicMessage) {
+          draftEvent = await createPublicMessageDraftEvent(cleanedText, extractedMentions, {
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Public messages are not chatting kinds
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
+          draftEvent = await createPublicMessageReplyDraftEvent(cleanedText, parentEvent, mentions, {
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Public messages are not chatting kinds
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (parentEvent && parentEvent.kind !== kinds.ShortTextNote) {
+          draftEvent = await createCommentDraftEvent(cleanedText, parentEvent, mentions, {
+            addClientTag,
+            protectedEvent: shouldUseProtectedEvent,
+            isNsfw,
+            addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.COMMENT),
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (isPoll) {
+          draftEvent = await createPollDraftEvent(pubkey!, cleanedText, mentions, pollCreateData, {
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Polls are not chatting kinds
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else {
+          // For regular kind 1 note OPs (no parentEvent), never use protectedEvent
+          // protectedEvent should only be used when replying to an OP that has it
+          draftEvent = await createShortTextNoteDraftEvent(cleanedText, mentions, {
+            parentEvent,
+            addClientTag,
+            protectedEvent: shouldUseProtectedEvent,
+            isNsfw,
+            addExpirationTag: addExpirationTag && isChattingKind(kinds.ShortTextNote),
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        }
+
+        // Return formatted JSON
+        return JSON.stringify(draftEvent, null, 2)
+      } catch (error) {
+        return JSON.stringify({ error: error instanceof Error ? error.message : String(error) }, null, 2)
+      }
+    }, [
+      text,
+      pubkey,
+      parentEvent,
+      mediaNoteKind,
+      mediaUrl,
+      mediaImetaTags,
+      mentions,
+      isLongFormArticle,
+      isWikiArticle,
+      isWikiArticleMarkdown,
+      isPublicationContent,
+      isCitationInternal,
+      isCitationExternal,
+      isCitationHardcopy,
+      isCitationPrompt,
+      isHighlight,
+      highlightData,
+      isPublicMessage,
+      extractedMentions,
+      isPoll,
+      pollCreateData,
+      addClientTag,
+      isNsfw
+    ])
 
   const post = async (e?: React.MouseEvent) => {
     e?.stopPropagation()
@@ -665,10 +1034,73 @@ export default function PostContent({
   }
 
   const handleUploadStart = (file: File, cancel: () => void) => {
+    console.log('🔍 handleUploadStart called', { 
+      fileName: file.name, 
+      fileType: file.type, 
+      parentEvent: !!parentEvent 
+    })
     setUploadProgresses((prev) => [...prev, { file, progress: 0, cancel }])
     // Track file for media upload
     if (file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/')) {
       uploadedMediaFileMap.current.set(file.name, file)
+      
+      // For replies, if it's an audio file, set mediaNoteKind immediately for preview
+      if (parentEvent) {
+        const fileType = file.type
+        const fileName = file.name.toLowerCase()
+        // Mobile browsers may report m4a files as audio/m4a, audio/mp4, audio/x-m4a, or even video/mp4
+        const isAudioMime = fileType.startsWith('audio/') || fileType === 'audio/mp4' || fileType === 'audio/x-m4a' || fileType === 'audio/m4a' || fileType === 'audio/webm' || fileType === 'audio/mpeg'
+        const isAudioExt = /\.(mp3|m4a|ogg|wav|opus|aac|flac|mpeg|mp4)$/i.test(fileName)
+        // For replies, webm/ogg/mp3/m4a files should be treated as audio since the microphone button only accepts audio/*
+        // Even if the MIME type is incorrect, if it came through the audio uploader, it's audio
+        const isWebmFile = /\.webm$/i.test(fileName)
+        const isOggFile = /\.ogg$/i.test(fileName)
+        const isMp3File = /\.mp3$/i.test(fileName)
+        // m4a files are always audio, even if MIME type is video/mp4 (mobile browsers sometimes report this)
+        const isM4aFile = /\.m4a$/i.test(fileName)
+        const isMp4Audio = /\.mp4$/i.test(fileName) && isAudioMime
+        
+        // For replies, treat webm/ogg/mp3/m4a as audio (since accept="audio/*" should filter out video files)
+        // m4a files are always audio, even if MIME type is wrong
+        const isAudio = isAudioMime || isAudioExt || isM4aFile || isMp4Audio || isWebmFile || isOggFile || isMp3File
+        
+        console.log('🔍 handleUploadStart: audio detection', {
+          fileType,
+          fileName,
+          isAudioMime,
+          isAudioExt,
+          isMp4Audio,
+          isWebmFile,
+          isOggFile,
+          isMp3File,
+          isAudio
+        })
+        
+        if (isAudio) {
+          console.log('✅ handleUploadStart: setting VOICE_COMMENT for reply', { 
+            mediaNoteKind: ExtendedKind.VOICE_COMMENT,
+            fileType,
+            fileName
+          })
+          setMediaNoteKind(ExtendedKind.VOICE_COMMENT)
+          // Note: URL will be inserted when upload completes in handleMediaUploadSuccess
+        } else {
+          console.log('❌ handleUploadStart: file is not audio, not setting VOICE_COMMENT')
+        }
+      } else {
+        // For new posts, detect the kind from the file (async)
+        getMediaKindFromFile(file, false)
+          .then((kind) => {
+            console.log('✅ handleUploadStart: detected kind for new post', { kind, fileName: file.name })
+            setMediaNoteKind(kind)
+          })
+          .catch((error) => {
+            console.error('❌ Error detecting media kind in handleUploadStart', { error, file: file.name })
+            logger.error('Error detecting media kind in handleUploadStart', { error, file: file.name })
+          })
+      }
+    } else {
+      console.log('❌ handleUploadStart: file is not media type', { fileType: file.type })
     }
   }
 
@@ -684,70 +1116,203 @@ export default function PostContent({
   }
 
   const handleMediaUploadSuccess = async ({ url, tags }: { url: string; tags: string[][] }) => {
-    // Find the file from the map - try to match by URL or get the most recent
-    let uploadingFile: File | undefined
-    // Try to find by matching URL pattern or get the first available
-    for (const [, file] of uploadedMediaFileMap.current.entries()) {
-      uploadingFile = file
-      break // Get first available
-    }
-    
-    if (!uploadingFile) {
-      // Try to get from uploadProgresses as fallback
-      const progressItem = uploadProgresses.find(p => p.file)
-      uploadingFile = progressItem?.file
-    }
-    
-    if (!uploadingFile) {
-      logger.warn('Media upload succeeded but file not found')
-      return
-    }
-
-    // Determine media kind from file
-    // For replies, only audio comments are supported (kind 1244)
-    // For new posts, all media types are supported
-    if (parentEvent) {
-      // For replies, only allow audio comments
-      const fileType = uploadingFile.type
-      const fileName = uploadingFile.name.toLowerCase()
-      const isAudio = fileType.startsWith('audio/') || /\.(mp3|m4a|ogg|wav|webm|opus|aac|flac)$/i.test(fileName)
+    try {
+      // Find the file from the map - try to match by URL or get the most recent
+      let uploadingFile: File | undefined
+      // Try to find by matching URL pattern or get the first available
+      for (const [, file] of uploadedMediaFileMap.current.entries()) {
+        uploadingFile = file
+        break // Get first available
+      }
       
-      if (isAudio) {
-        // For replies, always create voice comments, regardless of duration
-        setMediaNoteKind(ExtendedKind.VOICE_COMMENT)
+      if (!uploadingFile) {
+        // Try to get from uploadProgresses as fallback
+        const progressItem = uploadProgresses.find(p => p.file)
+        uploadingFile = progressItem?.file
+      }
+      
+      if (!uploadingFile) {
+        logger.warn('Media upload succeeded but file not found')
+        return
+      }
+
+      // Determine media kind from file
+      // For replies, only audio comments are supported (kind 1244)
+      // For new posts, all media types are supported
+      if (parentEvent) {
+        // For replies, only allow audio comments
+        const fileType = uploadingFile.type
+        const fileName = uploadingFile.name.toLowerCase()
+        // Check for audio files - including mp4/m4a/webm/ogg/mp3 which can be audio
+        // mp4/m4a/webm/ogg/mp3 files can be audio if MIME type is audio/*
+        // For replies, webm/ogg/mp3 files should be treated as audio since the microphone button only accepts audio/*
+        // Mobile browsers may report m4a files as audio/m4a, audio/mp4, audio/x-m4a, or even video/mp4
+        const isAudioMime = fileType.startsWith('audio/') || fileType === 'audio/mp4' || fileType === 'audio/x-m4a' || fileType === 'audio/m4a' || fileType === 'audio/webm' || fileType === 'audio/mpeg'
+        const isAudioExt = /\.(mp3|m4a|ogg|wav|opus|aac|flac|mpeg|mp4)$/i.test(fileName)
+        // m4a files are always audio, even if MIME type is video/mp4 (mobile browsers sometimes report this)
+        const isM4aFile = /\.m4a$/i.test(fileName)
+        const isMp4Audio = /\.mp4$/i.test(fileName) && isAudioMime
+        const isWebmFile = /\.webm$/i.test(fileName)
+        const isOggFile = /\.ogg$/i.test(fileName)
+        const isMp3File = /\.mp3$/i.test(fileName)
+        
+        // For replies, treat webm/ogg/mp3/m4a as audio (since accept="audio/*" should filter out video files)
+        // m4a files are always audio, even if MIME type is wrong
+        const isAudio = isAudioMime || isAudioExt || isM4aFile || isMp4Audio || isWebmFile || isOggFile || isMp3File
+        
+        console.log('🔍 handleMediaUploadSuccess: audio detection', {
+          fileType,
+          fileName,
+          isAudioMime,
+          isAudioExt,
+          isMp4Audio,
+          isWebmFile,
+          isOggFile,
+          isMp3File,
+          isAudio
+        })
+        
+        if (isAudio) {
+          // For replies, always create voice comments (kind 1244), regardless of duration
+          console.log('✅ handleMediaUploadSuccess: setting VOICE_COMMENT for reply', { 
+            mediaNoteKind: ExtendedKind.VOICE_COMMENT,
+            url 
+          })
+          setMediaNoteKind(ExtendedKind.VOICE_COMMENT)
+          setMediaUrl(url)
+          // Get imeta tag from media upload service
+          const imetaTag = mediaUpload.getImetaTagByUrl(url)
+          if (imetaTag) {
+            setMediaImetaTags([imetaTag])
+          } else if (tags && tags.length > 0) {
+            setMediaImetaTags(tags)
+          } else {
+            const basicImetaTag: string[] = ['imeta', `url ${url}`]
+            // For webm/ogg/mp3/m4a files uploaded via microphone, ensure MIME type is set to audio/*
+            // even if the browser reports video/webm or video/mp4 (mobile browsers sometimes do this)
+            let mimeType = uploadingFile.type
+            if (parentEvent) {
+              const fileName = uploadingFile.name.toLowerCase()
+              if (/\.m4a$/i.test(fileName)) {
+                // m4a files are always audio, use audio/mp4 or audio/x-m4a
+                mimeType = 'audio/mp4'
+              } else if (/\.webm$/i.test(fileName) && !mimeType.startsWith('audio/')) {
+                mimeType = 'audio/webm'
+              } else if (/\.ogg$/i.test(fileName) && !mimeType.startsWith('audio/')) {
+                mimeType = 'audio/ogg'
+              } else if (/\.mp3$/i.test(fileName) && !mimeType.startsWith('audio/')) {
+                mimeType = 'audio/mpeg'
+              }
+            }
+            if (mimeType) {
+              basicImetaTag.push(`m ${mimeType}`)
+            }
+            setMediaImetaTags([basicImetaTag])
+          }
+          // Insert the URL into the editor content so it shows in the edit pane
+          // Use setTimeout to ensure the state has updated and editor is ready
+          setTimeout(() => {
+            if (textareaRef.current) {
+              // Check if URL is already in the text
+              const currentText = text || ''
+              if (!currentText.includes(url)) {
+                textareaRef.current.appendText(url, true)
+              }
+            }
+          }, 100)
+        } else {
+          // Non-audio media in replies - don't set mediaNoteKind, will be handled as regular comment
+          // Clear any existing media note kind
+          console.log('❌ handleMediaUploadSuccess: file is not audio, clearing mediaNoteKind', {
+            fileType,
+            fileName,
+            isAudio
+          })
+          setMediaNoteKind(null)
+          setMediaUrl('')
+          setMediaImetaTags([])
+          // Just add the media URL to the text content
+          textareaRef.current?.appendText(url, true)
+          return // Don't set media note kind for non-audio in replies
+        }
       } else {
-        // Non-audio media in replies - don't set mediaNoteKind, will be handled as regular comment
-        // Clear any existing media note kind
-        setMediaNoteKind(null)
-        setMediaUrl('')
-        setMediaImetaTags([])
-        // Just add the media URL to the text content
-        textareaRef.current?.appendText(url, true)
-        return // Don't set media note kind for non-audio in replies
+        // For new posts, use the detected kind (which handles audio > 60s → video)
+        try {
+          const kind = await getMediaKindFromFile(uploadingFile, false)
+          setMediaNoteKind(kind)
+          
+          // For picture notes, support multiple images by accumulating imeta tags
+          if (kind === ExtendedKind.PICTURE) {
+            // Get imeta tag from media upload service
+            const imetaTag = mediaUpload.getImetaTagByUrl(url)
+            let newImetaTag: string[]
+            if (imetaTag) {
+              newImetaTag = imetaTag
+            } else if (tags && tags.length > 0 && tags[0]) {
+              newImetaTag = tags[0]
+            } else {
+              // Create a basic imeta tag if none exists
+              newImetaTag = ['imeta', `url ${url}`]
+              if (uploadingFile.type) {
+                newImetaTag.push(`m ${uploadingFile.type}`)
+              }
+            }
+            
+            // Accumulate multiple imeta tags for picture notes
+            setMediaImetaTags(prev => {
+              // Check if this URL already exists in the tags
+              const urlExists = prev.some(tag => {
+                const urlItem = tag.find(item => item.startsWith('url '))
+                return urlItem && urlItem.slice(4) === url
+              })
+              if (urlExists) {
+                return prev // Don't add duplicate
+              }
+              return [...prev, newImetaTag]
+            })
+            
+            // Set the first URL as the primary mediaUrl (for backwards compatibility)
+            if (!mediaUrl) {
+              setMediaUrl(url)
+            }
+          } else {
+            // For non-picture media, replace the existing tags (single media)
+            setMediaUrl(url)
+            const imetaTag = mediaUpload.getImetaTagByUrl(url)
+            if (imetaTag) {
+              setMediaImetaTags([imetaTag])
+            } else if (tags && tags.length > 0) {
+              setMediaImetaTags(tags)
+            } else {
+              const basicImetaTag: string[] = ['imeta', `url ${url}`]
+              if (uploadingFile.type) {
+                basicImetaTag.push(`m ${uploadingFile.type}`)
+              }
+              setMediaImetaTags([basicImetaTag])
+            }
+          }
+        } catch (error) {
+          logger.error('Error detecting media kind', { error, file: uploadingFile.name })
+          // Fallback to picture if detection fails
+          setMediaNoteKind(ExtendedKind.PICTURE)
+          const imetaTag = mediaUpload.getImetaTagByUrl(url)
+          if (imetaTag) {
+            setMediaImetaTags(prev => [...prev, imetaTag])
+          } else {
+            const basicImetaTag: string[] = ['imeta', `url ${url}`]
+            if (uploadingFile.type) {
+              basicImetaTag.push(`m ${uploadingFile.type}`)
+            }
+            setMediaImetaTags(prev => [...prev, basicImetaTag])
+          }
+          if (!mediaUrl) {
+            setMediaUrl(url)
+          }
+        }
       }
-    } else {
-      // For new posts, use the detected kind (which handles audio > 60s → video)
-      const kind = await getMediaKindFromFile(uploadingFile, false)
-      setMediaNoteKind(kind)
-    }
-    setMediaUrl(url)
-    
-    // Get imeta tag from media upload service
-    const imetaTag = mediaUpload.getImetaTagByUrl(url)
-    if (imetaTag) {
-      // imetaTag is already a string[] like ['imeta', 'url https://...', 'm image/jpeg']
-      // We need it as string[][] for the draft event functions
-      setMediaImetaTags([imetaTag])
-    } else if (tags && tags.length > 0) {
-      // Use tags from upload result - they should already be in the right format
-      setMediaImetaTags(tags)
-    } else {
-      // Create a basic imeta tag if none exists
-      const basicImetaTag: string[] = ['imeta', `url ${url}`]
-      if (uploadingFile.type) {
-        basicImetaTag.push(`m ${uploadingFile.type}`)
-      }
-      setMediaImetaTags([basicImetaTag])
+    } catch (error) {
+      logger.error('Error in handleMediaUploadSuccess', { error })
+      // Don't throw - just log the error so the upload doesn't fail completely
     }
     
     // Clear other note types when media is selected
@@ -805,54 +1370,93 @@ export default function PostContent({
     setIsPublicationContent(false)
   }
 
+  const handleClear = () => {
+    // Clear the post editor cache
+    postEditorCache.clearPostCache({ defaultContent, parentEvent })
+    
+    // Clear the editor content
+    textareaRef.current?.clear()
+    
+    // Reset all state
+    setText('')
+    setMediaNoteKind(null)
+    setMediaUrl('')
+    setMediaImetaTags([])
+    setMentions([])
+    setExtractedMentions([])
+    setIsPoll(false)
+    setIsPublicMessage(false)
+    setIsHighlight(false)
+    setIsLongFormArticle(false)
+    setIsWikiArticle(false)
+    setIsWikiArticleMarkdown(false)
+    setIsPublicationContent(false)
+    setIsCitationInternal(false)
+    setIsCitationExternal(false)
+    setIsCitationHardcopy(false)
+    setIsCitationPrompt(false)
+    setPollCreateData({
+      isMultipleChoice: false,
+      options: ['', ''],
+      endsAt: undefined,
+      relays: []
+    })
+    setHighlightData({
+      sourceType: 'nostr',
+      sourceValue: ''
+    })
+    uploadedMediaFileMap.current.clear()
+    setUploadProgresses([])
+  }
+
   return (
     <div className="space-y-2">
       {/* Dynamic Title based on mode */}
       <div className="text-lg font-semibold">
-        {parentEvent ? (
-          <div className="flex gap-2 items-center w-full">
-            <div className="shrink-0">
-              {parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE 
-                ? t('Reply to Public Message')
-                : mediaNoteKind === ExtendedKind.VOICE_COMMENT
-                  ? t('Voice Comment')
-                  : t('Reply to')
-              }
-            </div>
-          </div>
-        ) : mediaNoteKind === ExtendedKind.VOICE ? (
-          t('Voice Note')
-        ) : mediaNoteKind === ExtendedKind.PICTURE ? (
-          t('Picture Note')
-        ) : mediaNoteKind === ExtendedKind.VIDEO ? (
-          t('Video Note')
-        ) : mediaNoteKind === ExtendedKind.SHORT_VIDEO ? (
-          t('Short Video Note')
-        ) : isPoll ? (
-          t('New Poll')
-        ) : isPublicMessage ? (
-          t('New Public Message')
-        ) : isHighlight ? (
-          t('New Highlight')
-        ) : isLongFormArticle ? (
-          t('New Long-form Article')
-        ) : isWikiArticle ? (
-          t('New Wiki Article')
-        ) : isWikiArticleMarkdown ? (
-          t('New Wiki Article (Markdown)')
-        ) : isPublicationContent ? (
-          t('Take a note')
-        ) : isCitationInternal ? (
-          t('New Internal Citation')
-        ) : isCitationExternal ? (
-          t('New External Citation')
-        ) : isCitationHardcopy ? (
-          t('New Hardcopy Citation')
-        ) : isCitationPrompt ? (
-          t('New Prompt Citation')
-        ) : (
-          t('New Note')
-        )}
+        {(() => {
+          const determinedKind = getDeterminedKind
+          if (parentEvent) {
+            if (parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
+              return t('Reply to Public Message')
+            } else if (determinedKind === ExtendedKind.VOICE_COMMENT) {
+              return t('Voice Comment')
+            } else {
+              return t('Reply to')
+            }
+          } else if (determinedKind === ExtendedKind.VOICE) {
+            return t('Voice Note')
+          } else if (determinedKind === ExtendedKind.PICTURE) {
+            return t('Picture Note')
+          } else if (determinedKind === ExtendedKind.VIDEO) {
+            return t('Video Note')
+          } else if (determinedKind === ExtendedKind.SHORT_VIDEO) {
+            return t('Short Video Note')
+          } else if (determinedKind === ExtendedKind.POLL) {
+            return t('New Poll')
+          } else if (determinedKind === ExtendedKind.PUBLIC_MESSAGE) {
+            return t('New Public Message')
+          } else if (determinedKind === kinds.Highlights) {
+            return t('New Highlight')
+          } else if (determinedKind === kinds.LongFormArticle) {
+            return t('New Long-form Article')
+          } else if (determinedKind === ExtendedKind.WIKI_ARTICLE) {
+            return t('New Wiki Article')
+          } else if (determinedKind === ExtendedKind.WIKI_ARTICLE_MARKDOWN) {
+            return t('New Wiki Article (Markdown)')
+          } else if (determinedKind === ExtendedKind.PUBLICATION_CONTENT) {
+            return t('Take a note')
+          } else if (determinedKind === ExtendedKind.CITATION_INTERNAL) {
+            return t('New Internal Citation')
+          } else if (determinedKind === ExtendedKind.CITATION_EXTERNAL) {
+            return t('New External Citation')
+          } else if (determinedKind === ExtendedKind.CITATION_HARDCOPY) {
+            return t('New Hardcopy Citation')
+          } else if (determinedKind === ExtendedKind.CITATION_PROMPT) {
+            return t('New Prompt Citation')
+          } else {
+            return t('New Note')
+          }
+        })()}
       </div>
       
       {parentEvent && (
@@ -873,46 +1477,38 @@ export default function PostContent({
           onUploadStart={handleUploadStart}
           onUploadProgress={handleUploadProgress}
           onUploadEnd={handleUploadEnd}
-          kind={
-            mediaNoteKind !== null
-              ? mediaNoteKind
-              : isHighlight
-                ? kinds.Highlights
-                : isPublicMessage
-                  ? ExtendedKind.PUBLIC_MESSAGE
-                  : isPoll
-                    ? ExtendedKind.POLL
-                    : isLongFormArticle
-                      ? kinds.LongFormArticle
-                      : isWikiArticle
-                        ? ExtendedKind.WIKI_ARTICLE
-                        : isWikiArticleMarkdown
-                          ? ExtendedKind.WIKI_ARTICLE_MARKDOWN
-                          : isPublicationContent
-                            ? ExtendedKind.PUBLICATION_CONTENT
-                            : kinds.ShortTextNote
-          }
+          kind={(() => {
+            const kind = getDeterminedKind
+            console.log('🔍 PostTextarea kind prop:', { kind, mediaNoteKind, parentEvent: !!parentEvent })
+            return kind
+          })()}
           highlightData={isHighlight ? highlightData : undefined}
           pollCreateData={isPoll ? pollCreateData : undefined}
+          getDraftEventJson={getDraftEventJson}
+          mediaImetaTags={mediaImetaTags}
+          mediaUrl={mediaUrl}
           headerActions={
             <>
-              {/* Media button */}
-              <Uploader
-                onUploadSuccess={handleMediaUploadSuccess}
-                onUploadStart={handleUploadStart}
-                onUploadEnd={handleUploadEnd}
-                onProgress={handleUploadProgress}
-                accept="image/*,audio/*,video/*"
-              >
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  title={t('Upload Media')}
-                  className={mediaNoteKind !== null ? 'bg-accent' : ''}
+              {/* Media button - show for new posts only (replies have audio button at bottom) */}
+              {!parentEvent && (
+                <Uploader
+                  onUploadSuccess={handleMediaUploadSuccess}
+                  onUploadStart={handleUploadStart}
+                  onUploadEnd={handleUploadEnd}
+                  onProgress={handleUploadProgress}
+                  accept="image/*,audio/*,video/*"
                 >
-                  <Upload className="h-4 w-4" />
-                </Button>
-              </Uploader>
+                  <Button 
+                    type="button"
+                    variant="ghost" 
+                    size="icon"
+                    title={t('Upload Media')}
+                    className={mediaNoteKind !== null ? 'bg-accent' : ''}
+                  >
+                    <Upload className="h-4 w-4" />
+                  </Button>
+                </Uploader>
+              )}
               {/* Note creation buttons - only show when not replying */}
               {!parentEvent && (
                 <>
@@ -1092,6 +1688,26 @@ export default function PostContent({
       )}
       <div className="flex items-center justify-between">
         <div className="flex gap-2 items-center">
+          {/* Audio button for replies - placed before image button */}
+          {parentEvent && (
+            <Uploader
+              onUploadSuccess={handleMediaUploadSuccess}
+              onUploadStart={handleUploadStart}
+              onUploadEnd={handleUploadEnd}
+              onProgress={handleUploadProgress}
+              accept="audio/*"
+            >
+              <Button 
+                type="button"
+                variant="ghost" 
+                size="icon" 
+                title={t('Upload Audio Comment')}
+                className={mediaNoteKind === ExtendedKind.VOICE_COMMENT ? 'bg-accent' : ''}
+              >
+                <Mic className="h-4 w-4" />
+              </Button>
+            </Uploader>
+          )}
           <Uploader
             onUploadSuccess={({ url }) => {
               textareaRef.current?.appendText(url, true)
@@ -1101,7 +1717,7 @@ export default function PostContent({
             onProgress={handleUploadProgress}
             accept="image/*"
           >
-            <Button variant="ghost" size="icon" title={t('Upload Image')}>
+            <Button type="button" variant="ghost" size="icon" title={t('Upload Image')}>
               <ImageUp />
             </Button>
           </Uploader>
@@ -1138,6 +1754,15 @@ export default function PostContent({
           />
           <div className="flex gap-2 items-center max-sm:hidden">
             <Button
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleClear()
+              }}
+            >
+              {t('Clear')}
+            </Button>
+            <Button
               variant="secondary"
               onClick={(e) => {
                 e.stopPropagation()
@@ -1164,6 +1789,16 @@ export default function PostContent({
         setMinPow={setMinPow}
       />
       <div className="flex gap-2 items-center justify-around sm:hidden">
+        <Button
+          className="w-full"
+          variant="outline"
+          onClick={(e) => {
+            e.stopPropagation()
+            handleClear()
+          }}
+        >
+          {t('Clear')}
+        </Button>
         <Button
           className="w-full"
           variant="secondary"

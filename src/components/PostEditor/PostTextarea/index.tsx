@@ -13,7 +13,7 @@ import Text from '@tiptap/extension-text'
 import { TextSelection } from '@tiptap/pm/state'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Event } from 'nostr-tools'
-import { Dispatch, forwardRef, SetStateAction, useImperativeHandle, useState } from 'react'
+import { Dispatch, forwardRef, SetStateAction, useImperativeHandle, useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ClipboardAndDropHandler } from './ClipboardAndDropHandler'
 import Emoji from './Emoji'
@@ -22,11 +22,13 @@ import Mention from './Mention'
 import mentionSuggestion from './Mention/suggestion'
 import Preview from './Preview'
 import { HighlightData } from '../HighlightEditor'
+import { getKindDescription } from '@/lib/kind-description'
 
 export type TPostTextareaHandle = {
   appendText: (text: string, addNewline?: boolean) => void
   insertText: (text: string) => void
   insertEmoji: (emoji: string | TEmoji) => void
+  clear: () => void
 }
 
 const PostTextarea = forwardRef<
@@ -45,6 +47,9 @@ const PostTextarea = forwardRef<
     highlightData?: HighlightData
     pollCreateData?: import('@/types').TPollCreateData
     headerActions?: React.ReactNode
+    getDraftEventJson?: () => Promise<string>
+    mediaImetaTags?: string[][]
+    mediaUrl?: string
   }
 >(
   (
@@ -61,12 +66,40 @@ const PostTextarea = forwardRef<
       kind = 1,
       highlightData,
       pollCreateData,
-      headerActions
+      headerActions,
+      getDraftEventJson,
+      mediaImetaTags,
+      mediaUrl
     },
     ref
   ) => {
     const { t } = useTranslation()
     const [activeTab, setActiveTab] = useState('edit')
+    const [draftEventJson, setDraftEventJson] = useState<string>('')
+    const [isLoadingJson, setIsLoadingJson] = useState(false)
+    
+    const kindDescription = useMemo(() => {
+      console.log('🔍 kindDescription: recalculating', { kind })
+      return getKindDescription(kind)
+    }, [kind])
+    
+    useEffect(() => {
+      if (activeTab === 'json' && getDraftEventJson) {
+        setIsLoadingJson(true)
+        getDraftEventJson()
+          .then((json) => {
+            setDraftEventJson(json)
+            setIsLoadingJson(false)
+          })
+          .catch((error) => {
+            setDraftEventJson(`Error generating JSON: ${error.message}`)
+            setIsLoadingJson(false)
+          })
+      } else if (activeTab === 'preview') {
+        // Clear JSON when switching away from JSON tab
+        setDraftEventJson('')
+      }
+    }, [activeTab, getDraftEventJson, kind])
     const editor = useEditor({
       extensions: [
         Document,
@@ -160,6 +193,15 @@ const PostTextarea = forwardRef<
             editor.chain().insertContent(emojiNode).insertContent(' ').run()
           }
         }
+      },
+      clear: () => {
+        if (editor) {
+          // Clear the editor content and reset to empty document
+          editor.chain().clearContent().run()
+          // Also clear the cache
+          postEditorCache.setPostContentCache({ defaultContent, parentEvent }, editor.getJSON())
+          setText('')
+        }
       }
     }))
 
@@ -169,13 +211,14 @@ const PostTextarea = forwardRef<
 
     return (
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
-        <div className="flex items-center justify-between">
-          <TabsList>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <TabsList className="w-auto justify-start">
             <TabsTrigger value="edit">{t('Edit')}</TabsTrigger>
             <TabsTrigger value="preview">{t('Preview')}</TabsTrigger>
+            <TabsTrigger value="json">{t('Json')}</TabsTrigger>
           </TabsList>
           {headerActions && (
-            <div className="flex gap-1 items-center">
+            <div className="flex gap-1 items-center flex-wrap">
               {headerActions}
             </div>
           )}
@@ -184,7 +227,23 @@ const PostTextarea = forwardRef<
           <EditorContent className="tiptap" editor={editor} />
         </TabsContent>
         <TabsContent value="preview">
-          <Preview content={text} className={className} kind={kind} highlightData={highlightData} pollCreateData={pollCreateData} />
+          <div className="space-y-2">
+            <div className="text-xs text-muted-foreground">
+              kind {kindDescription.number}: {kindDescription.description}
+            </div>
+            <Preview content={text} className={className} kind={kind} highlightData={highlightData} pollCreateData={pollCreateData} mediaImetaTags={mediaImetaTags} mediaUrl={mediaUrl} />
+          </div>
+        </TabsContent>
+        <TabsContent value="json">
+          <div className="border rounded-lg p-3 bg-muted/40 max-h-96 overflow-auto">
+            {isLoadingJson ? (
+              <div className="text-muted-foreground text-sm">{t('Loading...')}</div>
+            ) : (
+              <pre className="text-xs whitespace-pre-wrap break-words font-mono">
+                {draftEventJson || t('No JSON available')}
+              </pre>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
     )

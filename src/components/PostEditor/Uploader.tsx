@@ -35,15 +35,27 @@ export default function Uploader({
 
     for (const file of event.target.files) {
       try {
+        logger.debug('Starting file upload', { fileName: file.name, fileType: file.type, fileSize: file.size })
         const abortController = abortControllerMap.get(file)
         const result = await mediaUpload.upload(file, {
-          onProgress: (p) => onProgress?.(file, p),
+          onProgress: (p) => {
+            logger.debug('Upload progress', { fileName: file.name, progress: p })
+            onProgress?.(file, p)
+          },
           signal: abortController?.signal
         })
+        logger.debug('File upload successful', { fileName: file.name, url: result.url })
         onUploadSuccess(result)
         onUploadEnd?.(file)
       } catch (error) {
-        logger.error('Error uploading file', { error, file: file.name })
+        logger.error('Error uploading file', { 
+          error, 
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          errorStack: error instanceof Error ? error.stack : undefined
+        })
         const message = (error as Error).message
         if (message !== UPLOAD_ABORTED_ERROR_MSG) {
           toast.error(`Failed to upload file: ${message}`)
@@ -56,7 +68,10 @@ export default function Uploader({
     }
   }
 
-  const handleUploadClick = () => {
+  const handleUploadClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.nativeEvent.stopImmediatePropagation()
     if (fileInputRef.current) {
       fileInputRef.current.value = '' // clear the value so that the same file can be uploaded again
       fileInputRef.current.click()
@@ -64,8 +79,14 @@ export default function Uploader({
   }
 
   return (
-    <div className={className}>
-      <div onClick={handleUploadClick}>{children}</div>
+    <div className={className} onClick={(e) => e.stopPropagation()}>
+      <div onClick={handleUploadClick} role="button" tabIndex={0} onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          e.stopPropagation()
+          handleUploadClick(e as any)
+        }
+      }}>{children}</div>
       <input
         type="file"
         ref={fileInputRef}

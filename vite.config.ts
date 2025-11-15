@@ -63,6 +63,25 @@ export default defineConfig({
         ],
         runtimeCaching: [
           {
+            // Exclude upload endpoints from service worker handling - use NetworkOnly to bypass cache
+            // Match various upload URL patterns - comprehensive regex to catch all upload services
+            // This ensures uploads (POST) and discovery endpoints (GET) bypass the service worker
+            // Note: XMLHttpRequest should bypass service workers, but we add this as a safety measure
+            urlPattern: ({ url, request }) => {
+              const urlString = url.toString()
+              const method = request.method?.toUpperCase() || 'GET'
+              
+              // Always bypass service worker for POST requests (uploads)
+              if (method === 'POST') {
+                return /(?:api\/v2\/nip96\/upload|\.well-known\/nostr\/nip96\.json|nostr\.build|nostrcheck\.me|void\.cat|\/upload|\/nip96\/)/i.test(urlString)
+              }
+              
+              // Also bypass for GET requests to upload-related endpoints
+              return /(?:\.well-known\/nostr\/nip96\.json|api\/v2\/nip96\/upload)/i.test(urlString)
+            },
+            handler: 'NetworkOnly'
+          },
+          {
             urlPattern: /^https:\/\/image\.nostr\.build\/.*/i,
             handler: 'CacheFirst',
             options: {

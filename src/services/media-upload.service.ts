@@ -146,14 +146,46 @@ class MediaUploadService {
 
     const auth = await client.signHttpAuth(uploadUrl, 'POST', 'Uploading media file')
 
+    // Check if service worker might be interfering
+    const hasServiceWorker = 'serviceWorker' in navigator && navigator.serviceWorker.controller
+    if (hasServiceWorker) {
+      console.warn('⚠️ Service worker is active - this may interfere with uploads on mobile', { uploadUrl })
+    }
+
     // Use XMLHttpRequest for upload progress support
+    // Note: XMLHttpRequest should bypass service workers, but on mobile this isn't always reliable
     const result = await new Promise<{ url: string; tags: string[][] }>((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       xhr.open('POST', uploadUrl as string)
       xhr.responseType = 'json'
       xhr.setRequestHeader('Authorization', auth)
-
+      
+      // Log upload start for debugging
+      console.log('📤 Starting upload', { 
+        uploadUrl, 
+        fileSize: file.size, 
+        fileType: file.type,
+        fileName: file.name,
+        hasServiceWorker,
+        userAgent: navigator.userAgent
+      })
+      
+      // Set a timeout (60 seconds for uploads)
+      xhr.timeout = 60000
+      
+      // Track if we've already handled the response to avoid double handling
+      let isHandled = false
+      
+      const handleError = (error: Error | string) => {
+        if (isHandled) return
+        isHandled = true
+        const errorMessage = error instanceof Error ? error.message : error
+        reject(new Error(errorMessage))
+      }
+      
       const handleAbort = () => {
+        if (isHandled) return
+        isHandled = true
         try {
           xhr.abort()
         } catch {
@@ -161,39 +193,98 @@ class MediaUploadService {
         }
         reject(new Error(UPLOAD_ABORTED_ERROR_MSG))
       }
+      
       if (options?.signal) {
         if (options.signal.aborted) {
           return handleAbort()
         }
         options.signal.addEventListener('abort', handleAbort, { once: true })
       }
-
+      
+      // Handle timeout
+      xhr.ontimeout = () => {
+        console.error('⏱️ Upload timeout', { uploadUrl, fileSize: file.size })
+        handleError('Upload timeout - the connection took too long. Please check your network connection and try again.')
+      }
+      
+      // Handle abort
+      xhr.onabort = () => {
+        if (!isHandled) {
+          isHandled = true
+          reject(new Error(UPLOAD_ABORTED_ERROR_MSG))
+        }
+      }
+      
+      // Handle network errors
+      xhr.onerror = () => {
+        // Try to get more details about the error
+        // Status 0 can mean: CORS failure, network error, service worker blocking, or connection refused
+        let errorMessage = 'Network error'
+        if (xhr.status === 0) {
+          // On mobile, status 0 often means CORS or service worker issue, not necessarily connection failure
+          errorMessage = 'Upload failed - this may be due to a service worker or CORS issue. Please try refreshing the page or clearing your browser cache.'
+        } else if (xhr.status >= 400) {
+          errorMessage = `Upload failed with status ${xhr.status}: ${xhr.statusText || 'Unknown error'}`
+        }
+        console.error('❌ Upload network error', { 
+          uploadUrl, 
+          status: xhr.status, 
+          statusText: xhr.statusText,
+          readyState: xhr.readyState,
+          fileSize: file.size,
+          errorMessage 
+        })
+        handleError(errorMessage)
+      }
+      
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
           const percent = Math.round((event.loaded / event.total) * 100)
+          console.log('📊 Upload progress', { percent, loaded: event.loaded, total: event.total })
           options?.onProgress?.(percent)
         }
       }
-      xhr.onerror = () => reject(new Error('Network error'))
+      
       xhr.onload = () => {
+        if (isHandled) return
+        
         if (xhr.status >= 200 && xhr.status < 300) {
-          const data = xhr.response
           try {
-            const tags = z.array(z.array(z.string())).parse(data?.nip94_event?.tags ?? [])
+            const data = xhr.response
+            // Handle case where response might be a string that needs parsing
+            let parsedData = data
+            if (typeof data === 'string') {
+              try {
+                parsedData = JSON.parse(data)
+              } catch {
+                handleError('Invalid response format from upload server')
+                return
+              }
+            }
+            
+            const tags = z.array(z.array(z.string())).parse(parsedData?.nip94_event?.tags ?? [])
             const url = tags.find(([tagName]: string[]) => tagName === 'url')?.[1]
             if (url) {
+              console.log('✅ Upload successful', { url, uploadUrl })
+              isHandled = true
               resolve({ url, tags })
             } else {
-              reject(new Error('No url found'))
+              console.error('❌ No URL in upload response', { parsedData, tags })
+              handleError('No url found in upload response')
             }
           } catch (e) {
-            reject(e as Error)
+            handleError(e instanceof Error ? e : new Error('Failed to parse upload response'))
           }
         } else {
-          reject(new Error(xhr.status.toString() + ' ' + xhr.statusText))
+          handleError(`Upload failed with status ${xhr.status}: ${xhr.statusText || 'Unknown error'}`)
         }
       }
-      xhr.send(formData)
+      
+      try {
+        xhr.send(formData)
+      } catch (error) {
+        handleError(error instanceof Error ? error : new Error('Failed to send upload request'))
+      }
     })
 
     return result

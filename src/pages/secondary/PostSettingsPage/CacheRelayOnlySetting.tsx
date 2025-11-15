@@ -9,21 +9,36 @@ import { useTranslation } from 'react-i18next'
 export default function CacheRelayOnlySetting() {
   const { t } = useTranslation()
   const { pubkey } = useNostr()
-  const [enabled, setEnabled] = useState(true) // Default ON
+  const [enabled, setEnabled] = useState(true) // Default ON when cache exists
   const [hasCacheRelaysAvailable, setHasCacheRelaysAvailable] = useState(false)
 
   useEffect(() => {
-    // Load from localStorage
-    const stored = window.localStorage.getItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES)
-    setEnabled(stored === null ? true : stored === 'true') // Default to true if not set
-
-    // Check if user has cache relays
+    // Check if user has cache relays first
     if (pubkey) {
       hasCacheRelays(pubkey)
-        .then(setHasCacheRelaysAvailable)
-        .catch(() => setHasCacheRelaysAvailable(false))
+        .then((hasCache) => {
+          setHasCacheRelaysAvailable(hasCache)
+          
+          if (hasCache) {
+            // If cache exists, load from localStorage or default to true (ON)
+            const stored = window.localStorage.getItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES)
+            setEnabled(stored === null ? true : stored === 'true')
+          } else {
+            // If no cache, set to false (OFF) and save it
+            setEnabled(false)
+            window.localStorage.setItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES, 'false')
+          }
+        })
+        .catch(() => {
+          setHasCacheRelaysAvailable(false)
+          // If check fails, assume no cache and set to false
+          setEnabled(false)
+          window.localStorage.setItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES, 'false')
+        })
     } else {
       setHasCacheRelaysAvailable(false)
+      setEnabled(false)
+      window.localStorage.setItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES, 'false')
     }
   }, [pubkey])
 

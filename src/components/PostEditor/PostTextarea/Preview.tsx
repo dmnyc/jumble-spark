@@ -19,13 +19,17 @@ export default function Preview({
   className,
   kind = 1,
   highlightData,
-  pollCreateData
+  pollCreateData,
+  mediaImetaTags,
+  mediaUrl
 }: { 
   content: string
   className?: string
   kind?: number
   highlightData?: HighlightData
   pollCreateData?: TPollCreateData
+  mediaImetaTags?: string[][]
+  mediaUrl?: string
 }) {
   const { content: processedContent, emojiTags, highlightTags, pollTags } = useMemo(
     () => {
@@ -103,18 +107,29 @@ export default function Preview({
     [content, kind, highlightData, pollCreateData]
   )
   
-  // Combine emoji tags, highlight tags, and poll tags
+  // Combine emoji tags, highlight tags, poll tags, and media imeta tags
   const allTags = useMemo(() => {
-    return [...emojiTags, ...highlightTags, ...pollTags]
-  }, [emojiTags, highlightTags, pollTags])
+    const tags = [...emojiTags, ...highlightTags, ...pollTags]
+    // Add imeta tags for media (voice comments, etc.)
+    if (mediaImetaTags && mediaImetaTags.length > 0) {
+      tags.push(...mediaImetaTags)
+    }
+    return tags
+  }, [emojiTags, highlightTags, pollTags, mediaImetaTags])
   
   const fakeEvent = useMemo(() => {
+    // For voice comments, include the media URL in content if not already there
+    let eventContent = processedContent
+    if ((kind === ExtendedKind.VOICE_COMMENT || kind === ExtendedKind.VOICE) && mediaUrl && !processedContent.includes(mediaUrl)) {
+      eventContent = mediaUrl + (processedContent ? '\n\n' + processedContent : '')
+    }
+    
     return createFakeEvent({ 
-      content: processedContent, 
+      content: eventContent, 
       tags: allTags,
       kind 
     })
-  }, [processedContent, allTags, kind])
+  }, [processedContent, allTags, kind, mediaUrl])
   
   // For polls, use ContentPreview to show poll properly
   if (kind === ExtendedKind.POLL) {

@@ -29,8 +29,9 @@ import DiscoveredRelays from '../MailboxSetting/DiscoveredRelays'
 import { createCacheRelaysDraftEvent } from '@/lib/draft-event'
 import { getRelayListFromEvent } from '@/lib/event-metadata'
 import { showPublishingFeedback, showSimplePublishSuccess, showPublishingError } from '@/lib/publishing-feedback'
-import { CloudUpload, Loader, Trash2, RefreshCw, Database, WrapText, Search, X, TriangleAlert } from 'lucide-react'
+import { CloudUpload, Loader, Trash2, RefreshCw, Database, WrapText, Search, X, TriangleAlert, Terminal, XCircle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import indexedDb from '@/services/indexed-db.service'
 import postEditorCache from '@/services/post-editor-cache.service'
 import { StorageKey } from '@/constants'
@@ -56,6 +57,11 @@ export default function CacheRelaysSetting() {
   const [loadingItems, setLoadingItems] = useState(false)
   const [wordWrapEnabled, setWordWrapEnabled] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [consoleLogs, setConsoleLogs] = useState<Array<{ type: string; message: string; timestamp: number }>>([])
+  const [showConsoleLogs, setShowConsoleLogs] = useState(false)
+  const [consoleLogSearch, setConsoleLogSearch] = useState('')
+  const [consoleLogLevel, setConsoleLogLevel] = useState<'error' | 'warn' | 'info' | 'log' | 'all'>('error')
+  const consoleLogRef = useRef<Array<{ type: string; message: string; timestamp: number }>>([])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -214,14 +220,43 @@ export default function CacheRelaysSetting() {
         }
       })
 
-      // Clear service worker caches
+      // Clear only this app's service worker caches
       if ('caches' in window) {
-        const cacheNames = await caches.keys()
-        await Promise.all(
-          cacheNames
-            .filter(name => name.includes('nostr') || name.includes('satellite') || name.includes('external'))
-            .map(name => caches.delete(name))
-        )
+        try {
+          const cacheNames = await caches.keys()
+          const currentOrigin = window.location.origin
+          
+          // App-specific cache names (from vite.config.ts)
+          const appCacheNames = [
+            'nostr-images',
+            'satellite-images',
+            'external-images'
+          ]
+          
+          // Workbox precache caches (typically start with 'workbox-' or 'precache-')
+          // and any cache that might be from this app
+          const appCaches = cacheNames.filter(name => {
+            // Check if it's one of our named caches
+            if (appCacheNames.includes(name)) {
+              return true
+            }
+            // Check if it's a workbox precache cache
+            if (name.startsWith('workbox-') || name.startsWith('precache-')) {
+              return true
+            }
+            // Check if it's a workbox runtime cache (might have our origin in the name)
+            if (name.includes(currentOrigin.replace(/https?:\/\//, '').split('/')[0])) {
+              return true
+            }
+            return false
+          })
+          
+          await Promise.all(appCaches.map(name => caches.delete(name).catch(error => {
+            logger.warn(`Failed to delete cache: ${name}`, { error })
+          })))
+        } catch (error) {
+          logger.warn('Failed to clear some service worker caches', { error })
+        }
       }
 
       // Clear post editor cache
@@ -259,6 +294,212 @@ export default function CacheRelaysSetting() {
     setSearchQuery('')
     loadCacheInfo()
   }
+
+  const handleClearServiceWorker = async () => {
+    if (!confirm(t('Are you sure you want to unregister the service worker? This will clear this app\'s service worker caches and you will need to reload the page.'))) {
+      return
+    }
+
+    try {
+      const currentOrigin = window.location.origin
+      let unregisteredCount = 0
+      let cacheClearedCount = 0
+
+      // Check for service worker support
+      if ('serviceWorker' in navigator) {
+        // Get all service worker registrations
+        let registrations: readonly ServiceWorkerRegistration[] = []
+        try {
+          registrations = await navigator.serviceWorker.getRegistrations()
+        } catch (error) {
+          logger.warn('Failed to get service worker registrations', { error })
+        }
+
+        // Only unregister service workers for this origin/app
+        if (registrations.length > 0) {
+          const unregisterPromises = registrations.map(async (registration) => {
+            try {
+              // Check if this service worker is for this origin
+              const scope = registration.scope
+              if (scope.startsWith(currentOrigin)) {
+                const result = await registration.unregister()
+                if (result) {
+                  unregisteredCount++
+                }
+                return result
+              }
+              return false
+            } catch (error) {
+              logger.warn('Failed to unregister a service worker', { error })
+              return false
+            }
+          })
+          await Promise.all(unregisterPromises)
+        }
+      }
+      
+      // Clear only this app's caches
+      if ('caches' in window) {
+        try {
+          const cacheNames = await caches.keys()
+          
+          // App-specific cache names (from vite.config.ts)
+          const appCacheNames = [
+            'nostr-images',
+            'satellite-images',
+            'external-images'
+          ]
+          
+          // Workbox precache caches (typically start with 'workbox-' or 'precache-')
+          // and any cache that might be from this app
+          const appCaches = cacheNames.filter(name => {
+            // Check if it's one of our named caches
+            if (appCacheNames.includes(name)) {
+              return true
+            }
+            // Check if it's a workbox precache cache
+            if (name.startsWith('workbox-') || name.startsWith('precache-')) {
+              return true
+            }
+            // Check if it's a workbox runtime cache (might have our origin in the name)
+            if (name.includes(currentOrigin.replace(/https?:\/\//, '').split('/')[0])) {
+              return true
+            }
+            return false
+          })
+          
+          await Promise.all(appCaches.map(name => {
+            cacheClearedCount++
+            return caches.delete(name).catch(error => {
+              logger.warn(`Failed to delete cache: ${name}`, { error })
+              cacheClearedCount--
+            })
+          }))
+        } catch (error) {
+          logger.warn('Failed to clear some caches', { error })
+        }
+      }
+      
+      if (unregisteredCount > 0 || cacheClearedCount > 0) {
+        const message = unregisteredCount > 0 && cacheClearedCount > 0
+          ? t('Service worker unregistered and caches cleared. Please reload the page.')
+          : unregisteredCount > 0
+          ? t('Service worker unregistered. Please reload the page.')
+          : t('Service worker caches cleared. Please reload the page.')
+        toast.success(message)
+        
+        // Reload after a short delay
+        setTimeout(() => {
+          window.location.reload()
+        }, 1000)
+      } else {
+        toast.info(t('No service workers or caches found for this app'))
+      }
+    } catch (error) {
+      logger.error('Failed to unregister service worker', { error })
+      toast.error(t('Failed to unregister service worker: ') + (error instanceof Error ? error.message : String(error)))
+    }
+  }
+
+  // Capture console logs - start capturing immediately when component mounts
+  useEffect(() => {
+    const originalLog = console.log
+    const originalError = console.error
+    const originalWarn = console.warn
+    const originalInfo = console.info
+
+    const captureLog = (type: string, ...args: any[]) => {
+      const message = args.map(arg => {
+        if (typeof arg === 'object') {
+          try {
+            return JSON.stringify(arg, null, 2)
+          } catch {
+            return String(arg)
+          }
+        }
+        return String(arg)
+      }).join(' ')
+      
+      const logEntry = {
+        type,
+        message,
+        timestamp: Date.now()
+      }
+      
+      consoleLogRef.current.push(logEntry)
+      // Keep only last 1000 logs
+      if (consoleLogRef.current.length > 1000) {
+        consoleLogRef.current = consoleLogRef.current.slice(-1000)
+      }
+      
+      // Update state if dialog is open
+      if (showConsoleLogs) {
+        setConsoleLogs([...consoleLogRef.current])
+      }
+    }
+
+    console.log = (...args: any[]) => {
+      captureLog('log', ...args)
+      originalLog.apply(console, args)
+    }
+    
+    console.error = (...args: any[]) => {
+      captureLog('error', ...args)
+      originalError.apply(console, args)
+    }
+    
+    console.warn = (...args: any[]) => {
+      captureLog('warn', ...args)
+      originalWarn.apply(console, args)
+    }
+    
+    console.info = (...args: any[]) => {
+      captureLog('info', ...args)
+      originalInfo.apply(console, args)
+    }
+
+    return () => {
+      console.log = originalLog
+      console.error = originalError
+      console.warn = originalWarn
+      console.info = originalInfo
+    }
+  }, [showConsoleLogs])
+
+  const handleShowConsoleLogs = () => {
+    setConsoleLogs([...consoleLogRef.current])
+    setShowConsoleLogs(true)
+    // Reset filters when opening
+    setConsoleLogSearch('')
+    setConsoleLogLevel('error')
+  }
+
+  const handleClearConsoleLogs = () => {
+    consoleLogRef.current = []
+    setConsoleLogs([])
+    toast.success(t('Console logs cleared'))
+  }
+
+  // Filter console logs based on search query and log level
+  const filteredConsoleLogs = useMemo(() => {
+    let filtered = [...consoleLogs]
+    
+    // Filter by log level
+    if (consoleLogLevel !== 'all') {
+      filtered = filtered.filter(log => log.type === consoleLogLevel)
+    }
+    
+    // Filter by search query
+    if (consoleLogSearch.trim()) {
+      const query = consoleLogSearch.toLowerCase().trim()
+      filtered = filtered.filter(log => 
+        log.message.toLowerCase().includes(query) ||
+        log.type.toLowerCase().includes(query)
+      )
+    }
+    
+    return filtered
+  }, [consoleLogs, consoleLogSearch, consoleLogLevel])
 
   const handleStoreClick = async (storeName: string) => {
     setSelectedStore(storeName)
@@ -577,6 +818,22 @@ export default function CacheRelaysSetting() {
           >
             <Database className="h-4 w-4 mr-2" />
             {t('Browse Cache')}
+          </Button>
+          <Button
+            variant="outline"
+            className="flex-1 w-full sm:w-auto"
+            onClick={handleClearServiceWorker}
+          >
+            <XCircle className="h-4 w-4 mr-2" />
+            {t('Clear Service Worker')}
+          </Button>
+          <Button
+            variant="outline"
+            className="flex-1 w-full sm:w-auto"
+            onClick={handleShowConsoleLogs}
+          >
+            <Terminal className="h-4 w-4 mr-2" />
+            {t('View Console Logs')} ({consoleLogRef.current.length})
           </Button>
         </div>
         {Object.keys(cacheInfo).length > 0 && (
@@ -948,6 +1205,187 @@ export default function CacheRelaysSetting() {
                   )}
                 </>
               )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Console Logs Dialog */}
+      {isSmallScreen ? (
+        <Drawer open={showConsoleLogs} onOpenChange={setShowConsoleLogs}>
+          <DrawerContent className="max-h-[90vh]">
+            <DrawerHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <DrawerTitle>{t('Console Logs')}</DrawerTitle>
+                  <DrawerDescription>
+                    {t('View recent console logs for debugging')} ({filteredConsoleLogs.length} / {consoleLogs.length} {t('entries')})
+                  </DrawerDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearConsoleLogs}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {t('Clear')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowConsoleLogs(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </DrawerHeader>
+            <div className="px-4 pb-2 space-y-2">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  placeholder={t('Search logs...')}
+                  value={consoleLogSearch}
+                  onChange={(e) => setConsoleLogSearch(e.target.value)}
+                  className="flex-1"
+                />
+                <Select value={consoleLogLevel} onValueChange={(value: 'error' | 'warn' | 'info' | 'log' | 'all') => setConsoleLogLevel(value)}>
+                  <SelectTrigger className="w-full sm:w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="error">{t('Error')}</SelectItem>
+                    <SelectItem value="warn">{t('Warning')}</SelectItem>
+                    <SelectItem value="info">{t('Info')}</SelectItem>
+                    <SelectItem value="log">{t('Log')}</SelectItem>
+                    <SelectItem value="all">{t('All')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto px-4 pb-4">
+              <div className="space-y-1 font-mono text-xs">
+                {filteredConsoleLogs.length === 0 ? (
+                  <div className="text-muted-foreground p-4 text-center">
+                    {consoleLogs.length === 0 
+                      ? t('No console logs captured yet')
+                      : t('No logs match the current filters')
+                    }
+                  </div>
+                ) : (
+                  filteredConsoleLogs.map((log, index) => (
+                    <div
+                      key={index}
+                      className={`p-2 rounded border ${
+                        log.type === 'error' ? 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800' :
+                        log.type === 'warn' ? 'bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800' :
+                        'bg-background border-border'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="text-muted-foreground text-[10px] whitespace-nowrap">
+                          {new Date(log.timestamp).toLocaleTimeString()}
+                        </span>
+                        <span className="text-muted-foreground text-[10px] whitespace-nowrap">
+                          [{log.type}]
+                        </span>
+                        <pre className="flex-1 overflow-x-auto whitespace-pre-wrap break-words">
+                          {log.message}
+                        </pre>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </DrawerContent>
+        </Drawer>
+      ) : (
+        <Dialog open={showConsoleLogs} onOpenChange={setShowConsoleLogs}>
+          <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col">
+            <DialogHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <DialogTitle>{t('Console Logs')}</DialogTitle>
+                  <DialogDescription>
+                    {t('View recent console logs for debugging')} ({filteredConsoleLogs.length} / {consoleLogs.length} {t('entries')})
+                  </DialogDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearConsoleLogs}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {t('Clear')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowConsoleLogs(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </DialogHeader>
+            <div className="px-6 pb-4 space-y-2">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  placeholder={t('Search logs...')}
+                  value={consoleLogSearch}
+                  onChange={(e) => setConsoleLogSearch(e.target.value)}
+                  className="flex-1"
+                />
+                <Select value={consoleLogLevel} onValueChange={(value: 'error' | 'warn' | 'info' | 'log' | 'all') => setConsoleLogLevel(value)}>
+                  <SelectTrigger className="w-full sm:w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="error">{t('Error')}</SelectItem>
+                    <SelectItem value="warn">{t('Warning')}</SelectItem>
+                    <SelectItem value="info">{t('Info')}</SelectItem>
+                    <SelectItem value="log">{t('Log')}</SelectItem>
+                    <SelectItem value="all">{t('All')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto px-6 pb-4">
+              <div className="space-y-1 font-mono text-xs">
+                {filteredConsoleLogs.length === 0 ? (
+                  <div className="text-muted-foreground p-4 text-center">
+                    {consoleLogs.length === 0 
+                      ? t('No console logs captured yet')
+                      : t('No logs match the current filters')
+                    }
+                  </div>
+                ) : (
+                  filteredConsoleLogs.map((log, index) => (
+                    <div
+                      key={index}
+                      className={`p-2 rounded border ${
+                        log.type === 'error' ? 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800' :
+                        log.type === 'warn' ? 'bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800' :
+                        'bg-background border-border'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="text-muted-foreground text-[10px] whitespace-nowrap">
+                          {new Date(log.timestamp).toLocaleTimeString()}
+                        </span>
+                        <span className="text-muted-foreground text-[10px] whitespace-nowrap">
+                          [{log.type}]
+                        </span>
+                        <pre className="flex-1 overflow-x-auto whitespace-pre-wrap break-words">
+                          {log.message}
+                        </pre>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </DialogContent>
         </Dialog>

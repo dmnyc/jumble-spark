@@ -6,9 +6,7 @@ import ProfileTimeline from './ProfileTimeline'
 const MEDIA_KIND_LIST = [
   ExtendedKind.PICTURE,
   ExtendedKind.VIDEO,
-  ExtendedKind.SHORT_VIDEO,
-  ExtendedKind.VOICE,
-  ExtendedKind.VOICE_COMMENT
+  ExtendedKind.SHORT_VIDEO
 ]
 
 interface ProfileMediaProps {
