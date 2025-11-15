@@ -107,40 +107,207 @@ function isYouTubeUrl(url: string): boolean {
 }
 
 /**
- * CodeBlock component that renders code with syntax highlighting using highlight.js
+ * Parse inline markdown formatting while preserving newlines (for code blocks)
  */
-function CodeBlock({ id, code, language }: { id: string; code: string; language: string }) {
-  const codeRef = useRef<HTMLElement>(null)
+function parseInlineMarkdownPreserveNewlines(text: string, keyPrefix: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+  const inlinePatterns: Array<{ index: number; end: number; type: string; data: any }> = []
   
-  useEffect(() => {
-    const initHighlight = async () => {
-      if (typeof window !== 'undefined' && codeRef.current) {
-        try {
-          const hljs = await import('highlight.js')
-          if (codeRef.current) {
-            hljs.default.highlightElement(codeRef.current)
+  // Bold: **text** (double asterisk) - allow newlines within
+  const doubleBoldAsteriskRegex = /\*\*([\s\S]+?)\*\*/g
+  const doubleBoldAsteriskMatches = Array.from(text.matchAll(doubleBoldAsteriskRegex))
+  doubleBoldAsteriskMatches.forEach(match => {
+    if (match.index !== undefined) {
+      inlinePatterns.push({
+        index: match.index,
+        end: match.index + match[0].length,
+        type: 'bold',
+        data: match[1]
+      })
+    }
+  })
+  
+  // Double underscore bold - allow newlines within
+  const doubleBoldUnderscoreRegex = /__([\s\S]+?)__/g
+  const doubleBoldUnderscoreMatches = Array.from(text.matchAll(doubleBoldUnderscoreRegex))
+  doubleBoldUnderscoreMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const isInOther = inlinePatterns.some(p => 
+        (p.type === 'bold') &&
+        match.index! >= p.index && 
+        match.index! < p.end
+      )
+      if (!isInOther) {
+        inlinePatterns.push({
+          index: match.index,
+          end: match.index + match[0].length,
+          type: 'bold',
+          data: match[1]
+        })
+      }
+    }
+  })
+  
+  // Italic: _text_ (single underscore, not part of __bold__) - allow newlines within
+  const singleItalicUnderscoreRegex = /(?<!_)_([\s\S]+?)_(?!_)/g
+  const singleItalicUnderscoreMatches = Array.from(text.matchAll(singleItalicUnderscoreRegex))
+  singleItalicUnderscoreMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const isInOther = inlinePatterns.some(p => 
+        (p.type === 'bold') &&
+        match.index! >= p.index && 
+        match.index! < p.end
+      )
+      if (!isInOther) {
+        inlinePatterns.push({
+          index: match.index,
+          end: match.index + match[0].length,
+          type: 'italic',
+          data: match[1]
+        })
+      }
+    }
+  })
+  
+  // Sort by index
+  inlinePatterns.sort((a, b) => a.index - b.index)
+  
+  // Remove overlaps (keep first)
+  const filtered: typeof inlinePatterns = []
+  let lastEnd = 0
+  inlinePatterns.forEach(pattern => {
+    if (pattern.index >= lastEnd) {
+      filtered.push(pattern)
+      lastEnd = pattern.end
+    }
+  })
+  
+  // Build React nodes, preserving newlines
+  filtered.forEach((pattern, i) => {
+    // Add text before pattern (preserving newlines)
+    if (pattern.index > lastIndex) {
+      const textBefore = text.substring(lastIndex, pattern.index)
+      if (textBefore) {
+        // Split by newlines and render each part
+        const lines = textBefore.split('\n')
+        lines.forEach((line, lineIdx) => {
+          if (lineIdx > 0) {
+            parts.push(<br key={`${keyPrefix}-br-${i}-${lineIdx}`} />)
           }
-        } catch (error) {
-          logger.error('Error loading highlight.js:', error)
-        }
+          if (line) {
+            parts.push(<span key={`${keyPrefix}-text-${i}-${lineIdx}`}>{line}</span>)
+          }
+        })
       }
     }
     
-    // Small delay to ensure DOM is ready
-    const timeoutId = setTimeout(initHighlight, 0)
-    return () => clearTimeout(timeoutId)
-  }, [code, language])
+    // Render pattern (preserving newlines within the pattern)
+    if (pattern.type === 'bold') {
+      const boldLines = pattern.data.split('\n')
+      boldLines.forEach((line, lineIdx) => {
+        if (lineIdx > 0) {
+          parts.push(<br key={`${keyPrefix}-bold-br-${i}-${lineIdx}`} />)
+        }
+        if (line) {
+          parts.push(<strong key={`${keyPrefix}-bold-${i}-${lineIdx}`}>{line}</strong>)
+        }
+      })
+    } else if (pattern.type === 'italic') {
+      const italicLines = pattern.data.split('\n')
+      italicLines.forEach((line, lineIdx) => {
+        if (lineIdx > 0) {
+          parts.push(<br key={`${keyPrefix}-italic-br-${i}-${lineIdx}`} />)
+        }
+        if (line) {
+          parts.push(<em key={`${keyPrefix}-italic-${i}-${lineIdx}`}>{line}</em>)
+        }
+      })
+    }
+    
+    lastIndex = pattern.end
+  })
+  
+  // Add remaining text (preserving newlines)
+  if (lastIndex < text.length) {
+    const remaining = text.substring(lastIndex)
+    const lines = remaining.split('\n')
+    lines.forEach((line, lineIdx) => {
+      if (lineIdx > 0) {
+        parts.push(<br key={`${keyPrefix}-br-final-${lineIdx}`} />)
+      }
+      if (line) {
+        parts.push(<span key={`${keyPrefix}-text-final-${lineIdx}`}>{line}</span>)
+      }
+    })
+  }
+  
+  return parts
+}
+
+/**
+ * CodeBlock component that renders code with syntax highlighting using highlight.js
+ * Also processes inline markdown formatting (bold, italic) within the code
+ */
+function CodeBlock({ id, code, language }: { id: string; code: string; language: string }) {
+  const codeRef = useRef<HTMLDivElement>(null)
+  
+  // Check if code contains markdown formatting
+  const hasMarkdownFormatting = /\*\*.*?\*\*|__.*?__|_.*?_|\*.*?\*/.test(code)
+  
+  // Process inline markdown formatting (bold, italic) in code blocks while preserving newlines
+  const processedCode = useMemo(() => {
+    if (hasMarkdownFormatting) {
+      // Parse inline markdown while preserving newlines
+      return parseInlineMarkdownPreserveNewlines(code, `code-${id}`)
+    }
+    return code
+  }, [code, id, hasMarkdownFormatting])
+  
+  useEffect(() => {
+    // Only apply syntax highlighting if there's no markdown formatting
+    // (highlight.js would interfere with HTML formatting)
+    if (!hasMarkdownFormatting) {
+      const initHighlight = async () => {
+        if (typeof window !== 'undefined' && codeRef.current) {
+          try {
+            const hljs = await import('highlight.js')
+            const codeElement = codeRef.current.querySelector('code')
+            if (codeElement) {
+              hljs.default.highlightElement(codeElement)
+            }
+          } catch (error) {
+            logger.error('Error loading highlight.js:', error)
+          }
+        }
+      }
+      
+      // Small delay to ensure DOM is ready
+      const timeoutId = setTimeout(initHighlight, 0)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [code, language, hasMarkdownFormatting])
   
   return (
     <div className="my-4 overflow-x-auto">
-      <pre className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-        <code
-          ref={codeRef}
-          id={id}
-          className={`hljs language-${language || 'plaintext'} text-gray-900 dark:text-gray-100`}
-        >
-          {code}
-        </code>
+      <pre className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-700 whitespace-pre-wrap">
+        <div ref={codeRef}>
+          {hasMarkdownFormatting ? (
+            <code
+              id={id}
+              className="text-gray-900 dark:text-gray-100 font-mono text-sm"
+            >
+              {processedCode}
+            </code>
+          ) : (
+            <code
+              id={id}
+              className={`hljs language-${language || 'plaintext'} text-gray-900 dark:text-gray-100`}
+            >
+              {code}
+            </code>
+          )}
+        </div>
       </pre>
     </div>
   )
@@ -295,6 +462,62 @@ function normalizeBackticks(content: string): string {
  * Note: Only converts if the text line has at least 2 characters to avoid
  * creating headers from fragments like "D\n------" which would become "## D"
  */
+/**
+ * Normalize excessive newlines - reduce 3+ consecutive newlines (with optional whitespace) to exactly 2
+ */
+function normalizeNewlines(content: string): string {
+  // Match sequences of 3 or more newlines with optional whitespace between them
+  // Pattern: newline, optional whitespace, newline, optional whitespace, one or more newlines
+  // Replace with exactly 2 newlines
+  return content.replace(/\n\s*\n\s*\n+/g, '\n\n')
+}
+
+/**
+ * Normalize single newlines within bold/italic spans to spaces
+ * This allows bold/italic formatting to work across single line breaks
+ */
+function normalizeInlineFormattingNewlines(content: string): string {
+  let normalized = content
+  
+  // Match bold spans: **text** that may contain single newlines
+  // Replace single newlines (but not double newlines) within these spans with spaces
+  normalized = normalized.replace(/\*\*([^*]*?)\*\*/g, (match, innerContent) => {
+    // Check if this span contains double newlines (paragraph break) - if so, don't modify
+    if (innerContent.includes('\n\n')) {
+      return match // Keep original if it has paragraph breaks
+    }
+    // Replace single newlines with spaces
+    return '**' + innerContent.replace(/\n/g, ' ') + '**'
+  })
+  
+  // Match bold spans: __text__ that may contain single newlines
+  normalized = normalized.replace(/__([^_]*?)__/g, (match, innerContent) => {
+    // Check if this span contains double newlines (paragraph break) - if so, don't modify
+    if (innerContent.includes('\n\n')) {
+      return match // Keep original if it has paragraph breaks
+    }
+    // Replace single newlines with spaces
+    return '__' + innerContent.replace(/\n/g, ' ') + '__'
+  })
+  
+  // Match italic spans: _text_ (single underscore, not part of __bold__)
+  // Use a more careful pattern to avoid matching __bold__
+  normalized = normalized.replace(/(?<![_*])(?<!__)_([^_\n]+?)_(?!_)/g, (match, innerContent, offset, string) => {
+    // Check if preceded by another underscore (would be __bold__)
+    if (offset > 0 && string[offset - 1] === '_') {
+      return match // Don't modify if part of __bold__
+    }
+    // Check if this span contains double newlines (paragraph break) - if so, don't modify
+    if (innerContent.includes('\n\n')) {
+      return match
+    }
+    // Replace single newlines with spaces (though italic shouldn't have newlines due to [^_\n])
+    return '_' + innerContent.replace(/\n/g, ' ') + '_'
+  })
+  
+  return normalized
+}
+
 function normalizeSetextHeaders(content: string): string {
   const lines = content.split('\n')
   const result: string[] = []
@@ -1093,6 +1316,7 @@ function parseMarkdownContent(
         // This handles cases like "#orly #devstr #progressreport" on one line
         // Hashtags should ALWAYS be merged if they're part of text or on a line with other hashtags
         let shouldMergeHashtag = false
+        let hasHashtagsOnAdjacentLines = false
         if (pattern.type === 'hashtag') {
           // Check if line contains only hashtags and whitespace
           const lineWithoutHashtags = line.replace(/#[a-zA-Z0-9_]+/g, '').trim()
@@ -1106,12 +1330,47 @@ function parseMarkdownContent(
             p.index < lineEndIndex
           )
           
+          // Check if there are hashtags on adjacent lines (separated by single newlines)
+          // This handles cases where hashtags are on separate lines but should stay together
+          if (!hasOtherHashtagsOnLine) {
+            // Check next line for hashtags
+            const nextLineStart = lineEndIndex + 1
+            if (nextLineStart < content.length) {
+              const nextLineEnd = content.indexOf('\n', nextLineStart)
+              const nextLineEndIndex = nextLineEnd === -1 ? content.length : nextLineEnd
+              const nextLine = content.substring(nextLineStart, nextLineEndIndex)
+              
+              // Check if next line has hashtags and no double newline before it
+              const hasHashtagOnNextLine = filteredPatterns.some((p, idx) => 
+                idx > patternIdx && 
+                p.type === 'hashtag' && 
+                p.index >= nextLineStart && 
+                p.index < nextLineEndIndex
+              )
+              
+              // Also check previous line for hashtags
+              const prevLineStart = content.lastIndexOf('\n', lineStart - 1) + 1
+              const hasHashtagOnPrevLine = prevLineStart < lineStart && filteredPatterns.some((p, idx) => 
+                idx < patternIdx && 
+                p.type === 'hashtag' && 
+                p.index >= prevLineStart && 
+                p.index < lineStart
+              )
+              
+              // If there's a hashtag on next or previous line, and no double newline between them, merge
+              if ((hasHashtagOnNextLine || hasHashtagOnPrevLine) && !content.substring(Math.max(0, prevLineStart), nextLineEndIndex).includes('\n\n')) {
+                hasHashtagsOnAdjacentLines = true
+              }
+            }
+          }
+          
           // Merge hashtag if:
           // 1. Line has only hashtags (so they stay together)
           // 2. There are other hashtags on the same line
-          // 3. There's text on the same line before it (part of a sentence)
-          // 4. There's text before it (even on previous lines, as long as no paragraph break)
-          shouldMergeHashtag = lineHasOnlyHashtags || hasOtherHashtagsOnLine || hasTextOnSameLine || hasTextBefore
+          // 3. There are hashtags on adjacent lines (separated by single newlines)
+          // 4. There's text on the same line before it (part of a sentence)
+          // 5. There's text before it (even on previous lines, as long as no paragraph break)
+          shouldMergeHashtag = lineHasOnlyHashtags || hasOtherHashtagsOnLine || hasHashtagsOnAdjacentLines || hasTextOnSameLine || hasTextBefore
           
           // If none of the above, but there's text after the hashtag on the same line, also merge
           // This handles cases where hashtag is at start of line but followed by text
@@ -1129,19 +1388,76 @@ function parseMarkdownContent(
         // 3. OR (for hashtags) the line contains only hashtags, so they should stay together
         // This ensures links and hashtags in sentences stay together with their text
         if (pattern.type === 'hashtag' && shouldMergeHashtag) {
-          // For hashtags on a line with only hashtags, merge the entire line
+          // For hashtags on a line with only hashtags, or hashtags on adjacent lines, merge them together
           if (line.replace(/#[a-zA-Z0-9_]+/g, '').trim().length === 0 && line.trim().length > 0) {
             // Line contains only hashtags - merge the entire line
-            // Reconstruct text to include everything from lastIndex to the end of the line
-            const textBeforeLine = content.slice(lastIndex, lineStart)
-            const lineContent = content.substring(lineStart, lineEndIndex)
-            text = textBeforeLine + lineContent
-            textEndIndex = lineEndIndex === content.length ? content.length : lineEndIndex + 1
+            // Also check if we need to merge adjacent lines with hashtags
+            let mergeEndIndex = lineEndIndex
+            let mergeStartIndex = lineStart
             
-            // Mark all hashtags on this line as merged (so they don't render separately)
-            // Do this BEFORE processing text to ensure they're skipped in subsequent iterations
+            // If there are hashtags on adjacent lines, extend the merge range
+            if (hasHashtagsOnAdjacentLines) {
+              // Find the start of the first hashtag line in this sequence
+              let checkStart = lineStart
+              while (checkStart > 0) {
+                const prevLineStart = content.lastIndexOf('\n', checkStart - 2) + 1
+                if (prevLineStart >= 0 && prevLineStart < checkStart) {
+                  const prevLineEnd = checkStart - 1
+                  const prevLine = content.substring(prevLineStart, prevLineEnd)
+                  const hasHashtagOnPrevLine = filteredPatterns.some((p, idx) => 
+                    idx < patternIdx && 
+                    p.type === 'hashtag' && 
+                    p.index >= prevLineStart && 
+                    p.index < prevLineEnd
+                  )
+                  if (hasHashtagOnPrevLine && prevLine.replace(/#[a-zA-Z0-9_]+/g, '').trim().length === 0) {
+                    mergeStartIndex = prevLineStart
+                    checkStart = prevLineStart
+                  } else {
+                    break
+                  }
+                } else {
+                  break
+                }
+              }
+              
+              // Find the end of the last hashtag line in this sequence
+              let checkEnd = lineEndIndex
+              while (checkEnd < content.length) {
+                const nextLineStart = checkEnd + 1
+                if (nextLineStart < content.length) {
+                  const nextLineEnd = content.indexOf('\n', nextLineStart)
+                  const nextLineEndIndex = nextLineEnd === -1 ? content.length : nextLineEnd
+                  const nextLine = content.substring(nextLineStart, nextLineEndIndex)
+                  const hasHashtagOnNextLine = filteredPatterns.some((p, idx) => 
+                    idx > patternIdx && 
+                    p.type === 'hashtag' && 
+                    p.index >= nextLineStart && 
+                    p.index < nextLineEndIndex
+                  )
+                  if (hasHashtagOnNextLine && nextLine.replace(/#[a-zA-Z0-9_]+/g, '').trim().length === 0) {
+                    mergeEndIndex = nextLineEndIndex
+                    checkEnd = nextLineEndIndex
+                  } else {
+                    break
+                  }
+                } else {
+                  break
+                }
+              }
+            }
+            
+            // Reconstruct text to include everything from lastIndex to the end of the merged range
+            const textBeforeMerge = content.slice(lastIndex, mergeStartIndex)
+            const mergedContent = content.substring(mergeStartIndex, mergeEndIndex)
+            // Replace single newlines with spaces in the merged content to keep hashtags together
+            const normalizedMergedContent = mergedContent.replace(/\n(?!\n)/g, ' ')
+            text = textBeforeMerge + normalizedMergedContent
+            textEndIndex = mergeEndIndex === content.length ? content.length : mergeEndIndex + 1
+            
+            // Mark all hashtags in the merged range as merged (so they don't render separately)
             filteredPatterns.forEach((p, idx) => {
-              if (p.type === 'hashtag' && p.index >= lineStart && p.index < lineEndIndex) {
+              if (p.type === 'hashtag' && p.index >= mergeStartIndex && p.index < mergeEndIndex) {
                 const tag = p.data
                 const tagLower = tag.toLowerCase()
                 hashtagsInContent.add(tagLower)
@@ -1149,10 +1465,7 @@ function parseMarkdownContent(
               }
             })
             
-            // Also update lastIndex immediately to prevent processing of patterns on this line
-            // This ensures that when we check pattern.index < lastIndex, it will be true
-            // Note: We still need to process the text below to render it, but lastIndex is updated
-            // so subsequent patterns on this line will be skipped
+            // Also update lastIndex immediately to prevent processing of patterns in this range
             lastIndex = textEndIndex
           } else if (hasTextOnSameLine || hasTextBefore) {
             // Hashtag is part of text - merge just this hashtag and text after it
@@ -1238,7 +1551,7 @@ function parseMarkdownContent(
                     if (normalizedText) {
                       const textContent = parseInlineMarkdown(normalizedText, `text-${patternIdx}-para-${paraIdx}-img-${imgIdx}`, footnotes)
                       parts.push(
-                        <p key={`text-${patternIdx}-para-${paraIdx}-img-${imgIdx}`} className="mb-2 last:mb-0">
+                        <p key={`text-${patternIdx}-para-${paraIdx}-img-${imgIdx}`} className="mb-1 last:mb-0">
                           {textContent}
                         </p>
                       )
@@ -1265,7 +1578,8 @@ function parseMarkdownContent(
                         }
                       }
                     }
-                    const displayUrl = thumbnailUrl || imgUrl
+                    // Don't use thumbnails in notes - use original URL
+                    const displayUrl = imgUrl
                     
                     parts.push(
                       <div key={`img-${patternIdx}-para-${paraIdx}-${imgIdx}`} className="my-2 block max-w-[400px] mx-auto">
@@ -1300,7 +1614,7 @@ function parseMarkdownContent(
                 if (normalizedText) {
                   const textContent = parseInlineMarkdown(normalizedText, `text-${patternIdx}-para-${paraIdx}-final`, footnotes)
                   parts.push(
-                    <p key={`text-${patternIdx}-para-${paraIdx}-final`} className="mb-2 last:mb-0">
+                    <p key={`text-${patternIdx}-para-${paraIdx}-final`} className="mb-1 last:mb-0">
                       {textContent}
                     </p>
                   )
@@ -1321,7 +1635,7 @@ function parseMarkdownContent(
                 const paraContent = parseInlineMarkdown(normalizedPara, `text-${patternIdx}-para-${paraIdx}`, footnotes)
                 // Wrap in paragraph tag (no whitespace-pre-wrap, let normal text wrapping handle it)
                 parts.push(
-                  <p key={`text-${patternIdx}-para-${paraIdx}`} className="mb-2 last:mb-0">
+                  <p key={`text-${patternIdx}-para-${paraIdx}`} className="mb-1 last:mb-0">
                     {paraContent}
                   </p>
                 )
@@ -1397,8 +1711,9 @@ function parseMarkdownContent(
             }
           }
         }
-        const displayUrl = thumbnailUrl || url
-        const hasThumbnail = !!thumbnailUrl
+        // Don't use thumbnails in notes - use original URL
+        const displayUrl = url
+        const hasThumbnail = false
         
         parts.push(
           <div key={`img-${patternIdx}`} className={`my-2 block ${hasThumbnail ? 'max-w-[120px]' : 'max-w-[400px]'}`}>
@@ -1453,7 +1768,8 @@ function parseMarkdownContent(
               }
             }
           }
-          const displayUrl = thumbnailUrl || imageUrl
+          // Don't use thumbnails in notes - use original URL
+          const displayUrl = imageUrl
           
           // Render as a block-level clickable image that links to the URL
           // Clicking the image should navigate to the URL (standard markdown behavior)
@@ -1700,7 +2016,7 @@ function parseMarkdownContent(
         const paragraphContent = parseInlineMarkdown(paragraphText, `blockquote-${patternIdx}-para-${paraIdx}`, footnotes)
         
         return (
-          <p key={`blockquote-${patternIdx}-para-${paraIdx}`} className="mb-2 last:mb-0 whitespace-pre-line">
+          <p key={`blockquote-${patternIdx}-para-${paraIdx}`} className="mb-1 last:mb-0 whitespace-pre-line">
             {paragraphContent}
           </p>
         )
@@ -1856,7 +2172,7 @@ function parseMarkdownContent(
         <a
           key={`hashtag-${patternIdx}`}
           href={`/notes?t=${tagLower}`}
-          className="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline cursor-pointer"
+          className="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline cursor-pointer whitespace-nowrap"
           onClick={(e) => {
             e.stopPropagation()
             e.preventDefault()
@@ -1931,7 +2247,7 @@ function parseMarkdownContent(
                   if (normalizedPara) {
                     const paraContent = parseInlineMarkdown(normalizedPara, `text-end-para-${imgIdx}-${paraIdx}`, footnotes)
                     parts.push(
-                      <p key={`text-end-para-${imgIdx}-${paraIdx}`} className="mb-2 last:mb-0">
+                      <p key={`text-end-para-${imgIdx}-${paraIdx}`} className="mb-1 last:mb-0">
                         {paraContent}
                       </p>
                     )
@@ -1998,7 +2314,7 @@ function parseMarkdownContent(
               if (normalizedPara) {
                 const paraContent = parseInlineMarkdown(normalizedPara, `text-end-final-para-${paraIdx}`, footnotes)
                 parts.push(
-                  <p key={`text-end-final-para-${paraIdx}`} className="mb-2 last:mb-0">
+                  <p key={`text-end-final-para-${paraIdx}`} className="mb-1 last:mb-0">
                     {paraContent}
                   </p>
                 )
@@ -2017,7 +2333,7 @@ function parseMarkdownContent(
             if (normalizedPara) {
               const paraContent = parseInlineMarkdown(normalizedPara, `text-end-para-${paraIdx}`, footnotes)
               parts.push(
-                <p key={`text-end-para-${paraIdx}`} className="mb-2 last:mb-0">
+                <p key={`text-end-para-${paraIdx}`} className="mb-1 last:mb-0">
                   {paraContent}
                 </p>
               )
@@ -2040,7 +2356,7 @@ function parseMarkdownContent(
       if (!normalizedPara) return null
       const paraContent = parseInlineMarkdown(normalizedPara, `text-only-para-${paraIdx}`, footnotes)
       return (
-        <p key={`text-only-para-${paraIdx}`} className="mb-2 last:mb-0">
+        <p key={`text-only-para-${paraIdx}`} className="mb-1 last:mb-0">
           {paraContent}
         </p>
       )
@@ -2370,7 +2686,8 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
   
   // Bold: **text** (double asterisk) or __text__ (double underscore) - process first
   // Also handle *text* (single asterisk) as bold
-  const doubleBoldAsteriskRegex = /\*\*(.+?)\*\*/g
+  // Allow single newlines within bold spans (but not double newlines which indicate paragraph breaks)
+  const doubleBoldAsteriskRegex = /\*\*((?:[^\n]|\n(?!\n))+\n?)\*\*/g
   const doubleBoldAsteriskMatches = Array.from(text.matchAll(doubleBoldAsteriskRegex))
   doubleBoldAsteriskMatches.forEach(match => {
     if (match.index !== undefined) {
@@ -2392,7 +2709,8 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
   })
   
   // Double underscore bold (but check if it's already italic)
-  const doubleBoldUnderscoreRegex = /__(.+?)__/g
+  // Allow single newlines within bold spans (but not double newlines which indicate paragraph breaks)
+  const doubleBoldUnderscoreRegex = /__((?:[^\n]|\n(?!\n))+\n?)__/g
   const doubleBoldUnderscoreMatches = Array.from(text.matchAll(doubleBoldUnderscoreRegex))
   doubleBoldUnderscoreMatches.forEach(match => {
     if (match.index !== undefined) {
@@ -3029,6 +3347,10 @@ export default function MarkdownArticle({
   const preprocessedContent = useMemo(() => {
     // First unescape JSON-encoded escape sequences
     let processed = unescapeJsonContent(event.content)
+    // Normalize excessive newlines (reduce 3+ to 2)
+    processed = normalizeNewlines(processed)
+    // Normalize single newlines within bold/italic spans to spaces
+    processed = normalizeInlineFormattingNewlines(processed)
     // Normalize Setext-style headers (H1 with ===, H2 with ---)
     processed = normalizeSetextHeaders(processed)
     // Normalize backticks (inline code and code blocks)
@@ -3243,8 +3565,10 @@ export default function MarkdownArticle({
                     }
                   }
                 }
-                const displayUrl = thumbnailUrl || media.url
-                const hasThumbnail = !!thumbnailUrl
+        // Don't use thumbnails in notes - they're too small
+        // Keep thumbnailUrl for fallback/OpenGraph data, but use original URL for display
+        const displayUrl = media.url
+        const hasThumbnail = false
                 
                 return (
                   <div key={`tag-media-${cleaned}`} className={`my-2 ${hasThumbnail ? 'max-w-[120px]' : 'max-w-[400px]'}`}>
@@ -3300,7 +3624,7 @@ export default function MarkdownArticle({
         )}
       
         {/* Parsed content */}
-        <div className="break-words whitespace-pre-wrap">
+        <div className="break-words">
           {parsedContent}
         </div>
         

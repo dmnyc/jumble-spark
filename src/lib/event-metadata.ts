@@ -235,7 +235,7 @@ export function getLongFormArticleMetadataFromEvent(event: Event) {
     } else if (tagName === 'image') {
       image = tagValue
     } else if (tagName === 't' && tagValue && tags.size < 6) {
-      tags.add(tagValue.toLocaleLowerCase())
+      tags.add(tagValue.toLowerCase())
     }
   })
 
@@ -263,7 +263,7 @@ export function getLiveEventMetadataFromEvent(event: Event) {
     } else if (tagName === 'status') {
       status = tagValue
     } else if (tagName === 't' && tagValue && tags.size < 6) {
-      tags.add(tagValue.toLocaleLowerCase())
+      tags.add(tagValue.toLowerCase())
     }
   })
 
@@ -289,7 +289,7 @@ export function getGroupMetadataFromEvent(event: Event) {
     } else if (tagName === 'picture') {
       picture = tagValue
     } else if (tagName === 't' && tagValue) {
-      tags.add(tagValue.toLocaleLowerCase())
+      tags.add(tagValue.toLowerCase())
     } else if (tagName === 'd') {
       d = tagValue
     }

@@ -310,6 +310,9 @@ export default function AsciidocArticle({
   const processedContent = useMemo(() => {
     let content = event.content
     
+    // Normalize excessive newlines (reduce 3+ to 2)
+    content = content.replace(/\n\s*\n\s*\n+/g, '\n\n')
+    
     // Convert all markdown syntax to AsciiDoc syntax
     content = convertMarkdownToAsciidoc(content)
     
