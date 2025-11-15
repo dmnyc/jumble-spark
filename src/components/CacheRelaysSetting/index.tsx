@@ -57,11 +57,11 @@ export default function CacheRelaysSetting() {
   const [loadingItems, setLoadingItems] = useState(false)
   const [wordWrapEnabled, setWordWrapEnabled] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [consoleLogs, setConsoleLogs] = useState<Array<{ type: string; message: string; timestamp: number }>>([])
+  const [consoleLogs, setConsoleLogs] = useState<Array<{ type: string; message: string; formattedParts?: Array<{ text: string; style?: string }>; timestamp: number }>>([])
   const [showConsoleLogs, setShowConsoleLogs] = useState(false)
   const [consoleLogSearch, setConsoleLogSearch] = useState('')
   const [consoleLogLevel, setConsoleLogLevel] = useState<'error' | 'warn' | 'info' | 'log' | 'all'>('error')
-  const consoleLogRef = useRef<Array<{ type: string; message: string; timestamp: number }>>([])
+  const consoleLogRef = useRef<Array<{ type: string; message: string; formattedParts?: Array<{ text: string; style?: string }>; timestamp: number }>>([])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -401,7 +401,9 @@ export default function CacheRelaysSetting() {
     }
   }
 
-  // Capture console logs - start capturing immediately when component mounts
+  // Capture console logs and logger output - start capturing immediately when component mounts
+  // Note: The logger uses console.log/error/warn/info internally, so intercepting console methods
+  // will automatically capture all logger output (debug, info, warn, error, perf, component, etc.)
   useEffect(() => {
     const originalLog = console.log
     const originalError = console.error
@@ -409,20 +411,64 @@ export default function CacheRelaysSetting() {
     const originalInfo = console.info
 
     const captureLog = (type: string, ...args: any[]) => {
-      const message = args.map(arg => {
-        if (typeof arg === 'object') {
-          try {
-            return JSON.stringify(arg, null, 2)
-          } catch {
+      // Handle console formatting with %c placeholders for CSS styling
+      // Console.log supports %c for CSS styling: console.log('%cText', 'color: red')
+      let message = ''
+      let formattedParts: Array<{ text: string; style?: string }> = []
+      
+      if (args.length > 0 && typeof args[0] === 'string' && args[0].includes('%c')) {
+        // Handle %c formatting
+        const formatString = args[0]
+        const parts = formatString.split(/%c/g)
+        formattedParts = []
+        
+        for (let i = 0; i < parts.length; i++) {
+          const text = parts[i]
+          const style = i < args.length - 1 && typeof args[i + 1] === 'string' ? args[i + 1] : undefined
+          formattedParts.push({ text, style })
+        }
+        
+        // Also include remaining args
+        const remainingArgs = args.slice(parts.length)
+        if (remainingArgs.length > 0) {
+          const remainingText = remainingArgs.map(arg => {
+            if (typeof arg === 'object') {
+              try {
+                return JSON.stringify(arg, null, 2)
+              } catch {
+                return String(arg)
+              }
+            }
             return String(arg)
+          }).join(' ')
+          if (formattedParts.length > 0) {
+            formattedParts[formattedParts.length - 1].text += ' ' + remainingText
+          } else {
+            formattedParts.push({ text: remainingText })
           }
         }
-        return String(arg)
-      }).join(' ')
+        
+        // Create a plain text version for search/filtering
+        message = formattedParts.map(p => p.text).join('')
+      } else {
+        // Normal formatting - convert all args to strings
+        message = args.map(arg => {
+          if (typeof arg === 'object') {
+            try {
+              return JSON.stringify(arg, null, 2)
+            } catch {
+              return String(arg)
+            }
+          }
+          return String(arg)
+        }).join(' ')
+        formattedParts = [{ text: message }]
+      }
       
       const logEntry = {
         type,
         message,
+        formattedParts,
         timestamp: Date.now()
       }
       
@@ -438,6 +484,7 @@ export default function CacheRelaysSetting() {
       }
     }
 
+    // Intercept console methods - this will capture all logger output since logger uses console internally
     console.log = (...args: any[]) => {
       captureLog('log', ...args)
       originalLog.apply(console, args)
@@ -836,16 +883,6 @@ export default function CacheRelaysSetting() {
             {t('View Console Logs')} ({consoleLogRef.current.length})
           </Button>
         </div>
-        {Object.keys(cacheInfo).length > 0 && (
-          <div className="text-xs text-muted-foreground space-y-1 mt-2">
-            <div className="font-semibold">{t('Cache Statistics:')}</div>
-            {Object.entries(cacheInfo).map(([storeName, count]) => (
-              <div key={storeName}>
-                {storeName}: {count} {t('items')}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {isSmallScreen ? (
@@ -1290,7 +1327,35 @@ export default function CacheRelaysSetting() {
                           [{log.type}]
                         </span>
                         <pre className="flex-1 overflow-x-auto whitespace-pre-wrap break-words">
-                          {log.message}
+                          {log.formattedParts ? (
+                            log.formattedParts.map((part, i) => {
+                              if (part.style) {
+                                // Parse CSS string like "color:#f1b912" or "color: #f1b912; font-weight: bold"
+                                const styleObj: Record<string, string> = {}
+                                part.style.split(';').forEach(rule => {
+                                  const trimmed = rule.trim()
+                                  if (trimmed) {
+                                    const colonIndex = trimmed.indexOf(':')
+                                    if (colonIndex > 0) {
+                                      const key = trimmed.substring(0, colonIndex).trim()
+                                      const value = trimmed.substring(colonIndex + 1).trim()
+                                      // Convert kebab-case to camelCase
+                                      const camelKey = key.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+                                      styleObj[camelKey] = value
+                                    }
+                                  }
+                                })
+                                return (
+                                  <span key={i} style={styleObj}>
+                                    {part.text}
+                                  </span>
+                                )
+                              }
+                              return <span key={i}>{part.text}</span>
+                            })
+                          ) : (
+                            log.message
+                          )}
                         </pre>
                       </div>
                     </div>
@@ -1379,7 +1444,35 @@ export default function CacheRelaysSetting() {
                           [{log.type}]
                         </span>
                         <pre className="flex-1 overflow-x-auto whitespace-pre-wrap break-words">
-                          {log.message}
+                          {log.formattedParts ? (
+                            log.formattedParts.map((part, i) => {
+                              if (part.style) {
+                                // Parse CSS string like "color:#f1b912" or "color: #f1b912; font-weight: bold"
+                                const styleObj: Record<string, string> = {}
+                                part.style.split(';').forEach(rule => {
+                                  const trimmed = rule.trim()
+                                  if (trimmed) {
+                                    const colonIndex = trimmed.indexOf(':')
+                                    if (colonIndex > 0) {
+                                      const key = trimmed.substring(0, colonIndex).trim()
+                                      const value = trimmed.substring(colonIndex + 1).trim()
+                                      // Convert kebab-case to camelCase
+                                      const camelKey = key.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+                                      styleObj[camelKey] = value
+                                    }
+                                  }
+                                })
+                                return (
+                                  <span key={i} style={styleObj}>
+                                    {part.text}
+                                  </span>
+                                )
+                              }
+                              return <span key={i}>{part.text}</span>
+                            })
+                          ) : (
+                            log.message
+                          )}
                         </pre>
                       </div>
                     </div>

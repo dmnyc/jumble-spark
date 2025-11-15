@@ -1,46 +1,65 @@
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { StorageKey } from '@/constants'
-import { hasCacheRelays } from '@/lib/private-relays'
+import { StorageKey, ExtendedKind } from '@/constants'
 import { useNostr } from '@/providers/NostrProvider'
+import indexedDb from '@/services/indexed-db.service'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export default function CacheRelayOnlySetting() {
   const { t } = useTranslation()
-  const { pubkey } = useNostr()
-  const [enabled, setEnabled] = useState(true) // Default ON when cache exists
+  const { cacheRelayListEvent, pubkey } = useNostr()
   const [hasCacheRelaysAvailable, setHasCacheRelaysAvailable] = useState(false)
-
+  const [enabled, setEnabled] = useState(false) // Start as OFF, will be updated based on cache availability
+  
+  // Check if user has cache relays - check both provider state and IndexedDB as fallback
+  // Note: Cache relay events use 'r' tags, not 'relay' tags
   useEffect(() => {
-    // Check if user has cache relays first
-    if (pubkey) {
-      hasCacheRelays(pubkey)
-        .then((hasCache) => {
-          setHasCacheRelaysAvailable(hasCache)
-          
-          if (hasCache) {
-            // If cache exists, load from localStorage or default to true (ON)
-            const stored = window.localStorage.getItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES)
-            setEnabled(stored === null ? true : stored === 'true')
-          } else {
-            // If no cache, set to false (OFF) and save it
-            setEnabled(false)
-            window.localStorage.setItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES, 'false')
+    const checkCacheRelays = async () => {
+      let hasRelays = false
+      
+      // First check provider state
+      if (cacheRelayListEvent) {
+        hasRelays = cacheRelayListEvent.tags.some(tag => tag[0] === 'r' && tag[1])
+      } else if (pubkey) {
+        // Fallback: check IndexedDB directly if provider state isn't loaded yet
+        try {
+          const storedEvent = await indexedDb.getReplaceableEvent(pubkey, ExtendedKind.CACHE_RELAYS)
+          if (storedEvent) {
+            hasRelays = storedEvent.tags.some(tag => tag[0] === 'r' && tag[1])
           }
-        })
-        .catch(() => {
-          setHasCacheRelaysAvailable(false)
-          // If check fails, assume no cache and set to false
+        } catch (error) {
+          // Ignore errors
+        }
+      }
+      
+      setHasCacheRelaysAvailable(hasRelays)
+      
+      // Set enabled state based on cache availability
+      if (hasRelays) {
+        // If cache exists, default to true (ON)
+        // Only respect localStorage if it's explicitly set to 'false' by the user
+        const stored = window.localStorage.getItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES)
+        // Default to ON when cache exists - only set to OFF if user explicitly set it to 'false'
+        if (stored === 'false') {
           setEnabled(false)
-          window.localStorage.setItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES, 'false')
-        })
-    } else {
-      setHasCacheRelaysAvailable(false)
-      setEnabled(false)
-      window.localStorage.setItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES, 'false')
+        } else {
+          // Default to ON (either null or 'true')
+          setEnabled(true)
+          // Save the default ON state if not already set
+          if (stored === null) {
+            window.localStorage.setItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES, 'true')
+          }
+        }
+      } else {
+        // If no cache, set to false (OFF) and save it
+        setEnabled(false)
+        window.localStorage.setItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES, 'false')
+      }
     }
-  }, [pubkey])
+    
+    checkCacheRelays()
+  }, [cacheRelayListEvent, pubkey])
 
   const handleEnabledChange = (checked: boolean) => {
     setEnabled(checked)

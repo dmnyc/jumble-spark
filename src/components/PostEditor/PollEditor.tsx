@@ -2,21 +2,23 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { normalizeUrl } from '@/lib/url'
 import { TPollCreateData } from '@/types'
 import dayjs from 'dayjs'
 import { Eraser, X } from 'lucide-react'
 import { Dispatch, SetStateAction, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import PostRelaySelector from './PostRelaySelector'
 
 export default function PollEditor({
   pollCreateData,
   setPollCreateData,
-  setIsPoll: _setIsPoll
+  setIsPoll: _setIsPoll,
+  content = ''
 }: {
   pollCreateData: TPollCreateData
   setPollCreateData: Dispatch<SetStateAction<TPollCreateData>>
   setIsPoll: Dispatch<SetStateAction<boolean>>
+  content?: string
 }) {
   const { t } = useTranslation()
   const [isMultipleChoice, setIsMultipleChoice] = useState(pollCreateData.isMultipleChoice)
@@ -24,21 +26,17 @@ export default function PollEditor({
   const [endsAt, setEndsAt] = useState(
     pollCreateData.endsAt ? dayjs(pollCreateData.endsAt * 1000).format('YYYY-MM-DDTHH:mm') : ''
   )
-  const [relayUrls, setRelayUrls] = useState(pollCreateData.relays.join(', '))
+  const [additionalRelayUrls, setAdditionalRelayUrls] = useState<string[]>(pollCreateData.relays)
+  const [_isProtectedEvent, setIsProtectedEvent] = useState(false)
 
   useEffect(() => {
     setPollCreateData({
       isMultipleChoice,
       options,
       endsAt: endsAt ? dayjs(endsAt).startOf('minute').unix() : undefined,
-      relays: relayUrls
-        ? relayUrls
-            .split(',')
-            .map((url) => normalizeUrl(url.trim()))
-            .filter(Boolean)
-        : []
+      relays: additionalRelayUrls
     })
-  }, [isMultipleChoice, options, endsAt, relayUrls])
+  }, [isMultipleChoice, options, endsAt, additionalRelayUrls, setPollCreateData])
 
   const handleAddOption = () => {
     setOptions([...options, ''])
@@ -113,13 +111,11 @@ export default function PollEditor({
         </div>
       </div>
 
-      <div className="grid gap-2">
-        <Label htmlFor="relay-urls">{t('Relay URLs (optional, comma-separated)')}</Label>
-        <Input
-          id="relay-urls"
-          value={relayUrls}
-          onChange={(e) => setRelayUrls(e.target.value)}
-          placeholder="wss://relay1.com, wss://relay2.com"
+      <div className="space-y-2">
+        <PostRelaySelector
+          setAdditionalRelayUrls={setAdditionalRelayUrls}
+          setIsProtectedEvent={setIsProtectedEvent}
+          content={content}
         />
       </div>
     </div>

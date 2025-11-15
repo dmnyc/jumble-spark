@@ -1617,6 +1617,7 @@ export default function PostContent({
           pollCreateData={pollCreateData}
           setPollCreateData={setPollCreateData}
           setIsPoll={setIsPoll}
+          content={text}
         />
       )}
       {isHighlight && (
