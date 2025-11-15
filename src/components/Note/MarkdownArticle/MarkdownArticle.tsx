@@ -16,6 +16,7 @@ import { createPortal } from 'react-dom'
 import Lightbox from 'yet-another-react-lightbox'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import { EmbeddedNote, EmbeddedMention } from '@/components/Embedded'
+import EmbeddedCitation from '@/components/EmbeddedCitation'
 import { preprocessMarkdownMediaLinks } from './preprocessMarkup'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
@@ -355,11 +356,12 @@ function parseMarkdownContent(
     imageThumbnailMap?: Map<string, string>
     getImageIdentifier?: (url: string) => string | null
   }
-): { nodes: React.ReactNode[]; hashtagsInContent: Set<string>; footnotes: Map<string, string> } {
+): { nodes: React.ReactNode[]; hashtagsInContent: Set<string>; footnotes: Map<string, string>; citations: Array<{ id: string; type: string; citationId: string }> } {
   const { eventPubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier } = options
   const parts: React.ReactNode[] = []
   const hashtagsInContent = new Set<string>()
   const footnotes = new Map<string, string>()
+  const citations: Array<{ id: string; type: string; citationId: string }> = []
   let lastIndex = 0
   
   // Helper function to check if an index range falls within any block-level pattern
@@ -863,6 +865,34 @@ function parseMarkdownContent(
     }
   })
   
+  // Citation markup: [[citation::type::nevent...]]
+  const citationRegex = /\[\[citation::(end|foot|foot-end|inline|quote|prompt-end|prompt-inline)::([^\]]+)\]\]/g
+  const citationMatches = Array.from(content.matchAll(citationRegex))
+  citationMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const start = match.index
+      const end = match.index + match[0].length
+      // Only add if not already covered by other patterns and not in block pattern
+      const isInOther = patterns.some(p => 
+        (p.type === 'markdown-link' || p.type === 'markdown-image-link' || p.type === 'markdown-image' || p.type === 'relay-url' || p.type === 'youtube-url' || p.type === 'nostr') && 
+        start >= p.index && 
+        start < p.end
+      )
+      if (!isInOther && !isWithinBlockPattern(start, end, blockPatterns)) {
+        const citationType = match[1]
+        const citationId = match[2]
+        const citationIndex = citations.length
+        citations.push({ id: `citation-${citationIndex}`, type: citationType, citationId })
+        patterns.push({
+          index: start,
+          end: end,
+          type: 'citation',
+          data: { type: citationType, citationId, index: citationIndex }
+        })
+      }
+    }
+  })
+
   // Nostr addresses (nostr:npub1..., nostr:note1..., etc.)
   const nostrRegex = /nostr:(npub1[a-z0-9]{58}|nprofile1[a-z0-9]+|note1[a-z0-9]{58}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)/g
   const nostrMatches = Array.from(content.matchAll(nostrRegex))
@@ -872,7 +902,7 @@ function parseMarkdownContent(
       const end = match.index + match[0].length
       // Only add if not already covered by other patterns and not in block pattern
       const isInOther = patterns.some(p => 
-        (p.type === 'markdown-link' || p.type === 'markdown-image-link' || p.type === 'markdown-image' || p.type === 'relay-url' || p.type === 'youtube-url') && 
+        (p.type === 'markdown-link' || p.type === 'markdown-image-link' || p.type === 'markdown-image' || p.type === 'relay-url' || p.type === 'youtube-url' || p.type === 'citation') && 
         start >= p.index && 
         start < p.end
       )
@@ -1725,6 +1755,71 @@ function parseMarkdownContent(
         // Footnote not found, just render the reference as-is
         parts.push(<span key={`footnote-ref-${patternIdx}`}>[^{footnoteId}]</span>)
       }
+    } else if (pattern.type === 'citation') {
+      const { type: citationType, citationId, index: citationIndex } = pattern.data
+      const citationNumber = citationIndex + 1
+      
+      if (citationType === 'inline' || citationType === 'prompt-inline') {
+        // Inline citations render as clickable text
+        parts.push(
+          <EmbeddedCitation
+            key={`citation-${patternIdx}`}
+            citationId={citationId}
+            displayType={citationType as 'inline' | 'prompt-inline'}
+            className="inline"
+          />
+        )
+      } else if (citationType === 'foot' || citationType === 'foot-end') {
+        // Footnotes render as superscript numbers
+        parts.push(
+          <sup key={`citation-foot-${patternIdx}`} className="citation-ref">
+            <a
+              href={`#citation-${citationIndex}`}
+              id={`citation-ref-${citationIndex}`}
+              className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline no-underline"
+              onClick={(e) => {
+                e.preventDefault()
+                const citationElement = document.getElementById(`citation-${citationIndex}`)
+                if (citationElement) {
+                  citationElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }
+              }}
+            >
+              [{citationNumber}]
+            </a>
+          </sup>
+        )
+      } else if (citationType === 'quote') {
+        // Quotes render as block-level citation cards
+        parts.push(
+          <div key={`citation-quote-${patternIdx}`} className="w-full my-2">
+            <EmbeddedCitation
+              citationId={citationId}
+              displayType="quote"
+            />
+          </div>
+        )
+      } else {
+        // end, prompt-end render as superscript numbers that link to references section
+        parts.push(
+          <sup key={`citation-end-${patternIdx}`} className="citation-ref">
+            <a
+              href="#references-section"
+              id={`citation-ref-${citationIndex}`}
+              className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline no-underline"
+              onClick={(e) => {
+                e.preventDefault()
+                const refSection = document.getElementById('references-section')
+                if (refSection) {
+                  refSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              }}
+            >
+              [{citationNumber}]
+            </a>
+          </sup>
+        )
+      }
     } else if (pattern.type === 'nostr') {
       const bech32Id = pattern.data
       // Check if it's a profile type (mentions/handles should be inline)
@@ -1949,7 +2044,7 @@ function parseMarkdownContent(
         </p>
       )
     }).filter(Boolean)
-    return { nodes: formattedParagraphs, hashtagsInContent, footnotes }
+    return { nodes: formattedParagraphs, hashtagsInContent, footnotes, citations }
   }
   
   // Filter out empty spans before wrapping lists
@@ -2131,7 +2226,87 @@ function parseMarkdownContent(
     )
   }
   
-  return { nodes: wrappedParts, hashtagsInContent, footnotes }
+  // Add citations section (footnotes) at the end if there are any footnotes
+  const footCitations = citations.filter(c => c.type === 'foot' || c.type === 'foot-end')
+  if (footCitations.length > 0) {
+    wrappedParts.push(
+      <div key="citations-footnotes-section" className="mt-8 pt-4 border-t border-gray-300 dark:border-gray-700">
+        <h3 className="text-lg font-semibold mb-4">Citations</h3>
+        <ol className="list-decimal list-inside space-y-2">
+          {footCitations.map((citation, idx) => (
+            <li 
+              key={`citation-footnote-${idx}`} 
+              id={`citation-${citation.id.replace('citation-', '')}`}
+              className="text-sm"
+            >
+              <span className="font-semibold">[{idx + 1}]:</span>{' '}
+              <EmbeddedCitation
+                citationId={citation.citationId}
+                displayType={citation.type as 'foot' | 'foot-end'}
+                className="inline-block mt-1"
+              />
+              {' '}
+              <a 
+                href={`#citation-ref-${citation.id.replace('citation-', '')}`}
+                className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs"
+                onClick={(e) => {
+                  e.preventDefault()
+                  const refElement = document.getElementById(`citation-ref-${citation.id.replace('citation-', '')}`)
+                  if (refElement) {
+                    refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  }
+                }}
+              >
+                ↩
+              </a>
+            </li>
+          ))}
+        </ol>
+      </div>
+    )
+  }
+  
+  // Add references section at the end if there are any endnote citations
+  const endCitations = citations.filter(c => c.type === 'end' || c.type === 'prompt-end')
+  if (endCitations.length > 0) {
+    wrappedParts.push(
+      <div key="references-section" id="references-section" className="mt-8 pt-4 border-t border-gray-300 dark:border-gray-700">
+        <h3 className="text-lg font-semibold mb-4">References</h3>
+        <ol className="list-decimal list-inside space-y-2">
+          {endCitations.map((citation, idx) => (
+            <li 
+              key={`citation-end-${idx}`} 
+              id={`citation-end-${idx}`}
+              className="text-sm"
+            >
+              <span className="font-semibold">[{idx + 1}]:</span>{' '}
+              <EmbeddedCitation
+                citationId={citation.citationId}
+                displayType={citation.type as 'end' | 'prompt-end'}
+                className="inline-block mt-1"
+              />
+              {' '}
+              <a 
+                href={`#citation-ref-${citation.id.replace('citation-', '')}`}
+                className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs"
+                onClick={(e) => {
+                  e.preventDefault()
+                  const refElement = document.getElementById(`citation-ref-${citation.id.replace('citation-', '')}`)
+                  if (refElement) {
+                    refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  }
+                }}
+              >
+                ↩
+              </a>
+            </li>
+          ))}
+        </ol>
+      </div>
+    )
+  }
+  
+  return { nodes: wrappedParts, hashtagsInContent, footnotes, citations }
 }
 
 /**

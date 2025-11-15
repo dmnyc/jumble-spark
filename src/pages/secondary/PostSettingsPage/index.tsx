@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import MediaUploadServiceSetting from './MediaUploadServiceSetting'
 import ExpirationSettings from './ExpirationSettings'
 import QuietSettings from './QuietSettings'
+import CacheRelayOnlySetting from './CacheRelayOnlySetting'
 
 const PostSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
@@ -20,6 +21,7 @@ const PostSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: 
           <h3 className="text-lg font-medium">{t('Quiet Tags')}</h3>
           <QuietSettings />
         </div>
+        <CacheRelayOnlySetting />
       </div>
     </SecondaryPageLayout>
   )

@@ -15,6 +15,7 @@ import { createRoot, Root } from 'react-dom/client'
 import Lightbox from 'yet-another-react-lightbox'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import { EmbeddedNote, EmbeddedMention } from '@/components/Embedded'
+import EmbeddedCitation from '@/components/EmbeddedCitation'
 import Wikilink from '@/components/UniversalContent/Wikilink'
 import { preprocessAsciidocMediaLinks } from '../MarkdownArticle/preprocessMarkup'
 import logger from '@/lib/logger'
@@ -693,6 +694,13 @@ export default function AsciidocArticle({
           return `<div data-latex-block="${escaped}" class="latex-block-placeholder my-4"></div>`
         })
         
+        // Handle citation markup: [[citation::type::nevent...]]
+        // AsciiDoc passthrough +++[[citation::type::nevent...]]+++ outputs just [[citation::type::nevent...]] in HTML
+        htmlString = htmlString.replace(/\[\[citation::(end|foot|foot-end|inline|quote|prompt-end|prompt-inline)::([^\]]+)\]\]/g, (_match, citationType, citationId) => {
+          const escapedId = citationId.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+          return `<div data-citation="${escapedId}" data-citation-type="${citationType}" class="citation-placeholder"></div>`
+        })
+        
         // Handle wikilinks - convert passthrough markers to placeholders
         // AsciiDoc passthrough +++WIKILINK:link|display+++ outputs just WIKILINK:link|display in HTML
         // Match WIKILINK: followed by any characters (including |) until end of text or HTML tag
@@ -926,6 +934,38 @@ export default function AsciidocArticle({
       // Use React to render the component
       const root = createRoot(container)
       root.render(<EmbeddedNote noteId={bech32Id} />)
+      reactRootsRef.current.set(container, root)
+    })
+    
+    // Process citations - replace placeholders with React components
+    const citationPlaceholders = contentRef.current.querySelectorAll('.citation-placeholder[data-citation]')
+    citationPlaceholders.forEach((element) => {
+      const citationId = element.getAttribute('data-citation')
+      const citationType = element.getAttribute('data-citation-type') || 'end'
+      if (!citationId) {
+        logger.warn('Citation placeholder found but no citation ID attribute')
+        return
+      }
+      
+      // Determine container class based on citation type
+      const isInline = citationType === 'inline' || citationType === 'prompt-inline'
+      const container = document.createElement(isInline ? 'span' : 'div')
+      container.className = isInline ? 'inline' : 'w-full my-2'
+      const parent = element.parentNode
+      if (!parent) {
+        logger.warn('Citation placeholder has no parent node')
+        return
+      }
+      parent.replaceChild(container, element)
+      
+      // Use React to render the component
+      const root = createRoot(container)
+      root.render(
+        <EmbeddedCitation
+          citationId={citationId}
+          displayType={citationType as 'end' | 'foot' | 'foot-end' | 'inline' | 'quote' | 'prompt-end' | 'prompt-inline'}
+        />
+      )
       reactRootsRef.current.set(container, root)
     })
     

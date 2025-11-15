@@ -13,10 +13,7 @@ export default function PostOptions({
   isNsfw,
   setIsNsfw,
   minPow,
-  setMinPow,
-  useCacheOnlyForPrivateNotes,
-  setUseCacheOnlyForPrivateNotes,
-  hasCacheRelaysAvailable
+  setMinPow
 }: {
   posting: boolean
   show: boolean
@@ -26,9 +23,6 @@ export default function PostOptions({
   setIsNsfw: Dispatch<SetStateAction<boolean>>
   minPow: number
   setMinPow: Dispatch<SetStateAction<number>>
-  useCacheOnlyForPrivateNotes?: boolean
-  setUseCacheOnlyForPrivateNotes?: Dispatch<SetStateAction<boolean>>
-  hasCacheRelaysAvailable?: boolean
 }) {
   const { t } = useTranslation()
 
@@ -46,13 +40,6 @@ export default function PostOptions({
 
   const onNsfwChange = (checked: boolean) => {
     setIsNsfw(checked)
-  }
-
-  const onUseCacheOnlyChange = (checked: boolean) => {
-    if (setUseCacheOnlyForPrivateNotes) {
-      setUseCacheOnlyForPrivateNotes(checked)
-      window.localStorage.setItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES, checked.toString())
-    }
   }
 
   return (
@@ -81,23 +68,6 @@ export default function PostOptions({
           disabled={posting}
         />
       </div>
-
-      {hasCacheRelaysAvailable && useCacheOnlyForPrivateNotes !== undefined && setUseCacheOnlyForPrivateNotes && (
-        <div className="space-y-2">
-          <div className="flex items-center space-x-2">
-            <Label htmlFor="use-cache-only">{t('Use cache relay only for citations and publication content')}</Label>
-            <Switch
-              id="use-cache-only"
-              checked={useCacheOnlyForPrivateNotes}
-              onCheckedChange={onUseCacheOnlyChange}
-              disabled={posting}
-            />
-          </div>
-          <div className="text-muted-foreground text-xs">
-            {t('When enabled, citations and publication content (kind 30041) will only be published to your cache relay, not to outbox relays')}
-          </div>
-        </div>
-      )}
 
       <div className="grid gap-4 pb-4">
         <Label>{t('Proof of Work (difficulty {{minPow}})', { minPow })}</Label>

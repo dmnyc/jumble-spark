@@ -44,9 +44,10 @@ import SmartMuteLink from './SmartMuteLink'
 import SmartRelays from './SmartRelays'
 import ProfileMedia from './ProfileMedia'
 import ProfileInteractions from './ProfileInteractions'
+import ProfileNotes from './ProfileNotes'
 import { toFollowPacks } from '@/lib/link'
 
-type ProfileTabValue = 'posts' | 'pins' | 'bookmarks' | 'interests' | 'articles' | 'media' | 'you'
+type ProfileTabValue = 'posts' | 'pins' | 'bookmarks' | 'interests' | 'articles' | 'media' | 'you' | 'notes'
 
 export default function Profile({ id }: { id?: string }) {
   const { t } = useTranslation()
@@ -58,6 +59,7 @@ export default function Profile({ id }: { id?: string }) {
   const [articleKindFilter, setArticleKindFilter] = useState<string>('all')
   const [postKindFilter, setPostKindFilter] = useState<string>('all')
   const [mediaKindFilter, setMediaKindFilter] = useState<string>('all')
+  const [notesKindFilter, setNotesKindFilter] = useState<string>('all')
 
   // Handle search in articles tab - parse advanced search parameters
   const handleArticleSearch = (query: string) => {
@@ -137,10 +139,12 @@ export default function Profile({ id }: { id?: string }) {
   const profileArticlesRef = useRef<{ refresh: () => void; getEvents: () => Event[] }>(null)
   const profileMediaRef = useRef<{ refresh: () => void; getEvents: () => Event[] }>(null)
   const profileInteractionsRef = useRef<{ refresh: () => void; getEvents?: () => Event[] }>(null)
+  const profileNotesRef = useRef<{ refresh: () => void; getEvents?: () => Event[] }>(null)
   const [articleEvents, setArticleEvents] = useState<Event[]>([])
   const [postEvents, setPostEvents] = useState<Event[]>([])
   const [mediaEvents, setMediaEvents] = useState<Event[]>([])
   const [_interactionEvents, setInteractionEvents] = useState<Event[]>([])
+  const [notesEvents, setNotesEvents] = useState<Event[]>([])
   
   const isFollowingYou = useMemo(() => {
     // This will be handled by the FollowedBy component
@@ -162,6 +166,8 @@ export default function Profile({ id }: { id?: string }) {
       profileMediaRef.current?.refresh()
     } else if (activeTab === 'you') {
       profileInteractionsRef.current?.refresh()
+    } else if (activeTab === 'notes') {
+      profileNotesRef.current?.refresh()
     } else {
       profileBookmarksRef.current?.refresh()
     }
@@ -195,6 +201,14 @@ export default function Profile({ id }: { id?: string }) {
         label: 'Interests'
       }
     ]
+    
+    // Add "My Notes" tab if viewing own profile
+    if (isSelf) {
+      baseTabs.push({
+        value: 'notes',
+        label: 'My Notes'
+      })
+    }
     
     // Add "You" tab if viewing another user's profile and logged in
     if (!isSelf && accountPubkey) {
@@ -364,7 +378,7 @@ export default function Profile({ id }: { id?: string }) {
             <ProfileSearchBar
               onSearch={activeTab === 'articles' ? handleArticleSearch : setSearchQuery}
               placeholder={`Search ${
-                activeTab === 'posts' ? 'posts' : activeTab === 'media' ? 'media' : activeTab
+                activeTab === 'posts' ? 'posts' : activeTab === 'media' ? 'media' : activeTab === 'notes' ? 'notes' : activeTab
               }...`}
               className="w-64"
             />
@@ -445,6 +459,31 @@ export default function Profile({ id }: { id?: string }) {
                 </Select>
               )
             })()}
+            {activeTab === 'notes' && (() => {
+              const allCount = notesEvents.length
+              const publicationContentCount = notesEvents.filter((event) => event.kind === ExtendedKind.PUBLICATION_CONTENT).length
+              const internalCitationCount = notesEvents.filter((event) => event.kind === ExtendedKind.CITATION_INTERNAL).length
+              const externalCitationCount = notesEvents.filter((event) => event.kind === ExtendedKind.CITATION_EXTERNAL).length
+              const hardcopyCitationCount = notesEvents.filter((event) => event.kind === ExtendedKind.CITATION_HARDCOPY).length
+              const promptCitationCount = notesEvents.filter((event) => event.kind === ExtendedKind.CITATION_PROMPT).length
+
+              return (
+                <Select value={notesKindFilter} onValueChange={setNotesKindFilter}>
+                  <SelectTrigger className="w-52">
+                    <FileText className="h-4 w-4 mr-2 shrink-0" />
+                    <SelectValue placeholder="Filter notes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Notes ({allCount})</SelectItem>
+                    <SelectItem value={String(ExtendedKind.PUBLICATION_CONTENT)}>Notes ({publicationContentCount})</SelectItem>
+                    <SelectItem value={String(ExtendedKind.CITATION_INTERNAL)}>Internal Citations ({internalCitationCount})</SelectItem>
+                    <SelectItem value={String(ExtendedKind.CITATION_EXTERNAL)}>External Citations ({externalCitationCount})</SelectItem>
+                    <SelectItem value={String(ExtendedKind.CITATION_HARDCOPY)}>Hardcopy Citations ({hardcopyCitationCount})</SelectItem>
+                    <SelectItem value={String(ExtendedKind.CITATION_PROMPT)}>Prompt Citations ({promptCitationCount})</SelectItem>
+                  </SelectContent>
+                </Select>
+              )
+            })()}
             <RetroRefreshButton onClick={handleRefresh} size="sm" className="flex-shrink-0" />
           </div>
         </div>
@@ -484,6 +523,16 @@ export default function Profile({ id }: { id?: string }) {
             pubkey={pubkey} 
             initialTab={activeTab === 'pins' ? 'pins' : activeTab === 'bookmarks' ? 'bookmarks' : 'hashtags'}
             searchQuery={searchQuery}
+          />
+        )}
+        {activeTab === 'notes' && (
+          <ProfileNotes
+            ref={profileNotesRef}
+            pubkey={pubkey}
+            topSpace={0}
+            searchQuery={searchQuery}
+            kindFilter={notesKindFilter}
+            onEventsChange={setNotesEvents}
           />
         )}
         {activeTab === 'you' && accountPubkey && (

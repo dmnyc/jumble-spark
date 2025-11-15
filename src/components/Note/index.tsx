@@ -38,6 +38,7 @@ import UnknownNote from './UnknownNote'
 import VideoNote from './VideoNote'
 import RelayReview from './RelayReview'
 import Zap from './Zap'
+import CitationCard from '@/components/CitationCard'
 
 export default function Note({
   event,
@@ -146,6 +147,13 @@ export default function Note({
         <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
       </>
     )
+  } else if (
+    event.kind === ExtendedKind.CITATION_INTERNAL ||
+    event.kind === ExtendedKind.CITATION_EXTERNAL ||
+    event.kind === ExtendedKind.CITATION_HARDCOPY ||
+    event.kind === ExtendedKind.CITATION_PROMPT
+  ) {
+    content = <CitationCard className="mt-2" event={event} />
   } else if (event.kind === ExtendedKind.POLL) {
     content = (
       <>

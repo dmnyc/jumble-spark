@@ -841,7 +841,7 @@ export default function PostContent({
         ) : isWikiArticleMarkdown ? (
           t('New Wiki Article (Markdown)')
         ) : isPublicationContent ? (
-          t('New Publication Content')
+          t('Take a note')
         ) : isCitationInternal ? (
           t('New Internal Citation')
         ) : isCitationExternal ? (
@@ -972,7 +972,7 @@ export default function PostContent({
                         </DropdownMenuItem>
                         {hasPrivateRelaysAvailable && (
                           <DropdownMenuItem onClick={() => handleArticleToggle('publication')}>
-                            {t('Publication Content')}
+                            {t('Take a note')}
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
@@ -1162,9 +1162,6 @@ export default function PostContent({
         setIsNsfw={setIsNsfw}
         minPow={minPow}
         setMinPow={setMinPow}
-        useCacheOnlyForPrivateNotes={useCacheOnlyForPrivateNotes}
-        setUseCacheOnlyForPrivateNotes={setUseCacheOnlyForPrivateNotes}
-        hasCacheRelaysAvailable={hasCacheRelaysAvailable}
       />
       <div className="flex gap-2 items-center justify-around sm:hidden">
         <Button
