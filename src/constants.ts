@@ -48,7 +48,6 @@ export const StorageKey = {
   SHOWN_CREATE_WALLET_GUIDE_TOAST_PUBKEYS: 'shownCreateWalletGuideToastPubkeys',
   SHOW_RECOMMENDED_RELAYS_PANEL: 'showRecommendedRelaysPanel',
   DEFAULT_EXPIRATION_ENABLED: 'defaultExpirationEnabled',
-  USE_CACHE_ONLY_FOR_PRIVATE_NOTES: 'useCacheOnlyForPrivateNotes',
   DEFAULT_EXPIRATION_MONTHS: 'defaultExpirationMonths',
   DEFAULT_QUIET_ENABLED: 'defaultQuietEnabled',
   DEFAULT_QUIET_DAYS: 'defaultQuietDays',

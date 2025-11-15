@@ -1,6 +1,9 @@
 import Note from '@/components/Note'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,9 +43,9 @@ import storage from '@/services/local-storage.service'
 import { TPollCreateData } from '@/types'
 import { ImageUp, ListTodo, LoaderCircle, MessageCircle, Settings, Smile, X, Highlighter, FileText, Quote, Upload, Mic, Music, Video } from 'lucide-react'
 import { getMediaKindFromFile } from '@/lib/media-kind-detection'
-import { hasPrivateRelays, getPrivateRelayUrls, hasCacheRelays, getCacheRelayUrls } from '@/lib/private-relays'
+import { hasPrivateRelays, getPrivateRelayUrls } from '@/lib/private-relays'
 import mediaUpload from '@/services/media-upload.service'
-import { StorageKey } from '@/constants'
+import client from '@/services/client.service'
 import { isProtectedEvent as isEventProtected, isReplyNoteEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -111,18 +114,22 @@ export default function PostContent({
   const [isWikiArticle, setIsWikiArticle] = useState(false)
   const [isWikiArticleMarkdown, setIsWikiArticleMarkdown] = useState(false)
   const [isPublicationContent, setIsPublicationContent] = useState(false)
+  const [articleTitle, setArticleTitle] = useState('')
+  const [articleDTag, setArticleDTag] = useState('')
+  const [articleImage, setArticleImage] = useState('')
+  const [articleSubject, setArticleSubject] = useState('')
+  const [articleSummary, setArticleSummary] = useState('')
   const [isCitationInternal, setIsCitationInternal] = useState(false)
   const [isCitationExternal, setIsCitationExternal] = useState(false)
   const [isCitationHardcopy, setIsCitationHardcopy] = useState(false)
   const [isCitationPrompt, setIsCitationPrompt] = useState(false)
   const [hasPrivateRelaysAvailable, setHasPrivateRelaysAvailable] = useState(false)
-  const [hasCacheRelaysAvailable, setHasCacheRelaysAvailable] = useState(false)
-  const [useCacheOnlyForPrivateNotes, setUseCacheOnlyForPrivateNotes] = useState(true) // Default ON
   const [showMediaKindDialog, setShowMediaKindDialog] = useState(false)
   const [pendingMediaUpload, setPendingMediaUpload] = useState<{ url: string; tags: string[][]; file: File } | null>(null)
   const uploadedMediaFileMap = useRef<Map<string, File>>(new Map())
   const isFirstRender = useRef(true)
   const canPost = useMemo(() => {
+    const isArticle = isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
     const result = (
       !!pubkey &&
       !posting &&
@@ -132,7 +139,9 @@ export default function PostContent({
       (!isPoll || pollCreateData.options.filter((option) => !!option.trim()).length >= 2) &&
       (!isPublicMessage || extractedMentions.length > 0 || parentEvent?.kind === ExtendedKind.PUBLIC_MESSAGE) &&
       (!isProtectedEvent || additionalRelayUrls.length > 0) &&
-      (!isHighlight || highlightData.sourceValue.trim() !== '')
+      (!isHighlight || highlightData.sourceValue.trim() !== '') &&
+      // For articles, dTag is mandatory
+      (!isArticle || !!articleDTag.trim())
     )
     
     return result
@@ -151,7 +160,12 @@ export default function PostContent({
     isProtectedEvent,
     additionalRelayUrls,
     isHighlight,
-    highlightData
+    highlightData,
+    isLongFormArticle,
+    isWikiArticle,
+    isWikiArticleMarkdown,
+    isPublicationContent,
+    articleDTag
   ])
 
   // Clear highlight data when initialHighlightData changes or is removed
@@ -238,41 +252,12 @@ export default function PostContent({
   useEffect(() => {
     if (!pubkey) {
       setHasPrivateRelaysAvailable(false)
-      setHasCacheRelaysAvailable(false)
       return
     }
     
     hasPrivateRelays(pubkey).then(setHasPrivateRelaysAvailable).catch(() => {
       setHasPrivateRelaysAvailable(false)
     })
-    
-    hasCacheRelays(pubkey).then(setHasCacheRelaysAvailable).catch(() => {
-      setHasCacheRelaysAvailable(false)
-    })
-  }, [pubkey])
-
-  // Load cache-only preference from localStorage
-  // Default depends on whether cache relays exist
-  useEffect(() => {
-    const updateCachePreference = async () => {
-      if (!pubkey) {
-        setUseCacheOnlyForPrivateNotes(false)
-        return
-      }
-      
-      const hasCache = await hasCacheRelays(pubkey).catch(() => false)
-      
-      if (hasCache) {
-        // If cache exists, load from localStorage or default to true (ON)
-        const stored = window.localStorage.getItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES)
-        setUseCacheOnlyForPrivateNotes(stored === null ? true : stored === 'true')
-      } else {
-        // If no cache, default to false (OFF) - use only outboxes
-        setUseCacheOnlyForPrivateNotes(false)
-      }
-    }
-    
-    updateCachePreference()
   }, [pubkey])
 
   // Helper function to determine the kind that will be created
@@ -342,8 +327,301 @@ export default function PostContent({
     parentEvent
   ])
 
+  // Shared function to create draft event - used by both preview and posting
+  const createDraftEvent = useCallback(async (cleanedText: string): Promise<any> => {
+    // Get expiration and quiet settings
+    const isChattingKind = (kind: number) => 
+      kind === kinds.ShortTextNote || 
+      kind === ExtendedKind.COMMENT || 
+      kind === ExtendedKind.VOICE || 
+      kind === ExtendedKind.VOICE_COMMENT
+    
+    const addExpirationTag = storage.getDefaultExpirationEnabled()
+    const expirationMonths = storage.getDefaultExpirationMonths()
+    const addQuietTag = storage.getDefaultQuietEnabled()
+    const quietDays = storage.getDefaultQuietDays()
+    
+    // Determine if we should use protected event tag
+    let shouldUseProtectedEvent = false
+    if (parentEvent) {
+      const isParentOP = !isReplyNoteEvent(parentEvent)
+      const parentHasProtectedTag = isEventProtected(parentEvent)
+      shouldUseProtectedEvent = isParentOP && parentHasProtectedTag
+    }
+
+    // Check for voice comments first
+    if (parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT) {
+      const url = mediaUrl || 'placeholder://audio'
+      const tags = mediaImetaTags.length > 0 ? mediaImetaTags : [['imeta', `url ${url}`, 'm audio/mpeg']]
+      return await createVoiceCommentDraftEvent(
+        cleanedText,
+        parentEvent,
+        url,
+        tags,
+        mentions,
+        {
+          addClientTag,
+          protectedEvent: shouldUseProtectedEvent,
+          isNsfw,
+          addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.VOICE_COMMENT),
+          expirationMonths,
+          addQuietTag,
+          quietDays
+        }
+      )
+    }
+
+    // Media notes
+    if (mediaNoteKind !== null && mediaUrl) {
+      if (mediaNoteKind === ExtendedKind.VOICE) {
+        return await createVoiceDraftEvent(
+          cleanedText,
+          mediaUrl,
+          mediaImetaTags,
+          mentions,
+          {
+            addClientTag,
+            isNsfw,
+            addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.VOICE),
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          }
+        )
+      } else if (mediaNoteKind === ExtendedKind.PICTURE) {
+        return await createPictureDraftEvent(
+          cleanedText,
+          mediaImetaTags,
+          mentions,
+          {
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false,
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          }
+        )
+      } else if (mediaNoteKind === ExtendedKind.VIDEO || mediaNoteKind === ExtendedKind.SHORT_VIDEO) {
+        return await createVideoDraftEvent(
+          cleanedText,
+          mediaImetaTags,
+          mentions,
+          mediaNoteKind,
+          {
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false,
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          }
+        )
+      }
+    }
+
+    // Parse topics from subject field for articles
+    const topics = articleSubject.trim()
+      ? articleSubject.split(/[,\s]+/).filter(s => s.trim())
+      : []
+
+    // Articles
+    if (isLongFormArticle) {
+      return await createLongFormArticleDraftEvent(cleanedText, mentions, {
+        dTag: articleDTag.trim(),
+        title: articleTitle.trim() || undefined,
+        summary: articleSummary.trim() || undefined,
+        image: articleImage.trim() || undefined,
+        topics: topics.length > 0 ? topics : undefined,
+        addClientTag,
+        isNsfw,
+        addExpirationTag: false,
+        expirationMonths,
+        addQuietTag,
+        quietDays
+      })
+    } else if (isWikiArticle) {
+      return await createWikiArticleDraftEvent(cleanedText, mentions, {
+        dTag: articleDTag.trim(),
+        title: articleTitle.trim() || undefined,
+        summary: articleSummary.trim() || undefined,
+        image: articleImage.trim() || undefined,
+        topics: topics.length > 0 ? topics : undefined,
+        addClientTag,
+        isNsfw,
+        addExpirationTag: false,
+        expirationMonths,
+        addQuietTag,
+        quietDays
+      })
+    } else if (isWikiArticleMarkdown) {
+      return await createWikiArticleMarkdownDraftEvent(cleanedText, mentions, {
+        dTag: articleDTag.trim(),
+        title: articleTitle.trim() || undefined,
+        summary: articleSummary.trim() || undefined,
+        image: articleImage.trim() || undefined,
+        topics: topics.length > 0 ? topics : undefined,
+        addClientTag,
+        isNsfw,
+        addExpirationTag: false,
+        expirationMonths,
+        addQuietTag,
+        quietDays
+      })
+    } else if (isPublicationContent) {
+      return await createPublicationContentDraftEvent(cleanedText, mentions, {
+        dTag: articleDTag.trim(),
+        title: articleTitle.trim() || undefined,
+        summary: articleSummary.trim() || undefined,
+        image: articleImage.trim() || undefined,
+        topics: topics.length > 0 ? topics : undefined,
+        addClientTag,
+        isNsfw,
+        addExpirationTag: false,
+        expirationMonths,
+        addQuietTag,
+        quietDays
+      })
+    }
+
+    // Citations
+    if (isCitationInternal) {
+      return createCitationInternalDraftEvent(cleanedText, {
+        cTag: '',
+        title: cleanedText.substring(0, 100)
+      })
+    } else if (isCitationExternal) {
+      return createCitationExternalDraftEvent(cleanedText, {
+        url: '',
+        accessedOn: new Date().toISOString(),
+        title: cleanedText.substring(0, 100)
+      })
+    } else if (isCitationHardcopy) {
+      return createCitationHardcopyDraftEvent(cleanedText, {
+        accessedOn: new Date().toISOString(),
+        title: cleanedText.substring(0, 100)
+      })
+    } else if (isCitationPrompt) {
+      return createCitationPromptDraftEvent(cleanedText, {
+        llm: '',
+        accessedOn: new Date().toISOString()
+      })
+    }
+
+    // Highlights
+    if (isHighlight) {
+      return await createHighlightDraftEvent(
+        cleanedText,
+        highlightData.sourceType,
+        highlightData.sourceValue,
+        highlightData.context,
+        undefined,
+        {
+          addClientTag,
+          isNsfw,
+          addExpirationTag: false,
+          expirationMonths,
+          addQuietTag,
+          quietDays
+        }
+      )
+    }
+
+    // Public messages
+    if (isPublicMessage) {
+      return await createPublicMessageDraftEvent(cleanedText, extractedMentions, {
+        addClientTag,
+        isNsfw,
+        addExpirationTag: false,
+        expirationMonths,
+        addQuietTag,
+        quietDays
+      })
+    } else if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
+      return await createPublicMessageReplyDraftEvent(cleanedText, parentEvent, mentions, {
+        addClientTag,
+        isNsfw,
+        addExpirationTag: false,
+        expirationMonths,
+        addQuietTag,
+        quietDays
+      })
+    }
+
+    // Comments and replies
+    if (parentEvent && parentEvent.kind !== kinds.ShortTextNote) {
+      return await createCommentDraftEvent(cleanedText, parentEvent, mentions, {
+        addClientTag,
+        protectedEvent: shouldUseProtectedEvent,
+        isNsfw,
+        addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.COMMENT),
+        expirationMonths,
+        addQuietTag,
+        quietDays
+      })
+    }
+
+    // Polls
+    if (isPoll) {
+      return await createPollDraftEvent(pubkey!, cleanedText, mentions, pollCreateData, {
+        addClientTag,
+        isNsfw,
+        addExpirationTag: false,
+        expirationMonths,
+        addQuietTag,
+        quietDays
+      })
+    }
+
+    // Default: Short text note
+    return await createShortTextNoteDraftEvent(cleanedText, mentions, {
+      parentEvent,
+      addClientTag,
+      protectedEvent: shouldUseProtectedEvent,
+      isNsfw,
+      addExpirationTag: addExpirationTag && isChattingKind(kinds.ShortTextNote),
+      expirationMonths,
+      addQuietTag,
+      quietDays
+    })
+  }, [
+    parentEvent,
+    mediaNoteKind,
+    mediaUrl,
+    mediaImetaTags,
+    mentions,
+    isLongFormArticle,
+    isWikiArticle,
+    isWikiArticleMarkdown,
+    isPublicationContent,
+    isCitationInternal,
+    isCitationExternal,
+    isCitationHardcopy,
+    isCitationPrompt,
+    isHighlight,
+    highlightData,
+    isPublicMessage,
+    extractedMentions,
+    isPoll,
+    pollCreateData,
+    addClientTag,
+    isNsfw,
+    articleDTag,
+    articleTitle,
+    articleImage,
+    articleSubject,
+    articleSummary,
+    pubkey
+  ])
+
   // Function to generate draft event JSON for preview
   const getDraftEventJson = useCallback(async (): Promise<string> => {
+    // For articles, validate dTag is provided
+    const isArticle = isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
+    if (isArticle && !articleDTag.trim()) {
+      throw new Error(t('D-Tag is required for articles'))
+    }
+    
     if (!pubkey) {
       return JSON.stringify({ error: 'Not logged in' }, null, 2)
     }
@@ -361,271 +639,22 @@ export default function PostContent({
         }
       )
       
-      // Get expiration and quiet settings
-      // Only add expiration tags to chatting kinds: 1, 1111, 1222, 1244
-      const isChattingKind = (kind: number) => 
-        kind === kinds.ShortTextNote || 
-        kind === ExtendedKind.COMMENT || 
-        kind === ExtendedKind.VOICE || 
-        kind === ExtendedKind.VOICE_COMMENT
-      
-      const addExpirationTag = storage.getDefaultExpirationEnabled()
-      const expirationMonths = storage.getDefaultExpirationMonths()
-      const addQuietTag = storage.getDefaultQuietEnabled()
-      const quietDays = storage.getDefaultQuietDays()
-      
-      // Determine if we should use protected event tag
-      // Only use it when replying to an OP event that also has the "-" tag
-      let shouldUseProtectedEvent = false
-      if (parentEvent) {
-        // Check if parent event is an OP (not a reply itself) and has the "-" tag
-        const isParentOP = !isReplyNoteEvent(parentEvent)
-        const parentHasProtectedTag = isEventProtected(parentEvent)
-        shouldUseProtectedEvent = isParentOP && parentHasProtectedTag
-      }
-
-      let draftEvent: any = null
-
-      // Check for voice comments first - even if mediaUrl is not set yet (for preview purposes)
-      console.log('🔍 getDraftEventJson: checking voice comment', { 
-        parentEvent: !!parentEvent, 
-        mediaNoteKind, 
-        VOICE_COMMENT: ExtendedKind.VOICE_COMMENT,
-        match: parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT,
-        typeof_mediaNoteKind: typeof mediaNoteKind
-      })
-      if (parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT) {
-        // Voice comment - use placeholder URL if mediaUrl not set yet
-        console.log('✅ getDraftEventJson: creating voice comment draft event')
-        const url = mediaUrl || 'placeholder://audio'
-        const tags = mediaImetaTags.length > 0 ? mediaImetaTags : [['imeta', `url ${url}`, 'm audio/mpeg']]
-        draftEvent = await createVoiceCommentDraftEvent(
-          cleanedText,
-          parentEvent,
-          url,
-          tags,
-          mentions,
-          {
-            addClientTag,
-            protectedEvent: shouldUseProtectedEvent,
-            isNsfw,
-            addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.VOICE_COMMENT),
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          }
-        )
-      } else if (mediaNoteKind !== null && mediaUrl) {
-          // Media notes
-          if (mediaNoteKind === ExtendedKind.VOICE) {
-            // Voice note
-            draftEvent = await createVoiceDraftEvent(
-              cleanedText,
-              mediaUrl,
-              mediaImetaTags,
-              mentions,
-              {
-                addClientTag,
-                isNsfw,
-                addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.VOICE),
-                expirationMonths,
-                addQuietTag,
-                quietDays
-              }
-            )
-          } else if (mediaNoteKind === ExtendedKind.PICTURE) {
-            // Picture note
-            draftEvent = await createPictureDraftEvent(
-              cleanedText,
-              mediaImetaTags,
-              mentions,
-              {
-                addClientTag,
-                isNsfw,
-                addExpirationTag: false, // Picture notes are not chatting kinds
-                expirationMonths,
-                addQuietTag,
-                quietDays
-              }
-            )
-          } else if (mediaNoteKind === ExtendedKind.VIDEO || mediaNoteKind === ExtendedKind.SHORT_VIDEO) {
-            // Video note
-            draftEvent = await createVideoDraftEvent(
-              cleanedText,
-              mediaImetaTags,
-              mentions,
-              mediaNoteKind,
-              {
-                addClientTag,
-                isNsfw,
-                addExpirationTag: false, // Video notes are not chatting kinds
-                expirationMonths,
-                addQuietTag,
-                quietDays
-              }
-            )
-          }
-        } else if (isLongFormArticle) {
-          draftEvent = await createLongFormArticleDraftEvent(cleanedText, mentions, {
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Articles are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (isWikiArticle) {
-          draftEvent = await createWikiArticleDraftEvent(cleanedText, mentions, {
-            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Wiki articles are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (isWikiArticleMarkdown) {
-          draftEvent = await createWikiArticleMarkdownDraftEvent(cleanedText, mentions, {
-            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Wiki articles are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (isPublicationContent) {
-          draftEvent = await createPublicationContentDraftEvent(cleanedText, mentions, {
-            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Publication content is not a chatting kind
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (isCitationInternal) {
-          // For now, use a simple format - in a real implementation, this would have a form
-          draftEvent = createCitationInternalDraftEvent(cleanedText, {
-            cTag: '', // Would need to be filled from a form
-            title: cleanedText.substring(0, 100)
-          })
-        } else if (isCitationExternal) {
-          draftEvent = createCitationExternalDraftEvent(cleanedText, {
-            url: '', // Would need to be filled from a form
-            accessedOn: new Date().toISOString(),
-            title: cleanedText.substring(0, 100)
-          })
-        } else if (isCitationHardcopy) {
-          draftEvent = createCitationHardcopyDraftEvent(cleanedText, {
-            accessedOn: new Date().toISOString(),
-            title: cleanedText.substring(0, 100)
-          })
-        } else if (isCitationPrompt) {
-          draftEvent = createCitationPromptDraftEvent(cleanedText, {
-            llm: '', // Would need to be filled from a form
-            accessedOn: new Date().toISOString()
-          })
-        } else if (isHighlight) {
-          // For highlights, pass the original sourceValue which contains the full identifier
-          // The createHighlightDraftEvent function will parse it correctly
-        draftEvent = await createHighlightDraftEvent(
-          cleanedText,
-          highlightData.sourceType,
-          highlightData.sourceValue,
-          highlightData.context,
-          undefined, // description parameter (not used)
-          {
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Highlights are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          }
-        )
-        } else if (isPublicMessage) {
-          draftEvent = await createPublicMessageDraftEvent(cleanedText, extractedMentions, {
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Public messages are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
-          draftEvent = await createPublicMessageReplyDraftEvent(cleanedText, parentEvent, mentions, {
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Public messages are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (parentEvent && parentEvent.kind !== kinds.ShortTextNote) {
-          draftEvent = await createCommentDraftEvent(cleanedText, parentEvent, mentions, {
-            addClientTag,
-            protectedEvent: shouldUseProtectedEvent,
-            isNsfw,
-            addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.COMMENT),
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (isPoll) {
-          draftEvent = await createPollDraftEvent(pubkey!, cleanedText, mentions, pollCreateData, {
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Polls are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else {
-          // For regular kind 1 note OPs (no parentEvent), never use protectedEvent
-          // protectedEvent should only be used when replying to an OP that has it
-          draftEvent = await createShortTextNoteDraftEvent(cleanedText, mentions, {
-            parentEvent,
-            addClientTag,
-            protectedEvent: shouldUseProtectedEvent,
-            isNsfw,
-            addExpirationTag: addExpirationTag && isChattingKind(kinds.ShortTextNote),
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        }
-
-        // Return formatted JSON
-        return JSON.stringify(draftEvent, null, 2)
-      } catch (error) {
-        return JSON.stringify({ error: error instanceof Error ? error.message : String(error) }, null, 2)
-      }
-    }, [
-      text,
-      pubkey,
-      parentEvent,
-      mediaNoteKind,
-      mediaUrl,
-      mediaImetaTags,
-      mentions,
-      isLongFormArticle,
-      isWikiArticle,
-      isWikiArticleMarkdown,
-      isPublicationContent,
-      isCitationInternal,
-      isCitationExternal,
-      isCitationHardcopy,
-      isCitationPrompt,
-      isHighlight,
-      highlightData,
-      isPublicMessage,
-      extractedMentions,
-      isPoll,
-      pollCreateData,
-      addClientTag,
-      isNsfw
-    ])
+      const draftEvent = await createDraftEvent(cleanedText)
+      return JSON.stringify(draftEvent, null, 2)
+    } catch (error) {
+      return JSON.stringify({ error: error instanceof Error ? error.message : String(error) }, null, 2)
+    }
+  }, [
+    text,
+    pubkey,
+    isLongFormArticle,
+    isWikiArticle,
+    isWikiArticleMarkdown,
+    isPublicationContent,
+    articleDTag,
+    createDraftEvent,
+    t
+  ])
 
   const post = async (e?: React.MouseEvent) => {
     e?.stopPropagation()
@@ -645,8 +674,8 @@ export default function PostContent({
       // })
 
       setPosting(true)
-      let draftEvent: any = null
       let newEvent: any = null
+      let draftEvent: any = null
       
       try {
         // Clean tracking parameters from URLs in the post content
@@ -661,240 +690,16 @@ export default function PostContent({
           }
         )
         
-        // Get expiration and quiet settings
-        // Only add expiration tags to chatting kinds: 1, 1111, 1222, 1244
-        const isChattingKind = (kind: number) => 
-          kind === kinds.ShortTextNote || 
-          kind === ExtendedKind.COMMENT || 
-          kind === ExtendedKind.VOICE || 
-          kind === ExtendedKind.VOICE_COMMENT
-        
-        const addExpirationTag = storage.getDefaultExpirationEnabled()
-        const expirationMonths = storage.getDefaultExpirationMonths()
-        const addQuietTag = storage.getDefaultQuietEnabled()
-        const quietDays = storage.getDefaultQuietDays()
-        
-        // Determine if we should use protected event tag
-        // Only use it when replying to an OP event that also has the "-" tag
-        let shouldUseProtectedEvent = false
-        if (parentEvent) {
-          // Check if parent event is an OP (not a reply itself) and has the "-" tag
-          const isParentOP = !isReplyNoteEvent(parentEvent)
-          const parentHasProtectedTag = isEventProtected(parentEvent)
-          shouldUseProtectedEvent = isParentOP && parentHasProtectedTag
-        }
-
         // Determine relay URLs for private events
         let privateRelayUrls: string[] = []
         const isPrivateEvent = isPublicationContent || isCitationInternal || isCitationExternal || isCitationHardcopy || isCitationPrompt
         if (isPrivateEvent) {
-          if (useCacheOnlyForPrivateNotes && hasCacheRelaysAvailable) {
-            // Use only cache relays if toggle is ON
-            privateRelayUrls = await getCacheRelayUrls(pubkey!)
-          } else {
-            // Use all private relays (outbox + cache)
-            privateRelayUrls = await getPrivateRelayUrls(pubkey!)
-          }
+          // Use all private relays (outbox + cache)
+          privateRelayUrls = await getPrivateRelayUrls(pubkey!)
         }
 
-        if (mediaNoteKind !== null && mediaUrl) {
-          // Media notes
-          if (parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT) {
-            // Voice comment
-            draftEvent = await createVoiceCommentDraftEvent(
-              cleanedText,
-              parentEvent,
-              mediaUrl,
-              mediaImetaTags,
-              mentions,
-              {
-                addClientTag,
-                protectedEvent: shouldUseProtectedEvent,
-                isNsfw,
-                addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.VOICE_COMMENT),
-                expirationMonths,
-                addQuietTag,
-                quietDays
-              }
-            )
-          } else if (mediaNoteKind === ExtendedKind.VOICE) {
-            // Voice note
-            draftEvent = await createVoiceDraftEvent(
-              cleanedText,
-              mediaUrl,
-              mediaImetaTags,
-              mentions,
-              {
-                addClientTag,
-                isNsfw,
-                addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.VOICE),
-                expirationMonths,
-                addQuietTag,
-                quietDays
-              }
-            )
-          } else if (mediaNoteKind === ExtendedKind.PICTURE) {
-            // Picture note
-            draftEvent = await createPictureDraftEvent(
-              cleanedText,
-              mediaImetaTags,
-              mentions,
-              {
-                addClientTag,
-                isNsfw,
-                addExpirationTag: false, // Picture notes are not chatting kinds
-                expirationMonths,
-                addQuietTag,
-                quietDays
-              }
-            )
-          } else if (mediaNoteKind === ExtendedKind.VIDEO || mediaNoteKind === ExtendedKind.SHORT_VIDEO) {
-            // Video note
-            draftEvent = await createVideoDraftEvent(
-              cleanedText,
-              mediaImetaTags,
-              mentions,
-              mediaNoteKind,
-              {
-                addClientTag,
-                isNsfw,
-                addExpirationTag: false, // Video notes are not chatting kinds
-                expirationMonths,
-                addQuietTag,
-                quietDays
-              }
-            )
-          }
-        } else if (isLongFormArticle) {
-          draftEvent = await createLongFormArticleDraftEvent(cleanedText, mentions, {
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Articles are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (isWikiArticle) {
-          draftEvent = await createWikiArticleDraftEvent(cleanedText, mentions, {
-            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Wiki articles are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (isWikiArticleMarkdown) {
-          draftEvent = await createWikiArticleMarkdownDraftEvent(cleanedText, mentions, {
-            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Wiki articles are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (isPublicationContent) {
-          draftEvent = await createPublicationContentDraftEvent(cleanedText, mentions, {
-            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Publication content is not a chatting kind
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (isCitationInternal) {
-          // For now, use a simple format - in a real implementation, this would have a form
-          draftEvent = createCitationInternalDraftEvent(cleanedText, {
-            cTag: '', // Would need to be filled from a form
-            title: cleanedText.substring(0, 100)
-          })
-        } else if (isCitationExternal) {
-          draftEvent = createCitationExternalDraftEvent(cleanedText, {
-            url: '', // Would need to be filled from a form
-            accessedOn: new Date().toISOString(),
-            title: cleanedText.substring(0, 100)
-          })
-        } else if (isCitationHardcopy) {
-          draftEvent = createCitationHardcopyDraftEvent(cleanedText, {
-            accessedOn: new Date().toISOString(),
-            title: cleanedText.substring(0, 100)
-          })
-        } else if (isCitationPrompt) {
-          draftEvent = createCitationPromptDraftEvent(cleanedText, {
-            llm: '', // Would need to be filled from a form
-            accessedOn: new Date().toISOString()
-          })
-        } else if (isHighlight) {
-          // For highlights, pass the original sourceValue which contains the full identifier
-          // The createHighlightDraftEvent function will parse it correctly
-        draftEvent = await createHighlightDraftEvent(
-          cleanedText,
-          highlightData.sourceType,
-          highlightData.sourceValue,
-          highlightData.context,
-          undefined, // description parameter (not used)
-          {
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Highlights are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          }
-        )
-        } else if (isPublicMessage) {
-          draftEvent = await createPublicMessageDraftEvent(cleanedText, extractedMentions, {
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Public messages are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
-          draftEvent = await createPublicMessageReplyDraftEvent(cleanedText, parentEvent, mentions, {
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Public messages are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (parentEvent && parentEvent.kind !== kinds.ShortTextNote) {
-          draftEvent = await createCommentDraftEvent(cleanedText, parentEvent, mentions, {
-            addClientTag,
-            protectedEvent: shouldUseProtectedEvent,
-            isNsfw,
-            addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.COMMENT),
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else if (isPoll) {
-          draftEvent = await createPollDraftEvent(pubkey!, cleanedText, mentions, pollCreateData, {
-            addClientTag,
-            isNsfw,
-            addExpirationTag: false, // Polls are not chatting kinds
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        } else {
-          // For regular kind 1 note OPs (no parentEvent), never use protectedEvent
-          // protectedEvent should only be used when replying to an OP that has it
-          draftEvent = await createShortTextNoteDraftEvent(cleanedText, mentions, {
-            parentEvent,
-            addClientTag,
-            protectedEvent: shouldUseProtectedEvent,
-            isNsfw,
-            addExpirationTag: addExpirationTag && isChattingKind(kinds.ShortTextNote),
-            expirationMonths,
-            addQuietTag,
-            quietDays
-          })
-        }
+        // Create draft event using shared function
+        draftEvent = await createDraftEvent(cleanedText)
 
         // console.log('Publishing draft event:', draftEvent)
         // For private events, only publish to private relays
@@ -947,7 +752,17 @@ export default function PostContent({
         // Remove relayStatuses before storing the event (it's only for UI feedback)
         const cleanEvent = { ...newEvent }
         delete (cleanEvent as any).relayStatuses
-        addReplies([cleanEvent])
+        
+        // Add reply immediately so it appears in the thread
+        if (parentEvent) {
+          addReplies([cleanEvent])
+          // Also dispatch the newEvent to ensure ReplyNoteList picks it up
+          // The event is already dispatched by publish(), but we do it again to ensure it's caught
+          setTimeout(() => {
+            client.emitNewEvent(cleanEvent)
+          }, 100)
+        }
+        
         close()
       } catch (error) {
         logger.error('Publishing error', { error })
@@ -1475,6 +1290,27 @@ export default function PostContent({
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
     setIsCitationPrompt(false)
+    
+    // Clear article metadata when switching off article mode
+    if (type === null) {
+      setArticleTitle('')
+      setArticleDTag('')
+      setArticleImage('')
+      setArticleSubject('')
+      setArticleSummary('')
+      setArticleSummary('')
+    }
+    
+    // Clear article fields when toggling off
+    if (type === 'longform' || type === 'wiki' || type === 'wiki-markdown' || type === 'publication') {
+      // Keep fields when switching between article types
+    } else {
+      setArticleTitle('')
+      setArticleDTag('')
+      setArticleImage('')
+      setArticleSubject('')
+      setArticleSummary('')
+    }
   }
 
   const handleCitationToggle = (type: 'internal' | 'external' | 'hardcopy' | 'prompt') => {
@@ -1592,6 +1428,86 @@ export default function PostContent({
           </div>
         </ScrollArea>
       )}
+      
+      {/* Article metadata fields */}
+      {(isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent) && (
+        <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+          <div className="space-y-2">
+            <Label htmlFor="article-dtag" className="text-sm font-medium">
+              {t('D-Tag')} <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="article-dtag"
+              value={articleDTag}
+              onChange={(e) => setArticleDTag(e.target.value)}
+              placeholder={t('e.g., my-article-title')}
+              className={!articleDTag.trim() ? 'border-destructive' : ''}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('Unique identifier for this article (required)')}
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="article-title" className="text-sm font-medium">
+              {t('Title')}
+            </Label>
+            <Input
+              id="article-title"
+              value={articleTitle}
+              onChange={(e) => setArticleTitle(e.target.value)}
+              placeholder={t('Article title (optional)')}
+            />
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="article-image" className="text-sm font-medium">
+              {t('Image URL')}
+            </Label>
+            <Input
+              id="article-image"
+              value={articleImage}
+              onChange={(e) => setArticleImage(e.target.value)}
+              placeholder={t('https://example.com/image.jpg')}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('URL of the article cover image (optional)')}
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="article-subject" className="text-sm font-medium">
+              {t('Subject / Topics')}
+            </Label>
+            <Input
+              id="article-subject"
+              value={articleSubject}
+              onChange={(e) => setArticleSubject(e.target.value)}
+              placeholder={t('topic1, topic2, topic3')}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('Comma or space-separated topics (will be added as t-tags)')}
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="article-summary" className="text-sm font-medium">
+              {t('Summary')}
+            </Label>
+            <Textarea
+              id="article-summary"
+              value={articleSummary}
+              onChange={(e) => setArticleSummary(e.target.value)}
+              placeholder={t('Brief summary of the article (optional)')}
+              rows={3}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('A short description of the article content')}
+            </p>
+          </div>
+        </div>
+      )}
+      
       <PostTextarea
           ref={textareaRef}
           text={text}

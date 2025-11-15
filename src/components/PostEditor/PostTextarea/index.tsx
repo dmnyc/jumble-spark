@@ -51,6 +51,13 @@ const PostTextarea = forwardRef<
     getDraftEventJson?: () => Promise<string>
     mediaImetaTags?: string[][]
     mediaUrl?: string
+    articleMetadata?: {
+      title?: string
+      summary?: string
+      image?: string
+      dTag?: string
+      topics?: string[]
+    }
   }
 >(
   (
@@ -70,7 +77,8 @@ const PostTextarea = forwardRef<
       headerActions,
       getDraftEventJson,
       mediaImetaTags,
-      mediaUrl
+      mediaUrl,
+      articleMetadata
     },
     ref
   ) => {
@@ -238,7 +246,7 @@ const PostTextarea = forwardRef<
             <div className="text-xs text-muted-foreground">
               kind {kindDescription.number}: {kindDescription.description}
             </div>
-            <Preview content={text} className={className} kind={kind} highlightData={highlightData} pollCreateData={pollCreateData} mediaImetaTags={mediaImetaTags} mediaUrl={mediaUrl} />
+            <Preview content={text} className={className} kind={kind} highlightData={highlightData} pollCreateData={pollCreateData} mediaImetaTags={mediaImetaTags} mediaUrl={mediaUrl} articleMetadata={articleMetadata} />
           </div>
         </TabsContent>
         <TabsContent value="json">

@@ -3,7 +3,7 @@ import client from '@/services/client.service'
 import customEmojiService from '@/services/custom-emoji.service'
 import mediaUpload from '@/services/media-upload.service'
 import { prefixNostrAddresses } from '@/lib/nostr-address'
-import { normalizeHashtag } from '@/lib/discussion-topics'
+import { normalizeHashtag, normalizeTopic } from '@/lib/discussion-topics'
 import logger from '@/lib/logger'
 import {
   TDraftEvent,
@@ -1418,6 +1418,7 @@ export async function createLongFormArticleDraftEvent(
     image?: string
     publishedAt?: number
     dTag?: string
+    topics?: string[]
     addClientTag?: boolean
     isNsfw?: boolean
     addExpirationTag?: boolean
@@ -1447,6 +1448,13 @@ export async function createLongFormArticleDraftEvent(
   }
   tags.push(...emojiTags)
   tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  // Add topics as t-tags directly
+  if (options.topics && options.topics.length > 0) {
+    const normalizedTopics = options.topics
+      .map(topic => normalizeTopic(topic.trim()))
+      .filter(topic => topic.length > 0)
+    tags.push(...normalizedTopics.map((topic) => buildTTag(topic)))
+  }
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
   
   // imeta tags for images in content
@@ -1496,6 +1504,7 @@ export async function createWikiArticleDraftEvent(
     title?: string
     summary?: string
     image?: string
+    topics?: string[]
     addClientTag?: boolean
     isNsfw?: boolean
     addExpirationTag?: boolean
@@ -1520,6 +1529,13 @@ export async function createWikiArticleDraftEvent(
   }
   tags.push(...emojiTags)
   tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  // Add topics as t-tags directly
+  if (options.topics && options.topics.length > 0) {
+    const normalizedTopics = options.topics
+      .map(topic => normalizeTopic(topic.trim()))
+      .filter(topic => topic.length > 0)
+    tags.push(...normalizedTopics.map((topic) => buildTTag(topic)))
+  }
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
   
   if (options.addClientTag) {
@@ -1554,6 +1570,7 @@ export async function createWikiArticleMarkdownDraftEvent(
     title?: string
     summary?: string
     image?: string
+    topics?: string[]
     addClientTag?: boolean
     isNsfw?: boolean
     addExpirationTag?: boolean
@@ -1578,6 +1595,13 @@ export async function createWikiArticleMarkdownDraftEvent(
   }
   tags.push(...emojiTags)
   tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  // Add topics as t-tags directly
+  if (options.topics && options.topics.length > 0) {
+    const normalizedTopics = options.topics
+      .map(topic => normalizeTopic(topic.trim()))
+      .filter(topic => topic.length > 0)
+    tags.push(...normalizedTopics.map((topic) => buildTTag(topic)))
+  }
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
   
   if (options.addClientTag) {
@@ -1612,6 +1636,7 @@ export async function createPublicationContentDraftEvent(
     title?: string
     summary?: string
     image?: string
+    topics?: string[]
     addClientTag?: boolean
     isNsfw?: boolean
     addExpirationTag?: boolean
@@ -1636,6 +1661,13 @@ export async function createPublicationContentDraftEvent(
   }
   tags.push(...emojiTags)
   tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  // Add topics as t-tags directly
+  if (options.topics && options.topics.length > 0) {
+    const normalizedTopics = options.topics
+      .map(topic => normalizeTopic(topic.trim()))
+      .filter(topic => topic.length > 0)
+    tags.push(...normalizedTopics.map((topic) => buildTTag(topic)))
+  }
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
   
   if (options.addClientTag) {

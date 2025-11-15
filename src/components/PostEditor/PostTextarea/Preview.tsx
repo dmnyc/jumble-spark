@@ -1,6 +1,7 @@
 import { Card } from '@/components/ui/card'
 import { ExtendedKind, POLL_TYPE } from '@/constants'
 import { transformCustomEmojisInContent } from '@/lib/draft-event'
+import { normalizeTopic } from '@/lib/discussion-topics'
 import { createFakeEvent } from '@/lib/event'
 import { randomString } from '@/lib/random'
 import { cleanUrl } from '@/lib/url'
@@ -12,6 +13,7 @@ import ContentPreview from '../../ContentPreview'
 import Content from '../../Content'
 import Highlight from '../../Note/Highlight'
 import MarkdownArticle from '../../Note/MarkdownArticle/MarkdownArticle'
+import AsciidocArticle from '../../Note/AsciidocArticle/AsciidocArticle'
 import { HighlightData } from '../HighlightEditor'
 
 export default function Preview({ 
@@ -21,7 +23,8 @@ export default function Preview({
   highlightData,
   pollCreateData,
   mediaImetaTags,
-  mediaUrl
+  mediaUrl,
+  articleMetadata
 }: { 
   content: string
   className?: string
@@ -30,6 +33,13 @@ export default function Preview({
   pollCreateData?: TPollCreateData
   mediaImetaTags?: string[][]
   mediaUrl?: string
+  articleMetadata?: {
+    title?: string
+    summary?: string
+    image?: string
+    dTag?: string
+    topics?: string[]
+  }
 }) {
   const { content: processedContent, emojiTags, highlightTags, pollTags } = useMemo(
     () => {
@@ -107,15 +117,36 @@ export default function Preview({
     [content, kind, highlightData, pollCreateData]
   )
   
-  // Combine emoji tags, highlight tags, poll tags, and media imeta tags
+  // Combine emoji tags, highlight tags, poll tags, media imeta tags, and article metadata tags
   const allTags = useMemo(() => {
     const tags = [...emojiTags, ...highlightTags, ...pollTags]
     // Add imeta tags for media (voice comments, etc.)
     if (mediaImetaTags && mediaImetaTags.length > 0) {
       tags.push(...mediaImetaTags)
     }
+    // Add article metadata tags for article kinds
+    if (articleMetadata && (kind === kinds.LongFormArticle || kind === ExtendedKind.WIKI_ARTICLE || kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN || kind === ExtendedKind.PUBLICATION_CONTENT)) {
+      if (articleMetadata.dTag) {
+        tags.push(['d', articleMetadata.dTag])
+      }
+      if (articleMetadata.title) {
+        tags.push(['title', articleMetadata.title])
+      }
+      if (articleMetadata.summary) {
+        tags.push(['summary', articleMetadata.summary])
+      }
+      if (articleMetadata.image) {
+        tags.push(['image', articleMetadata.image])
+      }
+      if (articleMetadata.topics && articleMetadata.topics.length > 0) {
+        const normalizedTopics = articleMetadata.topics
+          .map(topic => normalizeTopic(topic.trim()))
+          .filter(topic => topic.length > 0)
+        tags.push(...normalizedTopics.map((topic) => ['t', topic]))
+      }
+    }
     return tags
-  }, [emojiTags, highlightTags, pollTags, mediaImetaTags])
+  }, [emojiTags, highlightTags, pollTags, mediaImetaTags, articleMetadata, kind])
   
   const fakeEvent = useMemo(() => {
     // For voice comments, include the media URL in content if not already there
@@ -164,6 +195,58 @@ export default function Preview({
           event={fakeEvent}
           className="pointer-events-none"
           hideMetadata={true}
+        />
+      </Card>
+    )
+  }
+
+  // For LongFormArticle, use MarkdownArticle
+  if (kind === kinds.LongFormArticle) {
+    return (
+      <Card className={cn('p-3', className)}>
+        <MarkdownArticle
+          event={fakeEvent}
+          className="pointer-events-none"
+          hideMetadata={true}
+        />
+      </Card>
+    )
+  }
+
+  // For WikiArticle (AsciiDoc), use AsciidocArticle
+  if (kind === ExtendedKind.WIKI_ARTICLE) {
+    return (
+      <Card className={cn('p-3', className)}>
+        <AsciidocArticle
+          event={fakeEvent}
+          className="pointer-events-none"
+          hideImagesAndInfo={false}
+        />
+      </Card>
+    )
+  }
+
+  // For WikiArticleMarkdown, use MarkdownArticle
+  if (kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN) {
+    return (
+      <Card className={cn('p-3', className)}>
+        <MarkdownArticle
+          event={fakeEvent}
+          className="pointer-events-none"
+          hideMetadata={true}
+        />
+      </Card>
+    )
+  }
+
+  // For PublicationContent, use AsciidocArticle
+  if (kind === ExtendedKind.PUBLICATION_CONTENT) {
+    return (
+      <Card className={cn('p-3', className)}>
+        <AsciidocArticle
+          event={fakeEvent}
+          className="pointer-events-none"
+          hideImagesAndInfo={false}
         />
       </Card>
     )

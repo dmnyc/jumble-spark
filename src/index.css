@@ -33,6 +33,18 @@
     user-select: none;
   }
 
+  /* Allow text selection in note content */
+  [data-note-content],
+  .note-content,
+  article,
+  .markdown-content,
+  .prose {
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+  }
+
   .clickable {
     cursor: pointer;
     transition: background-color 0.2s ease;

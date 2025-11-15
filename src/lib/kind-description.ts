@@ -43,7 +43,7 @@ export function getKindDescription(kind: number): { number: number; description:
     case ExtendedKind.POLL:
       return { number: 1068, description: 'Poll' }
     case ExtendedKind.PUBLIC_MESSAGE:
-      return { number: 14, description: 'Public Message' }
+      return { number: 24, description: 'Public Message' }
     default:
       return { number: kind, description: `Event (kind ${kind})` }
   }

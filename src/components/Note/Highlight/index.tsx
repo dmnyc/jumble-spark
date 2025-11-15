@@ -307,7 +307,7 @@ export default function Highlight({
         <div className="flex-1 min-w-0">
             {/* Full quoted text with highlighted portion */}
             {context && (
-              <div className="text-base font-normal mb-4 whitespace-pre-wrap break-words border-l-4 border-green-500 pl-5 py-4 leading-relaxed bg-green-50/30 dark:bg-green-950/20 rounded-r-lg">
+              <div className="note-content text-base font-normal mb-4 whitespace-pre-wrap break-words border-l-4 border-green-500 pl-5 py-4 leading-relaxed bg-green-50/30 dark:bg-green-950/20 rounded-r-lg">
                 {contextTag && highlightedText ? (
                   // If we have both context and highlighted text, show the highlight within the context
                   <div>
