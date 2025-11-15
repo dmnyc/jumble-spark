@@ -205,7 +205,7 @@ function parseInlineMarkdownPreserveNewlines(text: string, keyPrefix: string): R
     // Render pattern (preserving newlines within the pattern)
     if (pattern.type === 'bold') {
       const boldLines = pattern.data.split('\n')
-      boldLines.forEach((line, lineIdx) => {
+      boldLines.forEach((line: string, lineIdx: number) => {
         if (lineIdx > 0) {
           parts.push(<br key={`${keyPrefix}-bold-br-${i}-${lineIdx}`} />)
         }
@@ -215,7 +215,7 @@ function parseInlineMarkdownPreserveNewlines(text: string, keyPrefix: string): R
       })
     } else if (pattern.type === 'italic') {
       const italicLines = pattern.data.split('\n')
-      italicLines.forEach((line, lineIdx) => {
+      italicLines.forEach((line: string, lineIdx: number) => {
         if (lineIdx > 0) {
           parts.push(<br key={`${keyPrefix}-italic-br-${i}-${lineIdx}`} />)
         }
@@ -1338,7 +1338,6 @@ function parseMarkdownContent(
             if (nextLineStart < content.length) {
               const nextLineEnd = content.indexOf('\n', nextLineStart)
               const nextLineEndIndex = nextLineEnd === -1 ? content.length : nextLineEnd
-              const nextLine = content.substring(nextLineStart, nextLineEndIndex)
               
               // Check if next line has hashtags and no double newline before it
               const hasHashtagOnNextLine = filteredPatterns.some((p, idx) => 
