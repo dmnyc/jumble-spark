@@ -8,6 +8,7 @@ import client from '@/services/client.service'
 import { FAST_READ_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import { useZap } from '@/providers/ZapProvider'
+import logger from '@/lib/logger'
 
 const INITIAL_SHOW_COUNT = 25
 const LOAD_MORE_COUNT = 25
@@ -178,7 +179,7 @@ const ProfileInteractions = forwardRef<
         
         setEvents(uniqueEvents)
       } catch (error) {
-        console.error('Failed to fetch interactions', error)
+        logger.error('Failed to fetch interactions', error)
         setEvents([])
       } finally {
         setIsLoading(false)

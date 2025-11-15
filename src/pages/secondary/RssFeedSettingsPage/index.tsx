@@ -250,24 +250,24 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
         tags: event.tags,
         created_at: event.created_at 
       })
-      console.log('✅ [RSS] Event created with tags', {
+      logger.debug('[RSS] Event created with tags', {
         kind: event.kind,
         tagCount: event.tags.length,
         tags: event.tags
       })
       
-      console.log('🔵 [RSS] About to call publish()')
+      logger.debug('[RSS] About to call publish()')
       let result
       try {
         result = await publish(event)
-        console.log('✅ [RSS] Event published successfully!', {
+        logger.debug('[RSS] Event published successfully!', {
           id: result.id,
           kind: result.kind,
           pubkey: result.pubkey?.substring(0, 8),
           content: result.content
         })
       } catch (publishError) {
-        console.error('❌ [RSS] Publish failed!', publishError)
+        logger.error('[RSS] Publish failed!', publishError)
         throw publishError
       }
       
@@ -280,7 +280,7 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
       })
       
       // Cache the event in IndexedDB for immediate access
-      console.log('🔵 [RSS] About to cache event in IndexedDB', {
+      logger.debug('[RSS] About to cache event in IndexedDB', {
         eventId: result.id,
         kind: result.kind,
         pubkey: result.pubkey?.substring(0, 8)
@@ -293,9 +293,9 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
           pubkey: result.pubkey 
         })
         
-        console.log('🔵 [RSS] Calling indexedDb.putReplaceableEvent()...')
+        logger.debug('[RSS] Calling indexedDb.putReplaceableEvent()...')
         const savedEvent = await indexedDb.putReplaceableEvent(result)
-        console.log('✅ [RSS] Successfully cached to IndexedDB!', {
+        logger.debug('[RSS] Successfully cached to IndexedDB!', {
           eventId: savedEvent.id,
           kind: savedEvent.kind,
           pubkey: savedEvent.pubkey?.substring(0, 8),
@@ -308,7 +308,7 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
           feedCount: feedUrls.length 
         })
       } catch (cacheError) {
-        console.error('❌ [RSS] Failed to cache to IndexedDB!', {
+        logger.error('[RSS] Failed to cache to IndexedDB!', {
           error: cacheError,
           errorMessage: cacheError instanceof Error ? cacheError.message : String(cacheError),
           errorStack: cacheError instanceof Error ? cacheError.stack : undefined,
@@ -324,7 +324,7 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
       }
       
       // Verify the event was saved by reading it back
-      console.log('🔵 [RSS] Verifying event was saved...')
+      logger.debug('[RSS] Verifying event was saved...')
       try {
         logger.info('[RssFeedSettingsPage] Verifying event was saved to IndexedDB', { 
           pubkey: pubkey.substring(0, 8),
@@ -333,7 +333,7 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
         
         const savedEvent = await indexedDb.getReplaceableEvent(pubkey, ExtendedKind.RSS_FEED_LIST)
         if (savedEvent) {
-          console.log('✅ [RSS] Event found in IndexedDB!', {
+          logger.debug('[RSS] Event found in IndexedDB!', {
             eventId: savedEvent.id,
             expectedId: result.id,
             match: savedEvent.id === result.id,
@@ -348,10 +348,10 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
           })
           
           if (savedEvent.id === result.id) {
-            console.log('✅ [RSS] Event IDs match! Verification successful!')
+            logger.debug('[RSS] Event IDs match! Verification successful!')
             logger.info('[RssFeedSettingsPage] Verified RSS feed list event in IndexedDB', { eventId: savedEvent.id })
           } else {
-            console.warn('⚠️ [RSS] Event ID mismatch!', {
+            logger.warn('[RSS] Event ID mismatch!', {
               expectedId: result.id,
               foundId: savedEvent.id
             })
@@ -363,7 +363,7 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
             })
           }
         } else {
-          console.error('❌ [RSS] Event NOT found in IndexedDB after save!', {
+          logger.error('[RSS] Event NOT found in IndexedDB after save!', {
             expectedId: result.id,
             pubkey: pubkey.substring(0, 8),
             kind: ExtendedKind.RSS_FEED_LIST 
@@ -375,7 +375,7 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
           })
         }
       } catch (verifyError) {
-        console.error('❌ [RSS] Error verifying event in IndexedDB!', verifyError)
+        logger.error('[RSS] Error verifying event in IndexedDB!', verifyError)
         logger.error('[RssFeedSettingsPage] Failed to verify RSS feed list event in IndexedDB', { 
           error: verifyError,
           pubkey: pubkey.substring(0, 8),

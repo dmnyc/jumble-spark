@@ -886,14 +886,14 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    console.log('🔵 [Publish] Determining target relays...', { kind: event.kind, pubkey: event.pubkey?.substring(0, 8) })
+    logger.debug('[Publish] Determining target relays...', { kind: event.kind, pubkey: event.pubkey?.substring(0, 8) })
     const relays = await client.determineTargetRelays(event, options)
-    console.log('✅ [Publish] Target relays determined', { relayCount: relays.length, relays: relays.slice(0, 5) })
+    logger.debug('[Publish] Target relays determined', { relayCount: relays.length, relays: relays.slice(0, 5) })
 
     try {
-      console.log('🔵 [Publish] Calling client.publishEvent()...', { relayCount: relays.length, eventId: event.id?.substring(0, 8) })
+      logger.debug('[Publish] Calling client.publishEvent()...', { relayCount: relays.length, eventId: event.id?.substring(0, 8) })
       const publishResult = await client.publishEvent(relays, event)
-      console.log('✅ [Publish] publishEvent completed', {
+      logger.debug('[Publish] publishEvent completed', {
         success: publishResult.success,
         successCount: publishResult.successCount,
         totalCount: publishResult.totalCount,
@@ -906,7 +906,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       
       // If publishing failed completely, throw an error so the form doesn't close
       if (!publishResult.success) {
-        console.error('❌ [Publish] Publishing failed to all relays!', {
+        logger.error('[Publish] Publishing failed to all relays!', {
           relayStatuses: publishResult.relayStatuses
         })
         const error = new AggregateError(
@@ -919,7 +919,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         throw error
       }
       
-      console.log('✅ [Publish] Publishing successful, attaching relayStatuses to event')
+      logger.debug('[Publish] Publishing successful, attaching relayStatuses to event')
       // Attach relayStatuses only temporarily for UI feedback, then remove it
       // This prevents it from being included in the event when serialized
       // Use a longer delay to ensure UI components can read it before deletion
@@ -936,7 +936,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       // This ensures replies appear immediately in the note view
       client.emitNewEvent(event)
       
-      console.log('✅ [Publish] Returning event', { eventId: event.id?.substring(0, 8), hasRelayStatuses: !!relayStatuses })
+      logger.debug('[Publish] Returning event', { eventId: event.id?.substring(0, 8), hasRelayStatuses: !!relayStatuses })
       return event
     } catch (error) {
       // Check for authentication-related errors

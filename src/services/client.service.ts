@@ -178,14 +178,14 @@ class ClientService extends EventTarget {
   }
 
   async publishEvent(relayUrls: string[], event: NEvent) {
-    console.log('🔵 [PublishEvent] Starting publishEvent', {
+    logger.debug('[PublishEvent] Starting publishEvent', {
       eventId: event.id?.substring(0, 8),
       kind: event.kind,
       relayCount: relayUrls.length
     })
     
     const uniqueRelayUrls = Array.from(new Set(relayUrls))
-    console.log('🔵 [PublishEvent] Unique relays', { count: uniqueRelayUrls.length, relays: uniqueRelayUrls.slice(0, 5) })
+    logger.debug('[PublishEvent] Unique relays', { count: uniqueRelayUrls.length, relays: uniqueRelayUrls.slice(0, 5) })
     
     const relayStatuses: { url: string; success: boolean; error?: string }[] = []
     
@@ -194,17 +194,17 @@ class ClientService extends EventTarget {
       let finishedCount = 0
       const errors: { url: string; error: any }[] = []
       
-      console.log('🔵 [PublishEvent] Setting up global timeout (30 seconds)')
+      logger.debug('[PublishEvent] Setting up global timeout (30 seconds)')
       let hasResolved = false
       
       // Add a global timeout to prevent hanging - use 30 seconds for faster feedback
       const globalTimeout = setTimeout(() => {
         if (hasResolved) {
-          console.log('🔵 [PublishEvent] Already resolved, ignoring timeout')
+          logger.debug('[PublishEvent] Already resolved, ignoring timeout')
           return
         }
         
-        console.warn('⚠️ [PublishEvent] Global timeout reached!', {
+        logger.warn('[PublishEvent] Global timeout reached!', {
           finishedCount,
           totalRelays: uniqueRelayUrls.length,
           successCount,
@@ -215,7 +215,7 @@ class ClientService extends EventTarget {
         uniqueRelayUrls.forEach(url => {
           const alreadyFinished = relayStatuses.some(rs => rs.url === url)
           if (!alreadyFinished) {
-            console.warn('⚠️ [PublishEvent] Marking relay as timed out', { url })
+            logger.warn('[PublishEvent] Marking relay as timed out', { url })
             relayStatuses.push({ url, success: false, error: 'Timeout: Operation took too long' })
             finishedCount++
           }
@@ -224,7 +224,7 @@ class ClientService extends EventTarget {
         // Ensure we resolve even if not all relays finished
         if (!hasResolved) {
           hasResolved = true
-          console.log('✅ [PublishEvent] Resolving due to timeout', {
+          logger.debug('[PublishEvent] Resolving due to timeout', {
             success: successCount >= uniqueRelayUrls.length / 3,
             successCount,
             totalCount: uniqueRelayUrls.length,
@@ -239,10 +239,10 @@ class ClientService extends EventTarget {
         }
       }, 30_000) // 30 seconds global timeout (reduced from 2 minutes)
       
-      console.log('🔵 [PublishEvent] Starting Promise.allSettled for all relays')
+      logger.debug('[PublishEvent] Starting Promise.allSettled for all relays')
       Promise.allSettled(
         uniqueRelayUrls.map(async (url, index) => {
-          console.log(`🔵 [PublishEvent] Starting relay ${index + 1}/${uniqueRelayUrls.length}`, { url })
+          logger.debug(`[PublishEvent] Starting relay ${index + 1}/${uniqueRelayUrls.length}`, { url })
           // eslint-disable-next-line @typescript-eslint/no-this-alias
           const that = this
           const isLocal = isLocalNetworkUrl(url)
@@ -251,14 +251,14 @@ class ClientService extends EventTarget {
           
           // Set up a per-relay timeout to ensure we always reach the finally block
           const relayTimeout = setTimeout(() => {
-            console.warn(`⚠️ [PublishEvent] Per-relay timeout for ${url}`, { connectionTimeout, publishTimeout })
+            logger.warn(`[PublishEvent] Per-relay timeout for ${url}`, { connectionTimeout, publishTimeout })
             // This will be caught in the catch block if the promise is still pending
           }, connectionTimeout + publishTimeout + 2_000) // Add 2s buffer
           
           try {
             // For local relays, add a connection timeout
             let relay: Relay
-            console.log(`🔵 [PublishEvent] Ensuring relay connection`, { url, isLocal, connectionTimeout })
+            logger.debug(`[PublishEvent] Ensuring relay connection`, { url, isLocal, connectionTimeout })
             
             const connectionPromise = isLocal
               ? Promise.race([
@@ -275,48 +275,48 @@ class ClientService extends EventTarget {
                 ])
             
             relay = await connectionPromise
-            console.log(`✅ [PublishEvent] Relay connected`, { url })
+            logger.debug(`[PublishEvent] Relay connected`, { url })
             
             relay.publishTimeout = publishTimeout
             
-            console.log(`🔵 [PublishEvent] Publishing to relay`, { url })
+            logger.debug(`[PublishEvent] Publishing to relay`, { url })
             
             // Wrap publish in a timeout promise
             const publishPromise = relay
               .publish(event)
               .then(() => {
-                console.log(`✅ [PublishEvent] Successfully published to relay`, { url })
+                logger.debug(`[PublishEvent] Successfully published to relay`, { url })
                 this.trackEventSeenOn(event.id, relay)
                 successCount++
                 relayStatuses.push({ url, success: true })
               })
               .catch((error) => {
-                console.warn(`⚠️ [PublishEvent] Publish failed, checking if auth required`, { url, error: error.message })
+                logger.warn(`[PublishEvent] Publish failed, checking if auth required`, { url, error: error.message })
                 if (
                   error instanceof Error &&
                   error.message.startsWith('auth-required') &&
                   !!that.signer
                 ) {
-                  console.log(`🔵 [PublishEvent] Auth required, attempting authentication`, { url })
+                  logger.debug(`[PublishEvent] Auth required, attempting authentication`, { url })
                   return relay
                     .auth((authEvt: EventTemplate) => that.signer!.signEvent(authEvt))
                     .then(() => {
-                      console.log(`✅ [PublishEvent] Auth successful, retrying publish`, { url })
+                      logger.debug(`[PublishEvent] Auth successful, retrying publish`, { url })
                       return relay.publish(event)
                     })
                     .then(() => {
-                      console.log(`✅ [PublishEvent] Successfully published after auth`, { url })
+                      logger.debug(`[PublishEvent] Successfully published after auth`, { url })
                       this.trackEventSeenOn(event.id, relay)
                       successCount++
                       relayStatuses.push({ url, success: true })
                     })
                     .catch((authError) => {
-                      console.error(`❌ [PublishEvent] Auth or publish failed`, { url, error: authError.message })
+                      logger.error(`[PublishEvent] Auth or publish failed`, { url, error: authError.message })
                       errors.push({ url, error: authError })
                       relayStatuses.push({ url, success: false, error: authError.message })
                     })
                 } else {
-                  console.error(`❌ [PublishEvent] Publish failed`, { url, error: error.message })
+                  logger.error(`[PublishEvent] Publish failed`, { url, error: error.message })
                   errors.push({ url, error })
                   relayStatuses.push({ url, success: false, error: error.message })
                 }
@@ -330,7 +330,7 @@ class ClientService extends EventTarget {
               )
             ])
           } catch (error) {
-            console.error(`❌ [PublishEvent] Connection or setup failed`, { url, error: error instanceof Error ? error.message : String(error) })
+            logger.error(`[PublishEvent] Connection or setup failed`, { url, error: error instanceof Error ? error.message : String(error) })
             errors.push({ url, error })
             relayStatuses.push({ 
               url, 
@@ -340,7 +340,7 @@ class ClientService extends EventTarget {
           } finally {
             clearTimeout(relayTimeout)
             const currentFinished = ++finishedCount
-            console.log(`🔵 [PublishEvent] Relay finished`, { 
+            logger.debug(`[PublishEvent] Relay finished`, { 
               url, 
               finishedCount: currentFinished, 
               totalRelays: uniqueRelayUrls.length,
@@ -354,7 +354,7 @@ class ClientService extends EventTarget {
             }
             if (currentFinished >= uniqueRelayUrls.length && !hasResolved) {
               hasResolved = true
-              console.log('✅ [PublishEvent] All relays finished, resolving', {
+              logger.debug('[PublishEvent] All relays finished, resolving', {
                 success: successCount >= uniqueRelayUrls.length / 3,
                 successCount,
                 totalCount: uniqueRelayUrls.length,
@@ -376,7 +376,7 @@ class ClientService extends EventTarget {
               setTimeout(() => {
                 if (!hasResolved) {
                   hasResolved = true
-                  console.log('✅ [PublishEvent] Resolving early with enough successes', {
+                  logger.debug('[PublishEvent] Resolving early with enough successes', {
                     success: true,
                     successCount,
                     totalCount: uniqueRelayUrls.length,

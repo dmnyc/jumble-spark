@@ -20,6 +20,7 @@ import EmbeddedCitation from '@/components/EmbeddedCitation'
 import { preprocessMarkdownMediaLinks } from './preprocessMarkup'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
+import logger from '@/lib/logger'
 
 /**
  * Truncate link display text to 200 characters, adding ellipsis if truncated
@@ -120,7 +121,7 @@ function CodeBlock({ id, code, language }: { id: string; code: string; language:
             hljs.default.highlightElement(codeRef.current)
           }
         } catch (error) {
-          console.error('Error loading highlight.js:', error)
+          logger.error('Error loading highlight.js:', error)
         }
       }
     }
@@ -184,7 +185,7 @@ function InlineCode({ code, keyPrefix }: { code: string; keyPrefix: string }) {
           displayMode: false
         })
       } catch (error) {
-        console.error('Error rendering LaTeX inline math:', error)
+        logger.error('Error rendering LaTeX inline math:', error)
         // On error, fall back to showing the code as-is
         if (elementRef.current) {
           elementRef.current.textContent = code

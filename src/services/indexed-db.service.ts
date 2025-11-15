@@ -188,7 +188,7 @@ class IndexedDbService {
       return Promise.reject('store name not found')
     }
     
-    console.log('🔵 [IndexedDB] Putting replaceable event', {
+    logger.debug('[IndexedDB] Putting replaceable event', {
       kind: cleanEvent.kind,
       storeName,
       eventId: cleanEvent.id?.substring(0, 8),
@@ -225,7 +225,7 @@ class IndexedDbService {
       
       // Check if the store exists before trying to access it
       if (!this.db.objectStoreNames.contains(storeName)) {
-        console.error('[IndexedDB] Store not found in database after waiting', {
+        logger.error('[IndexedDB] Store not found in database after waiting', {
           storeName,
           kind: cleanEvent.kind,
           availableStores: Array.from(this.db.objectStoreNames),
@@ -240,7 +240,7 @@ class IndexedDbService {
         return resolve(cleanEvent)
       }
       
-      console.log('✅ [IndexedDB] Store exists, proceeding with save', {
+      logger.debug('[IndexedDB] Store exists, proceeding with save', {
         storeName,
         kind: cleanEvent.kind,
         eventId: cleanEvent.id?.substring(0, 8),
@@ -280,7 +280,7 @@ class IndexedDbService {
           return resolve(oldValue.value)
         }
         
-        console.log('🔵 [IndexedDB] Putting new event', { 
+        logger.debug('[IndexedDB] Putting new event', { 
           storeName, 
           key, 
           eventId: cleanEvent.id?.substring(0, 8), 
@@ -290,7 +290,7 @@ class IndexedDbService {
         logger.info('[IndexedDB] Putting new event', { storeName, key, eventId: cleanEvent.id?.substring(0, 8) })
         const putRequest = store.put(this.formatValue(key, cleanEvent))
         putRequest.onsuccess = () => {
-          console.log('✅ [IndexedDB] Successfully put event!', { 
+          logger.debug('[IndexedDB] Successfully put event!', { 
             storeName, 
             key, 
             eventId: cleanEvent.id?.substring(0, 8),
@@ -302,7 +302,7 @@ class IndexedDbService {
         }
 
         putRequest.onerror = (event) => {
-          console.error('❌ [IndexedDB] Error putting event!', { 
+          logger.error('[IndexedDB] Error putting event!', { 
             storeName, 
             key, 
             error: event, 
