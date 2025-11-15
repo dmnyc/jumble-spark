@@ -2,13 +2,31 @@ import Note from '@/components/Note'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import {
   createCommentDraftEvent,
   createPollDraftEvent,
   createPublicMessageDraftEvent,
   createPublicMessageReplyDraftEvent,
   createShortTextNoteDraftEvent,
   createHighlightDraftEvent,
-  deleteDraftEventCache
+  deleteDraftEventCache,
+  createVoiceDraftEvent,
+  createVoiceCommentDraftEvent,
+  createPictureDraftEvent,
+  createVideoDraftEvent,
+  createLongFormArticleDraftEvent,
+  createWikiArticleDraftEvent,
+  createWikiArticleMarkdownDraftEvent,
+  createPublicationContentDraftEvent,
+  createCitationInternalDraftEvent,
+  createCitationExternalDraftEvent,
+  createCitationHardcopyDraftEvent,
+  createCitationPromptDraftEvent
 } from '@/lib/draft-event'
 import { ExtendedKind } from '@/constants'
 import { isTouchDevice } from '@/lib/utils'
@@ -20,7 +38,12 @@ import logger from '@/lib/logger'
 import postEditorCache from '@/services/post-editor-cache.service'
 import storage from '@/services/local-storage.service'
 import { TPollCreateData } from '@/types'
-import { ImageUp, ListTodo, LoaderCircle, MessageCircle, Settings, Smile, X, Highlighter } from 'lucide-react'
+import { ImageUp, ListTodo, LoaderCircle, MessageCircle, Settings, Smile, X, Highlighter, FileText, Quote, Upload } from 'lucide-react'
+import { getMediaKindFromFile } from '@/lib/media-kind-detection'
+import { hasPrivateRelays, getPrivateRelayUrls, hasCacheRelays, getCacheRelayUrls } from '@/lib/private-relays'
+import mediaUpload from '@/services/media-upload.service'
+import { StorageKey } from '@/constants'
+import { isProtectedEvent as isEventProtected, isReplyNoteEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -80,13 +103,29 @@ export default function PostContent({
     relays: []
   })
   const [minPow, setMinPow] = useState(0)
+  const [mediaNoteKind, setMediaNoteKind] = useState<number | null>(null)
+  const [mediaImetaTags, setMediaImetaTags] = useState<string[][]>([])
+  const [mediaUrl, setMediaUrl] = useState<string>('')
+  const [isLongFormArticle, setIsLongFormArticle] = useState(false)
+  const [isWikiArticle, setIsWikiArticle] = useState(false)
+  const [isWikiArticleMarkdown, setIsWikiArticleMarkdown] = useState(false)
+  const [isPublicationContent, setIsPublicationContent] = useState(false)
+  const [isCitationInternal, setIsCitationInternal] = useState(false)
+  const [isCitationExternal, setIsCitationExternal] = useState(false)
+  const [isCitationHardcopy, setIsCitationHardcopy] = useState(false)
+  const [isCitationPrompt, setIsCitationPrompt] = useState(false)
+  const [hasPrivateRelaysAvailable, setHasPrivateRelaysAvailable] = useState(false)
+  const [hasCacheRelaysAvailable, setHasCacheRelaysAvailable] = useState(false)
+  const [useCacheOnlyForPrivateNotes, setUseCacheOnlyForPrivateNotes] = useState(true) // Default ON
+  const uploadedMediaFileMap = useRef<Map<string, File>>(new Map())
   const isFirstRender = useRef(true)
   const canPost = useMemo(() => {
     const result = (
       !!pubkey &&
-      !!text &&
       !posting &&
       !uploadProgresses.length &&
+      // For media notes, text is optional - just need media
+      ((mediaNoteKind !== null && mediaUrl) || !!text) &&
       (!isPoll || pollCreateData.options.filter((option) => !!option.trim()).length >= 2) &&
       (!isPublicMessage || extractedMentions.length > 0 || parentEvent?.kind === ExtendedKind.PUBLIC_MESSAGE) &&
       (!isProtectedEvent || additionalRelayUrls.length > 0) &&
@@ -99,6 +138,8 @@ export default function PostContent({
     text,
     posting,
     uploadProgresses,
+    mediaNoteKind,
+    mediaUrl,
     isPoll,
     pollCreateData,
     isPublicMessage,
@@ -190,6 +231,30 @@ export default function PostContent({
     }
   }, [text, extractMentionsFromContent])
 
+  // Check for private relays availability
+  useEffect(() => {
+    if (!pubkey) {
+      setHasPrivateRelaysAvailable(false)
+      setHasCacheRelaysAvailable(false)
+      return
+    }
+    
+    hasPrivateRelays(pubkey).then(setHasPrivateRelaysAvailable).catch(() => {
+      setHasPrivateRelaysAvailable(false)
+    })
+    
+    hasCacheRelays(pubkey).then(setHasCacheRelaysAvailable).catch(() => {
+      setHasCacheRelaysAvailable(false)
+    })
+  }, [pubkey])
+
+  // Load cache-only preference from localStorage
+  useEffect(() => {
+    const stored = window.localStorage.getItem(StorageKey.USE_CACHE_ONLY_FOR_PRIVATE_NOTES)
+    // Default to true (ON) if not set
+    setUseCacheOnlyForPrivateNotes(stored === null ? true : stored === 'true')
+  }, [])
+
   const post = async (e?: React.MouseEvent) => {
     e?.stopPropagation()
     checkLogin(async () => {
@@ -225,12 +290,171 @@ export default function PostContent({
         )
         
         // Get expiration and quiet settings
+        // Only add expiration tags to chatting kinds: 1, 1111, 1222, 1244
+        const isChattingKind = (kind: number) => 
+          kind === kinds.ShortTextNote || 
+          kind === ExtendedKind.COMMENT || 
+          kind === ExtendedKind.VOICE || 
+          kind === ExtendedKind.VOICE_COMMENT
+        
         const addExpirationTag = storage.getDefaultExpirationEnabled()
         const expirationMonths = storage.getDefaultExpirationMonths()
         const addQuietTag = storage.getDefaultQuietEnabled()
         const quietDays = storage.getDefaultQuietDays()
+        
+        // Determine if we should use protected event tag
+        // Only use it when replying to an OP event that also has the "-" tag
+        let shouldUseProtectedEvent = false
+        if (parentEvent) {
+          // Check if parent event is an OP (not a reply itself) and has the "-" tag
+          const isParentOP = !isReplyNoteEvent(parentEvent)
+          const parentHasProtectedTag = isEventProtected(parentEvent)
+          shouldUseProtectedEvent = isParentOP && parentHasProtectedTag
+        }
 
-        if (isHighlight) {
+        // Determine relay URLs for private events
+        let privateRelayUrls: string[] = []
+        const isPrivateEvent = isPublicationContent || isCitationInternal || isCitationExternal || isCitationHardcopy || isCitationPrompt
+        if (isPrivateEvent) {
+          if (useCacheOnlyForPrivateNotes && hasCacheRelaysAvailable) {
+            // Use only cache relays if toggle is ON
+            privateRelayUrls = await getCacheRelayUrls(pubkey!)
+          } else {
+            // Use all private relays (outbox + cache)
+            privateRelayUrls = await getPrivateRelayUrls(pubkey!)
+          }
+        }
+
+        if (mediaNoteKind !== null && mediaUrl) {
+          // Media notes
+          if (parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT) {
+            // Voice comment
+            draftEvent = await createVoiceCommentDraftEvent(
+              cleanedText,
+              parentEvent,
+              mediaUrl,
+              mediaImetaTags,
+              mentions,
+              {
+                addClientTag,
+                protectedEvent: shouldUseProtectedEvent,
+                isNsfw,
+                addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.VOICE_COMMENT),
+                expirationMonths,
+                addQuietTag,
+                quietDays
+              }
+            )
+          } else if (mediaNoteKind === ExtendedKind.VOICE) {
+            // Voice note
+            draftEvent = await createVoiceDraftEvent(
+              cleanedText,
+              mediaUrl,
+              mediaImetaTags,
+              mentions,
+              {
+                addClientTag,
+                isNsfw,
+                addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.VOICE),
+                expirationMonths,
+                addQuietTag,
+                quietDays
+              }
+            )
+          } else if (mediaNoteKind === ExtendedKind.PICTURE) {
+            // Picture note
+            draftEvent = await createPictureDraftEvent(
+              cleanedText,
+              mediaImetaTags,
+              mentions,
+              {
+                addClientTag,
+                isNsfw,
+                addExpirationTag: false, // Picture notes are not chatting kinds
+                expirationMonths,
+                addQuietTag,
+                quietDays
+              }
+            )
+          } else if (mediaNoteKind === ExtendedKind.VIDEO || mediaNoteKind === ExtendedKind.SHORT_VIDEO) {
+            // Video note
+            draftEvent = await createVideoDraftEvent(
+              cleanedText,
+              mediaImetaTags,
+              mentions,
+              mediaNoteKind,
+              {
+                addClientTag,
+                isNsfw,
+                addExpirationTag: false, // Video notes are not chatting kinds
+                expirationMonths,
+                addQuietTag,
+                quietDays
+              }
+            )
+          }
+        } else if (isLongFormArticle) {
+          draftEvent = await createLongFormArticleDraftEvent(cleanedText, mentions, {
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Articles are not chatting kinds
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (isWikiArticle) {
+          draftEvent = await createWikiArticleDraftEvent(cleanedText, mentions, {
+            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Wiki articles are not chatting kinds
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (isWikiArticleMarkdown) {
+          draftEvent = await createWikiArticleMarkdownDraftEvent(cleanedText, mentions, {
+            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Wiki articles are not chatting kinds
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (isPublicationContent) {
+          draftEvent = await createPublicationContentDraftEvent(cleanedText, mentions, {
+            dTag: cleanedText.substring(0, 50).toLowerCase().replace(/[^a-z0-9]/g, '-'), // Simple d-tag from content
+            addClientTag,
+            isNsfw,
+            addExpirationTag: false, // Publication content is not a chatting kind
+            expirationMonths,
+            addQuietTag,
+            quietDays
+          })
+        } else if (isCitationInternal) {
+          // For now, use a simple format - in a real implementation, this would have a form
+          draftEvent = createCitationInternalDraftEvent(cleanedText, {
+            cTag: '', // Would need to be filled from a form
+            title: cleanedText.substring(0, 100)
+          })
+        } else if (isCitationExternal) {
+          draftEvent = createCitationExternalDraftEvent(cleanedText, {
+            url: '', // Would need to be filled from a form
+            accessedOn: new Date().toISOString(),
+            title: cleanedText.substring(0, 100)
+          })
+        } else if (isCitationHardcopy) {
+          draftEvent = createCitationHardcopyDraftEvent(cleanedText, {
+            accessedOn: new Date().toISOString(),
+            title: cleanedText.substring(0, 100)
+          })
+        } else if (isCitationPrompt) {
+          draftEvent = createCitationPromptDraftEvent(cleanedText, {
+            llm: '', // Would need to be filled from a form
+            accessedOn: new Date().toISOString()
+          })
+        } else if (isHighlight) {
           // For highlights, pass the original sourceValue which contains the full identifier
           // The createHighlightDraftEvent function will parse it correctly
         draftEvent = await createHighlightDraftEvent(
@@ -242,7 +466,7 @@ export default function PostContent({
           {
             addClientTag,
             isNsfw,
-            addExpirationTag,
+            addExpirationTag: false, // Highlights are not chatting kinds
             expirationMonths,
             addQuietTag,
             quietDays
@@ -252,7 +476,7 @@ export default function PostContent({
           draftEvent = await createPublicMessageDraftEvent(cleanedText, extractedMentions, {
             addClientTag,
             isNsfw,
-            addExpirationTag,
+            addExpirationTag: false, // Public messages are not chatting kinds
             expirationMonths,
             addQuietTag,
             quietDays
@@ -261,7 +485,7 @@ export default function PostContent({
           draftEvent = await createPublicMessageReplyDraftEvent(cleanedText, parentEvent, mentions, {
             addClientTag,
             isNsfw,
-            addExpirationTag,
+            addExpirationTag: false, // Public messages are not chatting kinds
             expirationMonths,
             addQuietTag,
             quietDays
@@ -269,9 +493,9 @@ export default function PostContent({
         } else if (parentEvent && parentEvent.kind !== kinds.ShortTextNote) {
           draftEvent = await createCommentDraftEvent(cleanedText, parentEvent, mentions, {
             addClientTag,
-            protectedEvent: isProtectedEvent,
+            protectedEvent: shouldUseProtectedEvent,
             isNsfw,
-            addExpirationTag,
+            addExpirationTag: addExpirationTag && isChattingKind(ExtendedKind.COMMENT),
             expirationMonths,
             addQuietTag,
             quietDays
@@ -280,21 +504,20 @@ export default function PostContent({
           draftEvent = await createPollDraftEvent(pubkey!, cleanedText, mentions, pollCreateData, {
             addClientTag,
             isNsfw,
-            addExpirationTag,
+            addExpirationTag: false, // Polls are not chatting kinds
             expirationMonths,
             addQuietTag,
             quietDays
           })
         } else {
           // For regular kind 1 note OPs (no parentEvent), never use protectedEvent
-          // protectedEvent should only be used for public messages and discussions
-          const shouldUseProtectedEvent = parentEvent ? isProtectedEvent : false
+          // protectedEvent should only be used when replying to an OP that has it
           draftEvent = await createShortTextNoteDraftEvent(cleanedText, mentions, {
             parentEvent,
             addClientTag,
             protectedEvent: shouldUseProtectedEvent,
             isNsfw,
-            addExpirationTag,
+            addExpirationTag: addExpirationTag && isChattingKind(kinds.ShortTextNote),
             expirationMonths,
             addQuietTag,
             quietDays
@@ -302,11 +525,16 @@ export default function PostContent({
         }
 
         // console.log('Publishing draft event:', draftEvent)
+        // For private events, only publish to private relays
+        const relayUrls = isPrivateEvent && privateRelayUrls.length > 0 
+          ? privateRelayUrls 
+          : (additionalRelayUrls.length > 0 ? additionalRelayUrls : undefined)
+        
         newEvent = await publish(draftEvent, {
-          specifiedRelayUrls: additionalRelayUrls.length > 0 ? additionalRelayUrls : undefined,
-          additionalRelayUrls: isPoll ? pollCreateData.relays : additionalRelayUrls,
+          specifiedRelayUrls: relayUrls,
+          additionalRelayUrls: isPoll ? pollCreateData.relays : (isPrivateEvent ? privateRelayUrls : additionalRelayUrls),
           minPow,
-          disableFallbacks: additionalRelayUrls.length > 0 // Don't use fallbacks if user explicitly selected relays
+          disableFallbacks: additionalRelayUrls.length > 0 || isPrivateEvent // Don't use fallbacks if user explicitly selected relays or for private events
         })
         // console.log('Published event:', newEvent)
         
@@ -438,6 +666,10 @@ export default function PostContent({
 
   const handleUploadStart = (file: File, cancel: () => void) => {
     setUploadProgresses((prev) => [...prev, { file, progress: 0, cancel }])
+    // Track file for media upload
+    if (file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/')) {
+      uploadedMediaFileMap.current.set(file.name, file)
+    }
   }
 
   const handleUploadProgress = (file: File, progress: number) => {
@@ -448,6 +680,129 @@ export default function PostContent({
 
   const handleUploadEnd = (file: File) => {
     setUploadProgresses((prev) => prev.filter((item) => item.file !== file))
+    // Keep file in map until upload success is called
+  }
+
+  const handleMediaUploadSuccess = async ({ url, tags }: { url: string; tags: string[][] }) => {
+    // Find the file from the map - try to match by URL or get the most recent
+    let uploadingFile: File | undefined
+    // Try to find by matching URL pattern or get the first available
+    for (const [, file] of uploadedMediaFileMap.current.entries()) {
+      uploadingFile = file
+      break // Get first available
+    }
+    
+    if (!uploadingFile) {
+      // Try to get from uploadProgresses as fallback
+      const progressItem = uploadProgresses.find(p => p.file)
+      uploadingFile = progressItem?.file
+    }
+    
+    if (!uploadingFile) {
+      logger.warn('Media upload succeeded but file not found')
+      return
+    }
+
+    // Determine media kind from file
+    // For replies, only audio comments are supported (kind 1244)
+    // For new posts, all media types are supported
+    if (parentEvent) {
+      // For replies, only allow audio comments
+      const fileType = uploadingFile.type
+      const fileName = uploadingFile.name.toLowerCase()
+      const isAudio = fileType.startsWith('audio/') || /\.(mp3|m4a|ogg|wav|webm|opus|aac|flac)$/i.test(fileName)
+      
+      if (isAudio) {
+        // For replies, always create voice comments, regardless of duration
+        setMediaNoteKind(ExtendedKind.VOICE_COMMENT)
+      } else {
+        // Non-audio media in replies - don't set mediaNoteKind, will be handled as regular comment
+        // Clear any existing media note kind
+        setMediaNoteKind(null)
+        setMediaUrl('')
+        setMediaImetaTags([])
+        // Just add the media URL to the text content
+        textareaRef.current?.appendText(url, true)
+        return // Don't set media note kind for non-audio in replies
+      }
+    } else {
+      // For new posts, use the detected kind (which handles audio > 60s → video)
+      const kind = await getMediaKindFromFile(uploadingFile, false)
+      setMediaNoteKind(kind)
+    }
+    setMediaUrl(url)
+    
+    // Get imeta tag from media upload service
+    const imetaTag = mediaUpload.getImetaTagByUrl(url)
+    if (imetaTag) {
+      // imetaTag is already a string[] like ['imeta', 'url https://...', 'm image/jpeg']
+      // We need it as string[][] for the draft event functions
+      setMediaImetaTags([imetaTag])
+    } else if (tags && tags.length > 0) {
+      // Use tags from upload result - they should already be in the right format
+      setMediaImetaTags(tags)
+    } else {
+      // Create a basic imeta tag if none exists
+      const basicImetaTag: string[] = ['imeta', `url ${url}`]
+      if (uploadingFile.type) {
+        basicImetaTag.push(`m ${uploadingFile.type}`)
+      }
+      setMediaImetaTags([basicImetaTag])
+    }
+    
+    // Clear other note types when media is selected
+    setIsPoll(false)
+    setIsPublicMessage(false)
+    setIsHighlight(false)
+    setIsLongFormArticle(false)
+    setIsWikiArticle(false)
+    setIsWikiArticleMarkdown(false)
+    setIsPublicationContent(false)
+    setIsCitationInternal(false)
+    setIsCitationExternal(false)
+    setIsCitationHardcopy(false)
+    setIsCitationPrompt(false)
+    
+    // Clear uploaded file from map
+    uploadedMediaFileMap.current.clear()
+  }
+
+  const handleArticleToggle = (type: 'longform' | 'wiki' | 'wiki-markdown' | 'publication') => {
+    if (parentEvent) return // Can't create articles as replies
+    
+    setIsLongFormArticle(type === 'longform')
+    setIsWikiArticle(type === 'wiki')
+    setIsWikiArticleMarkdown(type === 'wiki-markdown')
+    setIsPublicationContent(type === 'publication')
+    
+    // Clear other types
+    setIsPoll(false)
+    setIsPublicMessage(false)
+    setIsHighlight(false)
+    setMediaNoteKind(null)
+    setIsCitationInternal(false)
+    setIsCitationExternal(false)
+    setIsCitationHardcopy(false)
+    setIsCitationPrompt(false)
+  }
+
+  const handleCitationToggle = (type: 'internal' | 'external' | 'hardcopy' | 'prompt') => {
+    if (parentEvent) return // Can't create citations as replies
+    
+    setIsCitationInternal(type === 'internal')
+    setIsCitationExternal(type === 'external')
+    setIsCitationHardcopy(type === 'hardcopy')
+    setIsCitationPrompt(type === 'prompt')
+    
+    // Clear other types
+    setIsPoll(false)
+    setIsPublicMessage(false)
+    setIsHighlight(false)
+    setMediaNoteKind(null)
+    setIsLongFormArticle(false)
+    setIsWikiArticle(false)
+    setIsWikiArticleMarkdown(false)
+    setIsPublicationContent(false)
   }
 
   return (
@@ -459,16 +814,42 @@ export default function PostContent({
             <div className="shrink-0">
               {parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE 
                 ? t('Reply to Public Message')
-                : t('Reply to')
+                : mediaNoteKind === ExtendedKind.VOICE_COMMENT
+                  ? t('Voice Comment')
+                  : t('Reply to')
               }
             </div>
           </div>
+        ) : mediaNoteKind === ExtendedKind.VOICE ? (
+          t('Voice Note')
+        ) : mediaNoteKind === ExtendedKind.PICTURE ? (
+          t('Picture Note')
+        ) : mediaNoteKind === ExtendedKind.VIDEO ? (
+          t('Video Note')
+        ) : mediaNoteKind === ExtendedKind.SHORT_VIDEO ? (
+          t('Short Video Note')
         ) : isPoll ? (
           t('New Poll')
         ) : isPublicMessage ? (
           t('New Public Message')
         ) : isHighlight ? (
           t('New Highlight')
+        ) : isLongFormArticle ? (
+          t('New Long-form Article')
+        ) : isWikiArticle ? (
+          t('New Wiki Article')
+        ) : isWikiArticleMarkdown ? (
+          t('New Wiki Article (Markdown)')
+        ) : isPublicationContent ? (
+          t('New Publication Content')
+        ) : isCitationInternal ? (
+          t('New Internal Citation')
+        ) : isCitationExternal ? (
+          t('New External Citation')
+        ) : isCitationHardcopy ? (
+          t('New Hardcopy Citation')
+        ) : isCitationPrompt ? (
+          t('New Prompt Citation')
         ) : (
           t('New Note')
         )}
@@ -482,20 +863,159 @@ export default function PostContent({
         </ScrollArea>
       )}
       <PostTextarea
-        ref={textareaRef}
-        text={text}
-        setText={setText}
-        defaultContent={defaultContent}
-        parentEvent={parentEvent}
-        onSubmit={() => post()}
-        className={isPoll ? 'min-h-20' : 'min-h-52'}
-        onUploadStart={handleUploadStart}
-        onUploadProgress={handleUploadProgress}
-        onUploadEnd={handleUploadEnd}
-        kind={isHighlight ? kinds.Highlights : isPublicMessage ? ExtendedKind.PUBLIC_MESSAGE : isPoll ? ExtendedKind.POLL : kinds.ShortTextNote}
-        highlightData={isHighlight ? highlightData : undefined}
-        pollCreateData={isPoll ? pollCreateData : undefined}
-      />
+          ref={textareaRef}
+          text={text}
+          setText={setText}
+          defaultContent={defaultContent}
+          parentEvent={parentEvent}
+          onSubmit={() => post()}
+          className={isPoll ? 'min-h-20' : 'min-h-52'}
+          onUploadStart={handleUploadStart}
+          onUploadProgress={handleUploadProgress}
+          onUploadEnd={handleUploadEnd}
+          kind={
+            mediaNoteKind !== null
+              ? mediaNoteKind
+              : isHighlight
+                ? kinds.Highlights
+                : isPublicMessage
+                  ? ExtendedKind.PUBLIC_MESSAGE
+                  : isPoll
+                    ? ExtendedKind.POLL
+                    : isLongFormArticle
+                      ? kinds.LongFormArticle
+                      : isWikiArticle
+                        ? ExtendedKind.WIKI_ARTICLE
+                        : isWikiArticleMarkdown
+                          ? ExtendedKind.WIKI_ARTICLE_MARKDOWN
+                          : isPublicationContent
+                            ? ExtendedKind.PUBLICATION_CONTENT
+                            : kinds.ShortTextNote
+          }
+          highlightData={isHighlight ? highlightData : undefined}
+          pollCreateData={isPoll ? pollCreateData : undefined}
+          headerActions={
+            <>
+              {/* Media button */}
+              <Uploader
+                onUploadSuccess={handleMediaUploadSuccess}
+                onUploadStart={handleUploadStart}
+                onUploadEnd={handleUploadEnd}
+                onProgress={handleUploadProgress}
+                accept="image/*,audio/*,video/*"
+              >
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  title={t('Upload Media')}
+                  className={mediaNoteKind !== null ? 'bg-accent' : ''}
+                >
+                  <Upload className="h-4 w-4" />
+                </Button>
+              </Uploader>
+              {/* Note creation buttons - only show when not replying */}
+              {!parentEvent && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title={t('Create Highlight')}
+                    className={isHighlight ? 'bg-accent' : ''}
+                    onClick={handleHighlightToggle}
+                  >
+                    <Highlighter className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title={t('Send Public Message')}
+                    className={isPublicMessage ? 'bg-accent' : ''}
+                    onClick={handlePublicMessageToggle}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title={t('Create Poll')}
+                    className={isPoll ? 'bg-accent' : ''}
+                    onClick={handlePollToggle}
+                  >
+                    <ListTodo className="h-4 w-4" />
+                  </Button>
+                  {/* Article dropdown - only show if has private relays for publication content */}
+                  {(hasPrivateRelaysAvailable || !isPublicationContent) && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title={t('Create Article')}
+                          className={
+                            isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
+                              ? 'bg-accent'
+                              : ''
+                          }
+                        >
+                          <FileText className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => handleArticleToggle('longform')}>
+                          {t('Long-form Article')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleArticleToggle('wiki')}>
+                          {t('Wiki Article (AsciiDoc)')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleArticleToggle('wiki-markdown')}>
+                          {t('Wiki Article (Markdown)')}
+                        </DropdownMenuItem>
+                        {hasPrivateRelaysAvailable && (
+                          <DropdownMenuItem onClick={() => handleArticleToggle('publication')}>
+                            {t('Publication Content')}
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                  {/* Citation dropdown - only show if has private relays */}
+                  {hasPrivateRelaysAvailable && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title={t('Create Citation')}
+                          className={
+                            isCitationInternal || isCitationExternal || isCitationHardcopy || isCitationPrompt
+                              ? 'bg-accent'
+                              : ''
+                          }
+                        >
+                          <Quote className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => handleCitationToggle('internal')}>
+                          {t('Internal Citation')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleCitationToggle('external')}>
+                          {t('External Citation')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleCitationToggle('hardcopy')}>
+                          {t('Hardcopy Citation')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleCitationToggle('prompt')}>
+                          {t('Prompt Citation')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </>
+              )}
+            </>
+          }
+        />
       {isPoll && (
         <PollEditor
           pollCreateData={pollCreateData}
@@ -579,9 +1099,9 @@ export default function PostContent({
             onUploadStart={handleUploadStart}
             onUploadEnd={handleUploadEnd}
             onProgress={handleUploadProgress}
-            accept="image/*,video/*,audio/*"
+            accept="image/*"
           >
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" title={t('Upload Image')}>
               <ImageUp />
             </Button>
           </Uploader>
@@ -599,39 +1119,6 @@ export default function PostContent({
                 <Smile />
               </Button>
             </EmojiPickerDialog>
-          )}
-          {!parentEvent && (
-            <Button
-              variant="ghost"
-              size="icon"
-              title={t('Create Poll')}
-              className={isPoll ? 'bg-accent' : ''}
-              onClick={handlePollToggle}
-            >
-              <ListTodo />
-            </Button>
-          )}
-          {!parentEvent && (
-            <Button
-              variant="ghost"
-              size="icon"
-              title={t('Send Public Message')}
-              className={isPublicMessage ? 'bg-accent' : ''}
-              onClick={handlePublicMessageToggle}
-            >
-              <MessageCircle />
-            </Button>
-          )}
-          {!parentEvent && (
-            <Button
-              variant="ghost"
-              size="icon"
-              title={t('Create Highlight')}
-              className={isHighlight ? 'bg-accent' : ''}
-              onClick={handleHighlightToggle}
-            >
-              <Highlighter />
-            </Button>
           )}
           <Button
             variant="ghost"
@@ -675,6 +1162,9 @@ export default function PostContent({
         setIsNsfw={setIsNsfw}
         minPow={minPow}
         setMinPow={setMinPow}
+        useCacheOnlyForPrivateNotes={useCacheOnlyForPrivateNotes}
+        setUseCacheOnlyForPrivateNotes={setUseCacheOnlyForPrivateNotes}
+        hasCacheRelaysAvailable={hasCacheRelaysAvailable}
       />
       <div className="flex gap-2 items-center justify-around sm:hidden">
         <Button

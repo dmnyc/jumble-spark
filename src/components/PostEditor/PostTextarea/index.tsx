@@ -44,6 +44,7 @@ const PostTextarea = forwardRef<
     kind?: number
     highlightData?: HighlightData
     pollCreateData?: import('@/types').TPollCreateData
+    headerActions?: React.ReactNode
   }
 >(
   (
@@ -59,7 +60,8 @@ const PostTextarea = forwardRef<
       onUploadEnd,
       kind = 1,
       highlightData,
-      pollCreateData
+      pollCreateData,
+      headerActions
     },
     ref
   ) => {
@@ -167,10 +169,17 @@ const PostTextarea = forwardRef<
 
     return (
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
-        <TabsList>
-          <TabsTrigger value="edit">{t('Edit')}</TabsTrigger>
-          <TabsTrigger value="preview">{t('Preview')}</TabsTrigger>
-        </TabsList>
+        <div className="flex items-center justify-between">
+          <TabsList>
+            <TabsTrigger value="edit">{t('Edit')}</TabsTrigger>
+            <TabsTrigger value="preview">{t('Preview')}</TabsTrigger>
+          </TabsList>
+          {headerActions && (
+            <div className="flex gap-1 items-center">
+              {headerActions}
+            </div>
+          )}
+        </div>
         <TabsContent value="edit">
           <EditorContent className="tiptap" editor={editor} />
         </TabsContent>

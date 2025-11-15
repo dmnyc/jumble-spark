@@ -48,6 +48,7 @@ export const StorageKey = {
   SHOWN_CREATE_WALLET_GUIDE_TOAST_PUBKEYS: 'shownCreateWalletGuideToastPubkeys',
   SHOW_RECOMMENDED_RELAYS_PANEL: 'showRecommendedRelaysPanel',
   DEFAULT_EXPIRATION_ENABLED: 'defaultExpirationEnabled',
+  USE_CACHE_ONLY_FOR_PRIVATE_NOTES: 'useCacheOnlyForPrivateNotes',
   DEFAULT_EXPIRATION_MONTHS: 'defaultExpirationMonths',
   DEFAULT_QUIET_ENABLED: 'defaultQuietEnabled',
   DEFAULT_QUIET_DAYS: 'defaultQuietDays',
@@ -150,6 +151,10 @@ export const ExtendedKind = {
   WIKI_ARTICLE: 30818,
   WIKI_ARTICLE_MARKDOWN: 30817,
   PUBLICATION_CONTENT: 30041,
+  CITATION_INTERNAL: 30,
+  CITATION_EXTERNAL: 31,
+  CITATION_HARDCOPY: 32,
+  CITATION_PROMPT: 33,
   RSS_FEED_LIST: 10895,
   // NIP-89 Application Handlers
   APPLICATION_HANDLER_RECOMMENDATION: 31989,

@@ -1165,3 +1165,703 @@ export async function createHighlightDraftEvent(
     content: highlightedText
   })
 }
+
+// Media note draft event functions
+
+export async function createVoiceDraftEvent(
+  content: string,
+  mediaUrl: string,
+  imetaTags: string[][],
+  mentions: string[],
+  options: {
+    addClientTag?: boolean
+    isNsfw?: boolean
+    addExpirationTag?: boolean
+    expirationMonths?: number
+    addQuietTag?: boolean
+    quietDays?: number
+  } = {}
+): Promise<TDraftEvent> {
+  const { content: transformedEmojisContent, emojiTags } = transformCustomEmojisInContent(content)
+  const hashtags = extractHashtags(transformedEmojisContent)
+  
+  const tags: string[][] = []
+  tags.push(...emojiTags)
+  tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  tags.push(...imetaTags)
+  tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
+  
+  if (options.addClientTag) {
+    tags.push(buildClientTag())
+    tags.push(buildAltTag())
+  }
+  
+  if (options.isNsfw) {
+    tags.push(buildNsfwTag())
+  }
+  
+  if (options.addExpirationTag && options.expirationMonths) {
+    tags.push(buildExpirationTag(options.expirationMonths))
+  }
+  
+  if (options.addQuietTag && options.quietDays) {
+    tags.push(buildQuietTag(options.quietDays))
+  }
+  
+  return setDraftEventCache({
+    kind: ExtendedKind.VOICE,
+    content: transformedEmojisContent || mediaUrl, // Content is optional text, fallback to URL
+    tags
+  })
+}
+
+export async function createVoiceCommentDraftEvent(
+  content: string,
+  parentEvent: Event,
+  mediaUrl: string,
+  imetaTags: string[][],
+  mentions: string[],
+  options: {
+    addClientTag?: boolean
+    protectedEvent?: boolean
+    isNsfw?: boolean
+    addExpirationTag?: boolean
+    expirationMonths?: number
+    addQuietTag?: boolean
+    quietDays?: number
+  } = {}
+): Promise<TDraftEvent> {
+  const { content: transformedEmojisContent, emojiTags } = transformCustomEmojisInContent(content)
+  const {
+    quoteEventHexIds,
+    quoteReplaceableCoordinates,
+    rootEventId,
+    rootCoordinateTag,
+    rootKind,
+    rootPubkey,
+    rootUrl
+  } = await extractCommentMentions(transformedEmojisContent, parentEvent)
+  const hashtags = extractHashtags(transformedEmojisContent)
+  
+  const tags: string[][] = []
+  tags.push(...emojiTags)
+  tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  tags.push(...imetaTags)
+  tags.push(...quoteEventHexIds.map((eventId) => buildQTag(eventId)))
+  tags.push(...quoteReplaceableCoordinates.map((coordinate) => buildReplaceableQTag(coordinate)))
+  
+  tags.push(
+    ...mentions.filter((pubkey) => pubkey !== parentEvent.pubkey).map((pubkey) => buildPTag(pubkey))
+  )
+  
+  if (rootCoordinateTag) {
+    tags.push(rootCoordinateTag)
+  } else if (rootEventId) {
+    tags.push(buildETag(rootEventId, rootPubkey, '', true))
+  }
+  if (rootPubkey) {
+    tags.push(buildPTag(rootPubkey, true))
+  }
+  if (rootKind) {
+    tags.push(buildKTag(rootKind, true))
+  }
+  if (rootUrl) {
+    tags.push(buildITag(rootUrl, true))
+  }
+  tags.push(
+    ...[
+      isReplaceableEvent(parentEvent.kind)
+        ? buildATag(parentEvent)
+        : buildETag(parentEvent.id, parentEvent.pubkey),
+      buildKTag(parentEvent.kind),
+      buildPTag(parentEvent.pubkey)
+    ]
+  )
+  
+  if (options.addClientTag) {
+    tags.push(buildClientTag())
+    tags.push(buildAltTag())
+  }
+  
+  if (options.isNsfw) {
+    tags.push(buildNsfwTag())
+  }
+  
+  if (options.protectedEvent) {
+    tags.push(buildProtectedTag())
+  }
+  
+  if (options.addExpirationTag && options.expirationMonths) {
+    tags.push(buildExpirationTag(options.expirationMonths))
+  }
+  
+  if (options.addQuietTag && options.quietDays) {
+    tags.push(buildQuietTag(options.quietDays))
+  }
+  
+  return setDraftEventCache({
+    kind: ExtendedKind.VOICE_COMMENT,
+    content: transformedEmojisContent || mediaUrl, // Content is optional text, fallback to URL
+    tags
+  })
+}
+
+export async function createPictureDraftEvent(
+  content: string,
+  imetaTags: string[][],
+  mentions: string[],
+  options: {
+    title?: string
+    addClientTag?: boolean
+    isNsfw?: boolean
+    addExpirationTag?: boolean
+    expirationMonths?: number
+    addQuietTag?: boolean
+    quietDays?: number
+  } = {}
+): Promise<TDraftEvent> {
+  const { content: transformedEmojisContent, emojiTags } = transformCustomEmojisInContent(content)
+  const hashtags = extractHashtags(transformedEmojisContent)
+  
+  const tags: string[][] = []
+  if (options.title) {
+    tags.push(buildTitleTag(options.title))
+  }
+  tags.push(...emojiTags)
+  tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  tags.push(...imetaTags)
+  tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
+  
+  if (options.addClientTag) {
+    tags.push(buildClientTag())
+    tags.push(buildAltTag())
+  }
+  
+  if (options.isNsfw) {
+    tags.push(buildNsfwTag())
+  }
+  
+  if (options.addExpirationTag && options.expirationMonths) {
+    tags.push(buildExpirationTag(options.expirationMonths))
+  }
+  
+  if (options.addQuietTag && options.quietDays) {
+    tags.push(buildQuietTag(options.quietDays))
+  }
+  
+  return setDraftEventCache({
+    kind: ExtendedKind.PICTURE,
+    content: transformedEmojisContent,
+    tags
+  })
+}
+
+export async function createVideoDraftEvent(
+  content: string,
+  imetaTags: string[][],
+  mentions: string[],
+  videoKind: number, // 21 or 22
+  options: {
+    title?: string
+    addClientTag?: boolean
+    isNsfw?: boolean
+    addExpirationTag?: boolean
+    expirationMonths?: number
+    addQuietTag?: boolean
+    quietDays?: number
+  } = {}
+): Promise<TDraftEvent> {
+  const { content: transformedEmojisContent, emojiTags } = transformCustomEmojisInContent(content)
+  const hashtags = extractHashtags(transformedEmojisContent)
+  
+  const tags: string[][] = []
+  if (options.title) {
+    tags.push(buildTitleTag(options.title))
+  }
+  tags.push(...emojiTags)
+  tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  tags.push(...imetaTags)
+  tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
+  
+  if (options.addClientTag) {
+    tags.push(buildClientTag())
+    tags.push(buildAltTag())
+  }
+  
+  if (options.isNsfw) {
+    tags.push(buildNsfwTag())
+  }
+  
+  if (options.addExpirationTag && options.expirationMonths) {
+    tags.push(buildExpirationTag(options.expirationMonths))
+  }
+  
+  if (options.addQuietTag && options.quietDays) {
+    tags.push(buildQuietTag(options.quietDays))
+  }
+  
+  return setDraftEventCache({
+    kind: videoKind, // ExtendedKind.VIDEO or ExtendedKind.SHORT_VIDEO
+    content: transformedEmojisContent,
+    tags
+  })
+}
+
+// Article draft event functions
+
+export async function createLongFormArticleDraftEvent(
+  content: string,
+  mentions: string[],
+  options: {
+    title?: string
+    summary?: string
+    image?: string
+    publishedAt?: number
+    dTag?: string
+    addClientTag?: boolean
+    isNsfw?: boolean
+    addExpirationTag?: boolean
+    expirationMonths?: number
+    addQuietTag?: boolean
+    quietDays?: number
+  } = {}
+): Promise<TDraftEvent> {
+  const { content: transformedEmojisContent, emojiTags } = transformCustomEmojisInContent(content)
+  const hashtags = extractHashtags(transformedEmojisContent)
+  
+  const tags: string[][] = []
+  if (options.dTag) {
+    tags.push(buildDTag(options.dTag))
+  }
+  if (options.title) {
+    tags.push(buildTitleTag(options.title))
+  }
+  if (options.summary) {
+    tags.push(['summary', options.summary])
+  }
+  if (options.image) {
+    tags.push(['image', options.image])
+  }
+  if (options.publishedAt) {
+    tags.push(['published_at', options.publishedAt.toString()])
+  }
+  tags.push(...emojiTags)
+  tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
+  
+  // imeta tags for images in content
+  const images = extractImagesFromContent(transformedEmojisContent)
+  if (images && images.length) {
+    tags.push(...generateImetaTags(images))
+  }
+  
+  if (options.addClientTag) {
+    tags.push(buildClientTag())
+    tags.push(buildAltTag())
+  }
+  
+  if (options.isNsfw) {
+    tags.push(buildNsfwTag())
+  }
+  
+  if (options.addExpirationTag && options.expirationMonths) {
+    tags.push(buildExpirationTag(options.expirationMonths))
+  }
+  
+  if (options.addQuietTag && options.quietDays) {
+    tags.push(buildQuietTag(options.quietDays))
+  }
+  
+  return setDraftEventCache({
+    kind: kinds.LongFormArticle,
+    content: transformedEmojisContent,
+    tags
+  })
+}
+
+function normalizeDTag(identifier: string): string {
+  // Convert to lowercase and replace non-letter characters with '-'
+  return identifier
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+export async function createWikiArticleDraftEvent(
+  content: string,
+  mentions: string[],
+  options: {
+    dTag: string
+    title?: string
+    summary?: string
+    image?: string
+    addClientTag?: boolean
+    isNsfw?: boolean
+    addExpirationTag?: boolean
+    expirationMonths?: number
+    addQuietTag?: boolean
+    quietDays?: number
+  }
+): Promise<TDraftEvent> {
+  const { content: transformedEmojisContent, emojiTags } = transformCustomEmojisInContent(content)
+  const hashtags = extractHashtags(transformedEmojisContent)
+  
+  const tags: string[][] = []
+  tags.push(buildDTag(normalizeDTag(options.dTag)))
+  if (options.title) {
+    tags.push(buildTitleTag(options.title))
+  }
+  if (options.summary) {
+    tags.push(['summary', options.summary])
+  }
+  if (options.image) {
+    tags.push(['image', options.image])
+  }
+  tags.push(...emojiTags)
+  tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
+  
+  if (options.addClientTag) {
+    tags.push(buildClientTag())
+    tags.push(buildAltTag())
+  }
+  
+  if (options.isNsfw) {
+    tags.push(buildNsfwTag())
+  }
+  
+  if (options.addExpirationTag && options.expirationMonths) {
+    tags.push(buildExpirationTag(options.expirationMonths))
+  }
+  
+  if (options.addQuietTag && options.quietDays) {
+    tags.push(buildQuietTag(options.quietDays))
+  }
+  
+  return setDraftEventCache({
+    kind: ExtendedKind.WIKI_ARTICLE,
+    content: transformedEmojisContent,
+    tags
+  })
+}
+
+export async function createWikiArticleMarkdownDraftEvent(
+  content: string,
+  mentions: string[],
+  options: {
+    dTag: string
+    title?: string
+    summary?: string
+    image?: string
+    addClientTag?: boolean
+    isNsfw?: boolean
+    addExpirationTag?: boolean
+    expirationMonths?: number
+    addQuietTag?: boolean
+    quietDays?: number
+  }
+): Promise<TDraftEvent> {
+  const { content: transformedEmojisContent, emojiTags } = transformCustomEmojisInContent(content)
+  const hashtags = extractHashtags(transformedEmojisContent)
+  
+  const tags: string[][] = []
+  tags.push(buildDTag(normalizeDTag(options.dTag)))
+  if (options.title) {
+    tags.push(buildTitleTag(options.title))
+  }
+  if (options.summary) {
+    tags.push(['summary', options.summary])
+  }
+  if (options.image) {
+    tags.push(['image', options.image])
+  }
+  tags.push(...emojiTags)
+  tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
+  
+  if (options.addClientTag) {
+    tags.push(buildClientTag())
+    tags.push(buildAltTag())
+  }
+  
+  if (options.isNsfw) {
+    tags.push(buildNsfwTag())
+  }
+  
+  if (options.addExpirationTag && options.expirationMonths) {
+    tags.push(buildExpirationTag(options.expirationMonths))
+  }
+  
+  if (options.addQuietTag && options.quietDays) {
+    tags.push(buildQuietTag(options.quietDays))
+  }
+  
+  return setDraftEventCache({
+    kind: ExtendedKind.WIKI_ARTICLE_MARKDOWN,
+    content: transformedEmojisContent,
+    tags
+  })
+}
+
+export async function createPublicationContentDraftEvent(
+  content: string,
+  mentions: string[],
+  options: {
+    dTag: string
+    title?: string
+    summary?: string
+    image?: string
+    addClientTag?: boolean
+    isNsfw?: boolean
+    addExpirationTag?: boolean
+    expirationMonths?: number
+    addQuietTag?: boolean
+    quietDays?: number
+  }
+): Promise<TDraftEvent> {
+  const { content: transformedEmojisContent, emojiTags } = transformCustomEmojisInContent(content)
+  const hashtags = extractHashtags(transformedEmojisContent)
+  
+  const tags: string[][] = []
+  tags.push(buildDTag(options.dTag))
+  if (options.title) {
+    tags.push(buildTitleTag(options.title))
+  }
+  if (options.summary) {
+    tags.push(['summary', options.summary])
+  }
+  if (options.image) {
+    tags.push(['image', options.image])
+  }
+  tags.push(...emojiTags)
+  tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
+  tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
+  
+  if (options.addClientTag) {
+    tags.push(buildClientTag())
+    tags.push(buildAltTag())
+  }
+  
+  if (options.isNsfw) {
+    tags.push(buildNsfwTag())
+  }
+  
+  if (options.addExpirationTag && options.expirationMonths) {
+    tags.push(buildExpirationTag(options.expirationMonths))
+  }
+  
+  if (options.addQuietTag && options.quietDays) {
+    tags.push(buildQuietTag(options.quietDays))
+  }
+  
+  return setDraftEventCache({
+    kind: ExtendedKind.PUBLICATION_CONTENT,
+    content: transformedEmojisContent,
+    tags
+  })
+}
+
+// Citation draft event functions
+
+export function createCitationInternalDraftEvent(
+  content: string,
+  options: {
+    cTag: string // kind:pubkey:hex format
+    publishedOn?: string // ISO 8601 format
+    title?: string
+    author?: string
+    accessedOn?: string // ISO 8601 format
+    location?: string
+    geohash?: string
+    summary?: string
+    relayHint?: string
+  }
+): TDraftEvent {
+  const tags: string[][] = []
+  tags.push(['c', options.cTag, options.relayHint || ''])
+  if (options.publishedOn) {
+    tags.push(['published_on', options.publishedOn])
+  }
+  if (options.title) {
+    tags.push(buildTitleTag(options.title))
+  }
+  if (options.author) {
+    tags.push(['author', options.author])
+  }
+  if (options.accessedOn) {
+    tags.push(['accessed_on', options.accessedOn])
+  }
+  if (options.location) {
+    tags.push(['location', options.location])
+  }
+  if (options.geohash) {
+    tags.push(['g', options.geohash])
+  }
+  if (options.summary) {
+    tags.push(['summary', options.summary])
+  }
+  
+  return {
+    kind: ExtendedKind.CITATION_INTERNAL,
+    content,
+    tags,
+    created_at: dayjs().unix()
+  }
+}
+
+export function createCitationExternalDraftEvent(
+  content: string,
+  options: {
+    url: string
+    accessedOn: string // ISO 8601 format
+    title?: string
+    author?: string
+    publishedOn?: string // ISO 8601 format
+    publishedBy?: string
+    version?: string
+    location?: string
+    geohash?: string
+    openTimestamp?: string // e tag of kind 1040 event
+    summary?: string
+  }
+): TDraftEvent {
+  const tags: string[][] = []
+  tags.push(['u', options.url])
+  tags.push(['accessed_on', options.accessedOn])
+  if (options.title) {
+    tags.push(buildTitleTag(options.title))
+  }
+  if (options.author) {
+    tags.push(['author', options.author])
+  }
+  if (options.publishedOn) {
+    tags.push(['published_on', options.publishedOn])
+  }
+  if (options.publishedBy) {
+    tags.push(['published_by', options.publishedBy])
+  }
+  if (options.version) {
+    tags.push(['version', options.version])
+  }
+  if (options.location) {
+    tags.push(['location', options.location])
+  }
+  if (options.geohash) {
+    tags.push(['g', options.geohash])
+  }
+  if (options.openTimestamp) {
+    tags.push(['open_timestamp', options.openTimestamp])
+  }
+  if (options.summary) {
+    tags.push(['summary', options.summary])
+  }
+  
+  return {
+    kind: ExtendedKind.CITATION_EXTERNAL,
+    content,
+    tags,
+    created_at: dayjs().unix()
+  }
+}
+
+export function createCitationHardcopyDraftEvent(
+  content: string,
+  options: {
+    accessedOn: string // ISO 8601 format
+    title?: string
+    author?: string
+    pageRange?: string
+    chapterTitle?: string
+    editor?: string
+    publishedOn?: string // ISO 8601 format
+    publishedBy?: string
+    publishedIn?: string // journal name
+    volume?: string
+    doi?: string
+    version?: string
+    location?: string
+    geohash?: string
+    summary?: string
+  }
+): TDraftEvent {
+  const tags: string[][] = []
+  tags.push(['accessed_on', options.accessedOn])
+  if (options.title) {
+    tags.push(buildTitleTag(options.title))
+  }
+  if (options.author) {
+    tags.push(['author', options.author])
+  }
+  if (options.pageRange) {
+    tags.push(['page_range', options.pageRange])
+  }
+  if (options.chapterTitle) {
+    tags.push(['chapter_title', options.chapterTitle])
+  }
+  if (options.editor) {
+    tags.push(['editor', options.editor])
+  }
+  if (options.publishedOn) {
+    tags.push(['published_on', options.publishedOn])
+  }
+  if (options.publishedBy) {
+    tags.push(['published_by', options.publishedBy])
+  }
+  if (options.publishedIn) {
+    tags.push(['published_in', options.publishedIn, options.volume || ''])
+  }
+  if (options.doi) {
+    tags.push(['doi', options.doi])
+  }
+  if (options.version) {
+    tags.push(['version', options.version])
+  }
+  if (options.location) {
+    tags.push(['location', options.location])
+  }
+  if (options.geohash) {
+    tags.push(['g', options.geohash])
+  }
+  if (options.summary) {
+    tags.push(['summary', options.summary])
+  }
+  
+  return {
+    kind: ExtendedKind.CITATION_HARDCOPY,
+    content,
+    tags,
+    created_at: dayjs().unix()
+  }
+}
+
+export function createCitationPromptDraftEvent(
+  content: string,
+  options: {
+    llm: string // language model name
+    accessedOn: string // ISO 8601 format
+    version?: string
+    summary?: string // prompt conversation script
+    url?: string // website llm was accessed from
+  }
+): TDraftEvent {
+  const tags: string[][] = []
+  tags.push(['llm', options.llm])
+  tags.push(['accessed_on', options.accessedOn])
+  if (options.version) {
+    tags.push(['version', options.version])
+  }
+  if (options.summary) {
+    tags.push(['summary', options.summary])
+  }
+  if (options.url) {
+    tags.push(['u', options.url])
+  }
+  
+  return {
+    kind: ExtendedKind.CITATION_PROMPT,
+    content,
+    tags,
+    created_at: dayjs().unix()
+  }
+}
