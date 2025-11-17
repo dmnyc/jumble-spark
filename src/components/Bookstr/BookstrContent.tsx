@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Event } from 'nostr-tools'
 import { parseBookWikilink, extractBookMetadata, BookReference } from '@/lib/bookstr-parser'
 import client from '@/services/client.service'
 import { ExtendedKind } from '@/constants'
-import { Loader2, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { Loader2, AlertCircle, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -29,12 +29,43 @@ interface BookSection {
   originalChapter?: number
 }
 
+/**
+ * Build Bible Gateway URL for a passage
+ */
+function buildBibleGatewayUrl(reference: BookReference, version?: string): string {
+  // Format passage: "Psalm 23:4-7" or "Genesis 1:4" or "1 John 3:16"
+  let passage = reference.book
+  if (reference.chapter !== undefined) {
+    passage += ` ${reference.chapter}`
+  }
+  if (reference.verse) {
+    passage += `:${reference.verse}`
+  }
+  
+  // Map version codes to Bible Gateway codes
+  // Common mappings: DRB -> DRA (Douay-Rheims), etc.
+  const versionMap: Record<string, string> = {
+    'DRB': 'DRA', // Douay-Rheims Bible -> Douay-Rheims 1899 American Edition
+    'DRA': 'DRA', // Already correct
+  }
+  
+  const bgVersion = version ? (versionMap[version.toUpperCase()] || version.toUpperCase()) : 'DRA'
+  
+  // URL encode the passage
+  const encodedPassage = encodeURIComponent(passage)
+  
+  return `https://www.biblegateway.com/passage/?search=${encodedPassage}&version=${bgVersion}`
+}
+
 export function BookstrContent({ wikilink, className }: BookstrContentProps) {
   const [sections, setSections] = useState<BookSection[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set())
   const [selectedVersions, setSelectedVersions] = useState<Map<number, string>>(new Map())
+  const [collapsedCards, setCollapsedCards] = useState<Set<number>>(new Set())
+  const [cardHeights, setCardHeights] = useState<Map<number, number>>(new Map())
+  const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map())
 
   // Parse the wikilink
   const parsed = useMemo(() => {
@@ -60,6 +91,21 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
       }
       
       const result = parseBookWikilink(`[[book:${bookType}:${content}]]`, bookType)
+      if (result) {
+        logger.debug('BookstrContent: Parsed wikilink', {
+          wikilink,
+          content,
+          bookType,
+          referenceCount: result.references.length,
+          references: result.references.map(r => ({
+            book: r.book,
+            chapter: r.chapter,
+            verse: r.verse,
+            version: r.version
+          })),
+          versions: result.versions
+        })
+      }
       return result ? { ...result, bookType } : null
     } catch (err) {
       logger.error('Error parsing bookstr wikilink', { error: err, wikilink })
@@ -87,18 +133,230 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
       setError(null)
 
       try {
+        logger.debug('BookstrContent: Processing references', {
+          totalReferences: parsed.references.length,
+          references: parsed.references.map(r => ({
+            book: r.book,
+            chapter: r.chapter,
+            verse: r.verse
+          }))
+        })
+        
+        // Step 0: Create placeholder sections immediately so links don't disappear
+        const placeholderSections: BookSection[] = parsed.references.map(ref => ({
+          reference: ref,
+          events: [],
+          versions: [],
+          originalVerses: ref.verse,
+          originalChapter: ref.chapter
+        }))
+        setSections(placeholderSections)
+        setIsLoading(false) // Show placeholders immediately
+        
         const newSections: BookSection[] = []
-
-        for (const ref of parsed.references) {
-          // Normalize book name (lowercase, hyphenated)
+        
+        // Step 1: Check cache for ALL references first (in parallel)
+        const bookType = (parsed as any).bookType || 'bible'
+        const cacheChecks = parsed.references.map(async (ref) => {
           const normalizedBook = ref.book.toLowerCase().replace(/\s+/g, '-')
-          const bookType = (parsed as any).bookType || 'bible'
+          const versionsToFetch = parsed.versions || (ref.version ? [ref.version] : [])
+          
+          // Check cache for each version (or without version if none specified)
+          const cachePromises = versionsToFetch.length > 0
+            ? versionsToFetch.map(version => 
+                client.getCachedBookstrEvents({
+                  type: bookType,
+                  book: normalizedBook,
+                  chapter: ref.chapter,
+                  verse: ref.verse,
+                  version: version.toLowerCase()
+                })
+              )
+            : [
+                client.getCachedBookstrEvents({
+                  type: bookType,
+                  book: normalizedBook,
+                  chapter: ref.chapter,
+                  verse: ref.verse
+                })
+              ]
+          
+          const cachedResults = await Promise.all(cachePromises)
+          const allCachedEvents = cachedResults.flat()
+          
+          return { ref, cachedEvents: allCachedEvents, versionsToFetch }
+        })
+        
+        const cacheResults = await Promise.all(cacheChecks)
+        
+        // Step 2: Display cached results IMMEDIATELY
+        for (const { ref, cachedEvents } of cacheResults) {
+          if (cachedEvents.length > 0) {
+            const allVersions = new Set<string>()
+            cachedEvents.forEach(event => {
+              const metadata = extractBookMetadata(event)
+              if (metadata.version) {
+                allVersions.add(metadata.version.toUpperCase())
+              }
+            })
+            
+            // Filter events based on what was requested
+            let filteredEvents = cachedEvents
+            
+            // Filter by chapter if specified
+            if (ref.chapter !== undefined) {
+              filteredEvents = filteredEvents.filter(event => {
+                const metadata = extractBookMetadata(event)
+                const eventChapter = parseInt(metadata.chapter || '0')
+                return eventChapter === ref.chapter
+              })
+            }
+            
+            // Filter by verse if specified
+            if (ref.verse) {
+              const verseNumbers = new Set<number>()
+              const verseSpecs = ref.verse.split(',').map(v => v.trim()).filter(v => v)
+              
+              for (const spec of verseSpecs) {
+                if (spec.includes('-')) {
+                  const [startStr, endStr] = spec.split('-').map(v => v.trim())
+                  const start = parseInt(startStr)
+                  const end = parseInt(endStr)
+                  if (!isNaN(start) && !isNaN(end) && start <= end) {
+                    for (let v = start; v <= end; v++) {
+                      verseNumbers.add(v)
+                    }
+                  }
+                } else {
+                  const verseNum = parseInt(spec)
+                  if (!isNaN(verseNum)) {
+                    verseNumbers.add(verseNum)
+                  }
+                }
+              }
+              
+              filteredEvents = filteredEvents.filter(event => {
+                const metadata = extractBookMetadata(event)
+                const eventVerse = metadata.verse
+                if (!eventVerse) return false
+                const eventVerseNum = parseInt(eventVerse)
+                return !isNaN(eventVerseNum) && verseNumbers.has(eventVerseNum)
+              })
+            }
+            
+            // Sort events by verse number
+            filteredEvents.sort((a, b) => {
+              const aMeta = extractBookMetadata(a)
+              const bMeta = extractBookMetadata(b)
+              const aVerse = parseInt(aMeta.verse || '0')
+              const bVerse = parseInt(bMeta.verse || '0')
+              return aVerse - bVerse
+            })
+            
+            newSections.push({
+              reference: ref,
+              events: filteredEvents,
+              versions: Array.from(allVersions),
+              originalVerses: ref.verse,
+              originalChapter: ref.chapter
+            })
+          }
+        }
+        
+        // Display cached results immediately (merge with placeholders)
+        if (!isCancelled) {
+          // Create a map of sections by reference key for easy lookup
+          const sectionsByRef = new Map<string, BookSection>()
+          newSections.forEach(section => {
+            const key = `${section.reference.book}-${section.reference.chapter}-${section.reference.verse}`
+            sectionsByRef.set(key, section)
+          })
+          
+          // Update placeholders with cached results, keep placeholders for missing ones
+          const updatedSections = placeholderSections.map(placeholder => {
+            const key = `${placeholder.reference.book}-${placeholder.reference.chapter}-${placeholder.reference.verse}`
+            const cachedSection = sectionsByRef.get(key)
+            return cachedSection || placeholder
+          })
+          
+          setSections(updatedSections)
+          
+          // Set initial selected versions
+          const initialVersions = new Map<number, string>()
+          updatedSections.forEach((section, index) => {
+            if (section.versions.length > 0) {
+              initialVersions.set(index, section.versions[0])
+            }
+          })
+          setSelectedVersions(initialVersions)
+        }
+        
+        // Step 3: Fetch missing events from network in the background
+        for (const { ref, cachedEvents, versionsToFetch } of cacheResults) {
+          if (isCancelled) break
+          
+          // If we already have cached events for this reference, skip or do background refresh
+          if (cachedEvents.length > 0) {
+            // Still fetch in background to get updates
+            const normalizedBook = ref.book.toLowerCase().replace(/\s+/g, '-')
+            const fetchPromises = versionsToFetch.length > 0
+              ? versionsToFetch.map(version => 
+                  client.fetchBookstrEvents({
+                    type: bookType,
+                    book: normalizedBook,
+                    chapter: ref.chapter,
+                    verse: ref.verse,
+                    version: version.toLowerCase()
+                  })
+                )
+              : [
+                  client.fetchBookstrEvents({
+                    type: bookType,
+                    book: normalizedBook,
+                    chapter: ref.chapter,
+                    verse: ref.verse
+                  })
+                ]
+            
+            Promise.all(fetchPromises).then(fetchedResults => {
+              if (isCancelled) return
+              
+              const allFetchedEvents = fetchedResults.flat()
+              if (allFetchedEvents.length > 0) {
+                // Update the section with fresh data
+                setSections(prevSections => {
+                  const updated = [...prevSections]
+                  const sectionIndex = updated.findIndex(s => 
+                    s.reference.book === ref.book &&
+                    s.reference.chapter === ref.chapter &&
+                    s.reference.verse === ref.verse
+                  )
+                  
+                  if (sectionIndex >= 0) {
+                    // Merge with existing events (deduplicate by event id)
+                    const existingIds = new Set(updated[sectionIndex].events.map(e => e.id))
+                    const newEvents = allFetchedEvents.filter(e => !existingIds.has(e.id))
+                    updated[sectionIndex] = {
+                      ...updated[sectionIndex],
+                      events: [...updated[sectionIndex].events, ...newEvents]
+                    }
+                  }
+                  
+                  return updated
+                })
+              }
+            }).catch(err => {
+              logger.warn('BookstrContent: Background fetch failed', { error: err, ref })
+            })
+            continue
+          }
+          
+          // No cached events, fetch from network
+          const normalizedBook = ref.book.toLowerCase().replace(/\s+/g, '-')
           
           // Determine which versions to fetch
-          const versionsToFetch = parsed.versions || (ref.version ? [ref.version] : [])
-
-          // If no versions specified, try to find available versions
-          if (versionsToFetch.length === 0) {
+          let versionsToFetchFinal = versionsToFetch
+          if (versionsToFetchFinal.length === 0) {
             // First, try to find any version for this book/chapter/verse
             const allEvents = await client.fetchBookstrEvents({
               type: bookType,
@@ -117,22 +375,22 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             })
 
             if (availableVersions.size > 0) {
-              versionsToFetch.push(Array.from(availableVersions)[0]) // Use first available
+              versionsToFetchFinal = [Array.from(availableVersions)[0]] // Use first available
             } else {
-              // No versions found, try without version filter
-              const eventsWithoutVersion = await client.fetchBookstrEvents({
-                type: bookType,
-                book: normalizedBook,
-                chapter: ref.chapter,
-                verse: ref.verse
-              })
-              
-              if (eventsWithoutVersion.length > 0) {
+              if (allEvents.length > 0) {
                 // Use events without version filter
+                const allVersions = new Set<string>()
+                allEvents.forEach(event => {
+                  const metadata = extractBookMetadata(event)
+                  if (metadata.version) {
+                    allVersions.add(metadata.version.toUpperCase())
+                  }
+                })
+                
                 newSections.push({
                   reference: ref,
-                  events: eventsWithoutVersion,
-                  versions: [],
+                  events: allEvents,
+                  versions: Array.from(allVersions),
                   originalVerses: ref.verse,
                   originalChapter: ref.chapter
                 })
@@ -145,22 +403,13 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
           const allEvents: Event[] = []
           const allVersions = new Set<string>()
 
-          for (const version of versionsToFetch) {
-            // Fetch entire chapter if verse is specified, entire book if only chapter is specified
+          for (const version of versionsToFetchFinal) {
             const events = await client.fetchBookstrEvents({
               type: bookType,
               book: normalizedBook,
               chapter: ref.chapter,
-              verse: ref.verse, // Pass verse for context, but we'll fetch entire chapter
-              version: version.toLowerCase()
-            })
-
-            logger.debug('BookstrContent: Fetched events', {
-              book: normalizedBook,
-              chapter: ref.chapter,
               verse: ref.verse,
-              version,
-              eventCount: events.length
+              version: version.toLowerCase()
             })
 
             events.forEach(event => {
@@ -172,10 +421,7 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             })
           }
 
-          // Filter events based on what was requested:
-          // - Book only: Show all events (all chapters)
-          // - Chapter only: Show all events for that chapter (all verses)
-          // - Verses: Show only the requested verses (but we have all verses cached for expansion)
+          // Filter events based on what was requested
           let filteredEvents = allEvents
           
           // Filter by chapter if specified
@@ -187,25 +433,35 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             })
           }
           
-          // Filter by verse if specified (for verse-level queries)
+          // Filter by verse if specified
           if (ref.verse) {
-            const verseParts = ref.verse.split(/[,\s-]+/).map(v => v.trim()).filter(v => v)
+            const verseNumbers = new Set<number>()
+            const verseSpecs = ref.verse.split(',').map(v => v.trim()).filter(v => v)
+            
+            for (const spec of verseSpecs) {
+              if (spec.includes('-')) {
+                const [startStr, endStr] = spec.split('-').map(v => v.trim())
+                const start = parseInt(startStr)
+                const end = parseInt(endStr)
+                if (!isNaN(start) && !isNaN(end) && start <= end) {
+                  for (let v = start; v <= end; v++) {
+                    verseNumbers.add(v)
+                  }
+                }
+              } else {
+                const verseNum = parseInt(spec)
+                if (!isNaN(verseNum)) {
+                  verseNumbers.add(verseNum)
+                }
+              }
+            }
+            
             filteredEvents = filteredEvents.filter(event => {
               const metadata = extractBookMetadata(event)
               const eventVerse = metadata.verse
               if (!eventVerse) return false
-              
-              // Check if this verse matches any of the requested verses
-              const verseNum = parseInt(eventVerse)
-              return verseParts.some(part => {
-                if (part.includes('-')) {
-                  const [start, end] = part.split('-').map(v => parseInt(v.trim()))
-                  return !isNaN(start) && !isNaN(end) && verseNum >= start && verseNum <= end
-                } else {
-                  const partNum = parseInt(part)
-                  return !isNaN(partNum) && partNum === verseNum
-                }
-              })
+              const eventVerseNum = parseInt(eventVerse)
+              return !isNaN(eventVerseNum) && verseNumbers.has(eventVerseNum)
             })
           }
 
@@ -218,14 +474,6 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             return aVerse - bVerse
           })
 
-          logger.debug('BookstrContent: Filtered events', {
-            book: normalizedBook,
-            chapter: ref.chapter,
-            verse: ref.verse,
-            totalFetched: allEvents.length,
-            filteredCount: filteredEvents.length
-          })
-
           newSections.push({
             reference: ref,
             events: filteredEvents,
@@ -234,30 +482,56 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             originalChapter: ref.chapter
           })
         }
-
-        logger.debug('BookstrContent: Setting sections', {
-          sectionCount: newSections.length,
-          sections: newSections.map(s => ({
-            book: s.reference.book,
-            chapter: s.reference.chapter,
-            verse: s.reference.verse,
-            eventCount: s.events.length,
-            versions: s.versions
-          }))
-        })
-
+        
         if (isCancelled) return
         
-        setSections(newSections)
-        
-        // Set initial selected versions
-        const initialVersions = new Map<number, string>()
-        newSections.forEach((section, index) => {
-          if (section.versions.length > 0) {
-            initialVersions.set(index, section.versions[0])
-          }
+        // Merge network results with existing sections (replace placeholders or update with new data)
+        setSections(prevSections => {
+          const sectionsByRef = new Map<string, BookSection>()
+          newSections.forEach(section => {
+            const key = `${section.reference.book}-${section.reference.chapter}-${section.reference.verse}`
+            sectionsByRef.set(key, section)
+          })
+          
+          // Update existing sections with network results, or add new ones
+          const updated = prevSections.map(section => {
+            const key = `${section.reference.book}-${section.reference.chapter}-${section.reference.verse}`
+            const networkSection = sectionsByRef.get(key)
+            if (networkSection) {
+              // Merge events (deduplicate by event id)
+              const existingIds = new Set(section.events.map(e => e.id))
+              const newEvents = networkSection.events.filter(e => !existingIds.has(e.id))
+              return {
+                ...networkSection,
+                events: [...section.events, ...newEvents]
+              }
+            }
+            return section
+          })
+          
+          // Add any new sections that weren't in placeholders
+          newSections.forEach(section => {
+            const key = `${section.reference.book}-${section.reference.chapter}-${section.reference.verse}`
+            if (!prevSections.some(s => 
+              `${s.reference.book}-${s.reference.chapter}-${s.reference.verse}` === key
+            )) {
+              updated.push(section)
+            }
+          })
+          
+          return updated
         })
-        setSelectedVersions(initialVersions)
+        
+        // Update selected versions
+        setSelectedVersions(prevVersions => {
+          const updated = new Map(prevVersions)
+          newSections.forEach((section, index) => {
+            if (section.versions.length > 0 && !updated.has(index)) {
+              updated.set(index, section.versions[0])
+            }
+          })
+          return updated
+        })
       } catch (err) {
         if (isCancelled) return
         logger.error('Error fetching bookstr events', { error: err, wikilink })
@@ -276,6 +550,69 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wikilink]) // Only depend on wikilink - parsed is derived from it via useMemo
+
+  // Measure card heights - measure BEFORE applying collapse
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      cardRefs.current.forEach((element, index) => {
+        if (element) {
+          // IMPORTANT: Temporarily remove ALL constraints to get true height
+          // This must happen BEFORE any collapse is applied
+          const originalMaxHeight = element.style.maxHeight
+          const originalOverflow = element.style.overflow
+          const originalHeight = element.style.height
+          
+          // Remove all constraints
+          element.style.maxHeight = 'none'
+          element.style.overflow = 'visible'
+          element.style.height = 'auto'
+          
+          // Force a reflow to ensure we get the true height
+          void element.offsetHeight
+          
+          const height = element.scrollHeight
+          
+          // Restore original styles
+          element.style.maxHeight = originalMaxHeight
+          element.style.overflow = originalOverflow
+          element.style.height = originalHeight
+          
+          // Store the TRUE height (before collapse)
+          setCardHeights(prev => {
+            const currentHeight = prev.get(index)
+            if (currentHeight !== height && height > 0) {
+              const newMap = new Map(prev)
+              newMap.set(index, height)
+              
+              logger.debug('BookstrContent: Measured card height', {
+                sectionIndex: index,
+                height,
+                needsCollapse: height > 500,
+                wasCollapsed: collapsedCards.has(index)
+              })
+              
+              // Only auto-collapse if height > 500px and not already manually toggled
+              if (height > 500) {
+                setCollapsedCards(prevCollapsed => {
+                  // Only auto-collapse if user hasn't manually expanded it
+                  if (!prevCollapsed.has(index)) {
+                    logger.debug('BookstrContent: Auto-collapsing card', { sectionIndex: index, height })
+                    return new Set(prevCollapsed).add(index)
+                  }
+                  return prevCollapsed
+                })
+              }
+              
+              return newMap
+            }
+            return prev
+          })
+        }
+      })
+    }, 500) // Wait longer for content to fully render
+    
+    return () => clearTimeout(timeoutId)
+  }, [sections, collapsedCards])
 
   if (isLoading) {
     return (
@@ -318,116 +655,175 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
 
           const isExpanded = expandedSections.has(sectionIndex)
           const hasVerses = section.originalVerses !== undefined && section.originalVerses.length > 0
-          const hasChapter = section.originalChapter !== undefined && !hasVerses
           const isLast = sectionIndex === sections.length - 1
 
+          const cardHeight = cardHeights.get(sectionIndex) || 0
+          const isCardCollapsed = collapsedCards.has(sectionIndex)
+          const needsCollapse = cardHeight > 500
+          
+          // Only show button if card is actually tall (needs collapse) or is currently collapsed
+          const shouldShowButton = filteredEvents.length > 0 && (needsCollapse || isCardCollapsed)
+          
+          // Debug logging
+          if (filteredEvents.length > 0) {
+            logger.debug('BookstrContent: Card collapse check', {
+              sectionIndex,
+              eventCount: filteredEvents.length,
+              cardHeight,
+              isCardCollapsed,
+              needsCollapse,
+              shouldShowButton
+            })
+          }
+          
           return (
+            <>
             <div 
               key={sectionIndex} 
+              ref={(el) => {
+                if (el) {
+                  cardRefs.current.set(sectionIndex, el)
+                } else {
+                  cardRefs.current.delete(sectionIndex)
+                }
+              }}
               className={cn(
                 'p-3',
-                !isLast && 'border-b'
+                !isLast && 'border-b',
+                needsCollapse && isCardCollapsed && 'overflow-hidden'
               )}
+              style={needsCollapse && isCardCollapsed ? { 
+                maxHeight: '500px',
+                transition: 'max-height 0.3s ease-out'
+              } : undefined}
             >
             {/* Header */}
-            <div className="flex items-center gap-2 mb-2">
-              <h4 className="font-semibold text-sm">
-                {section.reference.book}
-                {section.reference.chapter && ` ${section.reference.chapter}`}
-                {section.reference.verse && `:${section.reference.verse}`}
-                {selectedVersion && ` (${selectedVersion})`}
-              </h4>
-              <VersionSelector
-                section={section}
-                sectionIndex={sectionIndex}
-                selectedVersion={selectedVersion}
-                onVersionChange={(version: string) => {
-                  const newVersions = new Map(selectedVersions)
-                  newVersions.set(sectionIndex, version)
-                  setSelectedVersions(newVersions)
-                }}
-              />
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <h4 className="font-semibold text-sm">
+                  {section.reference.book}
+                  {section.reference.chapter && ` ${section.reference.chapter}`}
+                  {section.reference.verse && `:${section.reference.verse}`}
+                  {selectedVersion && ` (${selectedVersion})`}
+                </h4>
+                {filteredEvents.length === 0 && (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                )}
+                <VersionSelector
+                  section={section}
+                  sectionIndex={sectionIndex}
+                  selectedVersion={selectedVersion}
+                  onVersionChange={(version: string) => {
+                    const newVersions = new Map(selectedVersions)
+                    newVersions.set(sectionIndex, version)
+                    setSelectedVersions(newVersions)
+                  }}
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 shrink-0"
+                asChild
+              >
+                <a
+                  href={buildBibleGatewayUrl(section.reference, selectedVersion)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="View on Bible Gateway"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </Button>
             </div>
 
             {/* Verses */}
-            <VerseContent
-              events={filteredEvents}
-              hasVerses={hasVerses}
-              originalVerses={section.originalVerses}
-              isExpanded={isExpanded}
-            />
+            {filteredEvents.length > 0 && (
+              <VerseContent
+                events={filteredEvents}
+              />
+            )}
+            </div>
+
+            {/* Show more/less button for tall cards - OUTSIDE collapsed div so it's always visible */}
+            {shouldShowButton ? (
+              <div className="px-3 pb-3 border-t pt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs w-full"
+                  onClick={() => {
+                    setCollapsedCards(prev => {
+                      const newSet = new Set(prev)
+                      if (newSet.has(sectionIndex)) {
+                        newSet.delete(sectionIndex)
+                      } else {
+                        newSet.add(sectionIndex)
+                      }
+                      return newSet
+                    })
+                  }}
+                >
+                  {isCardCollapsed ? (
+                    <>
+                      <ChevronDown className="h-3 w-3 mr-1" />
+                      Show more
+                    </>
+                  ) : (
+                    <>
+                      <ChevronUp className="h-3 w-3 mr-1" />
+                      Show less
+                    </>
+                  )}
+                </Button>
+              </div>
+            ) : null}
 
             {/* Expand/Collapse buttons - only show if events were found */}
             {hasVerses && filteredEvents.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mt-2 h-6 text-xs"
-                onClick={() => {
-                  const newExpanded = new Set(expandedSections)
-                  if (newExpanded.has(sectionIndex)) {
-                    newExpanded.delete(sectionIndex)
-                  } else {
-                    newExpanded.add(sectionIndex)
-                  }
-                  setExpandedSections(newExpanded)
-                }}
-              >
-                {isExpanded ? (
-                  <>
-                    <ChevronUp className="h-3 w-3 mr-1" />
-                    Collapse chapter
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="h-3 w-3 mr-1" />
-                    Read full chapter
-                  </>
-                )}
-              </Button>
-            )}
-            {hasChapter && !hasVerses && filteredEvents.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mt-2 h-6 text-xs"
-                onClick={() => {
-                  const newExpanded = new Set(expandedSections)
-                  if (newExpanded.has(sectionIndex)) {
-                    newExpanded.delete(sectionIndex)
-                  } else {
-                    newExpanded.add(sectionIndex)
-                  }
-                  setExpandedSections(newExpanded)
-                }}
-              >
-                {isExpanded ? (
-                  <>
-                    <ChevronUp className="h-3 w-3 mr-1" />
-                    Collapse book
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="h-3 w-3 mr-1" />
-                    Read full book
-                  </>
-                )}
-              </Button>
+              <div className="px-3 pb-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 h-6 text-xs"
+                  onClick={() => {
+                    const newExpanded = new Set(expandedSections)
+                    if (newExpanded.has(sectionIndex)) {
+                      newExpanded.delete(sectionIndex)
+                    } else {
+                      newExpanded.add(sectionIndex)
+                    }
+                    setExpandedSections(newExpanded)
+                  }}
+                >
+                  {isExpanded ? (
+                    <>
+                      <ChevronUp className="h-3 w-3 mr-1" />
+                      Collapse chapter
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-3 w-3 mr-1" />
+                      Read full chapter
+                    </>
+                  )}
+                </Button>
+              </div>
             )}
 
             {/* Expanded content */}
             {isExpanded && (
-              <div className="mt-3 pt-3 border-t">
+              <div className="px-3 pb-3 mt-3 pt-3 border-t">
                 {/* Fetch and display full chapter/book */}
                 <ExpandedContent
                   section={section}
                   selectedVersion={selectedVersion}
-                  originalVerses={section.originalVerses}
                   originalChapter={section.originalChapter}
+                  originalVerses={section.originalVerses}
                 />
               </div>
             )}
-            </div>
+            </>
           )
         })}
       </div>
@@ -438,11 +834,11 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
 interface ExpandedContentProps {
   section: BookSection
   selectedVersion: string
-  originalVerses?: string
   originalChapter?: number
+  originalVerses?: string
 }
 
-function ExpandedContent({ section, selectedVersion, originalVerses, originalChapter }: ExpandedContentProps) {
+function ExpandedContent({ section, selectedVersion, originalChapter, originalVerses }: ExpandedContentProps) {
   const [expandedEvents, setExpandedEvents] = useState<Event[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -499,26 +895,43 @@ function ExpandedContent({ section, selectedVersion, originalVerses, originalCha
     return <div className="text-xs text-muted-foreground">Loading...</div>
   }
 
+  // Parse original verses to determine which ones should have a border
+  const originalVerseNumbers = new Set<number>()
+  if (originalVerses) {
+    const verseSpecs = originalVerses.split(',').map(v => v.trim()).filter(v => v)
+    for (const spec of verseSpecs) {
+      if (spec.includes('-')) {
+        const [startStr, endStr] = spec.split('-').map(v => v.trim())
+        const start = parseInt(startStr)
+        const end = parseInt(endStr)
+        if (!isNaN(start) && !isNaN(end) && start <= end) {
+          for (let v = start; v <= end; v++) {
+            originalVerseNumbers.add(v)
+          }
+        }
+      } else {
+        const verseNum = parseInt(spec)
+        if (!isNaN(verseNum)) {
+          originalVerseNumbers.add(verseNum)
+        }
+      }
+    }
+  }
+
   return (
     <VerseContent
       events={expandedEvents}
-      hasVerses={!!originalVerses}
-      originalVerses={originalVerses}
-      isExpanded={true}
-      originalChapter={originalChapter}
+      originalVerseNumbers={originalVerseNumbers}
     />
   )
 }
 
 interface VerseContentProps {
   events: Event[]
-  hasVerses: boolean
-  originalVerses?: string
-  isExpanded: boolean
-  originalChapter?: number
+  originalVerseNumbers?: Set<number>
 }
 
-function VerseContent({ events, hasVerses, originalVerses, isExpanded, originalChapter }: VerseContentProps) {
+function VerseContent({ events, originalVerseNumbers }: VerseContentProps) {
   const [parsedContents, setParsedContents] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
@@ -552,38 +965,16 @@ function VerseContent({ events, hasVerses, originalVerses, isExpanded, originalC
       {events.map((event) => {
         const metadata = extractBookMetadata(event)
         const verseNum = metadata.verse
-        const chapterNum = metadata.chapter
-        // Check if this verse is in the original verses list
-        const isOriginalVerse = hasVerses && originalVerses && verseNum && (() => {
-          const verseParts = originalVerses.split(/[,\s-]+/).map(v => v.trim())
-          const verseNumInt = parseInt(verseNum)
-          // Check exact match or range
-          for (const part of verseParts) {
-            if (part.includes('-')) {
-              const [start, end] = part.split('-').map(v => parseInt(v.trim()))
-              if (!isNaN(start) && !isNaN(end) && verseNumInt >= start && verseNumInt <= end) {
-                return true
-              }
-            } else {
-              const partNum = parseInt(part)
-              if (!isNaN(partNum) && partNum === verseNumInt) {
-                return true
-              }
-            }
-          }
-          return false
-        })()
-        const isOriginalChapter = originalChapter !== undefined && 
-          chapterNum && parseInt(chapterNum) === originalChapter
-
+        const verseNumInt = verseNum ? parseInt(verseNum) : null
+        const isOriginalVerse = originalVerseNumbers && verseNumInt !== null && originalVerseNumbers.has(verseNumInt)
         const content = parsedContents.get(event.id) || event.content
 
         return (
           <div
             key={event.id}
             className={cn(
-              'flex gap-2 text-sm leading-relaxed items-baseline',
-              isExpanded && (isOriginalVerse || isOriginalChapter) && 'border-l-2 border-gray-400 pl-2'
+              "flex gap-2 text-sm leading-relaxed items-baseline",
+              isOriginalVerse && "border-l-2 border-muted-foreground/30 pl-2 py-1"
             )}
           >
             {/* Verse number on the left - only show verse number, not chapter:verse */}

@@ -33,42 +33,38 @@ export function parseBookNotation(notation: string, bookType: string = 'bible'):
   const references: BookReference[] = []
   
   // Split by comma or semicolon to handle multiple references
-  // Use a regex to split on commas/semicolons, but be careful with verse ranges like "1-3"
-  // We'll split on commas/semicolons that are followed by a space and a capital letter (new book name)
-  // or split on commas/semicolons that are not part of a verse range
+  // Strategy:
+  // 1. First, try to intelligently split on commas/semicolons that are followed by a capital letter (new book)
+  // 2. If that doesn't work, check if all parts start with capital letters (multiple references)
+  // 3. Otherwise, treat as a single reference with verse lists
+  
+  // Step 1: Try intelligent splitting
   const parts: string[] = []
   let currentPart = ''
-  let inVerseRange = false
   
   for (let i = 0; i < notation.length; i++) {
     const char = notation[i]
-    const nextChar = notation[i + 1]
     
-    if (char === '-' && /^\d/.test(currentPart.slice(-1))) {
-      // This is part of a verse range (e.g., "1-3")
-      inVerseRange = true
-      currentPart += char
-    } else if (char === ',' || char === ';') {
-      // Check if this comma/semicolon is separating references
-      // If the next non-whitespace character is a capital letter, it's likely a new book
-      const rest = notation.substring(i + 1).trim()
-      if (rest.length > 0 && /^[A-Z]/.test(rest)) {
-        // This is separating references - save current part and start new one
+    if (char === ',' || char === ';') {
+      // Look ahead to see if this is separating references
+      // Check if there's whitespace followed by a capital letter or number after this comma/semicolon
+      // (Numbers handle cases like "1 John", "2 Corinthians")
+      const afterComma = notation.substring(i + 1)
+      const trimmedAfter = afterComma.trim()
+      
+      // If the next non-whitespace character is a capital letter or number, it's likely a new book reference
+      if (trimmedAfter.length > 0 && /^[A-Z0-9]/.test(trimmedAfter)) {
+        // This comma/semicolon is separating references
         if (currentPart.trim()) {
           parts.push(currentPart.trim())
         }
         currentPart = ''
-        inVerseRange = false
       } else {
-        // This is part of the current reference (e.g., verse list "1,3,5")
+        // This comma/semicolon is part of the current reference (e.g., verse list "1,3,5")
         currentPart += char
-        inVerseRange = false
       }
     } else {
       currentPart += char
-      if (char === ' ' && inVerseRange) {
-        inVerseRange = false
-      }
     }
   }
   
@@ -77,26 +73,28 @@ export function parseBookNotation(notation: string, bookType: string = 'bible'):
     parts.push(currentPart.trim())
   }
   
-  // If no splitting occurred, try simple split as fallback
-  if (parts.length === 0) {
-    parts.push(notation.trim())
-  } else if (parts.length === 1 && (notation.includes(',') || notation.includes(';'))) {
-    // Fallback: if we didn't split but there are commas/semicolons, try simple split
-    // This handles cases like "Genesis 1:1,2,3" (verse list, not multiple references)
-    const simpleParts = notation.split(/[,;]/).map(p => p.trim())
+  // Step 2: If we only got one part but there are commas/semicolons, try simple split
+  if (parts.length === 1 && (notation.includes(',') || notation.includes(';'))) {
+    const simpleParts = notation.split(/[,;]/).map(p => p.trim()).filter(p => p.length > 0)
+    
     if (simpleParts.length > 1) {
-      // Check if these look like separate references (each has a book name)
-      const looksLikeMultipleRefs = simpleParts.every(part => {
-        // Check if part starts with a capital letter (likely a book name)
-        return /^[A-Z]/.test(part.trim())
+      // Check if these look like separate references (each starts with a capital letter or number)
+      // Numbers handle cases like "1 John", "2 Corinthians"
+      const allStartWithCapitalOrNumber = simpleParts.every(part => {
+        const trimmed = part.trim()
+        return trimmed.length > 0 && /^[A-Z0-9]/.test(trimmed)
       })
-      if (looksLikeMultipleRefs) {
+      
+      if (allStartWithCapitalOrNumber) {
+        // These are multiple references
         parts.length = 0
         parts.push(...simpleParts)
       }
+      // Otherwise, treat as a single reference with verse lists (e.g., "Genesis 1:1,2,3")
     }
   }
   
+  // Step 3: Parse each part
   for (const part of parts) {
     const normalizedPart = normalizeBookReferenceWhitespace(part)
     const ref = parseSingleBookReference(normalizedPart, bookType)
