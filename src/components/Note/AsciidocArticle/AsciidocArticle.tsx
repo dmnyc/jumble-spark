@@ -19,6 +19,8 @@ import Wikilink from '@/components/UniversalContent/Wikilink'
 import { BookstrContent } from '@/components/Bookstr'
 import { preprocessAsciidocMediaLinks } from '../MarkdownArticle/preprocessMarkup'
 import logger from '@/lib/logger'
+import { extractBookMetadata } from '@/lib/bookstr-parser'
+import { ExtendedKind } from '@/constants'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
@@ -331,6 +333,8 @@ export default function AsciidocArticle({
   const { navigateToHashtag } = useSmartHashtagNavigation()
   const { navigateToRelay } = useSmartRelayNavigation()
   const metadata = useMemo(() => getLongFormArticleMetadataFromEvent(event), [event])
+  const bookMetadata = useMemo(() => extractBookMetadata(event), [event])
+  const isBookstrEvent = (event.kind === ExtendedKind.PUBLICATION || event.kind === ExtendedKind.PUBLICATION_CONTENT) && !!bookMetadata.book
   const contentRef = useRef<HTMLDivElement>(null)
   
   // Preprocess content: convert all markdown to AsciiDoc syntax
@@ -1219,6 +1223,28 @@ export default function AsciidocArticle({
       <div className={`prose prose-zinc max-w-none dark:prose-invert break-words overflow-wrap-anywhere ${className || ''}`}>
         {/* Metadata */}
         {!hideImagesAndInfo && metadata.title && <h1 className="break-words">{metadata.title}</h1>}
+        {!hideImagesAndInfo && !metadata.title && isBookstrEvent && (
+          <h1 className="break-words">
+            {bookMetadata.book
+              ? bookMetadata.book
+                  .split('-')
+                  .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                  .join(' ')
+              : 'Bookstr Publication'}
+          </h1>
+        )}
+        {!hideImagesAndInfo && isBookstrEvent && (
+          <div className="text-xs text-muted-foreground space-x-2 mb-2">
+            {bookMetadata.type && <span>Type: {bookMetadata.type}</span>}
+            {bookMetadata.book && <span>Book: {bookMetadata.book
+              .split('-')
+              .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+              .join(' ')}</span>}
+            {bookMetadata.chapter && <span>Chapter: {bookMetadata.chapter}</span>}
+            {bookMetadata.verse && <span>Verse: {bookMetadata.verse}</span>}
+            {bookMetadata.version && <span>Version: {bookMetadata.version.toUpperCase()}</span>}
+          </div>
+        )}
         {!hideImagesAndInfo && metadata.summary && (
           <blockquote>
             <p className="break-words">{metadata.summary}</p>
@@ -1226,6 +1252,28 @@ export default function AsciidocArticle({
         )}
         {hideImagesAndInfo && metadata.title && (
           <h2 className="text-2xl font-bold mb-4 leading-tight break-words">{metadata.title}</h2>
+        )}
+        {hideImagesAndInfo && !metadata.title && isBookstrEvent && (
+          <h2 className="text-2xl font-bold mb-4 leading-tight break-words">
+            {bookMetadata.book
+              ? bookMetadata.book
+                  .split('-')
+                  .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                  .join(' ')
+              : 'Bookstr Publication'}
+          </h2>
+        )}
+        {hideImagesAndInfo && isBookstrEvent && (
+          <div className="text-xs text-muted-foreground space-x-2 mb-2">
+            {bookMetadata.type && <span>Type: {bookMetadata.type}</span>}
+            {bookMetadata.book && <span>Book: {bookMetadata.book
+              .split('-')
+              .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+              .join(' ')}</span>}
+            {bookMetadata.chapter && <span>Chapter: {bookMetadata.chapter}</span>}
+            {bookMetadata.verse && <span>Verse: {bookMetadata.verse}</span>}
+            {bookMetadata.version && <span>Version: {bookMetadata.version.toUpperCase()}</span>}
+          </div>
         )}
         
         {/* Metadata image */}

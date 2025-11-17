@@ -63,6 +63,7 @@ type TSecondaryPageContext = {
   push: (url: string) => void
   pop: () => void
   currentIndex: number
+  navigateToPrimaryPage: (page: TPrimaryPageName, props?: object) => void
 }
 
 type TStackItem = {
@@ -115,7 +116,7 @@ export function usePrimaryPage() {
 export function useSecondaryPage() {
   const context = useContext(SecondaryPageContext)
   if (!context) {
-    throw new Error('usePrimaryPage must be used within a SecondaryPageContext.Provider')
+    throw new Error('useSecondaryPage must be used within a SecondaryPageContext.Provider')
   }
   return context
 }
@@ -1666,7 +1667,8 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             pop: popSecondaryPage,
             currentIndex: secondaryStack.length
               ? secondaryStack[secondaryStack.length - 1].index
-              : 0
+              : 0,
+            navigateToPrimaryPage: navigatePrimaryPage
           }}
         >
         <CurrentRelaysProvider>
@@ -1763,7 +1765,8 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         value={{
           push: pushSecondaryPage,
           pop: popSecondaryPage,
-          currentIndex: secondaryStack.length ? secondaryStack[secondaryStack.length - 1].index : 0
+          currentIndex: secondaryStack.length ? secondaryStack[secondaryStack.length - 1].index : 0,
+          navigateToPrimaryPage: navigatePrimaryPage
         }}
       >
         <CurrentRelaysProvider>

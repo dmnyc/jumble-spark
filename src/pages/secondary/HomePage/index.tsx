@@ -1,4 +1,4 @@
-import { usePrimaryPage, useSmartRelayNavigation } from '@/PageManager'
+import { useSecondaryPage, useSmartRelayNavigation } from '@/PageManager'
 import RelaySimpleInfo from '@/components/RelaySimpleInfo'
 import { Button } from '@/components/ui/button'
 import { RECOMMENDED_RELAYS } from '@/constants'
@@ -13,7 +13,7 @@ import logger from '@/lib/logger'
 
 const HomePage = forwardRef(({ index }: { index?: number }, ref) => {
   const { t } = useTranslation()
-  const { navigate } = usePrimaryPage()
+  const { navigateToPrimaryPage } = useSecondaryPage()
   const { navigateToRelay } = useSmartRelayNavigation()
   // DEPRECATED: updateShowRecommendedRelaysPanel removed - double-panel functionality disabled
   const [recommendedRelayInfos, setRecommendedRelayInfos] = useState<TRelayInfo[]>([])
@@ -72,7 +72,7 @@ const HomePage = forwardRef(({ index }: { index?: number }, ref) => {
           ))}
         </div>
         <div className="flex mt-2 justify-center">
-          <Button variant="ghost" onClick={() => navigate('explore')}>
+          <Button variant="ghost" onClick={() => navigateToPrimaryPage('explore')}>
             <div>{t('Explore more')}</div>
             <ArrowRight />
           </Button>

@@ -3,6 +3,7 @@ import { useFetchEvent } from '@/hooks/useFetchEvent'
 import { useFetchProfile } from '@/hooks/useFetchProfile'
 import { ExtendedKind } from '@/constants'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
+import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -148,6 +149,17 @@ export default function WebPreview({ url, className }: { url: string; className?
       const eventSummary = eventMetadata?.summary || description
       const eventImage = eventMetadata?.image
 
+      // Extract bookstr metadata if applicable
+      const bookMetadata = fetchedEvent ? extractBookMetadata(fetchedEvent) : null
+      const isBookstrEvent = fetchedEvent && (fetchedEvent.kind === ExtendedKind.PUBLICATION || fetchedEvent.kind === ExtendedKind.PUBLICATION_CONTENT) && !!bookMetadata?.book
+
+      const formatBookName = (book: string) => {
+        return book
+          .split('-')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(' ')
+      }
+
       return (
         <div
           className={cn('p-3 clickable flex w-full border rounded-lg overflow-hidden gap-3', className)}
@@ -183,11 +195,20 @@ export default function WebPreview({ url, className }: { url: string; className?
                 {eventTitle && (
                   <div className="font-semibold text-sm line-clamp-2 mb-1">{eventTitle}</div>
                 )}
+                {isBookstrEvent && bookMetadata && (
+                  <div className="text-xs text-muted-foreground space-x-2 mb-1">
+                    {bookMetadata.type && <span>Type: {bookMetadata.type}</span>}
+                    {bookMetadata.book && <span>Book: {formatBookName(bookMetadata.book)}</span>}
+                    {bookMetadata.chapter && <span>Chapter: {bookMetadata.chapter}</span>}
+                    {bookMetadata.verse && <span>Verse: {bookMetadata.verse}</span>}
+                    {bookMetadata.version && <span>Version: {bookMetadata.version.toUpperCase()}</span>}
+                  </div>
+                )}
                 {eventSummary && (
                   <div className="text-xs text-muted-foreground line-clamp-2 mb-1">{eventSummary}</div>
                 )}
                 {contentPreview && (
-                  <div className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-wrap break-words">
+                  <div className="my-2 text-sm whitespace-pre-wrap break-words line-clamp-6">
                     {contentPreview}
                   </div>
                 )}

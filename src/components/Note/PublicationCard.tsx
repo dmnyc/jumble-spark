@@ -6,6 +6,8 @@ import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { Event, kinds } from 'nostr-tools'
 import { useMemo } from 'react'
 import Image from '../Image'
+import { extractBookMetadata } from '@/lib/bookstr-parser'
+import { ExtendedKind } from '@/constants'
 
 export default function PublicationCard({
   event,
@@ -18,13 +20,32 @@ export default function PublicationCard({
   const { push } = useSecondaryPage()
   const { autoLoadMedia } = useContentPolicy()
   const metadata = useMemo(() => getLongFormArticleMetadataFromEvent(event), [event])
+  const bookMetadata = useMemo(() => extractBookMetadata(event), [event])
+  const isBookstrEvent = (event.kind === ExtendedKind.PUBLICATION || event.kind === ExtendedKind.PUBLICATION_CONTENT) && !!bookMetadata.book
 
   const handleCardClick = (e: React.MouseEvent) => {
     e.stopPropagation()
     push(toNote(event.id))
   }
 
-  const titleComponent = <div className="text-xl font-semibold line-clamp-2">{metadata.title}</div>
+  const titleComponent = metadata.title ? <div className="text-xl font-semibold line-clamp-2">{metadata.title}</div> : null
+
+  const formatBookName = (book: string) => {
+    return book
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ')
+  }
+
+  const bookstrMetadataComponent = isBookstrEvent && (
+    <div className="text-xs text-muted-foreground space-x-2">
+      {bookMetadata.type && <span>Type: {bookMetadata.type}</span>}
+      {bookMetadata.book && <span>Book: {formatBookName(bookMetadata.book)}</span>}
+      {bookMetadata.chapter && <span>Chapter: {bookMetadata.chapter}</span>}
+      {bookMetadata.verse && <span>Verse: {bookMetadata.verse}</span>}
+      {bookMetadata.version && <span>Version: {bookMetadata.version.toUpperCase()}</span>}
+    </div>
+  )
 
   const tagsComponent = metadata.tags.length > 0 && (
     <div className="flex gap-1 flex-wrap">
@@ -63,6 +84,8 @@ export default function PublicationCard({
           )}
           <div className="space-y-2">
             {titleComponent}
+            {bookstrMetadataComponent}
+            {!titleComponent && bookstrMetadataComponent && <div className="h-0" />}
             {summaryComponent}
             {tagsComponent}
           </div>
@@ -87,6 +110,8 @@ export default function PublicationCard({
           )}
           <div className="flex-1 w-0 space-y-2">
             {titleComponent}
+            {bookstrMetadataComponent}
+            {!titleComponent && bookstrMetadataComponent && <div className="h-0" />}
             {summaryComponent}
             {tagsComponent}
           </div>

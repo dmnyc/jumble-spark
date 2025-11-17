@@ -2100,8 +2100,15 @@ class ClientService extends EventTarget {
 
   /**
    * Fetch bookstr events by tag filters
-   * Note: Most relays only index single-letter tags, so we fetch all kind 30041 events
-   * and filter client-side based on the custom tags (type, book, chapter, verse, version)
+   * Strategy: 
+   * 1. Find the appropriate publication (kind 30040) level:
+   *    - If verse requested → find chapter-level 30040
+   *    - If chapter requested → find chapter-level 30040
+   *    - If only book requested → find book-level 30040
+   * 2. Fetch ALL a-tags from that publication (we always pull more than needed for expansion)
+   * 3. Filter from cached results to show only what was requested
+   * 
+   * This is efficient because there are far fewer 30040s than 30041s
    */
   async fetchBookstrEvents(filters: {
     type?: string
@@ -2110,60 +2117,479 @@ class ClientService extends EventTarget {
     verse?: string
     version?: string
   }): Promise<NEvent[]> {
-    // Build filter for querying - only use indexed tags (single letters)
-    // We'll filter by the custom tags client-side
-    const filter: Filter = {
-      kinds: [ExtendedKind.PUBLICATION_CONTENT]
-    }
-    
-    // Note: We can't use #type, #book, #chapter, #verse, #version filters
-    // because relays only index single-letter tags. We'll fetch and filter client-side.
-
-    // First, try to get from cache
-    // Note: For now, we'll query the relay directly. The cache will be populated
-    // when publications are loaded through normal channels. We can enhance this
-    // later to check the cache first if needed.
-    const cachedEvents: NEvent[] = []
-
-    // Query from relays - fetch all kind 30041 events (we'll filter client-side)
-    // Use BIG_RELAY_URLS which includes both thecitadel.nostr1.com and nostr.land
-    const relayUrls = BIG_RELAY_URLS
-    let relayEvents: NEvent[] = []
-    
+    logger.info('fetchBookstrEvents: Called', { filters })
     try {
-      relayEvents = await this.fetchEvents(relayUrls, filter, {
-        eoseTimeout: 5000,
-        globalTimeout: 10000
+      // Step 1: Determine what level of publication we need
+      // - If verse is specified → we need chapter-level publication
+      // - If chapter is specified (but no verse) → we need chapter-level publication
+      // - If only book is specified → we need book-level publication
+      const needsChapterLevel = filters.chapter !== undefined || filters.verse !== undefined
+      
+      const publicationFilter: Filter = {
+        kinds: [ExtendedKind.PUBLICATION]
+      }
+      
+      // Build search terms for finding the publication
+      const searchTerms: string[] = []
+      if (filters.type) {
+        searchTerms.push(filters.type)
+      }
+      if (filters.book) {
+        const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+        const originalBook = filters.book.toLowerCase()
+        searchTerms.push(normalizedBook)
+        if (normalizedBook !== originalBook) {
+          searchTerms.push(originalBook)
+        }
+      }
+      // Only include chapter in search if we need chapter-level publication
+      if (needsChapterLevel && filters.chapter !== undefined) {
+        searchTerms.push(filters.chapter.toString())
+      }
+      if (filters.version) {
+        searchTerms.push(filters.version)
+      }
+
+      const relayUrls = FAST_READ_RELAY_URLS
+      
+      logger.info('fetchBookstrEvents: Searching for publication', {
+        filters,
+        needsChapterLevel,
+        searchTerms,
+        relayUrls: relayUrls.length
       })
       
-      // Filter events client-side based on the custom tags
-      // Since relays don't index multi-letter tags, we need to check tags manually
-      relayEvents = relayEvents.filter(event => {
-        return this.eventMatchesBookstrFilters(event, filters)
+      // Fetch publications
+      logger.info('fetchBookstrEvents: About to fetch publications', {
+        relayUrls: relayUrls.length,
+        filter: publicationFilter
       })
+      
+      let publications: NEvent[] = []
+      try {
+        publications = await this.fetchEvents(relayUrls, publicationFilter, {
+          eoseTimeout: 10000,
+          globalTimeout: 15000
+        })
+        
+        logger.info('fetchBookstrEvents: Fetched publications', {
+          count: publications.length
+        })
+      } catch (fetchError) {
+        logger.error('fetchBookstrEvents: Error fetching publications', {
+          error: fetchError,
+          filters,
+          relayUrls: relayUrls.length
+        })
+        throw fetchError
+      }
+      
+      // Filter publications by tags
+      // For chapter-level: must have matching chapter tag
+      // For book-level: must NOT have chapter tag
+      const filtersForMatching = { ...filters }
+      delete filtersForMatching.verse // Never filter by verse for publication search
+      
+      // Log sample publications before filtering to debug
+      if (publications.length > 0) {
+        const samplePub = publications[0]
+        const getTagValue = (name: string) => samplePub.tags.find(t => t[0] === name)?.[1]
+        logger.info('fetchBookstrEvents: Sample publication before filtering', {
+          id: samplePub.id.substring(0, 8),
+          kind: samplePub.kind,
+          tags: samplePub.tags.map(t => `${t[0]}:${t[1]}`).slice(0, 10),
+          type: getTagValue('type'),
+          book: getTagValue('book'),
+          chapter: getTagValue('chapter'),
+          version: getTagValue('version'),
+          allTagNames: samplePub.tags.map(t => t[0])
+        })
+      }
+      
+      const beforeFilterCount = publications.length
+      
+      // Step 1: Filter by chapter-level requirement
+      publications = publications.filter(event => {
+        const getTagValue = (name: string) => event.tags.find(t => t[0] === name)?.[1]
+        const hasChapter = getTagValue('chapter') !== undefined
+        
+        // If we need chapter-level, the publication must have a chapter tag
+        // If we need book-level, the publication must NOT have a chapter tag
+        if (needsChapterLevel && !hasChapter) {
+          return false
+        }
+        if (!needsChapterLevel && hasChapter) {
+          return false
+        }
+        return true
+      })
+      
+      logger.info('fetchBookstrEvents: After chapter-level filter', {
+        beforeFilter: beforeFilterCount,
+        afterChapterFilter: publications.length,
+        needsChapterLevel
+      })
+      
+      // Step 2: Do fulltext search first (more lenient)
+      // For book names, we'll rely on tag matching, so we only do fulltext for type, chapter, and version
+      if (searchTerms.length > 0) {
+        const beforeFulltext = publications.length
+        const sampleBeforeFilter = beforeFulltext > 0 ? publications[0] : null
+        
+        // Separate book-related terms from other terms
+        // Book terms will be handled by tag matching, so we only require non-book terms in fulltext
+        const normalizedBook = filters.book ? filters.book.toLowerCase().replace(/\s+/g, '-') : null
+        const bookTerms: string[] = []
+        if (normalizedBook) {
+          bookTerms.push(normalizedBook)
+          if (filters.book) {
+            bookTerms.push(filters.book.toLowerCase())
+          }
+        }
+        
+        publications = publications.filter(event => {
+          const contentLower = event.content.toLowerCase()
+          const allTags = event.tags.map(t => t.join(' ')).join(' ').toLowerCase()
+          const searchableText = `${contentLower} ${allTags}`
+          
+          // For each search term, check if it matches
+          // For book terms, we'll skip fulltext matching (handled by tag matching)
+          // For other terms (type, chapter, version), require exact or partial match
+          const matches = searchTerms.every(term => {
+            const termLower = term.toLowerCase()
+            
+            // Skip fulltext matching for book terms - they'll be handled by tag matching
+            if (bookTerms.some(bookTerm => termLower === bookTerm || termLower.includes(bookTerm) || bookTerm.includes(termLower))) {
+              return true // Always pass for book terms in fulltext search
+            }
+            
+            // For other terms, check if they're in the searchable text
+            // Also try word-boundary matching for better results
+            if (searchableText.includes(termLower)) {
+              return true
+            }
+            
+            // Try partial word matching (e.g., "psalm" matches "psalms")
+            const termWords = termLower.split(/[-\s]+/).filter(w => w.length > 2)
+            if (termWords.length > 0) {
+              const hasPartialMatch = termWords.some(word => {
+                // Check if the word or its plural/singular form appears
+                const wordPlural = word + 's'
+                const wordSingular = word.endsWith('s') ? word.slice(0, -1) : word
+                return searchableText.includes(word) || 
+                       searchableText.includes(wordPlural) || 
+                       searchableText.includes(wordSingular)
+              })
+              if (hasPartialMatch) {
+                return true
+              }
+            }
+            
+            return false
+          })
+          return matches
+        })
+        
+        // Log a sample of what didn't match if we filtered everything out
+        if (publications.length === 0 && sampleBeforeFilter) {
+          const contentLower = sampleBeforeFilter.content.toLowerCase()
+          const allTags = sampleBeforeFilter.tags.map(t => t.join(' ')).join(' ').toLowerCase()
+          const searchableText = `${contentLower} ${allTags}`
+          const missingTerms = searchTerms.filter(term => {
+            const termLower = term.toLowerCase()
+            if (bookTerms.some(bookTerm => termLower === bookTerm || termLower.includes(bookTerm) || bookTerm.includes(termLower))) {
+              return false // Book terms are handled by tag matching
+            }
+            return !searchableText.includes(termLower)
+          })
+          logger.info('fetchBookstrEvents: Fulltext search filtered all out', {
+            searchTerms,
+            missingTerms,
+            bookTerms,
+            sampleBook: sampleBeforeFilter.tags.find(t => t[0] === 'book')?.[1],
+            sampleChapter: sampleBeforeFilter.tags.find(t => t[0] === 'chapter')?.[1],
+            sampleSearchableText: searchableText.substring(0, 200)
+          })
+        }
+        
+        logger.info('fetchBookstrEvents: After fulltext filter', {
+          beforeFulltext,
+          afterFulltext: publications.length,
+          searchTerms
+        })
+      }
+      
+      // Step 3: Do lenient tag matching (only require matches if tags exist)
+      publications = publications.filter(event => {
+        return this.eventMatchesBookstrFiltersLenient(event, filtersForMatching)
+      })
+      
+      logger.info('fetchBookstrEvents: Filtering results', {
+        beforeFilter: beforeFilterCount,
+        afterTagFilter: publications.length,
+        needsChapterLevel,
+        filtersForMatching
+      })
+      
+      logger.info('fetchBookstrEvents: Found publications after filtering', {
+        filters,
+        needsChapterLevel,
+        publicationCount: publications.length
+      })
+      
+      if (publications.length === 0) {
+        logger.info('fetchBookstrEvents: No matching publications found', { filters })
+        return []
+      }
+      
+      // Step 2: Find the best matching publication
+      // Score publications by how well they match (exact matches score higher)
+      const scoredPublications = publications.map(pub => {
+        let score = 0
+        const getTagValue = (name: string) => pub.tags.find(t => t[0] === name)?.[1]
+        
+        if (filters.type && getTagValue('type')?.toLowerCase() === filters.type.toLowerCase()) {
+          score += 10
+        }
+        if (filters.book) {
+          const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+          const eventBook = getTagValue('book')?.toLowerCase()
+          if (eventBook === normalizedBook) {
+            score += 10
+          } else if (eventBook?.includes(normalizedBook) || normalizedBook.includes(eventBook || '')) {
+            score += 5
+          }
+        }
+        if (needsChapterLevel && filters.chapter !== undefined) {
+          const eventChapter = parseInt(getTagValue('chapter') || '0')
+          if (eventChapter === filters.chapter) {
+            score += 10
+          }
+        }
+        if (filters.version) {
+          const eventVersion = getTagValue('version')?.toLowerCase()
+          if (eventVersion === filters.version.toLowerCase()) {
+            score += 10
+          }
+        }
+        
+        return { pub, score }
+      })
+      
+      // Sort by score (highest first) and take the best match
+      scoredPublications.sort((a, b) => b.score - a.score)
+      const bestPublication = scoredPublications[0].pub
+      
+      logger.info('fetchBookstrEvents: Best matching publication', {
+        filters,
+        publicationId: bestPublication.id.substring(0, 8),
+        score: scoredPublications[0].score,
+        aTagCount: bestPublication.tags.filter(t => t[0] === 'a').length,
+        level: needsChapterLevel ? 'chapter' : 'book'
+      })
+      
+      // Step 3: Recursively fetch ALL content events from nested publications
+      // Publications can be nested (book → chapters → verses), so we need to traverse
+      // all the way down to the leaves (30041 content events)
+      const allContentEvents: NEvent[] = []
+      const visitedPublications = new Set<string>() // Prevent infinite loops
+      
+      const fetchFromPublication = async (publication: NEvent): Promise<void> => {
+        const pubId = publication.id
+        if (visitedPublications.has(pubId)) {
+          return // Already processed this publication
+        }
+        visitedPublications.add(pubId)
+        
+        const aTags = publication.tags
+          .filter(tag => tag[0] === 'a' && tag[1])
+          .map(tag => tag[1])
+        
+        if (aTags.length === 0) {
+          return
+        }
+        
+      logger.info('fetchBookstrEvents: Processing publication a-tags', {
+        publicationId: pubId.substring(0, 8),
+        aTagCount: aTags.length
+      })
+        
+        // Process all a-tags in parallel
+        const promises = aTags.map(async (aTag) => {
+          // aTag format: "kind:pubkey:d"
+          const parts = aTag.split(':')
+          if (parts.length < 2) return null
+          
+          const kind = parseInt(parts[0])
+          const pubkey = parts[1]
+          const d = parts[2] || ''
+          
+          const filter: any = {
+            authors: [pubkey],
+            kinds: [kind],
+            limit: 1
+          }
+          if (d) {
+            filter['#d'] = [d]
+          }
+          
+          const events = await this.fetchEvents(relayUrls, filter, {
+            eoseTimeout: 5000,
+            globalTimeout: 10000
+          })
+          
+          const event = events[0] || null
+          if (!event) return null
+          
+          // If it's a nested publication (30040), recursively fetch from it
+          if (event.kind === ExtendedKind.PUBLICATION) {
+            await fetchFromPublication(event)
+            return null // Don't add publications to content events
+          }
+          
+          // If it's a content event (30041), add it to our collection
+          if (event.kind === ExtendedKind.PUBLICATION_CONTENT) {
+            return event
+          }
+          
+          return null
+        })
+        
+        const results = await Promise.all(promises)
+        results.forEach(event => {
+          if (event) {
+            allContentEvents.push(event)
+          }
+        })
+      }
+      
+      logger.info('fetchBookstrEvents: Starting recursive fetch from publication', {
+        publicationId: bestPublication.id.substring(0, 8),
+        note: 'Will traverse nested publications to find all content events'
+      })
+      
+      await fetchFromPublication(bestPublication)
+      
+      logger.info('fetchBookstrEvents: Completed recursive fetch', {
+        filters,
+        totalFetched: allContentEvents.length,
+        publicationsVisited: visitedPublications.size
+      })
+      
+      // Step 4: Filter from cached results to show only what was requested
+      // We have all the data, now filter to what they want to display
+      let finalEvents = allContentEvents
+      
+      // Filter by book (if we fetched book-level, this ensures we only show the right book)
+      if (filters.book) {
+        const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+        finalEvents = finalEvents.filter(event => {
+          const metadata = this.extractBookMetadataFromEvent(event)
+          return metadata.book?.toLowerCase() === normalizedBook
+        })
+      }
+      
+      // Filter by chapter (if we fetched book-level but they want a specific chapter)
+      if (filters.chapter !== undefined && !needsChapterLevel) {
+        // We fetched book-level, but they want a specific chapter
+        finalEvents = finalEvents.filter(event => {
+          const metadata = this.extractBookMetadataFromEvent(event)
+          return parseInt(metadata.chapter || '0') === filters.chapter
+        })
+      }
+      
+      // Filter by verse if specified
+      if (filters.verse) {
+        finalEvents = finalEvents.filter(event => {
+          const metadata = this.extractBookMetadataFromEvent(event)
+          const eventVerse = metadata.verse
+          if (!eventVerse) return false
+          
+          const verseParts = filters.verse!.split(/[,\s-]+/).map(v => v.trim()).filter(v => v)
+          const verseNum = parseInt(eventVerse)
+          
+          return verseParts.some(part => {
+            if (part.includes('-')) {
+              const [start, end] = part.split('-').map(v => parseInt(v.trim()))
+              return !isNaN(start) && !isNaN(end) && verseNum >= start && verseNum <= end
+            } else {
+              const partNum = parseInt(part)
+              return !isNaN(partNum) && partNum === verseNum
+            }
+          })
+        })
+      }
+      
+      // Filter by version if specified
+      if (filters.version) {
+        finalEvents = finalEvents.filter(event => {
+          const metadata = this.extractBookMetadataFromEvent(event)
+          return metadata.version?.toLowerCase() === filters.version!.toLowerCase()
+        })
+      }
+      
+      logger.info('fetchBookstrEvents: Final filtered results', {
+        filters,
+        totalFetched: allContentEvents.length,
+        finalCount: finalEvents.length,
+        note: 'All events cached for expansion support'
+      })
+      
+      return finalEvents
     } catch (error) {
-      logger.warn('Error querying bookstr events from relays', { error, filters, relayUrls })
+      logger.warn('Error querying bookstr events', { error, filters })
+      return []
     }
-
-    // Combine cached and relay events, deduplicate by event ID
-    const eventMap = new Map<string, NEvent>()
-    cachedEvents.forEach(event => eventMap.set(event.id, event))
-    relayEvents.forEach(event => eventMap.set(event.id, event))
-    
-    return Array.from(eventMap.values())
+  }
+  
+  /**
+   * Extract book metadata from event tags (helper method)
+   */
+  private extractBookMetadataFromEvent(event: NEvent): {
+    type?: string
+    book?: string
+    chapter?: string
+    verse?: string
+    version?: string
+  } {
+    const metadata: any = {}
+    for (const [tag, value] of event.tags) {
+      switch (tag) {
+        case 'type':
+          metadata.type = value
+          break
+        case 'book':
+          metadata.book = value
+          break
+        case 'chapter':
+          metadata.chapter = value
+          break
+        case 'verse':
+          metadata.verse = value
+          break
+        case 'version':
+          metadata.version = value
+          break
+      }
+    }
+    return metadata
   }
 
   /**
-   * Check if an event matches bookstr filters
+   * Lenient version of eventMatchesBookstrFilters
+   * Only requires exact matches if the tag exists in the event.
+   * If a filter is provided but the tag doesn't exist, it still passes
+   * (since fulltext search already filtered it).
    */
-  private eventMatchesBookstrFilters(event: NEvent, filters: {
+  private eventMatchesBookstrFiltersLenient(event: NEvent, filters: {
     type?: string
     book?: string
     chapter?: number
     verse?: string
     version?: string
   }): boolean {
-    if (event.kind !== ExtendedKind.PUBLICATION_CONTENT) {
+    // Accept both publication and publication content events
+    if (event.kind !== ExtendedKind.PUBLICATION && event.kind !== ExtendedKind.PUBLICATION_CONTENT) {
       return false
     }
 
@@ -2172,43 +2598,39 @@ class ClientService extends EventTarget {
       return tag?.[1]
     }
 
+    // Type: if filter provided, check if tag exists and matches
     if (filters.type) {
       const eventType = getTagValue('type')
-      if (!eventType || eventType.toLowerCase() !== filters.type.toLowerCase()) {
+      // If tag exists, it must match. If it doesn't exist, we already did fulltext search
+      if (eventType && eventType.toLowerCase() !== filters.type.toLowerCase()) {
         return false
       }
     }
 
+    // Book: if filter provided, check if tag exists and matches (exact match only)
     if (filters.book) {
       const eventBook = getTagValue('book')
       const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
-      if (!eventBook || eventBook.toLowerCase() !== normalizedBook) {
+      // If tag exists, it must match exactly. If it doesn't exist, we already did fulltext search
+      if (eventBook && eventBook.toLowerCase() !== normalizedBook) {
         return false
       }
     }
 
+    // Chapter: if filter provided, check if tag exists and matches
     if (filters.chapter !== undefined) {
       const eventChapter = getTagValue('chapter')
-      if (!eventChapter || parseInt(eventChapter) !== filters.chapter) {
+      // If tag exists, it must match. If it doesn't exist, we already did fulltext search
+      if (eventChapter && parseInt(eventChapter) !== filters.chapter) {
         return false
       }
     }
 
-    if (filters.verse) {
-      const eventVerse = getTagValue('verse')
-      if (!eventVerse) {
-        return false
-      }
-      // Check if verse matches (handle ranges like "1-3", "1,3,5", etc.)
-      const verseMatches = this.verseMatches(eventVerse, filters.verse)
-      if (!verseMatches) {
-        return false
-      }
-    }
-
+    // Version: if filter provided, check if tag exists and matches
     if (filters.version) {
       const eventVersion = getTagValue('version')
-      if (!eventVersion || eventVersion.toLowerCase() !== filters.version.toLowerCase()) {
+      // If tag exists, it must match. If it doesn't exist, we already did fulltext search
+      if (eventVersion && eventVersion.toLowerCase() !== filters.version.toLowerCase()) {
         return false
       }
     }
@@ -2216,49 +2638,6 @@ class ClientService extends EventTarget {
     return true
   }
 
-  /**
-   * Check if a verse string matches a verse filter
-   * Handles ranges like "1-3", "1,3,5", etc.
-   */
-  private verseMatches(eventVerse: string, filterVerse: string): boolean {
-    // Normalize both verses
-    const normalize = (v: string) => v.trim().toLowerCase()
-    const eventV = normalize(eventVerse)
-    const filterV = normalize(filterVerse)
-
-    // If exact match
-    if (eventV === filterV) {
-      return true
-    }
-
-    // Parse filter verse (could be "1", "1-3", "1,3,5", etc.)
-    const filterParts = filterV.split(/[,\s]+/)
-    for (const part of filterParts) {
-      if (part.includes('-')) {
-        // Range like "1-3"
-        const [start, end] = part.split('-').map(v => parseInt(v.trim()))
-        const eventNum = parseInt(eventV)
-        if (!isNaN(start) && !isNaN(end) && !isNaN(eventNum)) {
-          if (eventNum >= start && eventNum <= end) {
-            return true
-          }
-        }
-      } else {
-        // Single verse
-        const filterNum = parseInt(part)
-        const eventNum = parseInt(eventV)
-        if (!isNaN(filterNum) && !isNaN(eventNum) && filterNum === eventNum) {
-          return true
-        }
-        // Also check if event verse contains the filter verse
-        if (eventV.includes(part)) {
-          return true
-        }
-      }
-    }
-
-    return false
-  }
 }
 
 const instance = ClientService.getInstance()

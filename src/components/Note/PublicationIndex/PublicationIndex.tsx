@@ -13,6 +13,7 @@ import { MoreVertical, RefreshCw, ArrowUp } from 'lucide-react'
 import indexedDb from '@/services/indexed-db.service'
 import { isReplaceableEvent } from '@/lib/event'
 import { useSecondaryPage } from '@/PageManager'
+import { extractBookMetadata } from '@/lib/bookstr-parser'
 
 interface PublicationReference {
   coordinate?: string
@@ -83,6 +84,8 @@ export default function PublicationIndex({
     
     return meta
   }, [event])
+  const bookMetadata = useMemo(() => extractBookMetadata(event), [event])
+  const isBookstrEvent = (event.kind === ExtendedKind.PUBLICATION || event.kind === ExtendedKind.PUBLICATION_CONTENT) && !!bookMetadata.book
   const [references, setReferences] = useState<PublicationReference[]>([])
   const [visitedIndices, setVisitedIndices] = useState<Set<string>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
@@ -992,7 +995,19 @@ export default function PublicationIndex({
         <div className="prose prose-zinc max-w-none dark:prose-invert">
           <header className="mb-8 border-b pb-6">
             <div className="flex items-start justify-between gap-4 mb-4">
-              <h1 className="text-4xl font-bold leading-tight break-words flex-1">{metadata.title}</h1>
+              {metadata.title && <h1 className="text-4xl font-bold leading-tight break-words flex-1">{metadata.title}</h1>}
+              {!metadata.title && isBookstrEvent && (
+                <div className="flex-1">
+                  <h1 className="text-4xl font-bold leading-tight break-words">
+                    {bookMetadata.book
+                      ? bookMetadata.book
+                          .split('-')
+                          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                          .join(' ')
+                      : 'Bookstr Publication'}
+                  </h1>
+                </div>
+              )}
               <Button 
                 variant="ghost" 
                 size="icon" 
@@ -1014,15 +1029,47 @@ export default function PublicationIndex({
                   <span className="font-semibold">Author:</span> {metadata.author}
                 </div>
               )}
-              {metadata.version && (
+              {metadata.version && !isBookstrEvent && (
                 <div>
                   <span className="font-semibold">Version:</span> {metadata.version}
                 </div>
               )}
-              {metadata.type && (
+              {metadata.type && !isBookstrEvent && (
                 <div>
                   <span className="font-semibold">Type:</span> {metadata.type}
                 </div>
+              )}
+              {isBookstrEvent && (
+                <>
+                  {bookMetadata.type && (
+                    <div>
+                      <span className="font-semibold">Type:</span> {bookMetadata.type}
+                    </div>
+                  )}
+                  {bookMetadata.book && (
+                    <div>
+                      <span className="font-semibold">Book:</span> {bookMetadata.book
+                        .split('-')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                        .join(' ')}
+                    </div>
+                  )}
+                  {bookMetadata.chapter && (
+                    <div>
+                      <span className="font-semibold">Chapter:</span> {bookMetadata.chapter}
+                    </div>
+                  )}
+                  {bookMetadata.verse && (
+                    <div>
+                      <span className="font-semibold">Verse:</span> {bookMetadata.verse}
+                    </div>
+                  )}
+                  {bookMetadata.version && (
+                    <div>
+                      <span className="font-semibold">Version:</span> {bookMetadata.version.toUpperCase()}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </header>

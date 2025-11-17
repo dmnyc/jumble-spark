@@ -139,12 +139,21 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
           const allVersions = new Set<string>()
 
           for (const version of versionsToFetch) {
+            // Fetch entire chapter if verse is specified, entire book if only chapter is specified
             const events = await client.fetchBookstrEvents({
               type: bookType,
               book: normalizedBook,
               chapter: ref.chapter,
-              verse: ref.verse,
+              verse: ref.verse, // Pass verse for context, but we'll fetch entire chapter
               version: version.toLowerCase()
+            })
+
+            logger.debug('BookstrContent: Fetched events', {
+              book: normalizedBook,
+              chapter: ref.chapter,
+              verse: ref.verse,
+              version,
+              eventCount: events.length
             })
 
             events.forEach(event => {
@@ -156,8 +165,32 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             })
           }
 
+          // Filter events to only show requested verses (if verse is specified)
+          // We fetched the entire chapter/book, but only display the requested verses
+          let filteredEvents = allEvents
+          if (ref.verse) {
+            const verseParts = ref.verse.split(/[,\s-]+/).map(v => v.trim()).filter(v => v)
+            filteredEvents = allEvents.filter(event => {
+              const metadata = extractBookMetadata(event)
+              const eventVerse = metadata.verse
+              if (!eventVerse) return false
+              
+              // Check if this verse matches any of the requested verses
+              const verseNum = parseInt(eventVerse)
+              return verseParts.some(part => {
+                if (part.includes('-')) {
+                  const [start, end] = part.split('-').map(v => parseInt(v.trim()))
+                  return !isNaN(start) && !isNaN(end) && verseNum >= start && verseNum <= end
+                } else {
+                  const partNum = parseInt(part)
+                  return !isNaN(partNum) && partNum === verseNum
+                }
+              })
+            })
+          }
+
           // Sort events by verse number
-          allEvents.sort((a, b) => {
+          filteredEvents.sort((a, b) => {
             const aMeta = extractBookMetadata(a)
             const bMeta = extractBookMetadata(b)
             const aVerse = parseInt(aMeta.verse || '0')
@@ -165,15 +198,34 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             return aVerse - bVerse
           })
 
+          logger.debug('BookstrContent: Filtered events', {
+            book: normalizedBook,
+            chapter: ref.chapter,
+            verse: ref.verse,
+            totalFetched: allEvents.length,
+            filteredCount: filteredEvents.length
+          })
+
           newSections.push({
             reference: ref,
-            events: allEvents,
+            events: filteredEvents,
             versions: Array.from(allVersions),
             originalVerses: ref.verse,
             originalChapter: ref.chapter
           })
         }
 
+        logger.debug('BookstrContent: Setting sections', {
+          sectionCount: newSections.length,
+          sections: newSections.map(s => ({
+            book: s.reference.book,
+            chapter: s.reference.chapter,
+            verse: s.reference.verse,
+            eventCount: s.events.length,
+            versions: s.versions
+          }))
+        })
+        
         setSections(newSections)
         
         // Set initial selected versions
@@ -267,8 +319,8 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
               isExpanded={isExpanded}
             />
 
-            {/* Expand/Collapse buttons */}
-            {hasVerses && (
+            {/* Expand/Collapse buttons - only show if events were found */}
+            {hasVerses && filteredEvents.length > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -296,7 +348,7 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
                 )}
               </Button>
             )}
-            {hasChapter && !hasVerses && (
+            {hasChapter && !hasVerses && filteredEvents.length > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -491,16 +543,16 @@ function VerseContent({ events, hasVerses, originalVerses, isExpanded, originalC
           <div
             key={event.id}
             className={cn(
-              'text-sm',
+              'flex gap-2 text-sm leading-relaxed items-baseline',
               isExpanded && (isOriginalVerse || isOriginalChapter) && 'border-l-2 border-gray-400 pl-2'
             )}
           >
-            {chapterNum && verseNum ? (
-              <span className="font-semibold mr-1">{chapterNum}:{verseNum}</span>
-            ) : verseNum && (
-              <span className="font-semibold mr-1">{verseNum}</span>
-            )}
-            <span dangerouslySetInnerHTML={{ __html: content }} />
+            {/* Verse number on the left - only show verse number, not chapter:verse */}
+            <span className="font-semibold text-muted-foreground shrink-0 min-w-[2.5rem] text-right">
+              {verseNum || null}
+            </span>
+            {/* Content on the right */}
+            <span className="flex-1" dangerouslySetInnerHTML={{ __html: content }} />
           </div>
         )
       })}
