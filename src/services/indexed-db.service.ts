@@ -702,7 +702,7 @@ class IndexedDbService {
     })
   }
 
-  private async putNonReplaceableEventWithMaster(event: Event, masterKey: string): Promise<Event> {
+  async putNonReplaceableEventWithMaster(event: Event, masterKey: string): Promise<Event> {
     // For non-replaceable events, store by event ID in publication events store
     const storeName = StoreNames.PUBLICATION_EVENTS
     await this.initPromise

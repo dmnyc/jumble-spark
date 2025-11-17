@@ -82,6 +82,11 @@ export const BIG_RELAY_URLS = [
   'wss://thecitadel.nostr1.com',
 ]
 
+// Relay with bookstr composite index support
+export const BOOKSTR_RELAY_URLS = [
+  'wss://orly-relay.imwald.eu'
+]
+
 // Optimized relay list for read operations (includes aggregator)
 export const FAST_READ_RELAY_URLS = [
   'wss://theforest.nostr1.com',

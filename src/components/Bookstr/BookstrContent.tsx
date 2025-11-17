@@ -69,11 +69,18 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
 
   // Fetch events for each reference
   useEffect(() => {
-    if (!parsed || !parsed.references.length) {
+    // Early return if parsed is not ready
+    if (!parsed) {
+      return
+    }
+    
+    if (!parsed.references.length) {
       setIsLoading(false)
       setError('Invalid bookstr reference')
       return
     }
+
+    let isCancelled = false
 
     const fetchEvents = async () => {
       setIsLoading(true)
@@ -165,12 +172,25 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             })
           }
 
-          // Filter events to only show requested verses (if verse is specified)
-          // We fetched the entire chapter/book, but only display the requested verses
+          // Filter events based on what was requested:
+          // - Book only: Show all events (all chapters)
+          // - Chapter only: Show all events for that chapter (all verses)
+          // - Verses: Show only the requested verses (but we have all verses cached for expansion)
           let filteredEvents = allEvents
+          
+          // Filter by chapter if specified
+          if (ref.chapter !== undefined) {
+            filteredEvents = filteredEvents.filter(event => {
+              const metadata = extractBookMetadata(event)
+              const eventChapter = parseInt(metadata.chapter || '0')
+              return eventChapter === ref.chapter
+            })
+          }
+          
+          // Filter by verse if specified (for verse-level queries)
           if (ref.verse) {
             const verseParts = ref.verse.split(/[,\s-]+/).map(v => v.trim()).filter(v => v)
-            filteredEvents = allEvents.filter(event => {
+            filteredEvents = filteredEvents.filter(event => {
               const metadata = extractBookMetadata(event)
               const eventVerse = metadata.verse
               if (!eventVerse) return false
@@ -225,6 +245,8 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             versions: s.versions
           }))
         })
+
+        if (isCancelled) return
         
         setSections(newSections)
         
@@ -237,15 +259,23 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
         })
         setSelectedVersions(initialVersions)
       } catch (err) {
+        if (isCancelled) return
         logger.error('Error fetching bookstr events', { error: err, wikilink })
         setError(err instanceof Error ? err.message : 'Failed to fetch book content')
       } finally {
-        setIsLoading(false)
+        if (!isCancelled) {
+          setIsLoading(false)
+        }
       }
     }
 
     fetchEvents()
-  }, [parsed, wikilink])
+    
+    return () => {
+      isCancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wikilink]) // Only depend on wikilink - parsed is derived from it via useMemo
 
   if (isLoading) {
     return (
@@ -275,22 +305,30 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
   }
 
   return (
-    <div className={cn('my-2 space-y-4', className)}>
-      {sections.map((section, sectionIndex) => {
-        const selectedVersion = selectedVersions.get(sectionIndex) || section.versions[0] || ''
-        const filteredEvents = selectedVersion
-          ? section.events.filter(event => {
-              const metadata = extractBookMetadata(event)
-              return metadata.version?.toUpperCase() === selectedVersion
-            })
-          : section.events
+    <div className={cn('my-2', className)}>
+      <div className="border rounded-lg bg-muted/30 overflow-hidden">
+        {sections.map((section, sectionIndex) => {
+          const selectedVersion = selectedVersions.get(sectionIndex) || section.versions[0] || ''
+          const filteredEvents = selectedVersion
+            ? section.events.filter(event => {
+                const metadata = extractBookMetadata(event)
+                return metadata.version?.toUpperCase() === selectedVersion
+              })
+            : section.events
 
-        const isExpanded = expandedSections.has(sectionIndex)
-        const hasVerses = section.originalVerses !== undefined && section.originalVerses.length > 0
-        const hasChapter = section.originalChapter !== undefined && !hasVerses
+          const isExpanded = expandedSections.has(sectionIndex)
+          const hasVerses = section.originalVerses !== undefined && section.originalVerses.length > 0
+          const hasChapter = section.originalChapter !== undefined && !hasVerses
+          const isLast = sectionIndex === sections.length - 1
 
-        return (
-          <div key={sectionIndex} className="border rounded-lg p-3 bg-muted/30">
+          return (
+            <div 
+              key={sectionIndex} 
+              className={cn(
+                'p-3',
+                !isLast && 'border-b'
+              )}
+            >
             {/* Header */}
             <div className="flex items-center gap-2 mb-2">
               <h4 className="font-semibold text-sm">
@@ -389,9 +427,10 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
                 />
               </div>
             )}
-          </div>
-        )
-      })}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

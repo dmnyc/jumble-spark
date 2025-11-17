@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS, ExtendedKind, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { BIG_RELAY_URLS, BOOKSTR_RELAY_URLS, ExtendedKind, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import {
   compareEvents,
   getReplaceableCoordinate,
@@ -30,7 +30,7 @@ import {
   VerifiedEvent
 } from 'nostr-tools'
 import { AbstractRelay } from 'nostr-tools/abstract-relay'
-import indexedDb from './indexed-db.service'
+import indexedDb, { StoreNames } from './indexed-db.service'
 
 type TTimelineRef = [string, number]
 
@@ -2101,16 +2101,595 @@ class ClientService extends EventTarget {
   /**
    * Fetch bookstr events by tag filters
    * Strategy: 
-   * 1. Find the appropriate publication (kind 30040) level:
-   *    - If verse requested → find chapter-level 30040
-   *    - If chapter requested → find chapter-level 30040
-   *    - If only book requested → find book-level 30040
-   * 2. Fetch ALL a-tags from that publication (we always pull more than needed for expansion)
-   * 3. Filter from cached results to show only what was requested
-   * 
-   * This is efficient because there are far fewer 30040s than 30041s
+   * 1. Check cache first
+   * 2. Use tag filters with composite bookstr index on orly relay (most efficient)
+   * 3. Fall back to other relays if needed
+   * 4. Save fetched events to cache
    */
   async fetchBookstrEvents(filters: {
+    type?: string
+    book?: string
+    chapter?: number
+    verse?: string
+    version?: string
+  }): Promise<NEvent[]> {
+    logger.info('fetchBookstrEvents: Called', { filters })
+    try {
+      // Step 1: Check cache first
+      const cachedEvents = await this.getCachedBookstrEvents(filters)
+      if (cachedEvents.length > 0) {
+        logger.info('fetchBookstrEvents: Found cached events', {
+          count: cachedEvents.length,
+          filters
+        })
+        // Still fetch in background to get updates, but return cached immediately
+        // Skip orly relay in background fetch since it's consistently failing
+        this.fetchBookstrEventsFromRelays(filters, { skipOrly: true }).catch(err => {
+          logger.warn('fetchBookstrEvents: Background fetch failed', { error: err })
+        })
+        return cachedEvents
+      }
+      
+      // Step 2: Fetch from relays
+      const events = await this.fetchBookstrEventsFromRelays(filters)
+      
+      // Step 3: Save events to cache
+      if (events.length > 0) {
+        try {
+          // Group events by publication (master event)
+          const eventsByPubkey = new Map<string, NEvent[]>()
+          for (const event of events) {
+            if (!eventsByPubkey.has(event.pubkey)) {
+              eventsByPubkey.set(event.pubkey, [])
+            }
+            eventsByPubkey.get(event.pubkey)!.push(event)
+          }
+          
+          // Save each group to cache
+          for (const [pubkey, pubEvents] of eventsByPubkey) {
+            // Find or create master publication event
+            // For now, we'll save content events individually
+            // TODO: Find the actual master publication (kind 30040) and link them
+            for (const event of pubEvents) {
+              await indexedDb.putNonReplaceableEventWithMaster(event, `${ExtendedKind.PUBLICATION}:${pubkey}:`)
+            }
+          }
+          
+          logger.info('fetchBookstrEvents: Saved events to cache', {
+            count: events.length,
+            filters
+          })
+        } catch (cacheError) {
+          logger.warn('fetchBookstrEvents: Error saving to cache', {
+            error: cacheError,
+            filters
+          })
+        }
+      }
+      
+      logger.info('fetchBookstrEvents: Final results', {
+        filters,
+        count: events.length
+      })
+      
+      return events
+    } catch (error) {
+      logger.warn('Error querying bookstr events', { error, filters })
+      return []
+    }
+  }
+  
+  /**
+   * Get cached bookstr events from IndexedDB
+   */
+  private async getCachedBookstrEvents(filters: {
+    type?: string
+    book?: string
+    chapter?: number
+    verse?: string
+    version?: string
+  }): Promise<NEvent[]> {
+    try {
+      const allCached = await indexedDb.getStoreItems(StoreNames.PUBLICATION_EVENTS)
+      const cachedEvents: NEvent[] = []
+      
+      logger.debug('getCachedBookstrEvents: Checking cache', {
+        totalCached: allCached.length,
+        filters
+      })
+      
+      for (const item of allCached) {
+        if (!item?.value || item.value.kind !== ExtendedKind.PUBLICATION_CONTENT) {
+          continue
+        }
+        
+        const event = item.value as NEvent
+        if (this.eventMatchesBookstrFilters(event, filters)) {
+          cachedEvents.push(event)
+        }
+      }
+      
+      logger.debug('getCachedBookstrEvents: Found matching events', {
+        matched: cachedEvents.length,
+        filters
+      })
+      
+      return cachedEvents
+    } catch (error) {
+      logger.warn('getCachedBookstrEvents: Error reading cache', { error })
+      return []
+    }
+  }
+
+  /**
+   * Fetch bookstr events from relays
+   */
+  private async fetchBookstrEventsFromRelays(filters: {
+    type?: string
+    book?: string
+    chapter?: number
+    verse?: string
+    version?: string
+  }, options: { skipOrly?: boolean } = {}): Promise<NEvent[]> {
+    // Strategy: 
+    // 1. First try to find the 30040 publication that matches (it has the bookstr metadata)
+    // 2. Then fetch all a-tagged 30041 events from that publication
+    // 3. Also query for 30041 events directly (in case they're not nested)
+    
+    // Build tag filter for publication (30040) queries
+    const publicationTagFilter: Filter = {
+      kinds: [ExtendedKind.PUBLICATION]
+    }
+    
+    // Build tag filter for bookstr queries (30041)
+    const bookstrTagFilter: Filter = {
+      kinds: [ExtendedKind.PUBLICATION_CONTENT]
+    }
+    
+    // Add bookstr tags to both filters
+    // For publications (30040), we include chapter filter to find the right publication
+    // For content (30041), we don't filter by chapter/verse here - we fetch all from the publication
+    const addBookstrTags = (filter: Filter, includeChapter: boolean = true) => {
+      if (filters.type) {
+        filter['#type'] = [filters.type.toLowerCase()]
+      }
+      if (filters.book) {
+        // Normalize book name (slugify)
+        const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+        filter['#book'] = [normalizedBook]
+      }
+      // Only include chapter in publication filter (to find the right publication)
+      // Don't include chapter/verse in content filter - we fetch all from the publication
+      if (includeChapter && filters.chapter !== undefined) {
+        filter['#chapter'] = [filters.chapter.toString()]
+      }
+      // Never include verse in filters - we fetch all events and filter in BookstrContent
+      if (filters.version) {
+        filter['#version'] = [filters.version.toLowerCase()]
+      }
+    }
+    
+    // Publication filter: include chapter to find the right publication
+    addBookstrTags(publicationTagFilter, true)
+    // Content filter: don't include chapter/verse - we'll fetch all from the publication
+    addBookstrTags(bookstrTagFilter, false)
+
+    const orlyRelays = BOOKSTR_RELAY_URLS
+    // Prioritize thecitadel relay for bookstr events since user confirmed events are there
+    const thecitadelRelay = 'wss://thecitadel.nostr1.com'
+    const fallbackRelays = BIG_RELAY_URLS.filter(url => !BOOKSTR_RELAY_URLS.includes(url))
+    // Put thecitadel first in fallback list if it's there
+    const prioritizedFallbackRelays = fallbackRelays.includes(thecitadelRelay)
+      ? [thecitadelRelay, ...fallbackRelays.filter(url => url !== thecitadelRelay)]
+      : fallbackRelays
+    
+    logger.info('fetchBookstrEventsFromRelays: Querying with tag filters', {
+      filters: JSON.stringify(filters),
+      publicationTagFilter: JSON.stringify(publicationTagFilter),
+      bookstrTagFilter: JSON.stringify(bookstrTagFilter),
+      orlyRelays: orlyRelays.length,
+      fallbackRelays: fallbackRelays.length
+    })
+    
+    let events: NEvent[] = []
+    
+    // Step 1: Try to find the 30040 publication(s) first
+    // Strategy:
+    // - Book-level query (no chapter): Find all chapter-level 30040 publications for that book
+    // - Chapter-level query: Find the specific 30040 publication for that chapter
+    // - Verse-level query: Find the chapter 30040, fetch all a-tags (filtering happens in BookstrContent)
+    // Note: Only orly has bookstr tag indexes. For fallback relays, we query by kind only and filter client-side.
+    try {
+      // For fallback relays, we can't use bookstr tag filters - query by kind only
+      const fallbackPublicationFilter: Filter = {
+        kinds: [ExtendedKind.PUBLICATION]
+      }
+      
+      const publications = await this.fetchEvents(prioritizedFallbackRelays, fallbackPublicationFilter, {
+        eoseTimeout: 5000,
+        globalTimeout: 8000
+      })
+      
+      logger.info('fetchBookstrEventsFromRelays: Found publications (before filtering)', {
+        count: publications.length,
+        filters: JSON.stringify(filters),
+        queryType: filters.chapter === undefined ? 'book-level' : 'chapter-level'
+      })
+      
+      // Filter publications client-side to match bookstr criteria
+      const matchingPublications = publications.filter(pub => {
+        return this.eventMatchesBookstrFilters(pub, filters)
+      })
+      
+      logger.info('fetchBookstrEventsFromRelays: Found matching publications (after filtering)', {
+        total: publications.length,
+        matching: matchingPublications.length,
+        filters: JSON.stringify(filters)
+      })
+      
+      // For each matching publication, fetch ALL a-tagged 30041 events
+      // We fetch all of them because:
+      // - For book-level queries, we want all chapters
+      // - For chapter-level queries, we want all verses in that chapter
+      // - For verse-level queries, we fetch all verses but filter in BookstrContent
+      for (const publication of matchingPublications) {
+        const aTags = publication.tags
+          .filter(tag => tag[0] === 'a' && tag[1])
+          .map(tag => tag[1])
+        
+        logger.debug('fetchBookstrEventsFromRelays: Fetching from publication', {
+          publicationId: publication.id.substring(0, 8),
+          aTagCount: aTags.length
+        })
+        
+        // Fetch all a-tagged events in parallel batches
+        const aTagPromises = aTags.map(async (aTag) => {
+          // Parse a tag: "kind:pubkey:d"
+          const parts = aTag.split(':')
+          if (parts.length < 2) return null
+          
+          const kind = parseInt(parts[0])
+          const pubkey = parts[1]
+          const d = parts[2] || ''
+          
+          // Only fetch 30041 events (content events)
+          if (kind !== ExtendedKind.PUBLICATION_CONTENT) {
+            // If it's a nested 30040 publication, we could recursively fetch from it
+            // But for now, we'll skip nested publications
+            return null
+          }
+          
+          const aTagFilter: Filter = {
+            authors: [pubkey],
+            kinds: [ExtendedKind.PUBLICATION_CONTENT],
+            limit: 1
+          }
+          if (d) {
+            aTagFilter['#d'] = [d]
+          }
+          
+          try {
+            const aTagEvents = await this.fetchEvents(prioritizedFallbackRelays, aTagFilter, {
+              eoseTimeout: 3000,
+              globalTimeout: 5000
+            })
+            
+            // For verse-level queries, we still fetch all events but will filter in BookstrContent
+            // For book/chapter queries, we fetch all matching events
+            // Only filter by book/type/version here - chapter/verse filtering happens in BookstrContent
+            const matchingEvents = aTagEvents.filter(event => {
+              const metadata = this.extractBookMetadataFromEvent(event)
+              
+              // Must match type if specified
+              if (filters.type && metadata.type?.toLowerCase() !== filters.type.toLowerCase()) {
+                return false
+              }
+              
+              // Must match book if specified
+              if (filters.book) {
+                const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+                const eventBookTags = event.tags
+                  .filter(tag => tag[0] === 'book' && tag[1])
+                  .map(tag => tag[1].toLowerCase())
+                const hasMatchingBook = eventBookTags.some(eventBook => 
+                  this.bookNamesMatch(eventBook, normalizedBook)
+                )
+                if (!hasMatchingBook) return false
+              }
+              
+              // Must match version if specified
+              if (filters.version && metadata.version?.toLowerCase() !== filters.version.toLowerCase()) {
+                return false
+              }
+              
+              // Chapter and verse filtering happens in BookstrContent for display
+              // We fetch all events from the publication here
+              return true
+            })
+            
+            return matchingEvents
+          } catch (err) {
+            logger.debug('fetchBookstrEventsFromRelays: Error fetching a-tag event', {
+              aTag,
+              error: err
+            })
+            return []
+          }
+        })
+        
+        const aTagResults = await Promise.all(aTagPromises)
+        const fetchedEvents = aTagResults.flat().filter((e): e is NEvent => e !== null)
+        events.push(...fetchedEvents)
+      }
+      
+      if (events.length > 0) {
+        logger.info('fetchBookstrEventsFromRelays: Fetched from publications', {
+          publicationCount: matchingPublications.length,
+          eventCount: events.length,
+          filters: JSON.stringify(filters)
+        })
+        return events
+      }
+    } catch (pubError) {
+      logger.warn('fetchBookstrEventsFromRelays: Error querying publications', {
+        error: pubError,
+        filters: JSON.stringify(filters)
+      })
+    }
+    
+    // Try orly relay first (supports composite bookstr index)
+    // Skip if explicitly requested or if it's consistently failing
+    if (!options.skipOrly && orlyRelays.length > 0) {
+      try {
+        events = await this.fetchEvents(orlyRelays, bookstrTagFilter, {
+          eoseTimeout: 5000, // Shorter timeout since it often fails
+          globalTimeout: 8000
+        })
+        logger.info('fetchBookstrEventsFromRelays: Fetched from orly relay', {
+          count: events.length,
+          filters
+        })
+      } catch (orlyError) {
+        logger.warn('fetchBookstrEventsFromRelays: Error querying orly relay (will try fallback)', {
+          error: orlyError,
+          filters
+        })
+        // Continue to fallback relays
+      }
+    } else if (options.skipOrly) {
+      logger.debug('fetchBookstrEventsFromRelays: Skipping orly relay (background fetch)', { filters })
+    }
+    
+    // If no results from publications approach, try fallback relays directly
+    // (This is a fallback in case the publication approach didn't work)
+    if (events.length === 0 && prioritizedFallbackRelays.length > 0) {
+      logger.info('fetchBookstrEventsFromRelays: Trying fallback relays (direct content query)', {
+        fallbackRelays: prioritizedFallbackRelays.length,
+        prioritized: prioritizedFallbackRelays[0] === thecitadelRelay ? 'thecitadel first' : 'normal order'
+      })
+      try {
+        // For fallback relays, we need to fetch all and filter client-side
+        // (they don't have multi-letter tag indexes)
+        // Query by kind only - no bookstr tag filters
+        const fallbackFilter: Filter = {
+          kinds: [ExtendedKind.PUBLICATION_CONTENT]
+        }
+        const fallbackEvents = await this.fetchEvents(prioritizedFallbackRelays, fallbackFilter, {
+          eoseTimeout: 5000,
+          globalTimeout: 10000
+        })
+        
+        // Filter client-side (this will check all book tags)
+        let matchedCount = 0
+        let rejectedCount = 0
+        const rejectionReasons: Record<string, number> = {}
+        const sampleRejections: any[] = []
+        
+        events = fallbackEvents.filter(event => {
+          const matches = this.eventMatchesBookstrFilters(event, filters)
+          if (!matches) {
+            rejectedCount++
+            // Sample rejections to understand why (up to 10 samples)
+            if (sampleRejections.length < 10) {
+              const metadata = this.extractBookMetadataFromEvent(event)
+              const reason = this.getFilterRejectionReason(event, filters, metadata)
+              rejectionReasons[reason] = (rejectionReasons[reason] || 0) + 1
+              sampleRejections.push({
+                reason,
+                eventBook: metadata.book,
+                eventChapter: metadata.chapter,
+                eventVerse: metadata.verse,
+                eventVersion: metadata.version,
+                hasBookTag: !!metadata.book,
+                eventId: event.id.substring(0, 8)
+              })
+            } else {
+              // Still count reasons even if we don't log details
+              const metadata = this.extractBookMetadataFromEvent(event)
+              const reason = this.getFilterRejectionReason(event, filters, metadata)
+              rejectionReasons[reason] = (rejectionReasons[reason] || 0) + 1
+            }
+          } else {
+            matchedCount++
+          }
+          return matches
+        })
+        
+        logger.info('fetchBookstrEventsFromRelays: Fetched from fallback relays', {
+          totalFetched: fallbackEvents.length,
+          filtered: events.length,
+          filters: JSON.stringify(filters),
+          rejectionReasons: Object.keys(rejectionReasons).length > 0 ? rejectionReasons : undefined,
+          sampleRejections: sampleRejections.length > 0 ? sampleRejections : undefined
+        })
+      } catch (fallbackError) {
+        logger.warn('fetchBookstrEventsFromRelays: Error querying fallback relays', {
+          error: fallbackError,
+          filters
+        })
+      }
+    }
+    
+    return events
+  }
+
+  /**
+   * Check if event matches bookstr filters (for client-side filtering)
+   */
+  private eventMatchesBookstrFilters(event: NEvent, filters: {
+    type?: string
+    book?: string
+    chapter?: number
+    verse?: string
+    version?: string
+  }): boolean {
+    const metadata = this.extractBookMetadataFromEvent(event)
+    
+    if (filters.type && metadata.type?.toLowerCase() !== filters.type.toLowerCase()) {
+      return false
+    }
+    if (filters.book) {
+      const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+      // Get ALL book tags from the event (events can have multiple book tags)
+      const eventBookTags = event.tags
+        .filter(tag => tag[0] === 'book' && tag[1])
+        .map(tag => tag[1].toLowerCase())
+      
+      // Check if any of the book tags match
+      const hasMatchingBook = eventBookTags.some(eventBook => 
+        this.bookNamesMatch(eventBook, normalizedBook)
+      )
+      
+      if (!hasMatchingBook) {
+        logger.debug('eventMatchesBookstrFilters: Book mismatch', {
+          normalizedBook,
+          eventBookTags,
+          eventId: event.id.substring(0, 8)
+        })
+        return false
+      }
+    }
+    if (filters.chapter !== undefined) {
+      const eventChapter = parseInt(metadata.chapter || '0')
+      if (eventChapter !== filters.chapter) {
+        return false
+      }
+    }
+    if (filters.verse) {
+      const eventVerse = metadata.verse
+      if (!eventVerse) return false
+      
+      const verseParts = filters.verse.split(/[,\s-]+/).map(v => v.trim()).filter(v => v)
+      const verseNum = parseInt(eventVerse)
+      
+      const matches = verseParts.some(part => {
+        if (part.includes('-')) {
+          const [start, end] = part.split('-').map(v => parseInt(v.trim()))
+          return !isNaN(start) && !isNaN(end) && verseNum >= start && verseNum <= end
+        } else {
+          const partNum = parseInt(part)
+          return !isNaN(partNum) && partNum === verseNum
+        }
+      })
+      if (!matches) return false
+    }
+    if (filters.version && metadata.version?.toLowerCase() !== filters.version.toLowerCase()) {
+      return false
+    }
+    
+    return true
+  }
+  
+  /**
+   * Get the reason why an event was rejected by filters (for debugging)
+   */
+  private getFilterRejectionReason(event: NEvent, filters: {
+    type?: string
+    book?: string
+    chapter?: number
+    verse?: string
+    version?: string
+  }, metadata: {
+    type?: string
+    book?: string
+    chapter?: string
+    verse?: string
+    version?: string
+  }): string {
+    if (filters.type && metadata.type?.toLowerCase() !== filters.type.toLowerCase()) {
+      return `type mismatch: ${metadata.type} != ${filters.type}`
+    }
+    if (filters.book) {
+      const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+      const eventBookTags = event.tags
+        .filter(tag => tag[0] === 'book' && tag[1])
+        .map(tag => tag[1].toLowerCase())
+      const hasMatchingBook = eventBookTags.some(eventBook => 
+        this.bookNamesMatch(eventBook, normalizedBook)
+      )
+      if (!hasMatchingBook) {
+        return `book mismatch: [${eventBookTags.join(', ')}] != ${normalizedBook}`
+      }
+    }
+    if (filters.chapter !== undefined) {
+      const eventChapter = parseInt(metadata.chapter || '0')
+      if (eventChapter !== filters.chapter) {
+        return `chapter mismatch: ${eventChapter} != ${filters.chapter}`
+      }
+    }
+    if (filters.verse) {
+      const eventVerse = metadata.verse
+      if (!eventVerse) {
+        return `no verse tag in event`
+      }
+      const verseParts = filters.verse.split(/[,\s-]+/).map(v => v.trim()).filter(v => v)
+      const verseNum = parseInt(eventVerse)
+      const matches = verseParts.some(part => {
+        if (part.includes('-')) {
+          const [start, end] = part.split('-').map(v => parseInt(v.trim()))
+          return !isNaN(start) && !isNaN(end) && verseNum >= start && verseNum <= end
+        } else {
+          const partNum = parseInt(part)
+          return !isNaN(partNum) && partNum === verseNum
+        }
+      })
+      if (!matches) {
+        return `verse mismatch: ${verseNum} not in [${verseParts.join(', ')}]`
+      }
+    }
+    if (filters.version && metadata.version?.toLowerCase() !== filters.version.toLowerCase()) {
+      return `version mismatch: ${metadata.version} != ${filters.version}`
+    }
+    return 'unknown'
+  }
+
+  /**
+   * Match book names with fuzzy matching
+   */
+  private bookNamesMatch(book1: string, book2: string): boolean {
+    const normalized1 = book1.toLowerCase().replace(/\s+/g, '-')
+    const normalized2 = book2.toLowerCase().replace(/\s+/g, '-')
+    
+    // Exact match
+    if (normalized1 === normalized2) return true
+    
+    // One contains the other
+    if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) return true
+    
+    // Check if last parts match (e.g., "genesis" matches "the-book-of-genesis")
+    const parts1 = normalized1.split('-')
+    const parts2 = normalized2.split('-')
+    if (parts1.length > 0 && parts2.length > 0) {
+      if (parts1[parts1.length - 1] === parts2[parts2.length - 1]) return true
+    }
+    
+    return false
+  }
+  
+  /**
+   * Old implementation - keeping for reference but not using
+   */
+  async fetchBookstrEventsOld(filters: {
     type?: string
     book?: string
     chapter?: number

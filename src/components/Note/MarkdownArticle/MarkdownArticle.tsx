@@ -2051,14 +2051,14 @@ function parseMarkdownContent(
         )
       } else {
         // Regular wikilink
-        let target = linkContent.includes('|') ? linkContent.split('|')[0].trim() : linkContent.trim()
-        let displayText = linkContent.includes('|') ? linkContent.split('|')[1].trim() : linkContent.trim()
-        
-        const dtag = target.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-        
-        parts.push(
-          <Wikilink key={`wikilink-${patternIdx}`} dTag={dtag} displayText={displayText} />
-        )
+      let target = linkContent.includes('|') ? linkContent.split('|')[0].trim() : linkContent.trim()
+      let displayText = linkContent.includes('|') ? linkContent.split('|')[1].trim() : linkContent.trim()
+      
+      const dtag = target.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+      
+      parts.push(
+        <Wikilink key={`wikilink-${patternIdx}`} dTag={dtag} displayText={displayText} />
+      )
       }
     }
     

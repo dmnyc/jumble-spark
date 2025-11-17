@@ -972,9 +972,9 @@ export default function PublicationIndex({
         const promise = (async () => {
           try {
             const result = await fetchSingleReference(ref, currentVisited, isRetry)
-            if (result) {
-              if (result.event) {
-                fetchedRefs.push(result)
+          if (result) {
+            if (result.event) {
+              fetchedRefs.push(result)
                 // Extract and add nested references
                 const nestedRefs = extractNestedReferences(result.event, allRefs, currentVisited)
                 for (const nestedRef of nestedRefs) {
@@ -1012,11 +1012,11 @@ export default function PublicationIndex({
                     } else {
                       // Add to queue for fetching
                       pendingRefs.push(nestedRef)
-                    }
                   }
                 }
-              } else {
-                failedRefs.push(result)
+              }
+            } else {
+              failedRefs.push(result)
               }
             }
           } catch (error) {
@@ -1056,7 +1056,7 @@ export default function PublicationIndex({
       const cached = cachedEvents.get(key)
       if (cached) {
         allFetchedRefs.push({ ...ref, event: cached })
-      } else {
+              } else {
         const fetched = fetchedRefs.find(r => (r.coordinate || r.eventId) === key)
         if (fetched) {
           allFetchedRefs.push(fetched)
@@ -1081,7 +1081,7 @@ export default function PublicationIndex({
     return {
       fetched: allFetchedRefs,
       failed: allFetchedRefs.filter(ref => !ref.event)
-    }
+              }
   }, [fetchSingleReference, extractNestedReferences])
 
   // Fetch referenced events
@@ -1127,7 +1127,7 @@ export default function PublicationIndex({
           (fetchedRefs) => {
             if (isMounted) {
               // Update state progressively as events are fetched
-              setReferences(fetchedRefs)
+          setReferences(fetchedRefs)
             }
           }
         )
