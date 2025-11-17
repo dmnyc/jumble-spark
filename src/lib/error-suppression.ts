@@ -100,6 +100,19 @@ export function suppressExpectedErrors() {
       return
     }
     
+    // Suppress invalid URL errors (often from empty or malformed relay URLs)
+    if (message.includes('Invalid URL') || 
+        message.includes('Failed to construct \'URL\'') ||
+        (message.includes('wss://') && message.includes('Invalid')) ||
+        (message.includes('ws://') && message.includes('Invalid'))) {
+      return
+    }
+    
+    // Suppress "unrecognised filter item" errors from relays
+    if (message.includes('unrecognised filter item') || message.includes('unrecognized filter item')) {
+      return
+    }
+    
     // Call original console.error for unexpected errors
     originalConsoleError.apply(console, args)
   }

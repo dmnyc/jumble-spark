@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Event } from 'nostr-tools'
 import { parseBookWikilink, extractBookMetadata, BookReference } from '@/lib/bookstr-parser'
 import client from '@/services/client.service'
@@ -677,9 +677,8 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
           }
           
           return (
-            <>
+            <React.Fragment key={sectionIndex}>
             <div 
-              key={sectionIndex} 
               ref={(el) => {
                 if (el) {
                   cardRefs.current.set(sectionIndex, el)
@@ -823,7 +822,7 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
                 />
               </div>
             )}
-            </>
+            </React.Fragment>
           )
         })}
       </div>
