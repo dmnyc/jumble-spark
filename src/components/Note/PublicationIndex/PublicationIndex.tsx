@@ -848,7 +848,6 @@ export default function PublicationIndex({
     // Step 1: Collect ALL references (including nested ones) by traversing the tree
     const allRefs = new Map<string, PublicationReference>()
     const refsToProcess = [...initialRefs]
-    const processedCoordinates = new Set<string>()
     
     logger.info('[PublicationIndex] Starting batch fetch, collecting all references...')
     
