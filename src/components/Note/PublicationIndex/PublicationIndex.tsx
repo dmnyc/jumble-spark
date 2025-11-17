@@ -125,6 +125,25 @@ export default function PublicationIndex({
     return refs
   }, [event])
 
+  // Helper function to format bookstr titles (remove hyphens, title case)
+  const formatBookstrTitle = useCallback((title: string, event?: Event): string => {
+    if (!event) return title
+    
+    // Check if this is a bookstr event
+    const bookMetadata = extractBookMetadata(event)
+    const isBookstr = (event.kind === ExtendedKind.PUBLICATION || event.kind === ExtendedKind.PUBLICATION_CONTENT) && !!bookMetadata.book
+    
+    if (isBookstr) {
+      // Remove hyphens and convert to title case
+      return title
+        .split('-')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ')
+    }
+    
+    return title
+  }, [])
+
   // Recursive helper function to build ToC item from a reference
   const buildToCItemFromRef = useCallback((ref: PublicationReference, allReferences: PublicationReference[], visitedCoords: Set<string> = new Set()): ToCItem | null => {
     if (!ref.event) {
@@ -139,10 +158,23 @@ export default function PublicationIndex({
       return null
     }
     
-    // Extract title from the event
-    const title = ref.event.tags.find(tag => tag[0] === 'title')?.[1] || 
-                  ref.event.tags.find(tag => tag[0] === 'd')?.[1] || 
-                  'Untitled'
+    // Extract title from the event - prioritize 'title' tag, only use 'd' tag as fallback
+    const titleTag = ref.event.tags.find(tag => tag[0] === 'title')?.[1]
+    const dTag = ref.event.tags.find(tag => tag[0] === 'd')?.[1]
+    
+    // Use title tag if available, otherwise format d-tag for bookstr events
+    let rawTitle: string
+    if (titleTag) {
+      rawTitle = titleTag
+    } else if (dTag) {
+      // Only use d-tag as fallback, and format it for bookstr events
+      rawTitle = dTag
+    } else {
+      rawTitle = 'Untitled'
+    }
+    
+    // Format title for bookstr events (only if we're using d-tag, title tag should already be formatted)
+    const title = titleTag ? rawTitle : formatBookstrTitle(rawTitle, ref.event)
     
     const coordinate = ref.coordinate || ref.eventId || ''
     const coordKey = ref.coordinate || ref.eventId || ''
@@ -215,8 +247,15 @@ export default function PublicationIndex({
                 }
               } else {
                 // Event not fetched yet, create placeholder
+                // Format identifier for bookstr events (if it looks like a bookstr identifier)
+                const formattedIdentifier = identifier
+                  ? identifier
+                      .split('-')
+                      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                      .join(' ')
+                  : 'Untitled'
                 children.push({
-                  title: identifier || 'Untitled',
+                  title: formattedIdentifier,
                   coordinate: tagCoord,
                   kind
                 })
@@ -259,7 +298,7 @@ export default function PublicationIndex({
     }
     
     return tocItem
-  }, [])
+  }, [formatBookstrTitle])
 
   // Build table of contents from references
   const tableOfContents = useMemo<ToCItem[]>(() => {
@@ -268,10 +307,23 @@ export default function PublicationIndex({
     for (const ref of references) {
       if (!ref.event) continue
       
-      // Extract title from the event
-      const title = ref.event.tags.find(tag => tag[0] === 'title')?.[1] || 
-                    ref.event.tags.find(tag => tag[0] === 'd')?.[1] || 
-                    'Untitled'
+      // Extract title from the event - prioritize 'title' tag, only use 'd' tag as fallback
+      const titleTag = ref.event.tags.find(tag => tag[0] === 'title')?.[1]
+      const dTag = ref.event.tags.find(tag => tag[0] === 'd')?.[1]
+      
+      // Use title tag if available, otherwise format d-tag for bookstr events
+      let rawTitle: string
+      if (titleTag) {
+        rawTitle = titleTag
+      } else if (dTag) {
+        // Only use d-tag as fallback, and format it for bookstr events
+        rawTitle = dTag
+      } else {
+        rawTitle = 'Untitled'
+      }
+      
+      // Format title for bookstr events (only if we're using d-tag, title tag should already be formatted)
+      const title = titleTag ? rawTitle : formatBookstrTitle(rawTitle, ref.event)
       
       const tocItem: ToCItem = {
         title,
@@ -294,7 +346,14 @@ export default function PublicationIndex({
                   kind === ExtendedKind.WIKI_ARTICLE || 
                   kind === ExtendedKind.PUBLICATION)) {
               // For this simplified version, we'll just extract the title from the coordinate
-              const nestedTitle = identifier || 'Untitled'
+              const rawNestedTitle = identifier || 'Untitled'
+              // Format for bookstr events (check if kind is bookstr-related)
+              const nestedTitle = (kind === ExtendedKind.PUBLICATION || kind === ExtendedKind.PUBLICATION_CONTENT)
+                ? rawNestedTitle
+                    .split('-')
+                    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                    .join(' ')
+                : rawNestedTitle
               
               nestedRefs.push({
                 title: nestedTitle,
@@ -314,7 +373,7 @@ export default function PublicationIndex({
     }
     
     return toc
-  }, [references])
+  }, [references, formatBookstrTitle])
 
   // Scroll to ToC
   const scrollToToc = useCallback(() => {
@@ -729,6 +788,303 @@ export default function PublicationIndex({
     }
   }, [referencesData])
 
+  // Helper function to extract nested references from an event
+  const extractNestedReferences = useCallback((
+    event: Event,
+    existingRefs: Map<string, PublicationReference>,
+    visited: Set<string>
+  ): PublicationReference[] => {
+    const nestedRefs: PublicationReference[] = []
+    
+    for (const tag of event.tags) {
+      if (tag[0] === 'a' && tag[1]) {
+        const [kindStr, pubkey, identifier] = tag[1].split(':')
+        const kind = parseInt(kindStr)
+        if (!isNaN(kind)) {
+          const coordinate = tag[1]
+          // Skip if already visited (prevent circular references)
+          if (kind === ExtendedKind.PUBLICATION && visited.has(coordinate)) {
+            continue
+          }
+          
+          const key = coordinate
+          if (!existingRefs.has(key)) {
+            nestedRefs.push({
+              type: 'a',
+              coordinate,
+              kind,
+              pubkey,
+              identifier: identifier || '',
+              relay: tag[2],
+              eventId: tag[3]
+            })
+          }
+        }
+      } else if (tag[0] === 'e' && tag[1]) {
+        const eventId = tag[1]
+        if (!existingRefs.has(eventId)) {
+          nestedRefs.push({
+            type: 'e',
+            eventId,
+            relay: tag[2]
+          })
+        }
+      }
+    }
+    
+    return nestedRefs
+  }, [])
+
+  // Batch fetch all references efficiently
+  const batchFetchReferences = useCallback(async (
+    initialRefs: PublicationReference[],
+    currentVisited: Set<string>,
+    isRetry: boolean,
+    onProgress?: (fetchedRefs: PublicationReference[]) => void
+  ): Promise<{ fetched: PublicationReference[]; failed: PublicationReference[] }> => {
+    const CONCURRENCY_LIMIT = 10 // Limit concurrent fetches
+    const BATCH_SIZE = 50 // Process in batches
+    
+    // Step 1: Collect ALL references (including nested ones) by traversing the tree
+    const allRefs = new Map<string, PublicationReference>()
+    const refsToProcess = [...initialRefs]
+    const processedCoordinates = new Set<string>()
+    
+    logger.info('[PublicationIndex] Starting batch fetch, collecting all references...')
+    
+    // First pass: collect all top-level references
+    for (const ref of initialRefs) {
+      const key = ref.coordinate || ref.eventId || ''
+      if (key && !allRefs.has(key)) {
+        allRefs.set(key, ref)
+      }
+    }
+    
+    // Step 2: Check cache in bulk for all collected references
+    logger.info('[PublicationIndex] Checking cache for', allRefs.size, 'references...')
+    const cachedEvents = new Map<string, Event>()
+    const refsToFetch: PublicationReference[] = []
+    
+    for (const [key, ref] of allRefs) {
+      let cached: Event | undefined = undefined
+      
+      // Check cache based on reference type
+      if (ref.type === 'a' && ref.coordinate) {
+        cached = await indexedDb.getPublicationEvent(ref.coordinate)
+      } else if (ref.type === 'e' && ref.eventId) {
+        const hexId = ref.eventId.length === 64 ? ref.eventId : undefined
+        if (hexId) {
+          cached = await indexedDb.getEventFromPublicationStore(hexId)
+          if (!cached && ref.kind && ref.pubkey && isReplaceableEvent(ref.kind)) {
+            const replaceable = await indexedDb.getReplaceableEvent(ref.pubkey, ref.kind)
+            if (replaceable && replaceable.id === hexId) {
+              cached = replaceable
+            }
+          }
+        }
+      }
+      
+      if (cached) {
+        cachedEvents.set(key, cached)
+        // Extract nested references from cached event
+        const nestedRefs = extractNestedReferences(cached, allRefs, currentVisited)
+        for (const nestedRef of nestedRefs) {
+          const nestedKey = nestedRef.coordinate || nestedRef.eventId || ''
+          if (nestedKey && !allRefs.has(nestedKey)) {
+            allRefs.set(nestedKey, nestedRef)
+            refsToProcess.push(nestedRef)
+            // Check if nested ref is cached, if not add to fetch queue
+            // (We'll check cache for it in the next iteration)
+          }
+        }
+      } else {
+        refsToFetch.push(ref)
+      }
+    }
+    
+    // Continue processing nested references discovered from cached events
+    while (refsToProcess.length > 0) {
+      const ref = refsToProcess.shift()!
+      const key = ref.coordinate || ref.eventId || ''
+      if (!key || allRefs.has(key)) continue
+      
+      allRefs.set(key, ref)
+      
+      // Check cache for this nested reference
+      let cached: Event | undefined = undefined
+      if (ref.type === 'a' && ref.coordinate) {
+        cached = await indexedDb.getPublicationEvent(ref.coordinate)
+      } else if (ref.type === 'e' && ref.eventId) {
+        const hexId = ref.eventId.length === 64 ? ref.eventId : undefined
+        if (hexId) {
+          cached = await indexedDb.getEventFromPublicationStore(hexId)
+          if (!cached && ref.kind && ref.pubkey && isReplaceableEvent(ref.kind)) {
+            const replaceable = await indexedDb.getReplaceableEvent(ref.pubkey, ref.kind)
+            if (replaceable && replaceable.id === hexId) {
+              cached = replaceable
+            }
+          }
+        }
+      }
+      
+      if (cached) {
+        cachedEvents.set(key, cached)
+        // Extract nested references from this cached event
+        const nestedRefs = extractNestedReferences(cached, allRefs, currentVisited)
+        for (const nestedRef of nestedRefs) {
+          const nestedKey = nestedRef.coordinate || nestedRef.eventId || ''
+          if (nestedKey && !allRefs.has(nestedKey)) {
+            allRefs.set(nestedKey, nestedRef)
+            refsToProcess.push(nestedRef)
+          }
+        }
+      } else {
+        refsToFetch.push(ref)
+      }
+    }
+    
+    logger.info('[PublicationIndex] Cache check complete:', {
+      cached: cachedEvents.size,
+      toFetch: refsToFetch.length,
+      total: allRefs.size
+    })
+    
+    // Step 3: Fetch missing events in parallel batches with concurrency control
+    const fetchedRefs: PublicationReference[] = []
+    const failedRefs: PublicationReference[] = []
+    const pendingRefs = [...refsToFetch] // Queue of references to fetch
+    
+    // Process in batches to avoid overwhelming relays
+    while (pendingRefs.length > 0) {
+      const batch = pendingRefs.splice(0, BATCH_SIZE)
+      logger.info('[PublicationIndex] Processing batch', '(', batch.length, 'references,', pendingRefs.length, 'remaining)')
+      
+      // Process batch with concurrency limit
+      const batchPromises: Promise<void>[] = []
+      let activeCount = 0
+      
+      for (const ref of batch) {
+        // Wait if we've hit concurrency limit
+        while (activeCount >= CONCURRENCY_LIMIT) {
+          await new Promise(resolve => setTimeout(resolve, 10))
+        }
+        
+        activeCount++
+        const promise = (async () => {
+          try {
+            const result = await fetchSingleReference(ref, currentVisited, isRetry)
+            if (result) {
+              if (result.event) {
+                fetchedRefs.push(result)
+                // Extract and add nested references
+                const nestedRefs = extractNestedReferences(result.event, allRefs, currentVisited)
+                for (const nestedRef of nestedRefs) {
+                  const nestedKey = nestedRef.coordinate || nestedRef.eventId || ''
+                  if (nestedKey && !allRefs.has(nestedKey)) {
+                    allRefs.set(nestedKey, nestedRef)
+                    // Check if nested ref is cached
+                    let nestedCached: Event | undefined = undefined
+                    if (nestedRef.type === 'a' && nestedRef.coordinate) {
+                      nestedCached = await indexedDb.getPublicationEvent(nestedRef.coordinate)
+                    } else if (nestedRef.type === 'e' && nestedRef.eventId) {
+                      const hexId = nestedRef.eventId.length === 64 ? nestedRef.eventId : undefined
+                      if (hexId) {
+                        nestedCached = await indexedDb.getEventFromPublicationStore(hexId)
+                        if (!nestedCached && nestedRef.kind && nestedRef.pubkey && isReplaceableEvent(nestedRef.kind)) {
+                          const replaceable = await indexedDb.getReplaceableEvent(nestedRef.pubkey, nestedRef.kind)
+                          if (replaceable && replaceable.id === hexId) {
+                            nestedCached = replaceable
+                          }
+                        }
+                      }
+                    }
+                    
+                    if (nestedCached) {
+                      cachedEvents.set(nestedKey, nestedCached)
+                      // Extract nested references from this cached event
+                      const deeperNestedRefs = extractNestedReferences(nestedCached, allRefs, currentVisited)
+                      for (const deeperRef of deeperNestedRefs) {
+                        const deeperKey = deeperRef.coordinate || deeperRef.eventId || ''
+                        if (deeperKey && !allRefs.has(deeperKey)) {
+                          allRefs.set(deeperKey, deeperRef)
+                          // Will be checked in next iteration
+                        }
+                      }
+                    } else {
+                      // Add to queue for fetching
+                      pendingRefs.push(nestedRef)
+                    }
+                  }
+                }
+              } else {
+                failedRefs.push(result)
+              }
+            }
+          } catch (error) {
+            logger.error('[PublicationIndex] Error fetching reference in batch:', error)
+            failedRefs.push({ ...ref, event: undefined })
+          } finally {
+            activeCount--
+          }
+        })()
+        
+        batchPromises.push(promise)
+      }
+      
+      await Promise.all(batchPromises)
+      
+      // Update progress after each batch
+      if (onProgress) {
+        const currentFetched: PublicationReference[] = []
+        for (const [key, ref] of allRefs) {
+          const cached = cachedEvents.get(key)
+          if (cached) {
+            currentFetched.push({ ...ref, event: cached })
+          } else {
+            const fetched = fetchedRefs.find(r => (r.coordinate || r.eventId) === key)
+            if (fetched) {
+              currentFetched.push(fetched)
+            }
+          }
+        }
+        onProgress(currentFetched)
+      }
+    }
+    
+    // Combine cached and fetched references
+    const allFetchedRefs: PublicationReference[] = []
+    for (const [key, ref] of allRefs) {
+      const cached = cachedEvents.get(key)
+      if (cached) {
+        allFetchedRefs.push({ ...ref, event: cached })
+      } else {
+        const fetched = fetchedRefs.find(r => (r.coordinate || r.eventId) === key)
+        if (fetched) {
+          allFetchedRefs.push(fetched)
+        } else {
+          const failed = failedRefs.find(r => (r.coordinate || r.eventId) === key)
+          if (failed) {
+            allFetchedRefs.push(failed)
+          } else {
+            allFetchedRefs.push({ ...ref, event: undefined })
+          }
+        }
+      }
+    }
+    
+    logger.info('[PublicationIndex] Batch fetch complete:', {
+      total: allFetchedRefs.length,
+      fetched: fetchedRefs.length,
+      cached: cachedEvents.size,
+      failed: failedRefs.length
+    })
+    
+    return {
+      fetched: allFetchedRefs,
+      failed: allFetchedRefs.filter(ref => !ref.event)
+    }
+  }, [fetchSingleReference, extractNestedReferences])
+
   // Fetch referenced events
   useEffect(() => {
     let isMounted = true
@@ -739,9 +1095,6 @@ export default function PublicationIndex({
       } else {
         setIsLoading(true)
       }
-      const fetchedRefs: PublicationReference[] = []
-      const failedRefs: PublicationReference[] = []
-      const discoveredRefs: PublicationReference[] = []
       
       // Capture current visitedIndices at the start of the fetch
       const currentVisited = visitedIndices
@@ -753,7 +1106,7 @@ export default function PublicationIndex({
           setIsLoading(false)
           setIsRetrying(false)
         }
-      }, 30000) // 30 second timeout
+      }, 60000) // 60 second timeout for large publications
       
       try {
         // Combine original references with failed references if this is a retry
@@ -761,71 +1114,33 @@ export default function PublicationIndex({
           ? [...referencesData, ...failedReferences]
           : referencesData
         
-        for (const ref of refsToFetch) {
-          if (!isMounted) break
-          
-          const result = await fetchSingleReference(ref, currentVisited, isManualRetry)
-          
-          if (!isMounted) break
-          
-          if (result) {
-            if (result.event) {
-              fetchedRefs.push(result)
-              
-              // Collect discovered nested references
-              if ((result as any).nestedRefs && (result as any).nestedRefs.length > 0) {
-                for (const nestedRef of (result as any).nestedRefs) {
-                  // Check if we already have this reference
-                  const existingRef = fetchedRefs.find(r => 
-                    (r.coordinate && nestedRef.coordinate && r.coordinate === nestedRef.coordinate) ||
-                    (r.eventId && nestedRef.eventId && r.eventId === nestedRef.eventId)
-                  )
-                  
-                  if (!existingRef && !discoveredRefs.find(r => 
-                    (r.coordinate && nestedRef.coordinate && r.coordinate === nestedRef.coordinate) ||
-                    (r.eventId && nestedRef.eventId && r.eventId === nestedRef.eventId)
-                  )) {
-                    discoveredRefs.push(nestedRef)
-                  }
-                }
-              }
-            } else {
-              // Failed to fetch
-              failedRefs.push(result)
-              fetchedRefs.push(result)
-            }
-          }
+        if (refsToFetch.length === 0) {
+          setIsLoading(false)
+          setIsRetrying(false)
+          return
         }
         
-        // Fetch discovered nested references
-        if (discoveredRefs.length > 0 && isMounted) {
-          logger.info('[PublicationIndex] Found', discoveredRefs.length, 'new nested references')
-          for (const nestedRef of discoveredRefs) {
-            if (!isMounted) break
-            
-            const result = await fetchSingleReference(nestedRef, currentVisited, isManualRetry)
-            
-            if (!isMounted) break
-            
-            if (result) {
-              if (result.event) {
-                fetchedRefs.push(result)
-              } else {
-                failedRefs.push(result)
-                fetchedRefs.push(result)
-              }
+        // Use batch fetching
+        const { fetched, failed } = await batchFetchReferences(
+          refsToFetch,
+          currentVisited,
+          isManualRetry,
+          (fetchedRefs) => {
+            if (isMounted) {
+              // Update state progressively as events are fetched
+              setReferences(fetchedRefs)
             }
           }
-        }
+        )
         
         if (isMounted) {
-          setReferences(fetchedRefs)
-          setFailedReferences(failedRefs.filter(ref => !ref.event))
+          setReferences(fetched)
+          setFailedReferences(failed)
           setIsLoading(false)
           setIsRetrying(false)
           
           // Store master publication with all nested events
-          const nestedEvents = fetchedRefs.filter(ref => ref.event).map(ref => ref.event!).filter((e): e is Event => e !== undefined)
+          const nestedEvents = fetched.filter(ref => ref.event).map(ref => ref.event!).filter((e): e is Event => e !== undefined)
           if (nestedEvents.length > 0) {
             indexedDb.putPublicationWithNestedEvents(event, nestedEvents).catch(err => {
               logger.error('[PublicationIndex] Error caching publication with nested events:', err)
