@@ -12,7 +12,7 @@ type TValue<T = any> = {
   masterPublicationKey?: string // For nested publication events, link to master publication
 }
 
-const StoreNames = {
+export const StoreNames = {
   PROFILE_EVENTS: 'profileEvents',
   RELAY_LIST_EVENTS: 'relayListEvents',
   FOLLOW_LIST_EVENTS: 'followListEvents',

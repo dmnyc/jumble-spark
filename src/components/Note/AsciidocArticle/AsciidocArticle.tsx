@@ -16,6 +16,7 @@ import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import { EmbeddedNote, EmbeddedMention } from '@/components/Embedded'
 import EmbeddedCitation from '@/components/EmbeddedCitation'
 import Wikilink from '@/components/UniversalContent/Wikilink'
+import { BookstrContent } from '@/components/Bookstr'
 import { preprocessAsciidocMediaLinks } from '../MarkdownArticle/preprocessMarkup'
 import logger from '@/lib/logger'
 import katex from 'katex'
@@ -945,20 +946,37 @@ export default function AsciidocArticle({
       reactRootsRef.current.set(container, root)
     })
     
+    // Process bookstr wikilinks - replace placeholders with React components
+    const bookstrPlaceholders = contentRef.current.querySelectorAll('.bookstr-placeholder[data-bookstr]')
+    bookstrPlaceholders.forEach((element) => {
+      const bookstrContent = element.getAttribute('data-bookstr')
+      if (!bookstrContent) return
+      
+      // Create a container for React component
+      const container = document.createElement('div')
+      container.className = 'bookstr-container'
+      element.parentNode?.replaceChild(container, element)
+      
+      // Use React to render the component
+      const root = createRoot(container)
+      root.render(<BookstrContent wikilink={bookstrContent} />)
+      reactRootsRef.current.set(container, root)
+    })
+    
     // Process wikilinks - replace placeholders with React components
     const wikilinks = contentRef.current.querySelectorAll('.wikilink-placeholder[data-wikilink]')
     wikilinks.forEach((element) => {
       const linkContent = element.getAttribute('data-wikilink')
       if (!linkContent) return
       
+      // Skip if this is a bookstr wikilink (already processed)
+      if (linkContent.startsWith('book:')) {
+        return
+      }
+      
       // Parse wikilink: extract target and display text
       let target = linkContent.includes('|') ? linkContent.split('|')[0].trim() : linkContent.trim()
       let displayText = linkContent.includes('|') ? linkContent.split('|')[1].trim() : linkContent.trim()
-      
-      // Handle book: prefix
-      if (linkContent.startsWith('book:')) {
-        target = linkContent.replace('book:', '').trim()
-      }
       
       // Convert to d-tag format (same as MarkdownArticle)
       const dtag = target.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')

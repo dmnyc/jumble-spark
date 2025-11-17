@@ -2097,6 +2097,168 @@ class ClientService extends EventTarget {
       filter: { authors: Array.from(authors) }
     }))
   }
+
+  /**
+   * Fetch bookstr events by tag filters
+   * Note: Most relays only index single-letter tags, so we fetch all kind 30041 events
+   * and filter client-side based on the custom tags (type, book, chapter, verse, version)
+   */
+  async fetchBookstrEvents(filters: {
+    type?: string
+    book?: string
+    chapter?: number
+    verse?: string
+    version?: string
+  }): Promise<NEvent[]> {
+    // Build filter for querying - only use indexed tags (single letters)
+    // We'll filter by the custom tags client-side
+    const filter: Filter = {
+      kinds: [ExtendedKind.PUBLICATION_CONTENT]
+    }
+    
+    // Note: We can't use #type, #book, #chapter, #verse, #version filters
+    // because relays only index single-letter tags. We'll fetch and filter client-side.
+
+    // First, try to get from cache
+    // Note: For now, we'll query the relay directly. The cache will be populated
+    // when publications are loaded through normal channels. We can enhance this
+    // later to check the cache first if needed.
+    const cachedEvents: NEvent[] = []
+
+    // Query from relays - fetch all kind 30041 events (we'll filter client-side)
+    // Use BIG_RELAY_URLS which includes both thecitadel.nostr1.com and nostr.land
+    const relayUrls = BIG_RELAY_URLS
+    let relayEvents: NEvent[] = []
+    
+    try {
+      relayEvents = await this.fetchEvents(relayUrls, filter, {
+        eoseTimeout: 5000,
+        globalTimeout: 10000
+      })
+      
+      // Filter events client-side based on the custom tags
+      // Since relays don't index multi-letter tags, we need to check tags manually
+      relayEvents = relayEvents.filter(event => {
+        return this.eventMatchesBookstrFilters(event, filters)
+      })
+    } catch (error) {
+      logger.warn('Error querying bookstr events from relays', { error, filters, relayUrls })
+    }
+
+    // Combine cached and relay events, deduplicate by event ID
+    const eventMap = new Map<string, NEvent>()
+    cachedEvents.forEach(event => eventMap.set(event.id, event))
+    relayEvents.forEach(event => eventMap.set(event.id, event))
+    
+    return Array.from(eventMap.values())
+  }
+
+  /**
+   * Check if an event matches bookstr filters
+   */
+  private eventMatchesBookstrFilters(event: NEvent, filters: {
+    type?: string
+    book?: string
+    chapter?: number
+    verse?: string
+    version?: string
+  }): boolean {
+    if (event.kind !== ExtendedKind.PUBLICATION_CONTENT) {
+      return false
+    }
+
+    const getTagValue = (tagName: string): string | undefined => {
+      const tag = event.tags.find(t => t[0] === tagName)
+      return tag?.[1]
+    }
+
+    if (filters.type) {
+      const eventType = getTagValue('type')
+      if (!eventType || eventType.toLowerCase() !== filters.type.toLowerCase()) {
+        return false
+      }
+    }
+
+    if (filters.book) {
+      const eventBook = getTagValue('book')
+      const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+      if (!eventBook || eventBook.toLowerCase() !== normalizedBook) {
+        return false
+      }
+    }
+
+    if (filters.chapter !== undefined) {
+      const eventChapter = getTagValue('chapter')
+      if (!eventChapter || parseInt(eventChapter) !== filters.chapter) {
+        return false
+      }
+    }
+
+    if (filters.verse) {
+      const eventVerse = getTagValue('verse')
+      if (!eventVerse) {
+        return false
+      }
+      // Check if verse matches (handle ranges like "1-3", "1,3,5", etc.)
+      const verseMatches = this.verseMatches(eventVerse, filters.verse)
+      if (!verseMatches) {
+        return false
+      }
+    }
+
+    if (filters.version) {
+      const eventVersion = getTagValue('version')
+      if (!eventVersion || eventVersion.toLowerCase() !== filters.version.toLowerCase()) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  /**
+   * Check if a verse string matches a verse filter
+   * Handles ranges like "1-3", "1,3,5", etc.
+   */
+  private verseMatches(eventVerse: string, filterVerse: string): boolean {
+    // Normalize both verses
+    const normalize = (v: string) => v.trim().toLowerCase()
+    const eventV = normalize(eventVerse)
+    const filterV = normalize(filterVerse)
+
+    // If exact match
+    if (eventV === filterV) {
+      return true
+    }
+
+    // Parse filter verse (could be "1", "1-3", "1,3,5", etc.)
+    const filterParts = filterV.split(/[,\s]+/)
+    for (const part of filterParts) {
+      if (part.includes('-')) {
+        // Range like "1-3"
+        const [start, end] = part.split('-').map(v => parseInt(v.trim()))
+        const eventNum = parseInt(eventV)
+        if (!isNaN(start) && !isNaN(end) && !isNaN(eventNum)) {
+          if (eventNum >= start && eventNum <= end) {
+            return true
+          }
+        }
+      } else {
+        // Single verse
+        const filterNum = parseInt(part)
+        const eventNum = parseInt(eventV)
+        if (!isNaN(filterNum) && !isNaN(eventNum) && filterNum === eventNum) {
+          return true
+        }
+        // Also check if event verse contains the filter verse
+        if (eventV.includes(part)) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
 }
 
 const instance = ClientService.getInstance()

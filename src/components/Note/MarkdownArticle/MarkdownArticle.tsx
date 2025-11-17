@@ -2,6 +2,7 @@ import { useSecondaryPage, useSmartHashtagNavigation, useSmartRelayNavigation } 
 import Image from '@/components/Image'
 import MediaPlayer from '@/components/MediaPlayer'
 import Wikilink from '@/components/UniversalContent/Wikilink'
+import { BookstrContent } from '@/components/Bookstr'
 import WebPreview from '@/components/WebPreview'
 import YoutubeEmbeddedPlayer from '@/components/YoutubeEmbeddedPlayer'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
@@ -2024,18 +2025,41 @@ function parseMarkdownContent(
       }
     } else if (pattern.type === 'wikilink') {
       const linkContent = pattern.data
-      let target = linkContent.includes('|') ? linkContent.split('|')[0].trim() : linkContent.trim()
-      let displayText = linkContent.includes('|') ? linkContent.split('|')[1].trim() : linkContent.trim()
       
-      if (linkContent.startsWith('book:')) {
-        target = linkContent.replace('book:', '').trim()
+      // Check if this is a bookstr wikilink
+      // Formats: book:bible:..., bible:..., quran:..., etc.
+      const isBookstrLink = linkContent.startsWith('book:') || 
+        ['bible', 'quran', 'catechism', 'torah'].some(type => 
+          linkContent.toLowerCase().startsWith(`${type}:`)
+        )
+      
+      if (isBookstrLink) {
+        // Extract the bookstr content
+        let bookstrContent = linkContent.trim()
+        // If it doesn't start with "book:", add it for consistency
+        if (!bookstrContent.startsWith('book:')) {
+          // Format: "bible:Genesis 3:1" -> "book:bible:Genesis 3:1"
+          const firstColon = bookstrContent.indexOf(':')
+          if (firstColon > 0) {
+            const bookType = bookstrContent.substring(0, firstColon)
+            const rest = bookstrContent.substring(firstColon + 1)
+            bookstrContent = `book:${bookType}:${rest}`
+          }
+        }
+        parts.push(
+          <BookstrContent key={`bookstr-${patternIdx}`} wikilink={bookstrContent} />
+        )
+      } else {
+        // Regular wikilink
+        let target = linkContent.includes('|') ? linkContent.split('|')[0].trim() : linkContent.trim()
+        let displayText = linkContent.includes('|') ? linkContent.split('|')[1].trim() : linkContent.trim()
+        
+        const dtag = target.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+        
+        parts.push(
+          <Wikilink key={`wikilink-${patternIdx}`} dTag={dtag} displayText={displayText} />
+        )
       }
-      
-      const dtag = target.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-      
-      parts.push(
-        <Wikilink key={`wikilink-${patternIdx}`} dTag={dtag} displayText={displayText} />
-      )
     }
     
     lastIndex = pattern.end

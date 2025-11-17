@@ -518,11 +518,11 @@ class ContentParserService {
     let processed = content
 
     // Process bookstr macro wikilinks: [[book:...]] where ... can be any book type and reference
+    // These should be converted to a special marker that will be processed in HTML
     processed = processed.replace(/\[\[book:([^\]]+)\]\]/g, (_match, bookContent) => {
       const cleanContent = bookContent.trim()
-      const dTag = this.normalizeDtag(cleanContent)
-      
-      return `wikilink:${dTag}[${cleanContent}]`
+      // Use a passthrough marker that will be converted to HTML placeholder in processWikilinksInHtml
+      return `BOOKSTR:${cleanContent}`
     })
 
     // Process standard wikilinks: [[Target Page]] or [[target page|see this]]
@@ -552,6 +552,13 @@ class ContentParserService {
    */
   private processWikilinksInHtml(html: string): string {
     let processed = html
+    
+    // Convert bookstr markers to HTML placeholders
+    processed = processed.replace(/BOOKSTR:([^<>\s]+)/g, (_match, bookContent) => {
+      // Escape special characters for HTML attributes
+      const escaped = bookContent.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+      return `<span data-bookstr="${escaped}" class="bookstr-placeholder"></span>`
+    })
     
     // Convert hashtag links to HTML with green styling
     processed = processed.replace(/hashtag:([^[]+)\[([^\]]+)\]/g, (_match, normalizedHashtag, displayText) => {
