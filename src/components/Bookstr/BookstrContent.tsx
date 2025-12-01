@@ -70,32 +70,28 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
   // Parse the wikilink
   const parsed = useMemo(() => {
     try {
-      // Extract book type from wikilink (e.g., "book:bible:Genesis 3:1")
-      let bookType = 'bible'
-      let content = wikilink
+      // NKBIP-08 format: book::... (must have double colon)
+      let wikilinkToParse = wikilink
       
-      if (wikilink.startsWith('book:')) {
-        const parts = wikilink.substring(5).split(':')
-        if (parts.length >= 2) {
-          bookType = parts[0]
-          content = parts.slice(1).join(':')
+      if (wikilink.startsWith('book::')) {
+        // Already in correct format, add brackets if needed
+        if (!wikilink.startsWith('[[')) {
+          wikilinkToParse = `[[${wikilink}]]`
+        } else {
+          wikilinkToParse = wikilink
         }
-      } else if (wikilink.includes(':')) {
-        // Might be "bible:Genesis 3:1" format
-        const firstColon = wikilink.indexOf(':')
-        const potentialType = wikilink.substring(0, firstColon)
-        if (['bible', 'quran', 'catechism', 'torah'].includes(potentialType.toLowerCase())) {
-          bookType = potentialType.toLowerCase()
-          content = wikilink.substring(firstColon + 1)
-        }
+      } else {
+        // Invalid format - must start with book::
+        return null
       }
       
-      const result = parseBookWikilink(`[[book:${bookType}:${content}]]`, bookType)
+      const result = parseBookWikilink(wikilinkToParse)
       if (result) {
+        const inferredBookType = result.bookType || 'bible'
         logger.debug('BookstrContent: Parsed wikilink', {
           wikilink,
-          content,
-          bookType,
+          wikilinkToParse,
+          bookType: inferredBookType,
           referenceCount: result.references.length,
           references: result.references.map(r => ({
             book: r.book,
@@ -105,8 +101,9 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
           })),
           versions: result.versions
         })
+        return { ...result, bookType: inferredBookType }
       }
-      return result ? { ...result, bookType } : null
+      return null
     } catch (err) {
       logger.error('Error parsing bookstr wikilink', { error: err, wikilink })
       return null

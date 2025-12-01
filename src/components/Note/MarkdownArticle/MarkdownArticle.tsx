@@ -2026,26 +2026,12 @@ function parseMarkdownContent(
     } else if (pattern.type === 'wikilink') {
       const linkContent = pattern.data
       
-      // Check if this is a bookstr wikilink
-      // Formats: book:bible:..., bible:..., quran:..., etc.
-      const isBookstrLink = linkContent.startsWith('book:') || 
-        ['bible', 'quran', 'catechism', 'torah'].some(type => 
-          linkContent.toLowerCase().startsWith(`${type}:`)
-        )
+      // Check if this is a bookstr wikilink (NKBIP-08 format: book::...)
+      const isBookstrLink = linkContent.startsWith('book::')
       
       if (isBookstrLink) {
-        // Extract the bookstr content
-        let bookstrContent = linkContent.trim()
-        // If it doesn't start with "book:", add it for consistency
-        if (!bookstrContent.startsWith('book:')) {
-          // Format: "bible:Genesis 3:1" -> "book:bible:Genesis 3:1"
-          const firstColon = bookstrContent.indexOf(':')
-          if (firstColon > 0) {
-            const bookType = bookstrContent.substring(0, firstColon)
-            const rest = bookstrContent.substring(firstColon + 1)
-            bookstrContent = `book:${bookType}:${rest}`
-          }
-        }
+        // Extract the bookstr content (already in book:: format)
+        const bookstrContent = linkContent.trim()
         parts.push(
           <BookstrContent key={`bookstr-${patternIdx}`} wikilink={bookstrContent} />
         )

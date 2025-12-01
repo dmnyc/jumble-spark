@@ -517,9 +517,9 @@ class ContentParserService {
   private processWikilinks(content: string): string {
     let processed = content
 
-    // Process bookstr macro wikilinks: [[book:...]] where ... can be any book type and reference
+    // Process bookstr macro wikilinks: [[book::...]] where ... follows NKBIP-08 format
     // These should be converted to a special marker that will be processed in HTML
-    processed = processed.replace(/\[\[book:([^\]]+)\]\]/g, (_match, bookContent) => {
+    processed = processed.replace(/\[\[book::([^\]]+)\]\]/g, (_match, bookContent) => {
       const cleanContent = bookContent.trim()
       // Use a passthrough marker that will be converted to HTML placeholder in processWikilinksInHtml
       return `BOOKSTR:${cleanContent}`

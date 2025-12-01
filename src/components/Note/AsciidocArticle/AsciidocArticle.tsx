@@ -974,7 +974,7 @@ export default function AsciidocArticle({
       if (!linkContent) return
       
       // Skip if this is a bookstr wikilink (already processed)
-      if (linkContent.startsWith('book:')) {
+      if (linkContent.startsWith('book::')) {
         return
       }
       

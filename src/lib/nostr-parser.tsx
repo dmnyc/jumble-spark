@@ -44,7 +44,7 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
   // Regex to match hashtags
   const hashtagRegex = /#([a-zA-Z0-9_]+)/g
   
-  // Regex to match wikilinks: [[target]] or [[target|display text]] or [[book:...]]
+  // Regex to match wikilinks: [[target]] or [[target|display text]] or [[book::...]]
   const wikilinkRegex = /\[\[([^|\]]+)(?:\|([^\]]+))?\]\]/g
   
   // Regex to match Jumble note URLs: https://jumble.imwald.eu/notes/noteId
