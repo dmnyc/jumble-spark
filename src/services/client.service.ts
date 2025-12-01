@@ -2474,11 +2474,23 @@ class ClientService extends EventTarget {
     let events: NEvent[] = []
     
     try {
-      // Query ONLY 30040s (publications/indexes) by pubkey and kind
+      // Query ONLY 30040s (publications/indexes) by pubkey and kind with precise tag filters
       const publicationFilter: Filter = {
         authors: [publicationPubkey],
         kinds: [ExtendedKind.PUBLICATION],
         limit: 500
+      }
+      
+      // Add precise tag filters for collection, title, and chapter
+      if (filters.type) {
+        publicationFilter['#C'] = [filters.type.toLowerCase()]
+      }
+      if (filters.book) {
+        const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+        publicationFilter['#T'] = [normalizedBook]
+      }
+      if (filters.chapter !== undefined) {
+        publicationFilter['#c'] = [filters.chapter.toString()]
       }
       
       const allPublications = await this.fetchEvents(prioritizedFallbackRelaysWithCitadel, publicationFilter, {
@@ -2535,6 +2547,29 @@ class ClientService extends EventTarget {
           }
           if (d) {
             aTagFilter['#d'] = [d]
+          }
+          // Add all precise tag filters: C (collection), T (title), c (chapter), s (section/verse), v (version)
+          if (filters.type) {
+            aTagFilter['#C'] = [filters.type.toLowerCase()]
+          }
+          if (filters.book) {
+            const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+            aTagFilter['#T'] = [normalizedBook]
+          }
+          if (filters.chapter !== undefined) {
+            aTagFilter['#c'] = [filters.chapter.toString()]
+          }
+          if (filters.verse) {
+            // Section tag (s) is used for verse
+            // For verse ranges, we'll need to expand and query each verse
+            // For now, just add the first verse if it's a single verse
+            const verseParts = filters.verse.split(/[,\s-]+/).map(v => v.trim()).filter(v => v)
+            if (verseParts.length === 1 && !verseParts[0].includes('-')) {
+              aTagFilter['#s'] = [verseParts[0]]
+            }
+          }
+          if (filters.version) {
+            aTagFilter['#v'] = [filters.version.toLowerCase()]
           }
           
           try {
@@ -2612,110 +2647,64 @@ class ClientService extends EventTarget {
     try {
       const bookstrPublisherPubkey = '3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690'
       
-      // Query ONLY 30040s (publications/indexes) with just type and kind filters
+      // Query BOTH 30040s (publications/indexes) AND 30041s (content) together
+      // Only use #T (title) and #c (chapter) in relay filter - filter #C, #s, #v client-side
+      // This matches wikistr's approach and avoids relay compatibility issues
       const publicationFilter: Filter = {
-        kinds: [ExtendedKind.PUBLICATION],
+        kinds: [ExtendedKind.PUBLICATION, ExtendedKind.PUBLICATION_CONTENT],
         authors: [bookstrPublisherPubkey],
         limit: 500
       }
       
-      // Only add #type filter if we have a type
-      if (filters.type) {
-        publicationFilter['#type'] = [filters.type.toLowerCase()]
+      // Only add #T (title) and #c (chapter) filters - filter rest client-side
+      if (filters.book) {
+        // Normalize book name: lowercase, replace spaces with hyphens (NIP-54 style)
+        // The parser already normalized it, but ensure consistency
+        const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
+        publicationFilter['#T'] = [normalizedBook]
       }
+      if (filters.chapter !== undefined) {
+        publicationFilter['#c'] = [filters.chapter.toString()]
+      }
+      // Don't include #C, #s, or #v in relay filter - filter client-side instead
       
       const publisherPublications = await this.fetchEvents(prioritizedFallbackRelays, publicationFilter, {
         eoseTimeout: 5000,
         globalTimeout: 8000
       })
       
-      logger.info('fetchBookstrEventsFromRelays: Fetched 30040 publications', {
+      logger.info('fetchBookstrEventsFromRelays: Fetched events', {
         count: publisherPublications.length,
         filters: JSON.stringify(filters)
       })
       
-      // Filter 30040s client-side to find matching book/chapter
-      // Note: Don't filter by verse for 30040s - verses are in 30041s
-      const matchingPublications = publisherPublications.filter(pub => {
-        return this.eventMatchesBookstrFilters(pub, filters)
+      // Filter ALL events (both 30040 and 30041) client-side
+      // This matches wikistr's approach - filter #C, #s, #v client-side
+      const matchingEvents = publisherPublications.filter(event => {
+        return this.eventMatchesBookstrFilters(event, filters)
       })
       
-      logger.info('fetchBookstrEventsFromRelays: Filtered 30040 publications', {
+      logger.info('fetchBookstrEventsFromRelays: Filtered events', {
         total: publisherPublications.length,
-        matching: matchingPublications.length,
+        matching: matchingEvents.length,
         filters: JSON.stringify(filters)
       })
       
-      // For each matching 30040, fetch its a-tagged 30041 events (content)
-      for (const publication of matchingPublications) {
-        const aTags = publication.tags
-          .filter(tag => tag[0] === 'a' && tag[1])
-          .map(tag => tag[1])
-        
-        logger.info('fetchBookstrEventsFromRelays: Fetching 30041s from matching publication', {
-          publicationId: publication.id.substring(0, 8),
-          aTagCount: aTags.length,
-          filters: JSON.stringify(filters)
-        })
-        
-        // Fetch all a-tagged 30041 events in parallel
-        const aTagPromises = aTags.map(async (aTag) => {
-          const parts = aTag.split(':')
-          if (parts.length < 2) return null
-          
-          const kind = parseInt(parts[0])
-          const pubkey = parts[1]
-          const d = parts[2] || ''
-          
-          // Only fetch 30041 events (content events)
-          if (kind !== ExtendedKind.PUBLICATION_CONTENT) {
-            return null
-          }
-          
-          const aTagFilter: Filter = {
-            authors: [pubkey],
-            kinds: [ExtendedKind.PUBLICATION_CONTENT],
-            limit: 1
-          }
-          if (d) {
-            aTagFilter['#d'] = [d]
-          }
-          
-          try {
-            const aTagEvents = await this.fetchEvents(prioritizedFallbackRelays, aTagFilter, {
-              eoseTimeout: 3000,
-              globalTimeout: 5000
-            })
-            
-            // Filter 30041s client-side by book, type, version, chapter, verse
-            return aTagEvents.filter(event => {
-              return this.eventMatchesBookstrFilters(event, filters)
-            })
-          } catch (err) {
-            logger.debug('fetchBookstrEventsFromRelays: Error fetching a-tag event', {
-              aTag,
-              error: err
-            })
-            return []
-          }
-        })
-        
-        const aTagResults = await Promise.all(aTagPromises)
-        const aTagEvents = aTagResults.flat().filter((e): e is NEvent => e !== null)
-        
-        logger.info('fetchBookstrEventsFromRelays: Fetched 30041s from publication', {
-          publicationId: publication.id.substring(0, 8),
-          fetched: aTagEvents.length,
-          totalSoFar: events.length + aTagEvents.length
-        })
-        
-        events.push(...aTagEvents)
-      }
+      // Separate 30040s (publications) and 30041s (content)
+      // We queried for both kinds, so we get content events directly
+      const contentEvents = matchingEvents.filter(e => e.kind === ExtendedKind.PUBLICATION_CONTENT)
+      
+      events.push(...contentEvents)
+      
+      // Note: We could also process 30040 publications to fetch their a-tagged 30041s,
+      // but since we already queried for 30041s directly, we should have them.
+      // If we need more, we can fetch from 30040 a-tags, but for now this is simpler.
       
       if (events.length > 0) {
         logger.info('fetchBookstrEventsFromRelays: Successfully fetched content events', {
-          publicationCount: matchingPublications.length,
-          eventCount: events.length,
+          totalQueried: publisherPublications.length,
+          matchingAfterFilter: matchingEvents.length,
+          contentEvents: events.length,
           filters: JSON.stringify(filters)
         })
         return events
@@ -2865,8 +2854,9 @@ class ClientService extends EventTarget {
     if (filters.book) {
       const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
       // Get ALL book tags from the event (events can have multiple book tags)
+      // Check 'T' (title/book) tags
       const eventBookTags = event.tags
-        .filter(tag => tag[0] === 'book' && tag[1])
+        .filter(tag => tag[0] === 'T' && tag[1])
         .map(tag => tag[1].toLowerCase())
       
       // Check if any of the book tags match
@@ -3393,6 +3383,7 @@ class ClientService extends EventTarget {
   
   /**
    * Extract book metadata from event tags (helper method)
+   * Tags: C (collection), T (title), c (chapter), s (section), v (version)
    */
   private extractBookMetadataFromEvent(event: NEvent): {
     type?: string
@@ -3404,19 +3395,23 @@ class ClientService extends EventTarget {
     const metadata: any = {}
     for (const [tag, value] of event.tags) {
       switch (tag) {
-        case 'type':
+        case 'C': // Collection
           metadata.type = value
           break
-        case 'book':
+        case 'T': // Title (book name)
           metadata.book = value
           break
-        case 'chapter':
+        case 'c': // Chapter
           metadata.chapter = value
           break
-        case 'verse':
-          metadata.verse = value
+        case 's': // Section
+          // Section might be used for verse or other metadata
+          // If we don't have verse yet, use section as verse
+          if (!metadata.verse) {
+            metadata.verse = value
+          }
           break
-        case 'version':
+        case 'v': // Version
           metadata.version = value
           break
       }

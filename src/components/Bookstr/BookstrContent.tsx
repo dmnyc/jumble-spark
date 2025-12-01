@@ -3,7 +3,7 @@ import { Event } from 'nostr-tools'
 import { parseBookWikilink, extractBookMetadata, BookReference } from '@/lib/bookstr-parser'
 import client from '@/services/client.service'
 import { ExtendedKind } from '@/constants'
-import { Loader2, AlertCircle, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
+import { Loader2, AlertCircle, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -61,13 +61,9 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
   const [sections, setSections] = useState<BookSection[]>([])
   const [isLoading, setIsLoading] = useState(false) // Start as false, only set to true when actually fetching
   const [error, setError] = useState<string | null>(null)
-  const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set())
   const [selectedVersions, setSelectedVersions] = useState<Map<number, string>>(new Map())
-  const [collapsedCards, setCollapsedCards] = useState<Set<number>>(new Set())
-  const [cardHeights, setCardHeights] = useState<Map<number, number>>(new Map())
   // Track which sections are still loading (by reference key)
   const [loadingSections, setLoadingSections] = useState<Set<string>>(new Set())
-  const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map())
 
   // Parse the wikilink - use a ref to store the last parsed result for comparison
   const parsedRef = useRef<ReturnType<typeof parseBookWikilink> & { bookType: string } | null>(null)
@@ -701,68 +697,6 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
     }
   }, [wikilink]) // Depend on wikilink directly - it's a stable string, parsed is derived from it
 
-  // Measure card heights - measure BEFORE applying collapse
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      cardRefs.current.forEach((element, index) => {
-        if (element) {
-          // IMPORTANT: Temporarily remove ALL constraints to get true height
-          // This must happen BEFORE any collapse is applied
-          const originalMaxHeight = element.style.maxHeight
-          const originalOverflow = element.style.overflow
-          const originalHeight = element.style.height
-          
-          // Remove all constraints
-          element.style.maxHeight = 'none'
-          element.style.overflow = 'visible'
-          element.style.height = 'auto'
-          
-          // Force a reflow to ensure we get the true height
-          void element.offsetHeight
-          
-          const height = element.scrollHeight
-          
-          // Restore original styles
-          element.style.maxHeight = originalMaxHeight
-          element.style.overflow = originalOverflow
-          element.style.height = originalHeight
-          
-          // Store the TRUE height (before collapse)
-          setCardHeights(prev => {
-            const currentHeight = prev.get(index)
-            if (currentHeight !== height && height > 0) {
-              const newMap = new Map(prev)
-              newMap.set(index, height)
-              
-              logger.debug('BookstrContent: Measured card height', {
-                sectionIndex: index,
-                height,
-                needsCollapse: height > 500,
-                wasCollapsed: collapsedCards.has(index)
-              })
-              
-              // Only auto-collapse if height > 500px and not already manually toggled
-              if (height > 500) {
-                setCollapsedCards(prevCollapsed => {
-                  // Only auto-collapse if user hasn't manually expanded it
-                  if (!prevCollapsed.has(index)) {
-                    logger.debug('BookstrContent: Auto-collapsing card', { sectionIndex: index, height })
-                    return new Set(prevCollapsed).add(index)
-                  }
-                  return prevCollapsed
-                })
-              }
-              
-              return newMap
-            }
-            return prev
-          })
-        }
-      })
-    }, 500) // Wait longer for content to fully render
-    
-    return () => clearTimeout(timeoutId)
-  }, [sections, collapsedCards])
 
   // Show loading spinner only if we're actively loading AND have no sections
   // Once we have sections (even empty placeholders), show them instead
@@ -815,52 +749,19 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
               })
             : section.events
 
-          const isExpanded = expandedSections.has(sectionIndex)
-          const hasVerses = section.originalVerses !== undefined && section.originalVerses.length > 0
           const isLast = sectionIndex === sections.length - 1
-
-          const cardHeight = cardHeights.get(sectionIndex) || 0
-          const isCardCollapsed = collapsedCards.has(sectionIndex)
-          const needsCollapse = cardHeight > 500
-          
-          // Only show button if card is actually tall (needs collapse) or is currently collapsed
-          const shouldShowButton = filteredEvents.length > 0 && (needsCollapse || isCardCollapsed)
           
           // Check if this section is still loading
           const refKey = `${section.reference.book}-${section.reference.chapter}-${section.reference.verse}`
           const isSectionLoading = loadingSections.has(refKey)
           
-          // Debug logging
-          if (filteredEvents.length > 0) {
-            logger.debug('BookstrContent: Card collapse check', {
-              sectionIndex,
-              eventCount: filteredEvents.length,
-              cardHeight,
-              isCardCollapsed,
-              needsCollapse,
-              shouldShowButton
-            })
-          }
-          
           return (
             <React.Fragment key={sectionIndex}>
             <div 
-              ref={(el) => {
-                if (el) {
-                  cardRefs.current.set(sectionIndex, el)
-                } else {
-                  cardRefs.current.delete(sectionIndex)
-                }
-              }}
               className={cn(
                 'p-3',
-                !isLast && 'border-b',
-                needsCollapse && isCardCollapsed && 'overflow-hidden'
+                !isLast && 'border-b'
               )}
-              style={needsCollapse && isCardCollapsed ? { 
-                maxHeight: '500px',
-                transition: 'max-height 0.3s ease-out'
-              } : undefined}
             >
             {/* Header */}
             <div className="flex items-center justify-between gap-2 mb-2">
@@ -903,92 +804,14 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
               </Button>
             </div>
 
-            {/* Verses */}
+            {/* Verses - render all verses together, including ranges */}
             {filteredEvents.length > 0 && (
               <VerseContent
                 events={filteredEvents}
+                originalVerses={section.originalVerses}
               />
             )}
             </div>
-
-            {/* Show more/less button for tall cards - OUTSIDE collapsed div so it's always visible */}
-            {shouldShowButton ? (
-              <div className="px-3 pb-3 border-t pt-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-xs w-full"
-                  onClick={() => {
-                    setCollapsedCards(prev => {
-                      const newSet = new Set(prev)
-                      if (newSet.has(sectionIndex)) {
-                        newSet.delete(sectionIndex)
-                      } else {
-                        newSet.add(sectionIndex)
-                      }
-                      return newSet
-                    })
-                  }}
-                >
-                  {isCardCollapsed ? (
-                    <>
-                      <ChevronDown className="h-3 w-3 mr-1" />
-                      Show more
-                    </>
-                  ) : (
-                    <>
-                      <ChevronUp className="h-3 w-3 mr-1" />
-                      Show less
-                    </>
-                  )}
-                </Button>
-              </div>
-            ) : null}
-
-            {/* Expand/Collapse buttons - only show if events were found */}
-            {hasVerses && filteredEvents.length > 0 && (
-              <div className="px-3 pb-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2 h-6 text-xs"
-                  onClick={() => {
-                    const newExpanded = new Set(expandedSections)
-                    if (newExpanded.has(sectionIndex)) {
-                      newExpanded.delete(sectionIndex)
-                    } else {
-                      newExpanded.add(sectionIndex)
-                    }
-                    setExpandedSections(newExpanded)
-                  }}
-                >
-                  {isExpanded ? (
-                    <>
-                      <ChevronUp className="h-3 w-3 mr-1" />
-                      Collapse chapter
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown className="h-3 w-3 mr-1" />
-                      Read full chapter
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
-
-            {/* Expanded content */}
-            {isExpanded && (
-              <div className="px-3 pb-3 mt-3 pt-3 border-t">
-                {/* Fetch and display full chapter/book */}
-                <ExpandedContent
-                  section={section}
-                  selectedVersion={selectedVersion}
-                  originalChapter={section.originalChapter}
-                  originalVerses={section.originalVerses}
-                />
-              </div>
-            )}
             </React.Fragment>
           )
         })}
@@ -997,69 +820,13 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
   )
 }
 
-interface ExpandedContentProps {
-  section: BookSection
-  selectedVersion: string
-  originalChapter?: number
+interface VerseContentProps {
+  events: Event[]
   originalVerses?: string
 }
 
-function ExpandedContent({ section, selectedVersion, originalChapter, originalVerses }: ExpandedContentProps) {
-  const [expandedEvents, setExpandedEvents] = useState<Event[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-
-  useEffect(() => {
-    const fetchExpanded = async () => {
-      setIsLoading(true)
-      try {
-        // Determine book type (default to bible)
-        const bookType = 'bible' // Could be extracted from section if we store it
-        const normalizedBook = section.reference.book.toLowerCase().replace(/\s+/g, '-')
-        
-        // Fetch full chapter or book
-        const filters: any = {
-          type: bookType,
-          book: normalizedBook
-        }
-
-        if (originalChapter !== undefined) {
-          // Fetch full chapter
-          filters.chapter = originalChapter
-        }
-        // If no chapter specified, fetch entire book
-
-        if (selectedVersion) {
-          filters.version = selectedVersion.toLowerCase()
-        }
-
-        const events = await client.fetchBookstrEvents(filters)
-        
-        // Sort by chapter and verse
-        events.sort((a, b) => {
-          const aMeta = extractBookMetadata(a)
-          const bMeta = extractBookMetadata(b)
-          const aChapter = parseInt(aMeta.chapter || '0')
-          const bChapter = parseInt(bMeta.chapter || '0')
-          if (aChapter !== bChapter) return aChapter - bChapter
-          const aVerse = parseInt(aMeta.verse || '0')
-          const bVerse = parseInt(bMeta.verse || '0')
-          return aVerse - bVerse
-        })
-
-        setExpandedEvents(events)
-      } catch (err) {
-        logger.error('Error fetching expanded content', { error: err })
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    fetchExpanded()
-  }, [section, selectedVersion, originalChapter])
-
-  if (isLoading) {
-    return <div className="text-xs text-muted-foreground">Loading...</div>
-  }
+function VerseContent({ events, originalVerses }: VerseContentProps) {
+  const [parsedContents, setParsedContents] = useState<Map<string, string>>(new Map())
 
   // Parse original verses to determine which ones should have a border
   const originalVerseNumbers = new Set<number>()
@@ -1067,6 +834,7 @@ function ExpandedContent({ section, selectedVersion, originalChapter, originalVe
     const verseSpecs = originalVerses.split(',').map(v => v.trim()).filter(v => v)
     for (const spec of verseSpecs) {
       if (spec.includes('-')) {
+        // Expand range like "16-18" into 16, 17, 18
         const [startStr, endStr] = spec.split('-').map(v => v.trim())
         const start = parseInt(startStr)
         const end = parseInt(endStr)
@@ -1083,22 +851,6 @@ function ExpandedContent({ section, selectedVersion, originalChapter, originalVe
       }
     }
   }
-
-  return (
-    <VerseContent
-      events={expandedEvents}
-      originalVerseNumbers={originalVerseNumbers}
-    />
-  )
-}
-
-interface VerseContentProps {
-  events: Event[]
-  originalVerseNumbers?: Set<number>
-}
-
-function VerseContent({ events, originalVerseNumbers }: VerseContentProps) {
-  const [parsedContents, setParsedContents] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
     const parseAll = async () => {
@@ -1132,7 +884,7 @@ function VerseContent({ events, originalVerseNumbers }: VerseContentProps) {
         const metadata = extractBookMetadata(event)
         const verseNum = metadata.verse
         const verseNumInt = verseNum ? parseInt(verseNum) : null
-        const isOriginalVerse = originalVerseNumbers && verseNumInt !== null && originalVerseNumbers.has(verseNumInt)
+        const isOriginalVerse = originalVerseNumbers.size > 0 && verseNumInt !== null && originalVerseNumbers.has(verseNumInt)
         const content = parsedContents.get(event.id) || event.content
 
         return (

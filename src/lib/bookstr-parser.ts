@@ -80,50 +80,60 @@ export function parseBookWikilink(wikilink: string): { references: BookReference
     versionPart = pipeParts[pipeParts.length - 1].trim()
   }
   
-  // Parse title, chapter, section from titlePart
-  const chapterSectionMatch = titlePart.match(/^(.+?)\s+(\d+|[a-zA-Z0-9_-]+)(?::(.+))?$/)
-  
-  let title = ''
-  let chapter: number | undefined
-  let verse: string | undefined
-  
-  if (chapterSectionMatch) {
-    title = normalizeNip54(chapterSectionMatch[1].trim())
-    const chapterStr = chapterSectionMatch[2]
-    chapter = /^\d+$/.test(chapterStr) ? parseInt(chapterStr, 10) : undefined
-    if (chapterSectionMatch[3]) {
-      verse = chapterSectionMatch[3].trim()
-    }
-  } else {
-    title = normalizeNip54(titlePart)
-  }
-  
-  // Parse versions
+  // Parse versions first (needed for references)
   const versions = versionPart ? versionPart.split(/\s+/).map(v => normalizeNip54(v).toUpperCase()).filter(v => v) : undefined
+  
+  // Parse multiple references from titlePart (e.g., "romans 1:16-17, psalms 23:1")
+  // Split by comma to handle multiple book references
+  const referenceStrings = titlePart.split(',').map(s => s.trim()).filter(s => s)
+  const references: BookReference[] = []
+  
+  for (const refString of referenceStrings) {
+    // Parse each reference: "book chapter:verse" or "book chapter" or "book"
+    const chapterSectionMatch = refString.match(/^(.+?)\s+(\d+|[a-zA-Z0-9_-]+)(?::(.+))?$/)
+    
+    let title = ''
+    let chapter: number | undefined
+    let verse: string | undefined
+    
+    if (chapterSectionMatch) {
+      title = normalizeNip54(chapterSectionMatch[1].trim())
+      const chapterStr = chapterSectionMatch[2]
+      chapter = /^\d+$/.test(chapterStr) ? parseInt(chapterStr, 10) : undefined
+      if (chapterSectionMatch[3]) {
+        verse = chapterSectionMatch[3].trim()
+      }
+    } else {
+      title = normalizeNip54(refString)
+    }
+    
+    // Create reference
+    const reference: BookReference = {
+      book: title
+    }
+    if (chapter !== undefined) {
+      reference.chapter = chapter
+    }
+    if (verse) {
+      reference.verse = verse
+    }
+    if (versions && versions.length > 0) {
+      reference.version = versions[0] // Use first version for backward compatibility
+    }
+    
+    references.push(reference)
+  }
   
   // Use collection as bookType (e.g., "bible", "quran", "torah")
   // If no collection, default to "bible"
   const inferredBookType = collection || 'bible'
   
-  // Create reference
-  const reference: BookReference = {
-    book: title
-  }
-  if (chapter !== undefined) {
-    reference.chapter = chapter
-  }
-  if (verse) {
-    reference.verse = verse
-  }
-  if (versions && versions.length > 0) {
-    reference.version = versions[0] // Use first version for backward compatibility
-  }
-  
-  return { references: [reference], versions, bookType: inferredBookType }
+  return { references, versions, bookType: inferredBookType }
 }
 
 /**
  * Extract book metadata from event tags
+ * Tags: C (collection), T (title), c (chapter), s (section), v (version)
  */
 export function extractBookMetadata(event: { tags: string[][] }): {
   type?: string
@@ -136,19 +146,23 @@ export function extractBookMetadata(event: { tags: string[][] }): {
   
   for (const [tag, value] of event.tags) {
     switch (tag) {
-      case 'type':
+      case 'C': // Collection
         metadata.type = value
         break
-      case 'book':
+      case 'T': // Title (book name)
         metadata.book = value
         break
-      case 'chapter':
+      case 'c': // Chapter
         metadata.chapter = value
         break
-      case 'verse':
-        metadata.verse = value
+      case 's': // Section
+        // Section might be used for verse or other metadata
+        // If we don't have verse yet, use section as verse
+        if (!metadata.verse) {
+          metadata.verse = value
+        }
         break
-      case 'version':
+      case 'v': // Version
         metadata.version = value
         break
     }
