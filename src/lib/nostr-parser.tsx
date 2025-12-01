@@ -6,6 +6,7 @@ import { nip19 } from 'nostr-tools'
 import { EmbeddedMention, EmbeddedNote } from '@/components/Embedded'
 import ImageGallery from '@/components/ImageGallery'
 import WebPreview from '@/components/WebPreview'
+import { BookstrContent } from '@/components/Bookstr/BookstrContent'
 import { cleanUrl, isImage, isMedia } from '@/lib/url'
 import { getImetaInfosFromEvent } from '@/lib/event'
 import { TImetaInfo } from '@/types'
@@ -14,7 +15,7 @@ import logger from '@/lib/logger'
 
 export interface ParsedNostrContent {
   elements: Array<{
-    type: 'text' | 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'gallery' | 'url' | 'jumble-note'
+    type: 'text' | 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'gallery' | 'url' | 'jumble-note'
     content: string
     bech32Id?: string
     nostrType?: 'npub' | 'nprofile' | 'nevent' | 'naddr' | 'note'
@@ -22,6 +23,7 @@ export interface ParsedNostrContent {
     hashtag?: string
     wikilink?: string
     displayText?: string
+    bookstrWikilink?: string
     images?: TImetaInfo[]
     url?: string
     noteId?: string
@@ -52,7 +54,7 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
   
   // Collect all matches (nostr, URLs, hashtags, wikilinks, and jumble notes) and sort by position
   const allMatches: Array<{
-    type: 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'url' | 'jumble-note'
+    type: 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'url' | 'jumble-note'
     match: RegExpExecArray
     start: number
     end: number
@@ -60,6 +62,7 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
     hashtag?: string
     wikilink?: string
     displayText?: string
+    bookstrWikilink?: string
     noteId?: string
   }> = []
   
@@ -128,17 +131,31 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
     })
   }
   
-  // Find wikilink matches
+  // Find wikilink matches (including bookstr wikilinks)
   let wikilinkMatch
   while ((wikilinkMatch = wikilinkRegex.exec(content)) !== null) {
-    allMatches.push({
-      type: 'wikilink',
-      match: wikilinkMatch,
-      start: wikilinkMatch.index,
-      end: wikilinkMatch.index + wikilinkMatch[0].length,
-      wikilink: wikilinkMatch[1],
-      displayText: wikilinkMatch[2] || wikilinkMatch[1]
-    })
+    const linkContent = wikilinkMatch[1]
+    const displayText = wikilinkMatch[2] || linkContent
+    
+    // Check if this is a bookstr wikilink (NKBIP-08 format: book::...)
+    if (linkContent.startsWith('book::')) {
+      allMatches.push({
+        type: 'bookstr-wikilink',
+        match: wikilinkMatch,
+        start: wikilinkMatch.index,
+        end: wikilinkMatch.index + wikilinkMatch[0].length,
+        bookstrWikilink: linkContent.trim()
+      })
+    } else {
+      allMatches.push({
+        type: 'wikilink',
+        match: wikilinkMatch,
+        start: wikilinkMatch.index,
+        end: wikilinkMatch.index + wikilinkMatch[0].length,
+        wikilink: linkContent,
+        displayText: displayText
+      })
+    }
   }
   
   // Find Jumble note URL matches
@@ -159,7 +176,7 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
   
   let lastIndex = 0
   
-  for (const { type, match, start, end, url, hashtag, wikilink, displayText, noteId } of allMatches) {
+  for (const { type, match, start, end, url, hashtag, wikilink, displayText, bookstrWikilink, noteId } of allMatches) {
     // Add text before the match
     if (start > lastIndex) {
       const textContent = content.slice(lastIndex, start)
@@ -213,6 +230,12 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
         type: 'hashtag',
         content: match[0],
         hashtag: hashtag
+      })
+    } else if (type === 'bookstr-wikilink' && bookstrWikilink) {
+      elements.push({
+        type: 'bookstr-wikilink',
+        content: match[0],
+        bookstrWikilink: bookstrWikilink
       })
     } else if (type === 'wikilink' && wikilink) {
       elements.push({
@@ -469,6 +492,16 @@ export function renderNostrContent(parsedContent: ParsedNostrContent, className?
               </a>
               {shouldAddSpace && <span> </span>}
             </>
+          )
+        }
+        
+        if (element.type === 'bookstr-wikilink' && element.bookstrWikilink) {
+          return (
+            <BookstrContent
+              key={index}
+              wikilink={element.bookstrWikilink}
+              className="my-2"
+            />
           )
         }
         
