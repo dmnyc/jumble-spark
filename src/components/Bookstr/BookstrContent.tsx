@@ -30,6 +30,148 @@ interface BookSection {
 }
 
 /**
+ * Get the first verse number from a verse string (handles ranges and lists)
+ */
+function getFirstVerse(verse: string): number | null {
+  if (!verse) return null
+  
+  // Split by comma to handle lists like "6,8,10"
+  const firstPart = verse.split(',')[0].trim()
+  
+  // Handle ranges like "6-8" - take the first number
+  if (firstPart.includes('-')) {
+    const start = parseInt(firstPart.split('-')[0].trim(), 10)
+    return isNaN(start) ? null : start
+  }
+  
+  // Single verse number
+  const verseNum = parseInt(firstPart, 10)
+  return isNaN(verseNum) ? null : verseNum
+}
+
+/**
+ * Normalize book name to Sefaria format (capitalize first letter of each word)
+ */
+function normalizeSefariaBookName(bookName: string): string {
+  return bookName
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ')
+}
+
+/**
+ * Build Sefaria URL for a torah reference
+ */
+function buildSefariaUrl(reference: BookReference): string | null {
+  if (!reference.book) return null
+  
+  // Sefaria uses exact book names: Genesis, Exodus, Leviticus, Numbers, Deuteronomy
+  const bookName = normalizeSefariaBookName(reference.book)
+  
+  if (!reference.chapter) {
+    // Book only
+    return `https://www.sefaria.org/${bookName}?tab=contents`
+  }
+  
+  if (!reference.verse) {
+    // Chapter only
+    return `https://www.sefaria.org/${bookName}.${reference.chapter}?lang=bi`
+  }
+  
+  // Verse - get first verse from range/list
+  const firstVerse = getFirstVerse(reference.verse)
+  if (firstVerse === null) {
+    // Invalid verse, fall back to chapter
+    return `https://www.sefaria.org/${bookName}.${reference.chapter}?lang=bi`
+  }
+  
+  // Verse with chapter
+  return `https://www.sefaria.org/${bookName}.${reference.chapter}.${firstVerse}?lang=bi&with=all&lang2=en`
+}
+
+/**
+ * Mapping from Quran surah names to surah numbers (1-114)
+ */
+const surahNameToNumber: Record<string, number> = {
+  'Al-Fatiha': 1, 'Al-Baqarah': 2, 'Ali Imran': 3, 'An-Nisa': 4, 'Al-Maidah': 5,
+  'Al-Anam': 6, 'Al-Araf': 7, 'Al-Anfal': 8, 'At-Tawbah': 9, 'Yunus': 10,
+  'Hud': 11, 'Yusuf': 12, 'Ar-Rad': 13, 'Ibrahim': 14, 'Al-Hijr': 15,
+  'An-Nahl': 16, 'Al-Isra': 17, 'Al-Kahf': 18, 'Maryam': 19, 'Taha': 20,
+  'Al-Anbiya': 21, 'Al-Hajj': 22, 'Al-Muminun': 23, 'An-Nur': 24, 'Al-Furqan': 25,
+  'Ash-Shuara': 26, 'An-Naml': 27, 'Al-Qasas': 28, 'Al-Ankabut': 29, 'Ar-Rum': 30,
+  'Luqman': 31, 'As-Sajdah': 32, 'Al-Ahzab': 33, 'Saba': 34, 'Fatir': 35,
+  'Ya-Sin': 36, 'As-Saffat': 37, 'Sad': 38, 'Az-Zumar': 39, 'Ghafir': 40,
+  'Fussilat': 41, 'Ash-Shura': 42, 'Az-Zukhruf': 43, 'Ad-Dukhan': 44, 'Al-Jathiyah': 45,
+  'Al-Ahqaf': 46, 'Muhammad': 47, 'Al-Fath': 48, 'Al-Hujurat': 49, 'Qaf': 50,
+  'Adh-Dhariyat': 51, 'At-Tur': 52, 'An-Najm': 53, 'Al-Qamar': 54, 'Ar-Rahman': 55,
+  'Al-Waqiah': 56, 'Al-Hadid': 57, 'Al-Mujadilah': 58, 'Al-Hashr': 59, 'Al-Mumtahanah': 60,
+  'As-Saff': 61, 'Al-Jumuah': 62, 'Al-Munafiqun': 63, 'At-Taghabun': 64, 'At-Talaq': 65,
+  'At-Tahrim': 66, 'Al-Mulk': 67, 'Al-Qalam': 68, 'Al-Haqqah': 69, 'Al-Maarij': 70,
+  'Nuh': 71, 'Al-Jinn': 72, 'Al-Muzzammil': 73, 'Al-Muddaththir': 74, 'Al-Qiyamah': 75,
+  'Al-Insan': 76, 'Al-Mursalat': 77, 'An-Naba': 78, 'An-Naziat': 79, 'Abasa': 80,
+  'At-Takwir': 81, 'Al-Infitar': 82, 'Al-Mutaffifin': 83, 'Al-Inshiqaq': 84, 'Al-Buruj': 85,
+  'At-Tariq': 86, 'Al-Ala': 87, 'Al-Ghashiyah': 88, 'Al-Fajr': 89, 'Al-Balad': 90,
+  'Ash-Shams': 91, 'Al-Layl': 92, 'Ad-Duha': 93, 'Ash-Sharh': 94, 'At-Tin': 95,
+  'Al-Alaq': 96, 'Al-Qadr': 97, 'Al-Bayyinah': 98, 'Az-Zalzalah': 99, 'Al-Adiyat': 100,
+  'Al-Qariah': 101, 'At-Takathur': 102, 'Al-Asr': 103, 'Al-Humazah': 104, 'Al-Fil': 105,
+  'Quraysh': 106, 'Al-Maun': 107, 'Al-Kawthar': 108, 'Al-Kafirun': 109, 'An-Nasr': 110,
+  'Al-Masad': 111, 'Al-Ikhlas': 112, 'Al-Falaq': 113, 'An-Nas': 114
+}
+
+/**
+ * Build quran.com URL for a quran reference
+ */
+function buildQuranComUrl(reference: BookReference): string | null {
+  if (!reference.book) return null
+  
+  // For Quran, "chapter" is actually the surah number
+  let surahNumber: number | undefined
+  if (reference.chapter && typeof reference.chapter === 'number' && reference.chapter >= 1 && reference.chapter <= 114) {
+    surahNumber = reference.chapter
+  } else {
+    // Try book name lookup
+    const bookAsNumber = parseInt(reference.book.trim(), 10)
+    if (!isNaN(bookAsNumber) && bookAsNumber >= 1 && bookAsNumber <= 114) {
+      surahNumber = bookAsNumber
+    } else {
+      // Try case-insensitive lookup
+      const normalizedBook = reference.book.trim()
+      const matchingKey = Object.keys(surahNameToNumber).find(
+        key => key.toLowerCase() === normalizedBook.toLowerCase()
+      )
+      if (matchingKey) {
+        surahNumber = surahNameToNumber[matchingKey]
+      } else {
+        // Try normalized matching (remove hyphens, spaces, etc.)
+        const normalizedBookClean = normalizedBook.toLowerCase().replace(/[^a-z0-9]/g, '')
+        const matchingKey2 = Object.keys(surahNameToNumber).find(key => {
+          const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '')
+          return normalizedKey === normalizedBookClean
+        })
+        if (matchingKey2) {
+          surahNumber = surahNameToNumber[matchingKey2]
+        }
+      }
+    }
+  }
+  
+  if (!surahNumber) {
+    return null
+  }
+  
+  // In Quran, "verse" is the ayah
+  if (reference.verse) {
+    const firstAyah = getFirstVerse(reference.verse)
+    if (firstAyah === null) {
+      return `https://quran.com/${surahNumber}`
+    }
+    return `https://quran.com/${surahNumber}?startingVerse=${firstAyah}`
+  }
+  
+  return `https://quran.com/${surahNumber}`
+}
+
+/**
  * Build Bible Gateway URL for a passage
  */
 function buildBibleGatewayUrl(reference: BookReference, version?: string): string {
@@ -43,7 +185,6 @@ function buildBibleGatewayUrl(reference: BookReference, version?: string): strin
   }
   
   // Map version codes to Bible Gateway codes
-  // Common mappings: DRB -> DRA (Douay-Rheims), etc.
   const versionMap: Record<string, string> = {
     'DRB': 'DRA', // Douay-Rheims Bible -> Douay-Rheims 1899 American Edition
     'DRA': 'DRA', // Already correct
@@ -55,6 +196,20 @@ function buildBibleGatewayUrl(reference: BookReference, version?: string): strin
   const encodedPassage = encodeURIComponent(passage)
   
   return `https://www.biblegateway.com/passage/?search=${encodedPassage}&version=${bgVersion}`
+}
+
+/**
+ * Build external URL for a book reference based on bookType
+ */
+function buildExternalUrl(reference: BookReference, bookType: string, version?: string): string | null {
+  if (bookType === 'torah') {
+    return buildSefariaUrl(reference)
+  } else if (bookType === 'quran') {
+    return buildQuranComUrl(reference)
+  } else {
+    // Default to Bible Gateway for bible and other types
+    return buildBibleGatewayUrl(reference, version)
+  }
 }
 
 export function BookstrContent({ wikilink, className }: BookstrContentProps) {
@@ -787,21 +942,39 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
                   }}
                 />
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 shrink-0"
-                asChild
-              >
-                <a
-                  href={buildBibleGatewayUrl(section.reference, selectedVersion)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="View on Bible Gateway"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              </Button>
+              {(() => {
+                // Get bookType from parsed wikilink (defaults to 'bible')
+                const bookType = parsed?.bookType || 'bible'
+                
+                // Only show external link for bible, torah, or quran collections
+                // Other collections (secular books) don't have external links
+                if (!['bible', 'torah', 'quran'].includes(bookType)) {
+                  return null
+                }
+                
+                const externalUrl = buildExternalUrl(section.reference, bookType, selectedVersion)
+                const serviceName = bookType === 'torah' ? 'Sefaria' : bookType === 'quran' ? 'quran.com' : 'Bible Gateway'
+                
+                if (!externalUrl) return null
+                
+                return (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 shrink-0"
+                    asChild
+                  >
+                    <a
+                      href={externalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`View on ${serviceName}`}
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </Button>
+                )
+              })()}
             </div>
 
             {/* Verses - render all verses together, including ranges */}
