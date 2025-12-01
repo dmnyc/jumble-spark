@@ -65,9 +65,12 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
   const [selectedVersions, setSelectedVersions] = useState<Map<number, string>>(new Map())
   const [collapsedCards, setCollapsedCards] = useState<Set<number>>(new Set())
   const [cardHeights, setCardHeights] = useState<Map<number, number>>(new Map())
+  // Track which sections are still loading (by reference key)
+  const [loadingSections, setLoadingSections] = useState<Set<string>>(new Set())
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map())
 
-  // Parse the wikilink
+  // Parse the wikilink - use a ref to store the last parsed result for comparison
+  const parsedRef = useRef<ReturnType<typeof parseBookWikilink> & { bookType: string } | null>(null)
   const parsed = useMemo(() => {
     try {
       // NKBIP-08 format: book::... (must have double colon)
@@ -82,30 +85,40 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
         }
       } else {
         // Invalid format - must start with book::
+        parsedRef.current = null
         return null
       }
       
       const result = parseBookWikilink(wikilinkToParse)
       if (result) {
         const inferredBookType = result.bookType || 'bible'
-        logger.debug('BookstrContent: Parsed wikilink', {
-          wikilink,
-          wikilinkToParse,
-          bookType: inferredBookType,
-          referenceCount: result.references.length,
-          references: result.references.map(r => ({
-            book: r.book,
-            chapter: r.chapter,
-            verse: r.verse,
-            version: r.version
-          })),
-          versions: result.versions
-        })
-        return { ...result, bookType: inferredBookType }
+        const parsedResult = { ...result, bookType: inferredBookType }
+        
+        // Only log if this is a new parse (not a re-render with same wikilink)
+        if (parsedRef.current === null || JSON.stringify(parsedRef.current.references) !== JSON.stringify(parsedResult.references)) {
+          logger.debug('BookstrContent: Parsed wikilink', {
+            wikilink,
+            wikilinkToParse,
+            bookType: inferredBookType,
+            referenceCount: result.references.length,
+            references: result.references.map(r => ({
+              book: r.book,
+              chapter: r.chapter,
+              verse: r.verse,
+              version: r.version
+            })),
+            versions: result.versions
+          })
+        }
+        
+        parsedRef.current = parsedResult
+        return parsedResult
       }
+      parsedRef.current = null
       return null
     } catch (err) {
       logger.error('Error parsing bookstr wikilink', { error: err, wikilink })
+      parsedRef.current = null
       return null
     }
   }, [wikilink])
@@ -113,9 +126,14 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
   // Track if we've already fetched to prevent infinite loops
   const hasFetchedRef = useRef<string | null>(null)
   const isFetchingRef = useRef<boolean>(false)
+  const lastWikilinkRef = useRef<string | null>(null)
+  const effectRunCountRef = useRef<number>(0)
   
   // Fetch events for each reference
   useEffect(() => {
+    effectRunCountRef.current += 1
+    const runCount = effectRunCountRef.current
+    
     // Early return if parsed is not ready
     if (!parsed) {
       setIsLoading(false)
@@ -137,33 +155,60 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
       version: r.version
     })))
     
-    // Prevent re-fetching if we've already fetched for this exact set of references
+    // Reset fetch state if wikilink changed
+    if (lastWikilinkRef.current !== wikilink) {
+      hasFetchedRef.current = null
+      lastWikilinkRef.current = wikilink
+      isFetchingRef.current = false
+      effectRunCountRef.current = 1
+    }
+    
+    // AGGRESSIVE: If we've already fetched for this exact key, STOP IMMEDIATELY
     if (hasFetchedRef.current === fetchKey) {
-      // If we already have sections, don't fetch again
-      if (sections.length > 0) {
-        // Ensure loading is false if we have sections
-        setIsLoading(false)
-        return
-      }
-      // If we're currently fetching, don't start another fetch
-      // But ensure we have placeholder sections to show
-      if (isFetchingRef.current) {
-        // If we don't have sections yet, create placeholders
-        if (sections.length === 0) {
-          const placeholderSections: BookSection[] = parsed.references.map(ref => ({
-            reference: ref,
-            events: [],
-            versions: [],
-            originalVerses: ref.verse,
-            originalChapter: ref.chapter
-          }))
-          setSections(placeholderSections)
-          setIsLoading(false)
-        }
-        return
-      }
-      // If we've fetched before but have no sections (component was re-mounted),
-      // create placeholders and don't fetch again
+      return
+    }
+    
+    // AGGRESSIVE: If we're already fetching, STOP IMMEDIATELY
+    if (isFetchingRef.current) {
+      return
+    }
+    
+    // AGGRESSIVE: If effect has run more than once for the same wikilink, something is wrong
+    if (runCount > 2 && lastWikilinkRef.current === wikilink) {
+      logger.warn('BookstrContent: Effect running too many times, blocking', { 
+        wikilink, 
+        runCount,
+        fetchKey,
+        hasFetched: hasFetchedRef.current
+      })
+      return
+    }
+    
+    // Mark that we're starting a fetch for this wikilink
+    logger.debug('BookstrContent: Starting fetch', { wikilink, fetchKey, runCount })
+    hasFetchedRef.current = fetchKey
+    isFetchingRef.current = true
+
+    // Create placeholder sections IMMEDIATELY - before any checks or async operations
+    // This ensures something is always displayed
+    const placeholderSections: BookSection[] = parsed.references.map(ref => ({
+      reference: ref,
+      events: [],
+      versions: [],
+      originalVerses: ref.verse,
+      originalChapter: ref.chapter
+    }))
+    setSections(placeholderSections)
+    setIsLoading(false)
+
+    let isCancelled = false
+    let loadingTimeout: NodeJS.Timeout | null = null
+
+    const fetchEvents = async () => {
+      setError(null)
+
+      // Create placeholder sections IMMEDIATELY before any async operations
+      // This ensures something is always displayed, even if the fetch fails or is slow
       const placeholderSections: BookSection[] = parsed.references.map(ref => ({
         reference: ref,
         events: [],
@@ -172,18 +217,21 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
         originalChapter: ref.chapter
       }))
       setSections(placeholderSections)
-      setIsLoading(false)
-      return
-    }
-    
-    hasFetchedRef.current = fetchKey
-    isFetchingRef.current = true
-
-    let isCancelled = false
-
-    const fetchEvents = async () => {
-      setIsLoading(true)
-      setError(null)
+      setIsLoading(false) // Ensure loading is false - we have placeholders to show
+      
+      // Mark all sections as loading initially (will be removed when fetch completes)
+      const initialLoadingKeys = new Set(parsed.references.map(ref => 
+        `${ref.book}-${ref.chapter}-${ref.verse}`
+      ))
+      setLoadingSections(initialLoadingKeys)
+      
+      // Set a timeout to clear loading state if fetch takes too long (30 seconds)
+      loadingTimeout = setTimeout(() => {
+        if (!isCancelled) {
+          logger.warn('BookstrContent: Fetch timeout - clearing loading state', { wikilink })
+          setLoadingSections(new Set())
+        }
+      }, 30000)
 
       try {
         logger.debug('BookstrContent: Processing references', {
@@ -194,18 +242,6 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             verse: r.verse
           }))
         })
-        
-        // Step 0: Create placeholder sections immediately so links don't disappear
-        const placeholderSections: BookSection[] = parsed.references.map(ref => ({
-          reference: ref,
-          events: [],
-          versions: [],
-          originalVerses: ref.verse,
-          originalChapter: ref.chapter
-        }))
-        setSections(placeholderSections)
-        // Show placeholders immediately - set loading to false BEFORE async operations
-        setIsLoading(false)
         
         const newSections: BookSection[] = []
         
@@ -245,7 +281,16 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
         
         // Step 2: Display cached results IMMEDIATELY
         for (const { ref, cachedEvents } of cacheResults) {
+          const refKey = `${ref.book}-${ref.chapter}-${ref.verse}`
+          
           if (cachedEvents.length > 0) {
+            // Mark this section as loaded (has cached data)
+            setLoadingSections(prev => {
+              const updated = new Set(prev)
+              updated.delete(refKey)
+              return updated
+            })
+            
             const allVersions = new Set<string>()
             cachedEvents.forEach(event => {
               const metadata = extractBookMetadata(event)
@@ -349,6 +394,8 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
         for (const { ref, cachedEvents, versionsToFetch } of cacheResults) {
           if (isCancelled) break
           
+          const refKey = `${ref.book}-${ref.chapter}-${ref.verse}`
+          
           // If we already have cached events for this reference, skip or do background refresh
           if (cachedEvents.length > 0) {
             // Still fetch in background to get updates
@@ -374,6 +421,13 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             
             Promise.all(fetchPromises).then(fetchedResults => {
               if (isCancelled) return
+              
+              // Mark this section as loaded (background fetch complete)
+              setLoadingSections(prev => {
+                const updated = new Set(prev)
+                updated.delete(refKey)
+                return updated
+              })
               
               const allFetchedEvents = fetchedResults.flat()
               if (allFetchedEvents.length > 0) {
@@ -401,11 +455,23 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
               }
             }).catch(err => {
               logger.warn('BookstrContent: Background fetch failed', { error: err, ref })
+              // Mark as loaded even on error to stop spinner
+              setLoadingSections(prev => {
+                const updated = new Set(prev)
+                updated.delete(refKey)
+                return updated
+              })
             })
             continue
           }
           
-          // No cached events, fetch from network
+          // No cached events, mark as loading and fetch from network
+          setLoadingSections(prev => {
+            const updated = new Set(prev)
+            updated.add(refKey)
+            return updated
+          })
+          
           const normalizedBook = ref.book.toLowerCase().replace(/\s+/g, '-')
           
           // Determine which versions to fetch
@@ -441,6 +507,13 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
                   }
                 })
                 
+                // Mark this section as loaded (found events)
+                setLoadingSections(prev => {
+                  const updated = new Set(prev)
+                  updated.delete(refKey)
+                  return updated
+                })
+                
                 newSections.push({
                   reference: ref,
                   events: allEvents,
@@ -449,6 +522,13 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
                   originalChapter: ref.chapter
                 })
                 continue
+              } else {
+                // No events found, mark as loaded to stop spinner
+                setLoadingSections(prev => {
+                  const updated = new Set(prev)
+                  updated.delete(refKey)
+                  return updated
+                })
               }
             }
           }
@@ -528,6 +608,13 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
             return aVerse - bVerse
           })
 
+          // Mark this section as loaded (network fetch complete)
+          setLoadingSections(prev => {
+            const updated = new Set(prev)
+            updated.delete(refKey)
+            return updated
+          })
+
           newSections.push({
             reference: ref,
             events: filteredEvents,
@@ -590,11 +677,16 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
         if (isCancelled) return
         logger.error('Error fetching bookstr events', { error: err, wikilink })
         setError(err instanceof Error ? err.message : 'Failed to fetch book content')
+        // Mark all sections as loaded on error to stop spinners
+        setLoadingSections(new Set())
       } finally {
         if (!isCancelled) {
           setIsLoading(false)
         }
         isFetchingRef.current = false
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout)
+        }
       }
     }
 
@@ -603,8 +695,11 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
     return () => {
       isCancelled = true
       isFetchingRef.current = false
+      if (loadingTimeout) {
+        clearTimeout(loadingTimeout)
+      }
     }
-  }, [parsed]) // Depend on parsed directly - it's memoized and won't change unless wikilink meaningfully changes
+  }, [wikilink]) // Depend on wikilink directly - it's a stable string, parsed is derived from it
 
   // Measure card heights - measure BEFORE applying collapse
   useEffect(() => {
@@ -731,6 +826,10 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
           // Only show button if card is actually tall (needs collapse) or is currently collapsed
           const shouldShowButton = filteredEvents.length > 0 && (needsCollapse || isCardCollapsed)
           
+          // Check if this section is still loading
+          const refKey = `${section.reference.book}-${section.reference.chapter}-${section.reference.verse}`
+          const isSectionLoading = loadingSections.has(refKey)
+          
           // Debug logging
           if (filteredEvents.length > 0) {
             logger.debug('BookstrContent: Card collapse check', {
@@ -772,7 +871,8 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
                   {section.reference.verse && `:${section.reference.verse}`}
                   {selectedVersion && ` (${selectedVersion})`}
                 </h4>
-                {filteredEvents.length === 0 && (
+                {/* Only show spinner if section is still loading AND has no events */}
+                {isSectionLoading && filteredEvents.length === 0 && (
                   <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                 )}
                 <VersionSelector
@@ -1064,14 +1164,48 @@ interface VersionSelectorProps {
 }
 
 function VersionSelector({ section, selectedVersion, onVersionChange }: VersionSelectorProps) {
+  // Sync availableVersions with section.versions when section updates
   const [availableVersions, setAvailableVersions] = useState<string[]>(section.versions)
-  const [isLoadingVersions, setIsLoadingVersions] = useState(false)
 
-  // When component mounts or section changes, try to fetch more versions if needed
+  // Update availableVersions when section.versions changes (from parent fetches)
+  // Use a ref to track the last versions to avoid unnecessary updates
+  const lastVersionsRef = useRef<string>('')
   useEffect(() => {
+    const versionsKey = JSON.stringify([...section.versions].sort())
+    if (versionsKey !== lastVersionsRef.current && section.versions.length > availableVersions.length) {
+      lastVersionsRef.current = versionsKey
+      setAvailableVersions(section.versions)
+    }
+  }, [section.versions, availableVersions.length])
+
+  // DISABLED: Version fetching is causing loops. Use versions from parent only.
+  // Just sync with parent versions
+  useEffect(() => {
+    // COMPLETELY DISABLE VERSION FETCHING TO PREVENT LOOPS
+    // Just use the versions we already have from the parent
+    if (availableVersions.length === 0 && section.versions.length > 0) {
+      setAvailableVersions(section.versions)
+    }
+    
+    /* DISABLED CODE - was causing infinite loops
+    // Reset fetch state if section reference changed
+    if (lastFetchKeyRef.current !== fetchKey) {
+      hasFetchedRef.current = false
+    }
+    
+    // Skip if we've already fetched for this exact section
+    if (hasFetchedRef.current && lastFetchKeyRef.current === fetchKey) {
+      return
+    }
+    
+    // Skip if we already have multiple versions
+    if (availableVersions.length > 1) {
+      hasFetchedRef.current = true
+      lastFetchKeyRef.current = fetchKey
+      return
+    }
+    
     const fetchAvailableVersions = async () => {
-      if (availableVersions.length > 1) return // Already have multiple versions
-      
       setIsLoadingVersions(true)
       try {
         // Query for all versions of this book/chapter/verse
@@ -1094,15 +1228,23 @@ function VersionSelector({ section, selectedVersion, onVersionChange }: VersionS
         if (versions.size > availableVersions.length) {
           setAvailableVersions(Array.from(versions).sort())
         }
+        
+        // Mark as fetched for this section
+        hasFetchedRef.current = true
+        lastFetchKeyRef.current = fetchKey
       } catch (err) {
         logger.warn('Error fetching available versions', { error: err })
+        // Mark as fetched even on error to prevent retry loops
+        hasFetchedRef.current = true
+        lastFetchKeyRef.current = fetchKey
       } finally {
         setIsLoadingVersions(false)
       }
     }
 
     fetchAvailableVersions()
-  }, [section.reference.book, section.reference.chapter, section.reference.verse, availableVersions.length])
+    */
+  }, [section.reference.book, section.reference.chapter, section.reference.verse, section.versions, availableVersions.length])
 
   // Don't show selector if only one version available
   if (availableVersions.length <= 1) {
@@ -1113,7 +1255,6 @@ function VersionSelector({ section, selectedVersion, onVersionChange }: VersionS
     <Select
       value={selectedVersion}
       onValueChange={onVersionChange}
-      disabled={isLoadingVersions}
     >
       <SelectTrigger className="h-6 w-auto px-2 text-xs">
         <SelectValue />

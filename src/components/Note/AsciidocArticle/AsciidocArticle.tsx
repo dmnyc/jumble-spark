@@ -344,6 +344,28 @@ export default function AsciidocArticle({
     // Normalize excessive newlines (reduce 3+ to 2)
     content = content.replace(/\n\s*\n\s*\n+/g, '\n\n')
     
+    // PROTECT WIKILINKS FIRST before any other processing
+    // This prevents AsciiDoc or other processors from converting them to regular links
+    // First, protect bookstr wikilinks by converting them to passthrough format
+    // Don't use [[...]] inside passthrough as AsciiDoc processes it - use a plain marker instead
+    content = content.replace(/\[\[book::([^\]]+)\]\]/g, (_match, bookContent) => {
+      const cleanContent = bookContent.trim()
+      // Use AsciiDoc passthrough without brackets - AsciiDoc processes [[...]] even in passthrough
+      // Use a unique marker format that won't conflict with other content
+      return `+++BOOKSTR_MARKER:${cleanContent}:BOOKSTR_END+++`
+    })
+    
+    // Then protect regular wikilinks by converting them to passthrough format
+    // This prevents AsciiDoc from processing them and prevents URLs inside from being processed
+    content = content.replace(/\[\[([^\]]+)\]\]/g, (_match, linkContent) => {
+      // Skip if this was already processed as a bookstr wikilink (shouldn't happen, but safety check)
+      if (linkContent.startsWith('book::')) {
+        return _match
+      }
+      // Convert to AsciiDoc passthrough format so it's preserved
+      return `+++WIKILINK:${linkContent}+++`
+    })
+    
     // Convert all markdown syntax to AsciiDoc syntax
     content = convertMarkdownToAsciidoc(content)
     
@@ -601,6 +623,17 @@ export default function AsciidocArticle({
         
         let htmlString = typeof html === 'string' ? html : html.toString()
         
+        // Debug: log HTML to check if passthrough markers are preserved
+        if (process.env.NODE_ENV === 'development') {
+          const hasBookstrMarker = htmlString.includes('BOOKSTR_START') || htmlString.includes('BOOKSTR')
+          const hasWikilinkMarker = htmlString.includes('WIKILINK')
+          logger.debug('AsciidocArticle: HTML contains markers', { 
+            hasBookstrMarker, 
+            hasWikilinkMarker,
+            htmlPreview: htmlString.substring(0, 2000)
+          })
+        }
+        
         // Note: Markdown is now converted to AsciiDoc in preprocessing,
         // so post-processing markdown should not be necessary
         
@@ -691,27 +724,44 @@ export default function AsciidocArticle({
         })
         
         // Handle bookstr markers - convert passthrough markers to placeholders
-        // AsciiDoc passthrough +++BOOKSTR_START:...:BOOKSTR_END+++ outputs BOOKSTR_START:...:BOOKSTR_END in HTML
-        // Match the delimited format to extract the exact content (non-greedy to stop at :BOOKSTR_END)
-        htmlString = htmlString.replace(/BOOKSTR_START:(.+?):BOOKSTR_END/g, (_match, bookContent) => {
+        // AsciiDoc passthrough +++BOOKSTR_MARKER:...:BOOKSTR_END+++ outputs BOOKSTR_MARKER:...:BOOKSTR_END in HTML
+        // Match the delimited format to extract the exact content
+        // IMPORTANT: Process this BEFORE any other pattern matching
+        htmlString = htmlString.replace(/BOOKSTR_MARKER:\s*(.+?)\s*:BOOKSTR_END/g, (_match, bookContent) => {
           // Trim whitespace and escape special characters for HTML attributes
           const cleanContent = bookContent.trim()
           const escaped = cleanContent.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+          logger.debug('BookstrContent: Found bookstr marker in HTML', { cleanContent, escaped })
+          return `<span data-bookstr="${escaped}" class="bookstr-placeholder"></span>`
+        })
+        
+        // Also handle if AsciiDoc converted it to WIKILINK: format (fallback)
+        htmlString = htmlString.replace(/WIKILINK:bookstr::([^<>\s]+)/g, (_match, bookContent) => {
+          const cleanContent = bookContent.trim()
+          const escaped = cleanContent.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+          logger.debug('BookstrContent: Found bookstr in WIKILINK format', { cleanContent, escaped })
           return `<span data-bookstr="${escaped}" class="bookstr-placeholder"></span>`
         })
         
         // Handle wikilinks - convert passthrough markers to placeholders
         // AsciiDoc passthrough +++WIKILINK:link|display+++ outputs just WIKILINK:link|display in HTML
         // Match WIKILINK: followed by any characters (including |) until end of text or HTML tag
+        // IMPORTANT: Skip any [[bookstr::...]] patterns that might have been missed
         htmlString = htmlString.replace(/WIKILINK:([^<>\s]+)/g, (_match, linkContent) => {
+          // Skip if this is a bookstr wikilink
+          if (linkContent.includes('bookstr::')) {
+            return _match
+          }
           // Escape special characters for HTML attributes
           const escaped = linkContent.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
           return `<span data-wikilink="${escaped}" class="wikilink-placeholder"></span>`
         })
         
         // Handle YouTube URLs and relay URLs in links
+        // Also check for bookstr content that might have been converted to links
         // Only replace links that need special handling - leave AsciiDoc-generated links alone
         const linkMatches: Array<{ match: string; href: string; linkText: string; index: number }> = []
+        const bookstrLinkMatches: Array<{ match: string; bookContent: string; index: number }> = []
         const linkRegex = /<a[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/g
         let linkMatch
         while ((linkMatch = linkRegex.exec(htmlString)) !== null) {
@@ -720,11 +770,32 @@ export default function AsciidocArticle({
           const linkText = linkMatch[2]
           const index = linkMatch.index
           
+          // Check if this link contains bookstr content (might have been converted by AsciiDoc)
+          if (linkText.includes('bookstr::') || href.includes('bookstr::')) {
+            // Extract bookstr content from link text or href
+            const bookstrMatch = linkText.match(/bookstr::([^\]]+)/) || href.match(/bookstr::([^\]]+)/)
+            if (bookstrMatch) {
+              const bookContent = bookstrMatch[1].trim()
+              bookstrLinkMatches.push({ match, bookContent, index })
+              continue
+            }
+          }
+          
           // Only process links that need special handling (YouTube, relay URLs)
           // Leave regular HTTP/HTTPS links as-is since AsciiDoc already formatted them correctly
           if (isYouTubeUrl(href) || isWebsocketUrl(href)) {
             linkMatches.push({ match, href, linkText, index })
           }
+        }
+        
+        // Replace bookstr links in reverse order to preserve indices
+        for (let i = bookstrLinkMatches.length - 1; i >= 0; i--) {
+          const { match, bookContent, index } = bookstrLinkMatches[i]
+          const escaped = bookContent.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+          logger.debug('BookstrContent: Found bookstr in converted link', { bookContent, escaped })
+          htmlString = htmlString.substring(0, index) + 
+            `<span data-bookstr="${escaped}" class="bookstr-placeholder"></span>` + 
+            htmlString.substring(index + match.length)
         }
         
         // Replace only special links in reverse order to preserve indices
@@ -993,15 +1064,23 @@ export default function AsciidocArticle({
       const parent = element.parentElement
       if (parent) {
         const existingContainer = parent.querySelector(`.bookstr-container[data-bookstr-key="${placeholderKey}"]`)
-        if (existingContainer && reactRootsRef.current.has(existingContainer)) {
-          // Container already exists with a React root, just remove this duplicate placeholder
-          element.remove()
-          return
+        if (existingContainer) {
+          // Container already exists - check if it has a React root
+          if (reactRootsRef.current.has(existingContainer)) {
+            // Already has a React root, just remove this duplicate placeholder
+            element.remove()
+            return
+          } else {
+            // Container exists but no root - this shouldn't happen, but clean it up
+            existingContainer.remove()
+          }
         }
       }
       
       // Skip if already processed (to avoid duplicate processing)
       if (processedPlaceholdersRef.current.has(placeholderKey)) {
+        // If we've processed this but the element still exists, remove it
+        element.remove()
         return
       }
       
@@ -1011,16 +1090,21 @@ export default function AsciidocArticle({
       // Prepend book:: prefix since BookstrContent expects it
       const wikilink = `book::${bookstrContent}`
       
+      logger.debug('BookstrContent: Rendering component', { bookstrContent, wikilink })
+      
       // Create a container for React component
       const container = document.createElement('div')
       container.className = 'bookstr-container'
       container.setAttribute('data-bookstr-key', placeholderKey)
       element.parentNode?.replaceChild(container, element)
       
-      // Use React to render the component
-      const root = createRoot(container)
-      root.render(<BookstrContent wikilink={wikilink} />)
-      reactRootsRef.current.set(container, root)
+      // Use React to render the component - only render once per container
+      // Check if this container already has a root to avoid re-rendering
+      if (!reactRootsRef.current.has(container)) {
+        const root = createRoot(container)
+        root.render(<BookstrContent wikilink={wikilink} />)
+        reactRootsRef.current.set(container, root)
+      }
     })
     
     // Process wikilinks - replace placeholders with React components

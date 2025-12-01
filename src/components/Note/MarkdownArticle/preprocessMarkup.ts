@@ -112,33 +112,29 @@ export function preprocessMarkdownMediaLinks(content: string): string {
 export function preprocessAsciidocMediaLinks(content: string): string {
   let processed = content
   
-  // First, protect bookstr wikilinks by converting them to passthrough format
-  // Process bookstr wikilinks BEFORE regular wikilinks to avoid conflicts
-  processed = processed.replace(/\[\[book::([^\]]+)\]\]/g, (_match, bookContent) => {
-    const cleanContent = bookContent.trim()
-    // Use AsciiDoc passthrough to preserve the marker through AsciiDoc processing
-    // Add a unique delimiter to make it easier to match in HTML
-    return `+++BOOKSTR_START:${cleanContent}:BOOKSTR_END+++`
-  })
+  // Note: Wikilinks are now processed in AsciidocArticle.tsx BEFORE this function is called
+  // to prevent AsciiDoc from converting them to regular links. We skip wikilink processing here.
   
-  // Then protect regular wikilinks by converting them to passthrough format
-  // This prevents AsciiDoc from processing them and prevents URLs inside from being processed
-  const wikilinkRegex = /\[\[([^\]]+)\]\]/g
-  const wikilinkRanges: Array<{ start: number; end: number }> = []
-  const wikilinkMatches = Array.from(processed.matchAll(wikilinkRegex))
-  wikilinkMatches.forEach(match => {
-    if (match.index !== undefined) {
-      wikilinkRanges.push({
-        start: match.index,
-        end: match.index + match[0].length
-      })
-    }
-  })
-  
-  processed = processed.replace(wikilinkRegex, (_match, linkContent) => {
-    // Convert to AsciiDoc passthrough format so it's preserved
-    return `+++WIKILINK:${linkContent}+++`
-  })
+  // Skip any remaining wikilinks (they should already be processed, but safety check)
+  // Check for passthrough markers to avoid double-processing
+  if (processed.includes('BOOKSTR_START:') || processed.includes('WIKILINK:')) {
+    // Wikilinks already processed, skip
+  } else {
+    // Fallback: protect bookstr wikilinks if they weren't processed yet
+    processed = processed.replace(/\[\[book::([^\]]+)\]\]/g, (_match, bookContent) => {
+      const cleanContent = bookContent.trim()
+      return `+++BOOKSTR_MARKER:${cleanContent}:BOOKSTR_END+++`
+    })
+    
+    // Fallback: protect regular wikilinks if they weren't processed yet
+    processed = processed.replace(/\[\[([^\]]+)\]\]/g, (_match, linkContent) => {
+      // Skip if this was already processed as a bookstr wikilink
+      if (linkContent.startsWith('book::')) {
+        return _match
+      }
+      return `+++WIKILINK:${linkContent}+++`
+    })
+  }
   
   // Find all URLs but process them in reverse order to preserve indices
   const allMatches: Array<{ url: string; index: number }> = []
@@ -150,11 +146,12 @@ export function preprocessAsciidocMediaLinks(content: string): string {
     const url = match[0]
     const urlEnd = index + url.length
     
-    // Skip URLs that are inside wikilinks
-    const isInWikilink = wikilinkRanges.some(range => 
-      index >= range.start && urlEnd <= range.end
-    )
-    if (isInWikilink) {
+    // Skip URLs that are inside wikilinks (already processed as passthrough markers)
+    // Check if URL is inside a passthrough marker
+    const beforeUrl = content.substring(Math.max(0, index - 100), index)
+    const afterUrl = content.substring(urlEnd, Math.min(content.length, urlEnd + 100))
+    if (beforeUrl.includes('BOOKSTR_START:') || beforeUrl.includes('WIKILINK:') || 
+        afterUrl.includes(':BOOKSTR_END') || afterUrl.includes('+++')) {
       continue
     }
     
