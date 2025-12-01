@@ -690,6 +690,16 @@ export default function AsciidocArticle({
           return `<div data-citation="${escapedId}" data-citation-type="${citationType}" class="citation-placeholder"></div>`
         })
         
+        // Handle bookstr markers - convert passthrough markers to placeholders
+        // AsciiDoc passthrough +++BOOKSTR_START:...:BOOKSTR_END+++ outputs BOOKSTR_START:...:BOOKSTR_END in HTML
+        // Match the delimited format to extract the exact content (non-greedy to stop at :BOOKSTR_END)
+        htmlString = htmlString.replace(/BOOKSTR_START:(.+?):BOOKSTR_END/g, (_match, bookContent) => {
+          // Trim whitespace and escape special characters for HTML attributes
+          const cleanContent = bookContent.trim()
+          const escaped = cleanContent.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+          return `<span data-bookstr="${escaped}" class="bookstr-placeholder"></span>`
+        })
+        
         // Handle wikilinks - convert passthrough markers to placeholders
         // AsciiDoc passthrough +++WIKILINK:link|display+++ outputs just WIKILINK:link|display in HTML
         // Match WIKILINK: followed by any characters (including |) until end of text or HTML tag
@@ -799,16 +809,34 @@ export default function AsciidocArticle({
   
   // Store React roots for cleanup
   const reactRootsRef = useRef<Map<Element, Root>>(new Map())
+  // Track which placeholders have been processed to avoid re-processing
+  const processedPlaceholdersRef = useRef<Set<string>>(new Set())
   
   // Post-process rendered HTML to inject React components for nostr: links and handle hashtags
   useEffect(() => {
     if (!contentRef.current || !parsedHtml || isLoading) return
     
-    // Clean up previous roots
+    // Only clean up roots that are no longer in the DOM
+    const rootsToCleanup: Array<[Element, Root]> = []
     reactRootsRef.current.forEach((root, element) => {
-      root.unmount()
-      reactRootsRef.current.delete(element)
+      if (!element.isConnected) {
+        rootsToCleanup.push([element, root])
+        reactRootsRef.current.delete(element)
+      }
     })
+    
+    // Unmount disconnected roots asynchronously to avoid race conditions
+    if (rootsToCleanup.length > 0) {
+      setTimeout(() => {
+        rootsToCleanup.forEach(([, root]) => {
+          try {
+            root.unmount()
+          } catch (err) {
+            // Ignore errors during cleanup
+          }
+        })
+      }, 0)
+    }
     
     // Process nostr: mentions - replace placeholders with React components (inline)
     const nostrMentions = contentRef.current.querySelectorAll('.nostr-mention-placeholder[data-nostr-mention]')
@@ -951,19 +979,47 @@ export default function AsciidocArticle({
     })
     
     // Process bookstr wikilinks - replace placeholders with React components
+    // Only process elements that are still placeholders (not already converted to containers)
     const bookstrPlaceholders = contentRef.current.querySelectorAll('.bookstr-placeholder[data-bookstr]')
     bookstrPlaceholders.forEach((element) => {
       const bookstrContent = element.getAttribute('data-bookstr')
       if (!bookstrContent) return
       
+      // Create a unique key for this placeholder
+      const placeholderKey = `bookstr-${bookstrContent}`
+      
+      // Check if this placeholder has already been converted to a container
+      // Look for a sibling or nearby container with the same key
+      const parent = element.parentElement
+      if (parent) {
+        const existingContainer = parent.querySelector(`.bookstr-container[data-bookstr-key="${placeholderKey}"]`)
+        if (existingContainer && reactRootsRef.current.has(existingContainer)) {
+          // Container already exists with a React root, just remove this duplicate placeholder
+          element.remove()
+          return
+        }
+      }
+      
+      // Skip if already processed (to avoid duplicate processing)
+      if (processedPlaceholdersRef.current.has(placeholderKey)) {
+        return
+      }
+      
+      // Mark as processed
+      processedPlaceholdersRef.current.add(placeholderKey)
+      
+      // Prepend book:: prefix since BookstrContent expects it
+      const wikilink = `book::${bookstrContent}`
+      
       // Create a container for React component
       const container = document.createElement('div')
       container.className = 'bookstr-container'
+      container.setAttribute('data-bookstr-key', placeholderKey)
       element.parentNode?.replaceChild(container, element)
       
       // Use React to render the component
       const root = createRoot(container)
-      root.render(<BookstrContent wikilink={bookstrContent} />)
+      root.render(<BookstrContent wikilink={wikilink} />)
       reactRootsRef.current.set(container, root)
     })
     
@@ -1094,14 +1150,29 @@ export default function AsciidocArticle({
       }
     })
     
-    // Cleanup function
-    return () => {
-      reactRootsRef.current.forEach((root) => {
-        root.unmount()
-      })
-      reactRootsRef.current.clear()
-    }
+    // No cleanup needed here - we only clean up disconnected roots above
+    // Full cleanup happens on component unmount
   }, [parsedHtml, isLoading, navigateToHashtag, navigateToRelay])
+  
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      const rootsToCleanup = Array.from(reactRootsRef.current.values())
+      reactRootsRef.current.clear()
+      processedPlaceholdersRef.current.clear()
+      
+      // Unmount asynchronously
+      setTimeout(() => {
+        rootsToCleanup.forEach((root) => {
+          try {
+            root.unmount()
+          } catch (err) {
+            // Ignore errors during cleanup
+          }
+        })
+      }, 0)
+    }
+  }, [])
   
   // Initialize syntax highlighting
   useEffect(() => {

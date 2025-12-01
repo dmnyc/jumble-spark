@@ -112,11 +112,20 @@ export function preprocessMarkdownMediaLinks(content: string): string {
 export function preprocessAsciidocMediaLinks(content: string): string {
   let processed = content
   
-  // First, protect wikilinks by converting them to passthrough format
+  // First, protect bookstr wikilinks by converting them to passthrough format
+  // Process bookstr wikilinks BEFORE regular wikilinks to avoid conflicts
+  processed = processed.replace(/\[\[book::([^\]]+)\]\]/g, (_match, bookContent) => {
+    const cleanContent = bookContent.trim()
+    // Use AsciiDoc passthrough to preserve the marker through AsciiDoc processing
+    // Add a unique delimiter to make it easier to match in HTML
+    return `+++BOOKSTR_START:${cleanContent}:BOOKSTR_END+++`
+  })
+  
+  // Then protect regular wikilinks by converting them to passthrough format
   // This prevents AsciiDoc from processing them and prevents URLs inside from being processed
   const wikilinkRegex = /\[\[([^\]]+)\]\]/g
   const wikilinkRanges: Array<{ start: number; end: number }> = []
-  const wikilinkMatches = Array.from(content.matchAll(wikilinkRegex))
+  const wikilinkMatches = Array.from(processed.matchAll(wikilinkRegex))
   wikilinkMatches.forEach(match => {
     if (match.index !== undefined) {
       wikilinkRanges.push({

@@ -59,7 +59,7 @@ function buildBibleGatewayUrl(reference: BookReference, version?: string): strin
 
 export function BookstrContent({ wikilink, className }: BookstrContentProps) {
   const [sections, setSections] = useState<BookSection[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false) // Start as false, only set to true when actually fetching
   const [error, setError] = useState<string | null>(null)
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set())
   const [selectedVersions, setSelectedVersions] = useState<Map<number, string>>(new Map())
@@ -110,10 +110,16 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
     }
   }, [wikilink])
 
+  // Track if we've already fetched to prevent infinite loops
+  const hasFetchedRef = useRef<string | null>(null)
+  const isFetchingRef = useRef<boolean>(false)
+  
   // Fetch events for each reference
   useEffect(() => {
     // Early return if parsed is not ready
     if (!parsed) {
+      setIsLoading(false)
+      setError('Failed to parse bookstr wikilink')
       return
     }
     
@@ -122,6 +128,56 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
       setError('Invalid bookstr reference')
       return
     }
+
+    // Create a unique key for this fetch based on the parsed references
+    const fetchKey = JSON.stringify(parsed.references.map(r => ({
+      book: r.book,
+      chapter: r.chapter,
+      verse: r.verse,
+      version: r.version
+    })))
+    
+    // Prevent re-fetching if we've already fetched for this exact set of references
+    if (hasFetchedRef.current === fetchKey) {
+      // If we already have sections, don't fetch again
+      if (sections.length > 0) {
+        // Ensure loading is false if we have sections
+        setIsLoading(false)
+        return
+      }
+      // If we're currently fetching, don't start another fetch
+      // But ensure we have placeholder sections to show
+      if (isFetchingRef.current) {
+        // If we don't have sections yet, create placeholders
+        if (sections.length === 0) {
+          const placeholderSections: BookSection[] = parsed.references.map(ref => ({
+            reference: ref,
+            events: [],
+            versions: [],
+            originalVerses: ref.verse,
+            originalChapter: ref.chapter
+          }))
+          setSections(placeholderSections)
+          setIsLoading(false)
+        }
+        return
+      }
+      // If we've fetched before but have no sections (component was re-mounted),
+      // create placeholders and don't fetch again
+      const placeholderSections: BookSection[] = parsed.references.map(ref => ({
+        reference: ref,
+        events: [],
+        versions: [],
+        originalVerses: ref.verse,
+        originalChapter: ref.chapter
+      }))
+      setSections(placeholderSections)
+      setIsLoading(false)
+      return
+    }
+    
+    hasFetchedRef.current = fetchKey
+    isFetchingRef.current = true
 
     let isCancelled = false
 
@@ -148,7 +204,8 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
           originalChapter: ref.chapter
         }))
         setSections(placeholderSections)
-        setIsLoading(false) // Show placeholders immediately
+        // Show placeholders immediately - set loading to false BEFORE async operations
+        setIsLoading(false)
         
         const newSections: BookSection[] = []
         
@@ -537,6 +594,7 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
         if (!isCancelled) {
           setIsLoading(false)
         }
+        isFetchingRef.current = false
       }
     }
 
@@ -544,9 +602,9 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
     
     return () => {
       isCancelled = true
+      isFetchingRef.current = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wikilink]) // Only depend on wikilink - parsed is derived from it via useMemo
+  }, [parsed]) // Depend on parsed directly - it's memoized and won't change unless wikilink meaningfully changes
 
   // Measure card heights - measure BEFORE applying collapse
   useEffect(() => {
@@ -611,11 +669,23 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
     return () => clearTimeout(timeoutId)
   }, [sections, collapsedCards])
 
-  if (isLoading) {
+  // Show loading spinner only if we're actively loading AND have no sections
+  // Once we have sections (even empty placeholders), show them instead
+  if (isLoading && sections.length === 0) {
     return (
       <span className={cn('inline-flex items-center gap-1', className)}>
         <span>{wikilink}</span>
         <Loader2 className="h-3 w-3 animate-spin" />
+      </span>
+    )
+  }
+  
+  // If we have no sections and no error, show the wikilink as plain text
+  // This handles the case where parsing failed or no data is available
+  if (sections.length === 0 && !error && !isLoading) {
+    return (
+      <span className={cn('inline-flex items-center gap-1', className)}>
+        <span>{wikilink}</span>
       </span>
     )
   }
