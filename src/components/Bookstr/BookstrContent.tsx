@@ -3,8 +3,7 @@ import { Event } from 'nostr-tools'
 import { parseBookWikilink, extractBookMetadata, BookReference } from '@/lib/bookstr-parser'
 import client from '@/services/client.service'
 import { ExtendedKind } from '@/constants'
-import { Loader2, AlertCircle, ExternalLink } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Loader2, AlertCircle } from 'lucide-react'
 import {
   Select,
   SelectContent,
