@@ -9,22 +9,27 @@ class WebService {
     async (urls) => {
       return await Promise.all(
         urls.map(async (url) => {
-          logger.info('[WebService] Starting OG metadata fetch', { url, proxyServer: import.meta.env.VITE_PROXY_SERVER })
-          
           // Check if we should use proxy server to avoid CORS issues
           // Uses the same proxy as wikistr (configured via VITE_PROXY_SERVER build arg)
           // Since jumble and wikistr run on the same server, they share the same proxy endpoint
+          // Default to relative path /sites/ if VITE_PROXY_SERVER is not set (like wikistr does)
           const proxyServer = import.meta.env.VITE_PROXY_SERVER
+          const proxyBase = proxyServer?.trim() || '/sites/'
           const isProxyUrl = url.includes('/sites/') || url.includes('/sites/?url=')
           
-          // If proxy is configured and URL isn't already proxied, use proxy
-          // The proxy server expects the URL as a query parameter: /sites/?url=https://example.com
+          // Build proxy URL - handle both full URLs and relative paths
           let fetchUrl = url
-          if (proxyServer && !isProxyUrl) {
-            fetchUrl = `${proxyServer}/sites/?url=${encodeURIComponent(url)}`
-            logger.info('[WebService] Using proxy for OG fetch', { originalUrl: url, proxyUrl: fetchUrl })
-          } else if (!proxyServer) {
-            logger.warn('[WebService] No proxy server configured - VITE_PROXY_SERVER is undefined! Attempting direct fetch (will likely fail due to CORS)', { url })
+          if (!isProxyUrl) {
+            if (proxyBase.startsWith('http://') || proxyBase.startsWith('https://')) {
+              // Full URL - ensure it ends with / for query param usage
+              const proxyUrl = proxyBase.endsWith('/') ? proxyBase : `${proxyBase}/`
+              fetchUrl = `${proxyUrl}sites/?url=${encodeURIComponent(url)}`
+            } else {
+              // Relative path - ensure it ends with / for query param usage
+              const basePath = proxyBase.endsWith('/') ? proxyBase : (proxyBase || '/sites/')
+              fetchUrl = `${basePath}?url=${encodeURIComponent(url)}`
+            }
+            logger.info('[WebService] Using proxy for OG fetch', { originalUrl: url, proxyUrl: fetchUrl, proxyBase })
           } else {
             logger.info('[WebService] URL already proxied, using as-is', { url, fetchUrl })
           }
@@ -32,8 +37,10 @@ class WebService {
           try {
             
             // Add timeout and better error handling
+            // Use 35 second timeout (proxy has 30s, add buffer for network latency)
+            // This matches wikistr's timeout and allows Puppeteer to execute JavaScript
             const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout for proxy
+            const timeoutId = setTimeout(() => controller.abort(), 35000) // 35 second timeout for proxy
             
             // Fetch with appropriate headers
             // Note: credentials: 'omit' prevents sending cookies, which avoids SameSite warnings
@@ -105,8 +112,29 @@ class WebService {
             const description =
               doc.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
               (doc.querySelector('meta[name="description"]') as HTMLMetaElement | null)?.content
-            const image = (doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)
+            let image = (doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)
               ?.content
+
+            // Convert relative image URLs to absolute URLs by prepending the domain
+            if (image) {
+              try {
+                const urlObj = new URL(url)
+                // Check if image is a relative URL (starts with / or doesn't have a protocol)
+                if (image.startsWith('/')) {
+                  // Absolute path on same domain
+                  image = `${urlObj.protocol}//${urlObj.host}${image}`
+                } else if (!image.match(/^https?:\/\//)) {
+                  // Relative path (e.g., "images/og.jpg")
+                  // Resolve relative to the URL's path
+                  const basePath = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1)
+                  image = `${urlObj.protocol}//${urlObj.host}${basePath}${image}`
+                }
+                logger.info('[WebService] Converted relative image URL to absolute', { originalImage: (doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)?.content, absoluteImage: image })
+              } catch (error) {
+                logger.warn('[WebService] Failed to convert relative image URL', { image, url, error })
+                // Keep original image URL if conversion fails
+              }
+            }
 
             logger.info('[WebService] Extracted OG metadata', { url, title: title?.substring(0, 100), description: description?.substring(0, 100), hasImage: !!image })
 

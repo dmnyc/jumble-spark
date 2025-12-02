@@ -15,6 +15,7 @@ import {
 import { cn } from '@/lib/utils'
 import logger from '@/lib/logger'
 import { contentParserService } from '@/services/content-parser.service'
+import WebPreview from '@/components/WebPreview'
 
 interface BookstrContentProps {
   wikilink: string
@@ -942,40 +943,29 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
                   }}
                 />
               </div>
-              {(() => {
-                // Get bookType from parsed wikilink (defaults to 'bible')
-                const bookType = parsed?.bookType || 'bible'
-                
-                // Only show external link for bible, torah, or quran collections
-                // Other collections (secular books) don't have external links
-                if (!['bible', 'torah', 'quran'].includes(bookType)) {
-                  return null
-                }
-                
-                const externalUrl = buildExternalUrl(section.reference, bookType, selectedVersion)
-                const serviceName = bookType === 'torah' ? 'Sefaria' : bookType === 'quran' ? 'quran.com' : 'Bible Gateway'
-                
-                if (!externalUrl) return null
-                
-                return (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 shrink-0"
-                    asChild
-                  >
-                    <a
-                      href={externalUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title={`View on ${serviceName}`}
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </Button>
-                )
-              })()}
             </div>
+
+            {/* OG Preview Card for bible/torah/quran external URLs */}
+            {(() => {
+              // Get bookType from parsed wikilink (defaults to 'bible')
+              const bookType = parsed?.bookType || 'bible'
+              
+              // Only show external link for bible, torah, or quran collections
+              // Other collections (secular books) don't have external links
+              if (!['bible', 'torah', 'quran'].includes(bookType)) {
+                return null
+              }
+              
+              const externalUrl = buildExternalUrl(section.reference, bookType, selectedVersion)
+              
+              if (!externalUrl) return null
+              
+              return (
+                <div className="mb-3">
+                  <WebPreview url={externalUrl} className="w-full" />
+                </div>
+              )
+            })()}
 
             {/* Verses - render all verses together, including ranges */}
             {filteredEvents.length > 0 && (
