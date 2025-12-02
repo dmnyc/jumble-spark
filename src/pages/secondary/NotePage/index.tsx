@@ -295,30 +295,64 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: string;
       ogDescription = ogDescription.replace('Event', `${eventTypeName} (kind ${finalEvent.kind})`)
     }
 
-    const image = eventMetadata?.image || (authorProfile?.avatar ? `https://jumble.imwald.eu/api/avatar/${authorProfile.pubkey}` : 'https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true')
+    // Prioritize event image, then author avatar, then default
+    // Use a beautiful green-themed image with profile data
+    let image = eventMetadata?.image
+    if (!image && authorProfile?.avatar) {
+      image = `https://jumble.imwald.eu/api/avatar/${authorProfile.pubkey}`
+    }
+    if (!image) {
+      // Use default OG image with green forest theme
+      image = 'https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true'
+    }
+    
     const tags = eventMetadata?.tags || []
     
     // For articles, use article type; for other events, use website type
     const isArticle = articleMetadata !== null
     const ogType = isArticle ? 'article' : 'website'
 
-    updateMetaTag('og:title', `${eventTitle} - Jumble Imwald Edition`)
+    // Enhanced title with profile info
+    const ogTitle = authorName 
+      ? `${eventTitle} by @${authorName} - Jumble Imwald Edition 🌲`
+      : `${eventTitle} - Jumble Imwald Edition 🌲`
+
+    updateMetaTag('og:title', ogTitle)
     updateMetaTag('og:description', ogDescription)
     updateMetaTag('og:image', image)
+    updateMetaTag('og:image:width', '1200')
+    updateMetaTag('og:image:height', '630')
+    updateMetaTag('og:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on Jumble Imwald`)
     updateMetaTag('og:type', ogType)
     updateMetaTag('og:url', window.location.href)
     updateMetaTag('og:site_name', 'Jumble - Imwald Edition 🌲')
     
+    // Add profile data - always include if available
+    if (authorProfile) {
+      if (authorProfile.username) {
+        updateMetaTag('profile:username', authorProfile.username)
+      }
+      if (authorProfile.nip05) {
+        updateMetaTag('profile:username', authorProfile.nip05)
+      }
+    }
+    
     // Add author for articles
     if (isArticle && authorName) {
       updateMetaTag('article:author', authorName)
+      if (authorProfile?.nip05) {
+        // Add author URL if NIP-05 is available
+        const authorUrl = `https://jumble.imwald.eu/profiles/${finalEvent.pubkey}`
+        updateMetaTag('article:author:url', authorUrl)
+      }
     }
     
     // Twitter card meta tags
     updateMetaTag('twitter:card', 'summary_large_image')
-    updateMetaTag('twitter:title', `${eventTitle} - Jumble Imwald Edition`)
+    updateMetaTag('twitter:title', ogTitle)
     updateMetaTag('twitter:description', ogDescription.length > 200 ? ogDescription.substring(0, 197) + '...' : ogDescription)
     updateMetaTag('twitter:image', image)
+    updateMetaTag('twitter:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on Jumble Imwald`)
     
     // Remove old article:tag if it exists
     const oldArticleTagMeta = document.querySelector('meta[property="article:tag"]')
