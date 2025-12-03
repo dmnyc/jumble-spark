@@ -2,7 +2,7 @@ import { useFetchWebMetadata } from '@/hooks/useFetchWebMetadata'
 import { useFetchEvent } from '@/hooks/useFetchEvent'
 import { useFetchProfile } from '@/hooks/useFetchProfile'
 import { ExtendedKind } from '@/constants'
-import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
+import { getLongFormArticleMetadataFromEvent, dTagToTitleCase } from '@/lib/event-metadata'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
@@ -57,6 +57,75 @@ function getEventTypeName(kind: number): string {
     default:
       return `Event (kind ${kind})`
   }
+}
+
+// Helper function to extract first header from content
+function extractFirstHeader(content: string): string | null {
+  if (!content) return null
+  
+  // Try AsciiDoc header (= or ==)
+  const asciidocHeaderMatch = content.match(/^=+\s+(.+)$/m)
+  if (asciidocHeaderMatch) {
+    return asciidocHeaderMatch[1].trim()
+  }
+  
+  // Try Markdown header (#)
+  const markdownHeaderMatch = content.match(/^#+\s+(.+)$/m)
+  if (markdownHeaderMatch) {
+    return markdownHeaderMatch[1].trim()
+  }
+  
+  // Try setext header (underlined with === or ---)
+  const setextMatch = content.match(/^(.+)\n[=]+$/m) || content.match(/^(.+)\n[-]+$/m)
+  if (setextMatch) {
+    return setextMatch[1].trim()
+  }
+  
+  return null
+}
+
+// Helper function to extract first line of content
+function extractFirstLine(content: string): string | null {
+  if (!content) return null
+  
+  const firstLine = content.split('\n')[0]?.trim()
+  return firstLine || null
+}
+
+// Helper function to get title with fallbacks
+function getTitleWithFallbacks(event: Event | null, eventMetadata: { title?: string; summary?: string } | null): string | null {
+  if (!event) return null
+  
+  // Get d-tag for comparison
+  const dTag = event.tags.find(tag => tag[0] === 'd')?.[1]
+  
+  // 1. Title tag - but if it matches the d-tag, convert to title case
+  if (eventMetadata?.title) {
+    // If title exactly matches d-tag (case-insensitive), convert to title case
+    if (dTag && eventMetadata.title.toLowerCase() === dTag.toLowerCase()) {
+      return dTagToTitleCase(dTag)
+    }
+    return eventMetadata.title
+  }
+  
+  // 2. d-tag in title case
+  if (dTag) {
+    return dTagToTitleCase(dTag)
+  }
+  
+  // 3. First header from content
+  const firstHeader = extractFirstHeader(event.content)
+  if (firstHeader) {
+    return firstHeader
+  }
+  
+  // 4. First line of content
+  const firstLine = extractFirstLine(event.content)
+  if (firstLine) {
+    return firstLine
+  }
+  
+  return null
 }
 
 export default function WebPreview({ url, className }: { url: string; className?: string }) {
@@ -402,7 +471,6 @@ export default function WebPreview({ url, className }: { url: string; className?
     // Enhanced card for event URLs (always show if nostr identifier detected, even while loading)
     if (nostrType === 'naddr' || nostrType === 'nevent' || nostrType === 'note') {
       const eventTypeName = fetchedEvent ? getEventTypeName(fetchedEvent.kind) : null
-      const eventTitle = eventMetadata?.title || eventTypeName
       const eventSummary = eventMetadata?.summary || description
 
       // Fallback to OG image from website if event doesn't have an image
@@ -425,8 +493,12 @@ export default function WebPreview({ url, className }: { url: string; className?
 
       // Determine which article component to use based on event kind
       const isAsciidocEvent = fetchedEvent && (fetchedEvent.kind === ExtendedKind.WIKI_ARTICLE || fetchedEvent.kind === ExtendedKind.PUBLICATION_CONTENT)
-      const isMarkdownEvent = fetchedEvent && (fetchedEvent.kind === kinds.LongFormArticle || fetchedEvent.kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN)
-      const showContentPreview = previewEvent && previewEvent.content && (isAsciidocEvent || isMarkdownEvent)
+      const isMarkdownEvent = fetchedEvent && (fetchedEvent.kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN)
+      // Only show content preview if summary exists (exclude LongFormArticle - they should show summary instead)
+      const showContentPreview = eventSummary && previewEvent && previewEvent.content && (isAsciidocEvent || isMarkdownEvent)
+      
+      // Get title with fallbacks
+      const eventTitle = getTitleWithFallbacks(fetchedEvent || null, eventMetadata) || eventTypeName
 
       // Render all images on left side, crop wider ones
       return (
@@ -494,7 +566,7 @@ export default function WebPreview({ url, className }: { url: string; className?
                   </div>
                 )}
                 {eventSummary && !showContentPreview && (
-                  <div className="text-xs text-muted-foreground line-clamp-2 mb-1">{eventSummary}</div>
+                  <div className="text-base text-muted-foreground line-clamp-2 mb-1">{eventSummary}</div>
                 )}
                 {showContentPreview && (
                   <div className="my-2 text-sm line-clamp-6 overflow-hidden [&_img]:hidden [&_h1]:hidden [&_h2]:hidden">
@@ -576,7 +648,7 @@ export default function WebPreview({ url, className }: { url: string; className?
               </a>
             </div>
             {fetchedProfile?.about && (
-              <div className="text-xs text-muted-foreground line-clamp-2 mb-1 mt-1">{fetchedProfile.about}</div>
+              <div className="text-base text-muted-foreground line-clamp-2 mb-1 mt-1">{fetchedProfile.about}</div>
             )}
             <hr className="mt-4 mb-2 border-t border-border" />
             <a

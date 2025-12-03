@@ -26,7 +26,7 @@ export default function LiveEvent({ event, className }: { event: Event; classNam
   const titleComponent = <div className="text-xl font-semibold line-clamp-1">{metadata.title}</div>
 
   const summaryComponent = metadata.summary && (
-    <div className="text-sm text-muted-foreground line-clamp-4">{metadata.summary}</div>
+    <div className="text-base text-muted-foreground line-clamp-4">{metadata.summary}</div>
   )
 
   const tagsComponent = metadata.tags.length > 0 && (

@@ -221,6 +221,14 @@ export function getZapInfoFromEvent(receiptEvent: Event) {
   }
 }
 
+// Helper function to convert d-tag to title case
+export function dTagToTitleCase(dTag: string): string {
+  return dTag
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ')
+}
+
 export function getLongFormArticleMetadataFromEvent(event: Event) {
   let title: string | undefined
   let summary: string | undefined
@@ -240,7 +248,10 @@ export function getLongFormArticleMetadataFromEvent(event: Event) {
   })
 
   if (!title) {
-    title = event.tags.find(tagNameEquals('d'))?.[1]
+    const dTag = event.tags.find(tagNameEquals('d'))?.[1]
+    if (dTag) {
+      title = dTagToTitleCase(dTag)
+    }
   }
 
   return { title, summary, image, tags: Array.from(tags) }
@@ -268,7 +279,12 @@ export function getLiveEventMetadataFromEvent(event: Event) {
   })
 
   if (!title) {
-    title = event.tags.find(tagNameEquals('d'))?.[1] ?? 'no title'
+    const dTag = event.tags.find(tagNameEquals('d'))?.[1]
+    if (dTag) {
+      title = dTagToTitleCase(dTag)
+    } else {
+      title = 'no title'
+    }
   }
 
   return { title, summary, image, status, tags: Array.from(tags) }

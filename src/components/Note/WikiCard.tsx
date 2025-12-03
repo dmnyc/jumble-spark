@@ -44,7 +44,7 @@ export default function WikiCard({
   )
 
   const summaryComponent = metadata.summary && (
-    <div className="text-sm text-muted-foreground line-clamp-4">{metadata.summary}</div>
+    <div className="text-base text-muted-foreground line-clamp-4">{metadata.summary}</div>
   )
 
   if (isSmallScreen) {

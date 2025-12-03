@@ -14,6 +14,7 @@ import indexedDb from '@/services/indexed-db.service'
 import { isReplaceableEvent } from '@/lib/event'
 import { useSecondaryPage } from '@/PageManager'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
+import { dTagToTitleCase } from '@/lib/event-metadata'
 
 interface PublicationReference {
   coordinate?: string
@@ -77,9 +78,12 @@ export default function PublicationIndex({
       }
     }
     
-    // Fallback title from d-tag if no title
+    // Fallback title from d-tag if no title (convert to title case)
     if (!meta.title) {
-      meta.title = event.tags.find(tag => tag[0] === 'd')?.[1]
+      const dTag = event.tags.find(tag => tag[0] === 'd')?.[1]
+      if (dTag) {
+        meta.title = dTagToTitleCase(dTag)
+      }
     }
     
     return meta

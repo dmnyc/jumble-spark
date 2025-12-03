@@ -60,10 +60,13 @@ function convertMarkdownToAsciidoc(content: string): string {
   // Convert nostr addresses directly to AsciiDoc link format
   // Do this early so they're protected from other markdown conversions
   // naddr addresses can be 200+ characters, so we use + instead of specific length
-  asciidoc = asciidoc.replace(/nostr:(npub1[a-z0-9]{58,}|nprofile1[a-z0-9]+|note1[a-z0-9]{58,}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)/g, (_match, bech32Id) => {
+  // Also handle optional [] suffix (empty link text in AsciiDoc)
+  asciidoc = asciidoc.replace(/nostr:(npub1[a-z0-9]{58,}|nprofile1[a-z0-9]+|note1[a-z0-9]{58,}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)(\[\])?/g, (_match, bech32Id, emptyBrackets) => {
     // Convert directly to AsciiDoc link format
     // This will be processed later in HTML post-processing to render as React components
-    return `link:nostr:${bech32Id}[${bech32Id}]`
+    // If [] suffix is present, use empty link text, otherwise use the bech32Id
+    const linkText = emptyBrackets ? '' : bech32Id
+    return `link:nostr:${bech32Id}[${linkText}]`
   })
   
   // Protect code blocks - we'll process them separately
@@ -660,30 +663,36 @@ export default function AsciidocArticle({
         
         // Also handle nostr: addresses in plain text nodes (not already in <a> tags)
         // Process text nodes by replacing content between > and <
-        // Use more flexible regex that matches any valid bech32 address
-        htmlString = htmlString.replace(/>([^<]*nostr:((?:npub1|nprofile1|note1|nevent1|naddr1)[a-z0-9]+)[^<]*)</g, (_match, textContent) => {
-          // Extract nostr addresses from the text content - use the same flexible pattern
-          const nostrRegex = /nostr:((?:npub1|nprofile1|note1|nevent1|naddr1)[a-z0-9]+)/g
+        // Use more flexible regex that matches any valid bech32 address (naddr can be 200+ chars)
+        // Match addresses with optional [] suffix
+        htmlString = htmlString.replace(/>([^<]*nostr:((?:npub1|nprofile1|note1|nevent1|naddr1)[a-z0-9]{20,})(\[\])?[^<]*)</g, (_match, textContent) => {
+          // Extract nostr addresses from the text content - use flexible pattern that handles long addresses
+          // npub and note are typically 58 chars, but naddr can be 200+ chars
+          const nostrRegex = /nostr:((?:npub1[a-z0-9]{58,}|nprofile1[a-z0-9]+|note1[a-z0-9]{58,}|nevent1[a-z0-9]+|naddr1[a-z0-9]+))(\[\])?/g
           let processedText = textContent
           const replacements: Array<{ start: number; end: number; replacement: string }> = []
           
           let m
           while ((m = nostrRegex.exec(textContent)) !== null) {
             const bech32Id = m[1]
+            const emptyBrackets = m[2] // [] suffix if present
             const start = m.index
             const end = m.index + m[0].length
+            
+            // Escape bech32Id for HTML attributes
+            const escapedId = bech32Id.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
             
             if (bech32Id.startsWith('npub') || bech32Id.startsWith('nprofile')) {
               replacements.push({
                 start,
                 end,
-                replacement: `<span data-nostr-mention="${bech32Id}" class="nostr-mention-placeholder"></span>`
+                replacement: `<span data-nostr-mention="${escapedId}" class="nostr-mention-placeholder"></span>`
               })
             } else if (bech32Id.startsWith('note') || bech32Id.startsWith('nevent') || bech32Id.startsWith('naddr')) {
               replacements.push({
                 start,
                 end,
-                replacement: `<div data-nostr-note="${bech32Id}" class="nostr-note-placeholder"></div>`
+                replacement: `<div data-nostr-note="${escapedId}" class="nostr-note-placeholder"></div>`
               })
             }
           }
@@ -695,6 +704,13 @@ export default function AsciidocArticle({
           }
           
           return `>${processedText}<`
+        })
+        
+        // Fallback: ensure any remaining nostr: addresses are shown as plain text
+        // This catches any that weren't converted to placeholders
+        htmlString = htmlString.replace(/([^>])nostr:((?:npub1|nprofile1|note1|nevent1|naddr1)[a-z0-9]{20,})(\[\])?/g, (_match, prefix, bech32Id, emptyBrackets) => {
+          // Show as plain text if not already in a tag or placeholder
+          return `${prefix}nostr:${bech32Id}${emptyBrackets || ''}`
         })
         
         // Handle LaTeX math expressions from AsciiDoc stem processor
@@ -915,6 +931,9 @@ export default function AsciidocArticle({
       const bech32Id = element.getAttribute('data-nostr-mention')
       if (!bech32Id) {
         logger.warn('Nostr mention placeholder found but no bech32Id attribute')
+        // Fallback: show as plain text
+        const textNode = document.createTextNode(`nostr:${element.textContent || ''}`)
+        element.parentNode?.replaceChild(textNode, element)
         return
       }
       
@@ -924,14 +943,23 @@ export default function AsciidocArticle({
       const parent = element.parentNode
       if (!parent) {
         logger.warn('Nostr mention placeholder has no parent node')
+        // Fallback: show as plain text
+        const textNode = document.createTextNode(`nostr:${bech32Id}`)
         return
       }
       parent.replaceChild(container, element)
       
-      // Use React to render the component
-      const root = createRoot(container)
-      root.render(<EmbeddedMention userId={bech32Id} />)
-      reactRootsRef.current.set(container, root)
+      // Use React to render the component, with error handling
+      try {
+        const root = createRoot(container)
+        root.render(<EmbeddedMention userId={bech32Id} />)
+        reactRootsRef.current.set(container, root)
+      } catch (error) {
+        logger.error('Failed to render nostr mention', { bech32Id, error })
+        // Fallback: show as plain text
+        const textNode = document.createTextNode(`nostr:${bech32Id}`)
+        parent.replaceChild(textNode, container)
+      }
     })
     
     // Process nostr: notes - replace placeholders with React components
@@ -940,6 +968,9 @@ export default function AsciidocArticle({
       const bech32Id = element.getAttribute('data-nostr-note')
       if (!bech32Id) {
         logger.warn('Nostr note placeholder found but no bech32Id attribute')
+        // Fallback: show as plain text
+        const textNode = document.createTextNode(`nostr:${element.textContent || ''}`)
+        element.parentNode?.replaceChild(textNode, element)
         return
       }
       
@@ -949,14 +980,23 @@ export default function AsciidocArticle({
       const parent = element.parentNode
       if (!parent) {
         logger.warn('Nostr note placeholder has no parent node')
+        // Fallback: show as plain text
+        const textNode = document.createTextNode(`nostr:${bech32Id}`)
         return
       }
       parent.replaceChild(container, element)
       
-      // Use React to render the component
-      const root = createRoot(container)
-      root.render(<EmbeddedNote noteId={bech32Id} />)
-      reactRootsRef.current.set(container, root)
+      // Use React to render the component, with error handling
+      try {
+        const root = createRoot(container)
+        root.render(<EmbeddedNote noteId={bech32Id} />)
+        reactRootsRef.current.set(container, root)
+      } catch (error) {
+        logger.error('Failed to render nostr note', { bech32Id, error })
+        // Fallback: show as plain text
+        const textNode = document.createTextNode(`nostr:${bech32Id}`)
+        parent.replaceChild(textNode, container)
+      }
     })
     
     // Process citations - replace placeholders with React components
@@ -1063,7 +1103,20 @@ export default function AsciidocArticle({
       // Look for a sibling or nearby container with the same key
       const parent = element.parentElement
       if (parent) {
-        const existingContainer = parent.querySelector(`.bookstr-container[data-bookstr-key="${placeholderKey}"]`)
+        // Escape the attribute value for use in CSS selector
+        // If the value contains double quotes, use single quotes for the selector
+        // Otherwise escape double quotes and backslashes
+        let selector: string
+        if (placeholderKey.includes('"')) {
+          // Use single quotes and escape any single quotes in the value
+          const escapedValue = placeholderKey.replace(/'/g, "\\'")
+          selector = `.bookstr-container[data-bookstr-key='${escapedValue}']`
+        } else {
+          // Use double quotes and escape any double quotes and backslashes
+          const escapedValue = placeholderKey.replace(/["\\]/g, '\\$&')
+          selector = `.bookstr-container[data-bookstr-key="${escapedValue}"]`
+        }
+        const existingContainer = parent.querySelector(selector)
         if (existingContainer) {
           // Container already exists - check if it has a React root
           if (reactRootsRef.current.has(existingContainer)) {
