@@ -780,6 +780,13 @@ function parseMarkdownContent(
         return
       }
       
+      // Skip if the URL is a bookstr URL (contains book%3A%3A or book::)
+      const linkUrl = match[2]
+      const isBookstrUrl = /(?:book%3A%3A|book::)/i.test(linkUrl)
+      if (isBookstrUrl) {
+        return
+      }
+      
       // Check if link is standalone (on its own line, not part of a sentence/list/quote)
       const isStandalone = (() => {
         // Get the line containing this link
@@ -921,6 +928,93 @@ function parseMarkdownContent(
           type: 'relay-url',
           data: { url }
         })
+      }
+    }
+  })
+  
+  // Bookstr URLs: detect markdown links containing bookstr URLs first, then standalone bookstr URLs
+  // This must be detected before regular markdown links to avoid conflicts
+  const markdownLinkWithBookstrRegex = /\[([^\]]+)\]\((https?:\/\/[^\s]*(?:book%3A%3A|book::)([^\/\?\#\&\s]+))\)/gi
+  const markdownBookstrMatches = Array.from(content.matchAll(markdownLinkWithBookstrRegex))
+  markdownBookstrMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const fullUrl = match[2]
+      const searchTermEncoded = match[3]
+      const start = match.index
+      const end = match.index + match[0].length
+      
+      // Only add if not already covered by other patterns and not in block pattern
+      const isInOther = patterns.some(p => 
+        (p.type === 'markdown-link' || p.type === 'markdown-image-link' || p.type === 'markdown-image' || 
+         p.type === 'relay-url' || p.type === 'youtube-url') && 
+        start >= p.index && 
+        start < p.end
+      )
+      
+      if (!isInOther && !isWithinBlockPattern(start, end, blockPatterns)) {
+        try {
+          // Decode the URL-encoded search term
+          const decodedSearchTerm = decodeURIComponent(searchTermEncoded)
+          
+          // Check if it starts with book:: (it should, but handle both cases)
+          let bookstrWikilink = decodedSearchTerm
+          if (!bookstrWikilink.startsWith('book::')) {
+            // If it doesn't start with book::, add it
+            bookstrWikilink = `book::${bookstrWikilink}`
+          }
+          
+          patterns.push({
+            index: start,
+            end: end,
+            type: 'bookstr-url',
+            data: { wikilink: bookstrWikilink.trim(), sourceUrl: fullUrl }
+          })
+        } catch (err) {
+          // If decoding fails, skip this URL (will be handled as regular URL)
+        }
+      }
+    }
+  })
+  
+  // Standalone bookstr URLs (not in markdown links): any URL containing book%3A%3A or book:: pattern
+  const bookstrUrlRegex = /(https?:\/\/[^\s]*(?:book%3A%3A|book::)([^\/\?\#\&\s]+))/gi
+  const bookstrUrlMatches = Array.from(content.matchAll(bookstrUrlRegex))
+  bookstrUrlMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const fullUrl = match[1]
+      const searchTermEncoded = match[2]
+      const start = match.index
+      const end = match.index + match[0].length
+      
+      // Only add if not already covered by other patterns (including markdown links with bookstr URLs) and not in block pattern
+      const isInOther = patterns.some(p => 
+        (p.type === 'markdown-link' || p.type === 'markdown-image-link' || p.type === 'markdown-image' || 
+         p.type === 'relay-url' || p.type === 'youtube-url' || p.type === 'bookstr-url') && 
+        start >= p.index && 
+        start < p.end
+      )
+      
+      if (!isInOther && !isWithinBlockPattern(start, end, blockPatterns)) {
+        try {
+          // Decode the URL-encoded search term
+          const decodedSearchTerm = decodeURIComponent(searchTermEncoded)
+          
+          // Check if it starts with book:: (it should, but handle both cases)
+          let bookstrWikilink = decodedSearchTerm
+          if (!bookstrWikilink.startsWith('book::')) {
+            // If it doesn't start with book::, add it
+            bookstrWikilink = `book::${bookstrWikilink}`
+          }
+          
+          patterns.push({
+            index: start,
+            end: end,
+            type: 'bookstr-url',
+            data: { wikilink: bookstrWikilink.trim(), sourceUrl: fullUrl }
+          })
+        } catch (err) {
+          // If decoding fails, skip this URL (will be handled as regular URL)
+        }
       }
     }
   })
@@ -2023,6 +2117,11 @@ function parseMarkdownContent(
       if (shouldAddSpace) {
         parts.push(<span key={`hashtag-space-${patternIdx}`} className="whitespace-pre"> </span>)
       }
+    } else if (pattern.type === 'bookstr-url') {
+      const { wikilink, sourceUrl } = pattern.data
+      parts.push(
+        <BookstrContent key={`bookstr-url-${patternIdx}`} wikilink={wikilink} sourceUrl={sourceUrl} />
+      )
     } else if (pattern.type === 'wikilink') {
       const linkContent = pattern.data
       

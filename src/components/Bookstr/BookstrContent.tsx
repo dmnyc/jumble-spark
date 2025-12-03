@@ -3,7 +3,7 @@ import { Event } from 'nostr-tools'
 import { parseBookWikilink, extractBookMetadata, BookReference } from '@/lib/bookstr-parser'
 import client from '@/services/client.service'
 import { ExtendedKind } from '@/constants'
-import { Loader2, AlertCircle } from 'lucide-react'
+import { Loader2, AlertCircle, ExternalLink } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -18,6 +18,7 @@ import WebPreview from '@/components/WebPreview'
 
 interface BookstrContentProps {
   wikilink: string
+  sourceUrl?: string
   className?: string
 }
 
@@ -212,7 +213,7 @@ function buildExternalUrl(reference: BookReference, bookType: string, version?: 
   }
 }
 
-export function BookstrContent({ wikilink, className }: BookstrContentProps) {
+export function BookstrContent({ wikilink, sourceUrl, className }: BookstrContentProps) {
   const [sections, setSections] = useState<BookSection[]>([])
   const [isLoading, setIsLoading] = useState(false) // Start as false, only set to true when actually fetching
   const [error, setError] = useState<string | null>(null)
@@ -942,6 +943,19 @@ export function BookstrContent({ wikilink, className }: BookstrContentProps) {
                   }}
                 />
               </div>
+              {/* Source URL link button */}
+              {sourceUrl && (
+                <a
+                  href={sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors shrink-0"
+                  title="View original source"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  <span className="hidden sm:inline">Source</span>
+                </a>
+              )}
             </div>
 
             {/* OG Preview Card for bible/torah/quran external URLs */}

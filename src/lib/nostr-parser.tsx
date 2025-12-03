@@ -24,6 +24,7 @@ export interface ParsedNostrContent {
     wikilink?: string
     displayText?: string
     bookstrWikilink?: string
+    sourceUrl?: string
     images?: TImetaInfo[]
     url?: string
     noteId?: string
@@ -52,7 +53,11 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
   // Regex to match Jumble note URLs: https://jumble.imwald.eu/notes/noteId
   const jumbleNoteRegex = /(https:\/\/jumble\.imwald\.eu\/notes\/([a-zA-Z0-9]+))/g
   
-  // Collect all matches (nostr, URLs, hashtags, wikilinks, and jumble notes) and sort by position
+  // Regex to match bookstr search URLs: any URL containing book%3A%3A or book::
+  // Matches the pattern and captures the search term (everything after book%3A%3A or book:: until /, ?, #, &, or end)
+  const bookstrUrlRegex = /(https?:\/\/[^\s]*(?:book%3A%3A|book::)([^\/\?\#\&\s]+))/gi
+  
+  // Collect all matches (nostr, URLs, hashtags, wikilinks, jumble notes, and bookstr URLs) and sort by position
   const allMatches: Array<{
     type: 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'url' | 'jumble-note'
     match: RegExpExecArray
@@ -63,6 +68,7 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
     wikilink?: string
     displayText?: string
     bookstrWikilink?: string
+    sourceUrl?: string
     noteId?: string
   }> = []
   
@@ -79,10 +85,49 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
     }
   }
   
-  // Find URL matches and categorize them
+  // Find bookstr URL matches first (before regular URL matching to avoid conflicts)
+  // Look for any URL containing book%3A%3A or book:: pattern
+  let bookstrUrlMatch
+  while ((bookstrUrlMatch = bookstrUrlRegex.exec(content)) !== null) {
+    const fullUrl = bookstrUrlMatch[1]
+    const searchTermEncoded = bookstrUrlMatch[2]
+    
+    try {
+      // Decode the URL-encoded search term
+      const decodedSearchTerm = decodeURIComponent(searchTermEncoded)
+      
+      // Check if it starts with book:: (it should, but handle both cases)
+      let bookstrWikilink = decodedSearchTerm
+      if (!bookstrWikilink.startsWith('book::')) {
+        // If it doesn't start with book::, add it
+        bookstrWikilink = `book::${bookstrWikilink}`
+      }
+      
+      allMatches.push({
+        type: 'bookstr-wikilink',
+        match: bookstrUrlMatch,
+        start: bookstrUrlMatch.index,
+        end: bookstrUrlMatch.index + bookstrUrlMatch[0].length,
+        bookstrWikilink: bookstrWikilink.trim(),
+        sourceUrl: fullUrl
+      })
+    } catch (err) {
+      // If decoding fails, treat as regular URL
+      logger.warn('Failed to decode bookstr URL', { url: fullUrl, error: err })
+    }
+  }
+  
+  // Find URL matches and categorize them (skip if already matched as bookstr URL)
   let urlMatch
   while ((urlMatch = urlRegex.exec(content)) !== null) {
     const url = urlMatch[1]
+    
+    // Skip if this URL was already matched as a bookstr URL (check if it contains book%3A%3A or book::)
+    const isBookstrUrl = /(?:book%3A%3A|book::)/i.test(url)
+    if (isBookstrUrl) {
+      continue
+    }
+    
     const cleanedUrl = cleanUrl(url)
     
     // Check if it's an image
@@ -176,7 +221,7 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
   
   let lastIndex = 0
   
-  for (const { type, match, start, end, url, hashtag, wikilink, displayText, bookstrWikilink, noteId } of allMatches) {
+  for (const { type, match, start, end, url, hashtag, wikilink, displayText, bookstrWikilink, sourceUrl, noteId } of allMatches) {
     // Add text before the match
     if (start > lastIndex) {
       const textContent = content.slice(lastIndex, start)
@@ -235,7 +280,8 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
       elements.push({
         type: 'bookstr-wikilink',
         content: match[0],
-        bookstrWikilink: bookstrWikilink
+        bookstrWikilink: bookstrWikilink,
+        sourceUrl: sourceUrl
       })
     } else if (type === 'wikilink' && wikilink) {
       elements.push({
@@ -500,6 +546,7 @@ export function renderNostrContent(parsedContent: ParsedNostrContent, className?
             <BookstrContent
               key={index}
               wikilink={element.bookstrWikilink}
+              sourceUrl={element.sourceUrl}
               className="my-2"
             />
           )
