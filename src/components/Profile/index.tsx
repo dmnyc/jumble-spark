@@ -1,6 +1,7 @@
 import Collapsible from '@/components/Collapsible'
 import FollowButton from '@/components/FollowButton'
 import Nip05 from '@/components/Nip05'
+import Nip05List from '@/components/Nip05List'
 import NpubQrCode from '@/components/NpubQrCode'
 import ProfileAbout from '@/components/ProfileAbout'
 import ProfileBanner from '@/components/ProfileBanner'
@@ -20,9 +21,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ExtendedKind } from '@/constants'
+import { ExtendedKind, BIG_RELAY_URLS } from '@/constants'
 import { useFetchProfile } from '@/hooks'
 import { Event, kinds } from 'nostr-tools'
+import { getPaymentInfoFromEvent } from '@/lib/event-metadata'
 import { toProfileEditor } from '@/lib/link'
 import { generateImageByPubkey } from '@/lib/pubkey'
 import { useSecondaryPage } from '@/PageManager'
@@ -54,6 +56,36 @@ export default function Profile({ id }: { id?: string }) {
   const { push } = useSecondaryPage()
   const { profile, isFetching } = useFetchProfile(id)
   const { pubkey: accountPubkey } = useNostr()
+  const [paymentInfo, setPaymentInfo] = useState<ReturnType<typeof getPaymentInfoFromEvent> | null>(null)
+  
+  // Fetch payment info (kind 10133) for this profile
+  useEffect(() => {
+    if (!profile?.pubkey) {
+      setPaymentInfo(null)
+      return
+    }
+    
+    const fetchPaymentInfo = async () => {
+      try {
+        const events = await client.fetchEvents(BIG_RELAY_URLS, [{
+          authors: [profile.pubkey],
+          kinds: [ExtendedKind.PAYMENT_INFO],
+          limit: 1
+        }])
+        const paymentEvent = events[0]
+        if (paymentEvent) {
+          setPaymentInfo(getPaymentInfoFromEvent(paymentEvent))
+        } else {
+          setPaymentInfo(null)
+        }
+      } catch (error) {
+        logger.error('Failed to fetch payment info', { error, pubkey: profile.pubkey })
+        setPaymentInfo(null)
+      }
+    }
+    
+    fetchPaymentInfo()
+  }, [profile?.pubkey])
   const [activeTab, setActiveTab] = useState<ProfileTabValue>('posts')
   const [searchQuery, setSearchQuery] = useState('')
   const [articleKindFilter, setArticleKindFilter] = useState<string>('all')
@@ -263,7 +295,7 @@ export default function Profile({ id }: { id?: string }) {
   }
   if (!profile) return <NotFound />
 
-  const { banner, username, about, avatar, pubkey, website, lightningAddress } = profile
+  const { banner, username, about, avatar, pubkey, website, websiteList, lightningAddress, lightningAddressList, nip05List } = profile
   
   logger.component('Profile', 'Profile data loaded', { 
     pubkey, 
@@ -321,10 +353,25 @@ export default function Profile({ id }: { id?: string }) {
               )}
             </div>
             <Nip05 pubkey={pubkey} />
+            {/* Display multiple NIP-05 values if available, with verification */}
+            {nip05List && nip05List.length > 1 && (
+              <Nip05List nip05List={nip05List.slice(1)} pubkey={pubkey} />
+            )}
+            {/* Display lightning addresses - show first one prominently, others below */}
             {lightningAddress && (
               <div className="text-sm text-yellow-400 flex gap-1 items-center select-text">
                 <Zap className="size-4 shrink-0" />
                 <div className="flex-1 max-w-fit w-0 truncate">{lightningAddress}</div>
+              </div>
+            )}
+            {lightningAddressList && lightningAddressList.length > 1 && (
+              <div className="text-sm text-yellow-400/70 flex flex-wrap gap-2 mt-1">
+                {lightningAddressList.slice(1).map((addr, idx) => (
+                  <div key={idx} className="flex gap-1 items-center select-text">
+                    <Zap className="size-3 shrink-0" />
+                    <span className="truncate">{addr}</span>
+                  </div>
+                ))}
               </div>
             )}
             <div className="flex gap-1 mt-1">
@@ -337,16 +384,98 @@ export default function Profile({ id }: { id?: string }) {
                 className="text-wrap break-words whitespace-pre-wrap mt-2 select-text"
               />
             </Collapsible>
+            {/* Display websites - show first one prominently, others below */}
             {website && (
               <div className="flex gap-1 items-center text-primary mt-2 truncate select-text">
                 <Link size={14} className="shrink-0" />
                 <a
                   href={website}
                   target="_blank"
+                  rel="noopener noreferrer"
                   className="hover:underline truncate flex-1 max-w-fit w-0"
                 >
                   {website}
                 </a>
+              </div>
+            )}
+            {websiteList && websiteList.length > 1 && (
+              <div className="flex flex-col gap-1 mt-1">
+                {websiteList.slice(1).map((url, idx) => (
+                  <div key={idx} className="flex gap-1 items-center text-primary truncate select-text">
+                    <Link size={12} className="shrink-0" />
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:underline truncate text-sm"
+                    >
+                      {url}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Display payment info from kind 10133 */}
+            {paymentInfo && ((paymentInfo.methods && paymentInfo.methods.length > 0) || paymentInfo.payto) && (
+              <div className="mt-2 p-2 border rounded-lg bg-muted/50">
+                <div className="text-xs font-semibold text-muted-foreground mb-2">Payment Methods</div>
+                <div className="space-y-2">
+                  {paymentInfo.methods && paymentInfo.methods.length > 0 ? (
+                    paymentInfo.methods.map((method, idx) => {
+                      // NIP-A3: type is in method.type, authority is in method.authority
+                      const displayType = method.displayType || method.type || 'Payment'
+                      const authority = method.authority || method.address || ''
+                      const paytoUri = method.payto || (method.type && authority ? `payto://${method.type}/${authority}` : undefined)
+                      
+                      return (
+                        <div key={idx} className="text-sm">
+                          <div className="font-medium">{displayType}</div>
+                          {authority && (
+                            <div className="text-muted-foreground mt-1 flex items-center gap-2">
+                              {method.type === 'lightning' && <Zap className="size-3 text-yellow-400" />}
+                              <span className="select-text">{authority}</span>
+                            </div>
+                          )}
+                          {paytoUri && (
+                            <a
+                              href={paytoUri}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted-foreground text-xs mt-1 hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {paytoUri}
+                            </a>
+                          )}
+                          {(method.currency || (method.minAmount !== undefined && method.maxAmount !== undefined)) && (
+                            <div className="text-muted-foreground text-xs mt-1">
+                              {method.currency && <span>({method.currency})</span>}
+                              {method.minAmount !== undefined && method.maxAmount !== undefined && (
+                                <span className="ml-2">
+                                  {method.minAmount}-{method.maxAmount}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                  ) : (
+                    // Display payto from root level if methods array is empty
+                    paymentInfo.payto && (
+                      <div className="text-sm">
+                        <div className="font-medium">Lightning Network</div>
+                        <div className="text-muted-foreground mt-1 flex items-center gap-2">
+                          <Zap className="size-3 text-yellow-400" />
+                          <span>{paymentInfo.payto}</span>
+                        </div>
+                        {paymentInfo.currency && (
+                          <div className="text-muted-foreground text-xs mt-1">({paymentInfo.currency})</div>
+                        )}
+                      </div>
+                    )
+                  )}
+                </div>
               </div>
             )}
             <div className="flex justify-between items-center mt-2 text-sm">

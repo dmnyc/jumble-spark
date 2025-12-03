@@ -1,5 +1,5 @@
 import { BIG_RELAY_URLS, POLL_TYPE } from '@/constants'
-import { TEmoji, TPollType, TRelayList, TRelaySet } from '@/types'
+import { TEmoji, TPollType, TRelayList, TRelaySet, TPaymentInfo, TProfile } from '@/types'
 import { Event, kinds } from 'nostr-tools'
 import { buildATag } from './draft-event'
 import { getReplaceableEventIdentifier } from './event'
@@ -58,35 +58,156 @@ export function getRelayListFromEvent(event?: Event | null, blockedRelays?: stri
 }
 
 export function getProfileFromEvent(event: Event) {
+  // Parse JSON content as fallback
+  let profileObj: any = {}
   try {
-    const profileObj = JSON.parse(event.content)
-    const username =
-      profileObj.display_name?.trim() ||
-      profileObj.name?.trim() ||
-      profileObj.nip05?.split('@')[0]?.trim()
-    return {
-      pubkey: event.pubkey,
-      npub: pubkeyToNpub(event.pubkey) ?? '',
-      banner: profileObj.banner,
-      avatar: profileObj.picture,
-      username: username || formatPubkey(event.pubkey),
-      original_username: username,
-      nip05: profileObj.nip05,
-      about: profileObj.about,
-      website: profileObj.website ? normalizeHttpUrl(profileObj.website) : undefined,
-      lud06: profileObj.lud06,
-      lud16: profileObj.lud16,
-      lightningAddress: getLightningAddressFromProfile(profileObj),
-      created_at: event.created_at
+    profileObj = JSON.parse(event.content || '{}')
+  } catch (err) {
+    logger.error('Failed to parse event metadata JSON', { error: err, content: event.content })
+  }
+
+  // Extract values from tags (preferred over JSON content)
+  const nip05Tags = event.tags.filter(tag => tag[0] === 'nip05' && tag[1]).map(tag => tag[1])
+  const websiteTags = event.tags.filter(tag => tag[0] === 'website' && tag[1]).map(tag => tag[1])
+  const lud06Tags = event.tags.filter(tag => tag[0] === 'lud06' && tag[1]).map(tag => tag[1])
+  const lud16Tags = event.tags.filter(tag => tag[0] === 'lud16' && tag[1]).map(tag => tag[1])
+  
+  // Use first tag entry for single values, or fallback to JSON
+  const nip05 = nip05Tags.length > 0 ? nip05Tags[0] : profileObj.nip05
+  const nip05List = nip05Tags.length > 0 ? nip05Tags : (profileObj.nip05 ? [profileObj.nip05] : undefined)
+  
+  const website = websiteTags.length > 0 
+    ? normalizeHttpUrl(websiteTags[0]) 
+    : (profileObj.website ? normalizeHttpUrl(profileObj.website) : undefined)
+  const websiteList = websiteTags.length > 0 
+    ? websiteTags.map(w => normalizeHttpUrl(w))
+    : (profileObj.website ? [normalizeHttpUrl(profileObj.website)] : undefined)
+  
+  // Use FIRST lightning tag from kind 0 only (for zap button - do not use subsequent tags or kind 10133)
+  const lud06 = lud06Tags.length > 0 ? lud06Tags[0] : profileObj.lud06
+  const lud16 = lud16Tags.length > 0 ? lud16Tags[0] : profileObj.lud16
+  
+  // Build lightning address from FIRST tag or JSON (prefer first tag, fallback to JSON)
+  // This is used by the zap button and should only come from kind 0, not kind 10133 payto
+  const lightningAddressFromTags = lud16 || lud06
+  const lightningAddressFromJson = getLightningAddressFromProfile({ lud06: profileObj.lud06, lud16: profileObj.lud16 } as TProfile)
+  const lightningAddress = lightningAddressFromTags || lightningAddressFromJson
+  
+  // Build list of all lightning addresses (from tags first, then JSON)
+  const lightningAddressList = [...new Set([
+    ...(lud16Tags.length > 0 ? lud16Tags : []),
+    ...(lud06Tags.length > 0 ? lud06Tags : []),
+    ...(profileObj.lud16 ? [profileObj.lud16] : []),
+    ...(profileObj.lud06 ? [profileObj.lud06] : []),
+    ...(lightningAddressFromJson && !lightningAddressFromTags ? [lightningAddressFromJson] : [])
+  ])].filter(Boolean)
+  
+  const username =
+    profileObj.display_name?.trim() ||
+    profileObj.name?.trim() ||
+    nip05?.split('@')[0]?.trim()
+  
+  return {
+    pubkey: event.pubkey,
+    npub: pubkeyToNpub(event.pubkey) ?? '',
+    banner: profileObj.banner,
+    avatar: profileObj.picture,
+    username: username || formatPubkey(event.pubkey),
+    original_username: username,
+    nip05,
+    nip05List: nip05List && nip05List.length > 0 ? nip05List : undefined,
+    about: profileObj.about,
+    website,
+    websiteList: websiteList && websiteList.length > 0 ? websiteList : undefined,
+    lud06,
+    lud16,
+    lightningAddress,
+    lightningAddressList: lightningAddressList.length > 0 ? lightningAddressList : undefined,
+    created_at: event.created_at
+  }
+}
+
+export function getPaymentInfoFromEvent(event: Event): TPaymentInfo | null {
+  if (event.kind !== 10133) return null
+  
+  // Parse JSON content as fallback
+  let paymentInfo: any = {}
+  try {
+    if (event.content) {
+      paymentInfo = JSON.parse(event.content)
     }
   } catch (err) {
-    logger.error('Failed to parse event metadata', { error: err, content: event.content })
-    return {
-      pubkey: event.pubkey,
-      npub: pubkeyToNpub(event.pubkey) ?? '',
-      username: formatPubkey(event.pubkey)
-    }
+    logger.error('Failed to parse payment info JSON', { error: err, content: event.content })
   }
+
+  // Extract payment methods from tags (preferred over JSON content)
+  // NIP-A3 format: ["payto", "<type>", "<authority>", "<optional_extra_1>", ...]
+  // tag[0] = "payto", tag[1] = type, tag[2] = authority
+  const paytoTags = event.tags.filter(tag => tag[0] === 'payto' && tag[1] && tag[2])
+  
+  // Build methods array from tags
+  const methods: TPaymentInfo['methods'] = []
+  
+  // Parse each payto tag according to NIP-A3 spec
+  paytoTags.forEach((tag) => {
+    const type = tag[1]?.toLowerCase() || 'lightning' // Normalize to lowercase per spec
+    const authority = tag[2] || ''
+    const extra = tag.slice(3) // Optional extra fields
+    
+    // Build payto URI: payto://<type>/<authority>
+    const paytoUri = `payto://${type}/${authority}`
+    
+    const method: any = {
+      type,
+      authority,
+      payto: paytoUri,
+      // Map common types to display names
+      displayType: type === 'lightning' ? 'Lightning Network' : 
+                   type === 'bitcoin' ? 'Bitcoin' :
+                   type === 'ethereum' ? 'Ethereum' :
+                   type === 'monero' ? 'Monero' :
+                   type === 'nano' ? 'Nano' :
+                   type === 'cashme' ? 'Cash App' :
+                   type === 'revolut' ? 'Revolut' :
+                   type === 'venmo' ? 'Venmo' :
+                   type.charAt(0).toUpperCase() + type.slice(1),
+      ...(extra.length > 0 && { extra })
+    }
+    methods.push(method)
+  })
+  
+  // If we have methods in JSON but no tags, use JSON methods
+  if (methods.length === 0 && paymentInfo.methods && Array.isArray(paymentInfo.methods)) {
+    methods.push(...paymentInfo.methods.map((m: any) => ({
+      ...m,
+      payto: m.payto || (m.type && m.authority ? `payto://${m.type}/${m.authority}` : undefined)
+    })))
+  }
+  
+  // If we have payto at root level in JSON but no methods array
+  if (methods.length === 0 && paymentInfo.payto) {
+    methods.push({
+      payto: paymentInfo.payto,
+      type: paymentInfo.type || 'lightning',
+      authority: paymentInfo.authority,
+      displayType: paymentInfo.type === 'lightning' ? 'Lightning Network' : paymentInfo.type || 'Payment'
+    })
+  }
+  
+  // Build result
+  const result: TPaymentInfo = {
+    ...paymentInfo,
+    methods: methods.length > 0 ? methods : undefined
+  }
+  
+  logger.debug('Parsed payment info', { 
+    hasMethods: !!result.methods, 
+    methodsCount: result.methods?.length || 0,
+    paytoTagsCount: paytoTags.length,
+    content: event.content?.substring(0, 200)
+  })
+  
+  return result
 }
 
 export function getRelaySetFromEvent(event: Event, blockedRelays?: string[]): TRelaySet {

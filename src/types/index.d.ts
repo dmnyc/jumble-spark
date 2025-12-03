@@ -16,12 +16,35 @@ export type TProfile = {
   banner?: string
   avatar?: string
   nip05?: string
+  nip05List?: string[]
   about?: string
   website?: string
+  websiteList?: string[]
   lud06?: string
   lud16?: string
   lightningAddress?: string
+  lightningAddressList?: string[]
   created_at?: number
+}
+
+export type TPaymentInfo = {
+  methods?: Array<{
+    type: string // Payment type (e.g., "bitcoin", "lightning", "ethereum")
+    authority?: string // Payment authority/address (from NIP-A3 tag[2])
+    payto?: string // Full payto:// URI
+    displayType?: string // Human-readable type name
+    address?: string // Legacy field, use authority instead
+    currency?: string
+    minAmount?: number
+    maxAmount?: number
+    extra?: string[] // Optional extra fields from NIP-A3
+    [key: string]: any
+  }>
+  payto?: string // Root-level payto (legacy)
+  type?: string // Root-level type (legacy)
+  authority?: string // Root-level authority (legacy)
+  currency?: string // Root-level currency (legacy)
+  [key: string]: any
 }
 export type TMailboxRelayScope = 'read' | 'write' | 'both'
 export type TMailboxRelay = {
