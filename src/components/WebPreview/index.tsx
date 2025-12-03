@@ -475,6 +475,7 @@ export default function WebPreview({ url, className }: { url: string; className?
 
       // Fallback to OG image from website if event doesn't have an image
       // The OG image is already converted to absolute URL by useFetchWebMetadata
+      // Prioritize: event image tag > OG image from URL metadata (not favicon)
       const displayImage = eventImageThumbnail || image
 
       // Extract bookstr metadata if applicable

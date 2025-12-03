@@ -129,7 +129,15 @@ class WebService {
                   const basePath = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1)
                   image = `${urlObj.protocol}//${urlObj.host}${basePath}${image}`
                 }
-                logger.info('[WebService] Converted relative image URL to absolute', { originalImage: (doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)?.content, absoluteImage: image })
+                
+                // Filter out favicon URLs - we want OG images, not favicons
+                const imageLower = image.toLowerCase()
+                if (imageLower.includes('/favicon') || imageLower.endsWith('/favicon.ico') || imageLower.endsWith('/favicon.svg')) {
+                  logger.warn('[WebService] Filtered out favicon URL from OG image', { url, image })
+                  image = undefined
+                } else {
+                  logger.info('[WebService] Converted relative image URL to absolute', { originalImage: (doc.querySelector('meta[property="og:image"]') as HTMLMetaElement | null)?.content, absoluteImage: image })
+                }
               } catch (error) {
                 logger.warn('[WebService] Failed to convert relative image URL', { image, url, error })
                 // Keep original image URL if conversion fails
