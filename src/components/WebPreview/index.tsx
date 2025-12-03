@@ -349,6 +349,8 @@ export default function WebPreview({ url, className }: { url: string; className?
   // Detect image aspect ratio to determine layout - MUST be called unconditionally
   const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null)
   const [isImageLoading, setIsImageLoading] = useState(true)
+  const [ogImageAspectRatio, setOgImageAspectRatio] = useState<number | null>(null)
+  const [isOgImageLoading, setIsOgImageLoading] = useState(true)
   
   useEffect(() => {
     if (!displayImageForDetection) {
@@ -370,6 +372,28 @@ export default function WebPreview({ url, className }: { url: string; className?
     }
     img.src = displayImageForDetection
   }, [displayImageForDetection])
+
+  // Detect OG image aspect ratio for OG cards
+  useEffect(() => {
+    if (!image) {
+      setOgImageAspectRatio(null)
+      setIsOgImageLoading(false)
+      return
+    }
+    
+    setIsOgImageLoading(true)
+    const img = new window.Image()
+    img.onload = () => {
+      const aspectRatio = img.width / img.height
+      setOgImageAspectRatio(aspectRatio)
+      setIsOgImageLoading(false)
+    }
+    img.onerror = () => {
+      setOgImageAspectRatio(null)
+      setIsOgImageLoading(false)
+    }
+    img.src = image
+  }, [image])
 
   // Early return after ALL hooks are called
   if (!autoLoadMedia) {
@@ -710,7 +734,12 @@ export default function WebPreview({ url, className }: { url: string; className?
     )
   }
 
+  // Determine OG image orientation
+  const isOgPortrait = ogImageAspectRatio !== null && ogImageAspectRatio < 1
+  const isOgLandscape = ogImageAspectRatio !== null && ogImageAspectRatio > 1
+
   if (isSmallScreen && image) {
+    // Small screen: always use horizontal layout with image on left
     return (
       <div className="rounded-lg border mt-2 overflow-hidden flex">
         <div className="w-40 flex-shrink-0 bg-muted flex items-center justify-center rounded-l-lg overflow-hidden">
@@ -730,7 +759,7 @@ export default function WebPreview({ url, className }: { url: string; className?
           </div>
           {title && <div className="font-semibold line-clamp-1">{title}</div>}
           {!title && description && <div className="font-semibold line-clamp-1">{description}</div>}
-          <hr className="my-2 border-t border-border" />
+          <hr className="mt-4 mb-2 border-t border-border" />
           <a
             href={cleanedUrl}
             target="_blank"
@@ -745,10 +774,55 @@ export default function WebPreview({ url, className }: { url: string; className?
     )
   }
 
+  // Render OG card with portrait/landscape layout
+  if (isOgLandscape && image) {
+    return (
+      <div className={cn('p-2 flex flex-col w-full border rounded-lg overflow-hidden gap-0', className)}>
+        <div className="w-full h-52 -mx-2 -mt-2 mb-2 flex items-center justify-center overflow-hidden bg-muted">
+          <Image
+            image={{ url: image }}
+            className="w-full h-full object-contain"
+            hideIfError
+          />
+        </div>
+        <div className="flex-1 w-0 p-2">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="text-xs text-muted-foreground truncate">{hostname}</div>
+            <a
+              href={cleanedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+            </a>
+          </div>
+          {title && <div className="font-semibold line-clamp-2 mb-1">{title}</div>}
+          {description && (
+            <div className={cn("line-clamp-3 mb-1", title ? "text-xs text-muted-foreground" : "text-sm font-semibold")}>
+              {description}
+            </div>
+          )}
+          <hr className="mt-4 mb-2 border-t border-border" />
+          <a
+            href={cleanedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-xs text-muted-foreground truncate block hover:underline"
+          >
+            {url}
+          </a>
+        </div>
+      </div>
+    )
+  }
+
+  // Portrait or square image: render on left
   return (
     <div className={cn('p-2 flex w-full border rounded-lg overflow-hidden gap-0', className)}>
-      {image && (
-        <div className="w-40 flex-shrink-0 bg-muted flex items-center justify-center -my-2 -ml-2 -mr-0 rounded-l-lg overflow-hidden">
+      {image && (isOgPortrait || isOgImageLoading) && (
+        <div className="w-52 flex-shrink-0 bg-muted flex items-center justify-center -my-2 -ml-2 -mr-0 rounded-l-lg overflow-hidden">
           <Image
             image={{ url: image }}
             className="w-full h-full object-cover"
@@ -774,7 +848,7 @@ export default function WebPreview({ url, className }: { url: string; className?
             {description}
           </div>
         )}
-        <hr className="my-2 border-t border-border" />
+        <hr className="mt-4 mb-2 border-t border-border" />
         <a
           href={cleanedUrl}
           target="_blank"
