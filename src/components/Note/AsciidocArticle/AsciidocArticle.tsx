@@ -1102,7 +1102,7 @@ export default function AsciidocArticle({
       // Check if this container already has a root to avoid re-rendering
       if (!reactRootsRef.current.has(container)) {
         const root = createRoot(container)
-        root.render(<BookstrContent wikilink={wikilink} />)
+        root.render(<BookstrContent wikilink={wikilink} skipWebPreview={true} />)
         reactRootsRef.current.set(container, root)
       }
     })

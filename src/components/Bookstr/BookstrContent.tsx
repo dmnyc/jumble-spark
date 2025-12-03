@@ -20,6 +20,7 @@ interface BookstrContentProps {
   wikilink: string
   sourceUrl?: string
   className?: string
+  skipWebPreview?: boolean // If true, show simple button instead of WebPreview
 }
 
 interface BookSection {
@@ -213,7 +214,7 @@ function buildExternalUrl(reference: BookReference, bookType: string, version?: 
   }
 }
 
-export function BookstrContent({ wikilink, sourceUrl, className }: BookstrContentProps) {
+export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview = false }: BookstrContentProps) {
   const [sections, setSections] = useState<BookSection[]>([])
   const [isLoading, setIsLoading] = useState(false) // Start as false, only set to true when actually fetching
   const [error, setError] = useState<string | null>(null)
@@ -958,7 +959,7 @@ export function BookstrContent({ wikilink, sourceUrl, className }: BookstrConten
               )}
             </div>
 
-            {/* OG Preview Card for bible/torah/quran external URLs */}
+            {/* External URL preview/button for bible/torah/quran */}
             {(() => {
               // Get bookType from parsed wikilink (defaults to 'bible')
               const bookType = parsed?.bookType || 'bible'
@@ -973,6 +974,24 @@ export function BookstrContent({ wikilink, sourceUrl, className }: BookstrConten
               
               if (!externalUrl) return null
               
+              // If skipWebPreview is true (e.g., in AsciiDoc), show simple button
+              if (skipWebPreview) {
+                return (
+                  <div className="mb-3">
+                    <a
+                      href={externalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-md transition-colors"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      <span>View on external site</span>
+                    </a>
+                  </div>
+                )
+              }
+              
+              // Otherwise, use WebPreview (for markdown articles)
               return (
                 <div className="mb-3">
                   <WebPreview url={externalUrl} className="w-full" />

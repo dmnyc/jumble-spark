@@ -58,31 +58,6 @@ function getEventTypeName(kind: number): string {
   }
 }
 
-// Helper function to extract and strip markdown/asciidoc for preview
-function stripMarkdown(content: string): string {
-  let text = content
-  // Remove markdown headers
-  text = text.replace(/^#{1,6}\s+/gm, '')
-  // Remove markdown bold/italic
-  text = text.replace(/\*\*([^*]+)\*\*/g, '$1')
-  text = text.replace(/\*([^*]+)\*/g, '$1')
-  // Remove markdown links
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-  // Remove asciidoc headers
-  text = text.replace(/^=+\s+/gm, '')
-  // Remove asciidoc bold/italic
-  text = text.replace(/\*\*([^*]+)\*\*/g, '$1')
-  text = text.replace(/_([^_]+)_/g, '$1')
-  // Remove code blocks
-  text = text.replace(/```[\s\S]*?```/g, '')
-  text = text.replace(/`([^`]+)`/g, '$1')
-  // Remove HTML tags
-  text = text.replace(/<[^>]+>/g, '')
-  // Clean up whitespace
-  text = text.replace(/\n{3,}/g, '\n\n')
-  return text.trim()
-}
-
 export default function WebPreview({ url, className }: { url: string; className?: string }) {
   const { autoLoadMedia } = useContentPolicy()
   const { isSmallScreen } = useScreenSize()
@@ -464,7 +439,7 @@ export default function WebPreview({ url, className }: { url: string; className?
                   <div className="text-xs text-muted-foreground line-clamp-2 mb-1">{eventSummary}</div>
                 )}
                 {previewEvent && previewEvent.content && (
-                  <div className="my-2 text-sm line-clamp-6 overflow-hidden">
+                  <div className="my-2 text-sm line-clamp-6 overflow-hidden [&_img]:hidden">
                     <MarkdownArticle 
                       event={previewEvent} 
                       className="pointer-events-none"
