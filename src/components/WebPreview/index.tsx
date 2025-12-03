@@ -503,12 +503,12 @@ export default function WebPreview({ url, className }: { url: string; className?
       // Render all images on left side, crop wider ones
       return (
         <div
-          className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
+          className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 max-w-full', className)}
         >
           {displayImage && (
             <div className={cn(
               "flex-shrink-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden",
-              imageAspectRatio !== null && imageAspectRatio > 1 ? "w-[416px]" : "w-52"
+              imageAspectRatio !== null && imageAspectRatio > 1 ? "w-24 sm:w-32 md:w-52 lg:w-[416px] max-w-[120px] sm:max-w-[160px] md:max-w-[208px] lg:max-w-none" : "w-20 sm:w-28 md:w-40 lg:w-52 max-w-[80px] sm:max-w-[112px] md:max-w-[160px] lg:max-w-none"
             )}>
               <Image
                 image={{ url: displayImage, pubkey: fetchedEvent?.pubkey }}
@@ -517,37 +517,39 @@ export default function WebPreview({ url, className }: { url: string; className?
               />
             </div>
           )}
-          <div className="flex-1 min-w-0 pl-3">
+          <div className="flex-1 min-w-0 pl-3 overflow-hidden">
             <div className="flex items-center gap-1.5 mb-1">
-              {fetchedEvent ? (
-                <>
-                  <Username userId={fetchedEvent.pubkey} className="text-xs" />
-                  {eventAuthorProfile?.avatar && (
-                    <img
-                      src={eventAuthorProfile.avatar}
-                      alt=""
-                      className="w-5 h-5 rounded-full flex-shrink-0 object-cover"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none'
-                      }}
-                    />
-                  )}
-                  <span className="text-xs text-muted-foreground">•</span>
-                  <span className="text-xs text-muted-foreground">{eventTypeName}</span>
-                </>
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  {isFetchingEventFinal ? 'Loading event...' : 'Event'}
-                </span>
-              )}
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                {fetchedEvent ? (
+                  <>
+                    <Username userId={fetchedEvent.pubkey} className="text-xs" />
+                    {eventAuthorProfile?.avatar && (
+                      <img
+                        src={eventAuthorProfile.avatar}
+                        alt=""
+                        className="w-5 h-5 rounded-full flex-shrink-0 object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none'
+                        }}
+                      />
+                    )}
+                    <span className="text-xs text-muted-foreground flex-shrink-0">•</span>
+                    <span className="text-xs text-muted-foreground truncate">{eventTypeName}</span>
+                  </>
+                ) : (
+                  <span className="text-xs text-muted-foreground truncate">
+                    {isFetchingEventFinal ? 'Loading event...' : 'Event'}
+                  </span>
+                )}
+              </div>
               <a
                 href={cleanedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="ml-auto"
+                className="flex-shrink-0"
               >
-                <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
+                <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400" />
               </a>
             </div>
             {fetchedEvent && (
@@ -593,7 +595,7 @@ export default function WebPreview({ url, className }: { url: string; className?
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="text-xs text-muted-foreground truncate block hover:underline"
+              className="text-xs text-muted-foreground truncate block hover:underline break-all"
             >
               {truncatedUrl}
             </a>
@@ -609,10 +611,10 @@ export default function WebPreview({ url, className }: { url: string; className?
       
       return (
         <div
-          className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
+          className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 max-w-full', className)}
         >
           {fetchedProfile?.avatar && (
-            <div className="w-40 flex-shrink-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden">
+            <div className="w-20 sm:w-28 md:w-36 lg:w-40 max-w-[80px] sm:max-w-[112px] md:max-w-[144px] lg:max-w-none flex-shrink-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden">
               <Image
                 image={{ url: fetchedProfile.avatar, pubkey: fetchedProfile.pubkey }}
                 className="w-full h-full object-cover"
@@ -620,35 +622,37 @@ export default function WebPreview({ url, className }: { url: string; className?
               />
             </div>
           )}
-          <div className="flex-1 min-w-0 pl-3">
+          <div className="flex-1 min-w-0 pl-3 overflow-hidden">
             <div className="flex items-center gap-2 mb-1">
-              {fetchedProfile ? (
-                <>
-                  <Username userId={fetchedProfile.pubkey} />
-                  {fetchedProfile.nip05 && (
-                    <>
-                      <span className="text-xs text-muted-foreground">•</span>
-                      <span className="text-xs text-green-600 dark:text-green-400">{fetchedProfile.nip05}</span>
-                    </>
-                  )}
-                </>
-              ) : (
-                <span className="text-sm text-muted-foreground">
-                  {isFetchingProfile ? 'Loading profile...' : 'Profile'}
-                </span>
-              )}
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                {fetchedProfile ? (
+                  <>
+                    <Username userId={fetchedProfile.pubkey} />
+                    {fetchedProfile.nip05 && (
+                      <>
+                        <span className="text-xs text-muted-foreground flex-shrink-0">•</span>
+                        <span className="text-xs text-green-600 dark:text-green-400 truncate">{fetchedProfile.nip05}</span>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-sm text-muted-foreground truncate">
+                    {isFetchingProfile ? 'Loading profile...' : 'Profile'}
+                  </span>
+                )}
+              </div>
               <a
                 href={cleanedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="ml-auto"
+                className="flex-shrink-0"
               >
-                <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
+                <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400" />
               </a>
             </div>
             {fetchedProfile?.about && (
-              <div className="text-base text-muted-foreground line-clamp-2 mb-1 mt-1">{fetchedProfile.about}</div>
+              <div className="text-base text-muted-foreground line-clamp-2 mb-1 mt-1 break-words">{fetchedProfile.about}</div>
             )}
             <hr className="mt-4 mb-2 border-t border-border" />
             <a
@@ -656,7 +660,7 @@ export default function WebPreview({ url, className }: { url: string; className?
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="text-xs text-muted-foreground truncate block hover:underline"
+              className="text-xs text-muted-foreground truncate block hover:underline break-all"
             >
               {truncatedUrl}
             </a>
@@ -668,18 +672,19 @@ export default function WebPreview({ url, className }: { url: string; className?
     // Basic fallback for non-nostr URLs - show site information
     return (
       <div
-        className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-3 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
+        className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-3 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 max-w-full', className)}
       >
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-hidden">
           <div className="flex items-center gap-2 mb-1">
-            <div className="text-sm font-semibold text-green-900 dark:text-green-100 truncate">{hostname}</div>
+            <div className="text-sm font-semibold text-green-900 dark:text-green-100 truncate flex-1 min-w-0">{hostname}</div>
             <a
               href={cleanedUrl}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
+              className="flex-shrink-0"
             >
-              <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
+              <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400" />
             </a>
           </div>
             <hr className="mt-4 mb-2 border-t border-border" />
@@ -702,34 +707,35 @@ export default function WebPreview({ url, className }: { url: string; className?
   if (isSmallScreen && image) {
     // Small screen: always use horizontal layout with image on left
     return (
-      <div className="rounded-lg border mt-2 overflow-hidden flex">
+      <div className="rounded-lg border mt-2 overflow-hidden flex w-full">
         <div className={cn(
           "flex-shrink-0 bg-muted flex items-center justify-center rounded-l-lg overflow-hidden",
-          ogImageAspectRatio !== null && ogImageAspectRatio > 1 ? "w-[320px]" : "w-40"
+          ogImageAspectRatio !== null && ogImageAspectRatio > 1 ? "w-24 max-w-[120px]" : "w-20 max-w-[80px]"
         )}>
           <Image image={{ url: image }} className="w-full h-full object-cover" hideIfError />
         </div>
-        <div className="bg-muted p-2 w-full flex-1">
+        <div className="bg-muted p-2 flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <div className="text-xs text-muted-foreground truncate">{hostname}</div>
+            <div className="text-xs text-muted-foreground truncate flex-1 min-w-0">{hostname}</div>
             <a
               href={cleanedUrl}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
+              className="flex-shrink-0"
             >
-              <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+              <ExternalLink className="w-3 h-3 text-muted-foreground" />
             </a>
           </div>
-          {title && <div className="font-semibold line-clamp-1">{title}</div>}
-          {!title && description && <div className="font-semibold line-clamp-1">{description}</div>}
+          {title && <div className="font-semibold line-clamp-1 break-words">{title}</div>}
+          {!title && description && <div className="font-semibold line-clamp-1 break-words">{description}</div>}
           <hr className="mt-4 mb-2 border-t border-border" />
           <a
             href={cleanedUrl}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="text-xs text-muted-foreground truncate block hover:underline"
+            className="text-xs text-muted-foreground truncate block hover:underline break-all"
           >
             {url}
           </a>
@@ -740,11 +746,11 @@ export default function WebPreview({ url, className }: { url: string; className?
 
   // Render all OG images on left side, crop wider ones
   return (
-    <div className={cn('p-2 flex w-full border rounded-lg overflow-hidden gap-0', className)}>
+    <div className={cn('p-2 flex w-full border rounded-lg overflow-hidden gap-0 max-w-full', className)}>
       {image && (
         <div className={cn(
           "flex-shrink-0 bg-muted flex items-center justify-center -my-2 -ml-2 -mr-0 rounded-l-lg overflow-hidden",
-          ogImageAspectRatio !== null && ogImageAspectRatio > 1 ? "w-[416px]" : "w-52"
+          ogImageAspectRatio !== null && ogImageAspectRatio > 1 ? "w-32 sm:w-52 md:w-[416px]" : "w-20 sm:w-40 md:w-52"
         )}>
           <Image
             image={{ url: image }}
@@ -753,16 +759,17 @@ export default function WebPreview({ url, className }: { url: string; className?
           />
         </div>
       )}
-      <div className="flex-1 min-w-0 p-2 pl-2">
+      <div className="flex-1 min-w-0 p-2 pl-2 overflow-hidden">
         <div className="flex items-center gap-2 mb-1">
-          <div className="text-xs text-muted-foreground truncate">{hostname}</div>
+          <div className="text-xs text-muted-foreground truncate flex-1 min-w-0">{hostname}</div>
           <a
             href={cleanedUrl}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
+            className="flex-shrink-0"
           >
-            <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+            <ExternalLink className="w-3 h-3 text-muted-foreground" />
           </a>
         </div>
         {title && <div className="font-semibold line-clamp-2 mb-1 break-words">{title}</div>}
@@ -780,7 +787,7 @@ export default function WebPreview({ url, className }: { url: string; className?
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="text-xs text-muted-foreground truncate block hover:underline"
+          className="text-xs text-muted-foreground truncate block hover:underline break-all"
         >
           {url}
         </a>
