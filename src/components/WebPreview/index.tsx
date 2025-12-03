@@ -334,7 +334,7 @@ export default function WebPreview({ url, className }: { url: string; className?
     } as Event
   }, [fetchedEvent])
 
-  // Determine which image to use for dimension detection (for event cards)
+  // Determine which image to use for event cards
   const eventMetadata = fetchedEvent ? getLongFormArticleMetadataFromEvent(fetchedEvent) : null
   const eventImage = eventMetadata?.image
   const imetaInfos = fetchedEvent ? getImetaInfosFromEvent(fetchedEvent) : []
@@ -346,51 +346,41 @@ export default function WebPreview({ url, className }: { url: string; className?
   }
   const displayImageForDetection = eventImageThumbnail || image
 
-  // Detect image aspect ratio to determine layout - MUST be called unconditionally
+  // Detect image aspect ratio to determine width - MUST be called unconditionally
   const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null)
-  const [isImageLoading, setIsImageLoading] = useState(true)
   const [ogImageAspectRatio, setOgImageAspectRatio] = useState<number | null>(null)
-  const [isOgImageLoading, setIsOgImageLoading] = useState(true)
   
   useEffect(() => {
     if (!displayImageForDetection) {
       setImageAspectRatio(null)
-      setIsImageLoading(false)
       return
     }
     
-    setIsImageLoading(true)
     const img = new window.Image()
     img.onload = () => {
       const aspectRatio = img.width / img.height
       setImageAspectRatio(aspectRatio)
-      setIsImageLoading(false)
     }
     img.onerror = () => {
       setImageAspectRatio(null)
-      setIsImageLoading(false)
     }
     img.src = displayImageForDetection
   }, [displayImageForDetection])
 
-  // Detect OG image aspect ratio for OG cards
+  // Detect OG image aspect ratio
   useEffect(() => {
     if (!image) {
       setOgImageAspectRatio(null)
-      setIsOgImageLoading(false)
       return
     }
     
-    setIsOgImageLoading(true)
     const img = new window.Image()
     img.onload = () => {
       const aspectRatio = img.width / img.height
       setOgImageAspectRatio(aspectRatio)
-      setIsOgImageLoading(false)
     }
     img.onerror = () => {
       setOgImageAspectRatio(null)
-      setIsOgImageLoading(false)
     }
     img.src = image
   }, [image])
@@ -418,10 +408,6 @@ export default function WebPreview({ url, className }: { url: string; className?
       // Fallback to OG image from website if event doesn't have an image
       // The OG image is already converted to absolute URL by useFetchWebMetadata
       const displayImage = eventImageThumbnail || image
-      
-      // Determine if image is portrait (taller than wide) or landscape (wider than tall)
-      const isPortrait = imageAspectRatio !== null && imageAspectRatio < 1
-      const isLandscape = imageAspectRatio !== null && imageAspectRatio > 1
 
       // Extract bookstr metadata if applicable
       const bookMetadata = fetchedEvent ? extractBookMetadata(fetchedEvent) : null
@@ -442,111 +428,16 @@ export default function WebPreview({ url, className }: { url: string; className?
       const isMarkdownEvent = fetchedEvent && (fetchedEvent.kind === kinds.LongFormArticle || fetchedEvent.kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN)
       const showContentPreview = previewEvent && previewEvent.content && (isAsciidocEvent || isMarkdownEvent)
 
-      // Render landscape image on top, portrait on left
-      if (isLandscape && displayImage) {
-        return (
-          <div
-            className={cn('p-3 flex flex-col w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
-          >
-            <div className="w-full h-52 -mx-3 -mt-3 mb-3 flex items-center justify-center overflow-hidden bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20">
-              <Image
-                image={{ url: displayImage, pubkey: fetchedEvent?.pubkey }}
-                className="w-full h-full object-contain"
-                hideIfError
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 mb-1">
-              {fetchedEvent ? (
-                <>
-                  <Username userId={fetchedEvent.pubkey} className="text-xs" />
-                  {eventAuthorProfile?.avatar && (
-                    <img
-                      src={eventAuthorProfile.avatar}
-                      alt=""
-                      className="w-5 h-5 rounded-full flex-shrink-0 object-cover"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none'
-                      }}
-                    />
-                  )}
-                  <span className="text-xs text-muted-foreground">•</span>
-                  <span className="text-xs text-muted-foreground">{eventTypeName}</span>
-                </>
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  {isFetchingEventFinal ? 'Loading event...' : 'Event'}
-                </span>
-              )}
-              <a
-                href={cleanedUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="ml-auto"
-              >
-                <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
-              </a>
-            </div>
-            {fetchedEvent && (
-              <>
-                {/* Always show title in card header, hide it in content preview */}
-                {eventTitle && (
-                  <div className="font-semibold text-sm line-clamp-2 mb-1 text-green-900 dark:text-green-100">{eventTitle}</div>
-                )}
-                {isBookstrEvent && bookMetadata && (
-                  <div className="text-xs text-muted-foreground space-x-2 mb-1">
-                    {bookMetadata.type && <span>Type: {bookMetadata.type}</span>}
-                    {bookMetadata.book && <span>Book: {formatBookName(bookMetadata.book)}</span>}
-                    {bookMetadata.chapter && <span>Chapter: {bookMetadata.chapter}</span>}
-                    {bookMetadata.verse && <span>Verse: {bookMetadata.verse}</span>}
-                    {bookMetadata.version && <span>Version: {bookMetadata.version.toUpperCase()}</span>}
-                  </div>
-                )}
-                {eventSummary && !showContentPreview && (
-                  <div className="text-xs text-muted-foreground line-clamp-2 mb-1">{eventSummary}</div>
-                )}
-                {showContentPreview && (
-                  <div className="my-2 text-sm line-clamp-6 overflow-hidden [&_img]:hidden [&_h1]:hidden [&_h2]:hidden">
-                    {isAsciidocEvent ? (
-                      <AsciidocArticle 
-                        event={previewEvent} 
-                        className="pointer-events-none"
-                        hideImagesAndInfo={true}
-                      />
-                    ) : (
-                      <MarkdownArticle 
-                        event={previewEvent} 
-                        className="pointer-events-none"
-                        hideMetadata={true}
-                      />
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-            <hr className="mt-4 mb-2 border-t border-border" />
-            <a
-              href={cleanedUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-xs text-muted-foreground truncate block hover:underline"
-            >
-              {truncatedUrl}
-            </a>
-            </div>
-          </div>
-        )
-      }
-
-      // Render portrait image on left (30% bigger: w-40 * 1.3 = w-52)
+      // Render all images on left side, crop wider ones
       return (
         <div
           className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
         >
-          {displayImage && (isPortrait || isImageLoading) && (
-            <div className="w-52 flex-shrink-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden">
+          {displayImage && (
+            <div className={cn(
+              "flex-shrink-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden",
+              imageAspectRatio !== null && imageAspectRatio > 1 ? "w-[416px]" : "w-52"
+            )}>
               <Image
                 image={{ url: displayImage, pubkey: fetchedEvent?.pubkey }}
                 className="w-full h-full object-cover"
@@ -734,15 +625,16 @@ export default function WebPreview({ url, className }: { url: string; className?
     )
   }
 
-  // Determine OG image orientation
-  const isOgPortrait = ogImageAspectRatio !== null && ogImageAspectRatio < 1
-  const isOgLandscape = ogImageAspectRatio !== null && ogImageAspectRatio > 1
+  // All OG images render on left with cropping
 
   if (isSmallScreen && image) {
     // Small screen: always use horizontal layout with image on left
     return (
       <div className="rounded-lg border mt-2 overflow-hidden flex">
-        <div className="w-40 flex-shrink-0 bg-muted flex items-center justify-center rounded-l-lg overflow-hidden">
+        <div className={cn(
+          "flex-shrink-0 bg-muted flex items-center justify-center rounded-l-lg overflow-hidden",
+          ogImageAspectRatio !== null && ogImageAspectRatio > 1 ? "w-[320px]" : "w-40"
+        )}>
           <Image image={{ url: image }} className="w-full h-full object-cover" hideIfError />
         </div>
         <div className="bg-muted p-2 w-full flex-1">
@@ -774,55 +666,14 @@ export default function WebPreview({ url, className }: { url: string; className?
     )
   }
 
-  // Render OG card with portrait/landscape layout
-  if (isOgLandscape && image) {
-    return (
-      <div className={cn('p-2 flex flex-col w-full border rounded-lg overflow-hidden gap-0', className)}>
-        <div className="w-full h-52 -mx-2 -mt-2 mb-2 flex items-center justify-center overflow-hidden bg-muted">
-          <Image
-            image={{ url: image }}
-            className="w-full h-full object-contain"
-            hideIfError
-          />
-        </div>
-        <div className="flex-1 w-0 p-2">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="text-xs text-muted-foreground truncate">{hostname}</div>
-            <a
-              href={cleanedUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0" />
-            </a>
-          </div>
-          {title && <div className="font-semibold line-clamp-2 mb-1">{title}</div>}
-          {description && (
-            <div className={cn("line-clamp-3 mb-1", title ? "text-xs text-muted-foreground" : "text-sm font-semibold")}>
-              {description}
-            </div>
-          )}
-          <hr className="mt-4 mb-2 border-t border-border" />
-          <a
-            href={cleanedUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="text-xs text-muted-foreground truncate block hover:underline"
-          >
-            {url}
-          </a>
-        </div>
-      </div>
-    )
-  }
-
-  // Portrait or square image: render on left
+  // Render all OG images on left side, crop wider ones
   return (
     <div className={cn('p-2 flex w-full border rounded-lg overflow-hidden gap-0', className)}>
-      {image && (isOgPortrait || isOgImageLoading) && (
-        <div className="w-52 flex-shrink-0 bg-muted flex items-center justify-center -my-2 -ml-2 -mr-0 rounded-l-lg overflow-hidden">
+      {image && (
+        <div className={cn(
+          "flex-shrink-0 bg-muted flex items-center justify-center -my-2 -ml-2 -mr-0 rounded-l-lg overflow-hidden",
+          ogImageAspectRatio !== null && ogImageAspectRatio > 1 ? "w-[416px]" : "w-52"
+        )}>
           <Image
             image={{ url: image }}
             className="w-full h-full object-cover"
@@ -830,7 +681,7 @@ export default function WebPreview({ url, className }: { url: string; className?
           />
         </div>
       )}
-      <div className="flex-1 w-0 p-2 pl-2">
+      <div className="flex-1 min-w-0 p-2 pl-2">
         <div className="flex items-center gap-2 mb-1">
           <div className="text-xs text-muted-foreground truncate">{hostname}</div>
           <a
@@ -842,11 +693,14 @@ export default function WebPreview({ url, className }: { url: string; className?
             <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0" />
           </a>
         </div>
-        {title && <div className="font-semibold line-clamp-2 mb-1">{title}</div>}
+        {title && <div className="font-semibold line-clamp-2 mb-1 break-words">{title}</div>}
         {description && (
-          <div className={cn("line-clamp-3 mb-1", title ? "text-xs text-muted-foreground" : "text-sm font-semibold")}>
+          <div className={cn("line-clamp-3 mb-1 break-words", title ? "text-xs text-muted-foreground" : "text-sm font-semibold")}>
             {description}
           </div>
+        )}
+        {!title && !description && (
+          <div className="text-xs text-muted-foreground mb-1">No description available</div>
         )}
         <hr className="mt-4 mb-2 border-t border-border" />
         <a
