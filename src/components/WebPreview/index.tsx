@@ -19,6 +19,7 @@ import { Event } from 'nostr-tools'
 import { BIG_RELAY_URLS } from '@/constants'
 import { getImetaInfosFromEvent } from '@/lib/event'
 import MarkdownArticle from '../Note/MarkdownArticle/MarkdownArticle'
+import AsciidocArticle from '../Note/AsciidocArticle/AsciidocArticle'
 
 // Helper function to get event type name
 function getEventTypeName(kind: number): string {
@@ -333,6 +334,43 @@ export default function WebPreview({ url, className }: { url: string; className?
     } as Event
   }, [fetchedEvent])
 
+  // Determine which image to use for dimension detection (for event cards)
+  const eventMetadata = fetchedEvent ? getLongFormArticleMetadataFromEvent(fetchedEvent) : null
+  const eventImage = eventMetadata?.image
+  const imetaInfos = fetchedEvent ? getImetaInfosFromEvent(fetchedEvent) : []
+  let eventImageThumbnail: string | null = null
+  if (eventImage && fetchedEvent) {
+    const cleanedEventImage = cleanUrl(eventImage)
+    const matchingImeta = imetaInfos.find(info => cleanUrl(info.url) === cleanedEventImage)
+    eventImageThumbnail = matchingImeta?.thumb || eventImage
+  }
+  const displayImageForDetection = eventImageThumbnail || image
+
+  // Detect image aspect ratio to determine layout - MUST be called unconditionally
+  const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null)
+  const [isImageLoading, setIsImageLoading] = useState(true)
+  
+  useEffect(() => {
+    if (!displayImageForDetection) {
+      setImageAspectRatio(null)
+      setIsImageLoading(false)
+      return
+    }
+    
+    setIsImageLoading(true)
+    const img = new window.Image()
+    img.onload = () => {
+      const aspectRatio = img.width / img.height
+      setImageAspectRatio(aspectRatio)
+      setIsImageLoading(false)
+    }
+    img.onerror = () => {
+      setImageAspectRatio(null)
+      setIsImageLoading(false)
+    }
+    img.src = displayImageForDetection
+  }, [displayImageForDetection])
+
   // Early return after ALL hooks are called
   if (!autoLoadMedia) {
     return null
@@ -349,23 +387,17 @@ export default function WebPreview({ url, className }: { url: string; className?
   if (!hasOpengraphData || nostrIdentifier) {
     // Enhanced card for event URLs (always show if nostr identifier detected, even while loading)
     if (nostrType === 'naddr' || nostrType === 'nevent' || nostrType === 'note') {
-      const eventMetadata = fetchedEvent ? getLongFormArticleMetadataFromEvent(fetchedEvent) : null
       const eventTypeName = fetchedEvent ? getEventTypeName(fetchedEvent.kind) : null
       const eventTitle = eventMetadata?.title || eventTypeName
       const eventSummary = eventMetadata?.summary || description
-      const eventImage = eventMetadata?.image
 
-      // Extract imeta info to check for thumbnails
-      const imetaInfos = fetchedEvent ? getImetaInfosFromEvent(fetchedEvent) : []
-      // Find thumbnail for the event image if available
-      let eventImageThumbnail: string | null = null
-      if (eventImage && fetchedEvent) {
-        const cleanedEventImage = cleanUrl(eventImage)
-        // Find imeta info that matches the event image URL
-        const matchingImeta = imetaInfos.find(info => cleanUrl(info.url) === cleanedEventImage)
-        // Return thumbnail if available, otherwise return original image
-        eventImageThumbnail = matchingImeta?.thumb || eventImage
-      }
+      // Fallback to OG image from website if event doesn't have an image
+      // The OG image is already converted to absolute URL by useFetchWebMetadata
+      const displayImage = eventImageThumbnail || image
+      
+      // Determine if image is portrait (taller than wide) or landscape (wider than tall)
+      const isPortrait = imageAspectRatio !== null && imageAspectRatio < 1
+      const isLandscape = imageAspectRatio !== null && imageAspectRatio > 1
 
       // Extract bookstr metadata if applicable
       const bookMetadata = fetchedEvent ? extractBookMetadata(fetchedEvent) : null
@@ -381,22 +413,25 @@ export default function WebPreview({ url, className }: { url: string; className?
       // Truncate original URL to 150 characters
       const truncatedUrl = url.length > 150 ? url.substring(0, 150) + '...' : url
 
-      return (
-        <div
-          className={cn('p-3 clickable flex w-full border rounded-lg overflow-hidden gap-3 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
-          onClick={(e) => {
-            e.stopPropagation()
-            window.open(cleanedUrl, '_blank')
-          }}
-        >
-          {eventImageThumbnail && fetchedEvent && (
-            <Image
-              image={{ url: eventImageThumbnail, pubkey: fetchedEvent.pubkey }}
-              className="w-20 h-20 rounded-lg flex-shrink-0 object-cover border border-green-200 dark:border-green-800"
-              hideIfError
-            />
-          )}
-          <div className="flex-1 min-w-0">
+      // Determine which article component to use based on event kind
+      const isAsciidocEvent = fetchedEvent && (fetchedEvent.kind === ExtendedKind.WIKI_ARTICLE || fetchedEvent.kind === ExtendedKind.PUBLICATION_CONTENT)
+      const isMarkdownEvent = fetchedEvent && (fetchedEvent.kind === kinds.LongFormArticle || fetchedEvent.kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN)
+      const showContentPreview = previewEvent && previewEvent.content && (isAsciidocEvent || isMarkdownEvent)
+
+      // Render landscape image on top, portrait on left
+      if (isLandscape && displayImage) {
+        return (
+          <div
+            className={cn('p-3 flex flex-col w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
+          >
+            <div className="w-full h-52 -mx-3 -mt-3 mb-3 flex items-center justify-center overflow-hidden bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20">
+              <Image
+                image={{ url: displayImage, pubkey: fetchedEvent?.pubkey }}
+                className="w-full h-full object-contain"
+                hideIfError
+              />
+            </div>
+            <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 mb-1">
               {fetchedEvent ? (
                 <>
@@ -419,10 +454,19 @@ export default function WebPreview({ url, className }: { url: string; className?
                   {isFetchingEventFinal ? 'Loading event...' : 'Event'}
                 </span>
               )}
-              <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0 ml-auto" />
+              <a
+                href={cleanedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="ml-auto"
+              >
+                <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
+              </a>
             </div>
             {fetchedEvent && (
               <>
+                {/* Always show title in card header, hide it in content preview */}
                 {eventTitle && (
                   <div className="font-semibold text-sm line-clamp-2 mb-1 text-green-900 dark:text-green-100">{eventTitle}</div>
                 )}
@@ -435,21 +479,137 @@ export default function WebPreview({ url, className }: { url: string; className?
                     {bookMetadata.version && <span>Version: {bookMetadata.version.toUpperCase()}</span>}
                   </div>
                 )}
-                {eventSummary && (
+                {eventSummary && !showContentPreview && (
                   <div className="text-xs text-muted-foreground line-clamp-2 mb-1">{eventSummary}</div>
                 )}
-                {previewEvent && previewEvent.content && (
-                  <div className="my-2 text-sm line-clamp-6 overflow-hidden [&_img]:hidden">
-                    <MarkdownArticle 
-                      event={previewEvent} 
-                      className="pointer-events-none"
-                      hideMetadata={true}
-                    />
+                {showContentPreview && (
+                  <div className="my-2 text-sm line-clamp-6 overflow-hidden [&_img]:hidden [&_h1]:hidden [&_h2]:hidden">
+                    {isAsciidocEvent ? (
+                      <AsciidocArticle 
+                        event={previewEvent} 
+                        className="pointer-events-none"
+                        hideImagesAndInfo={true}
+                      />
+                    ) : (
+                      <MarkdownArticle 
+                        event={previewEvent} 
+                        className="pointer-events-none"
+                        hideMetadata={true}
+                      />
+                    )}
                   </div>
                 )}
               </>
             )}
-            <div className="text-xs text-muted-foreground truncate mt-2">{truncatedUrl}</div>
+            <hr className="mt-4 mb-2 border-t border-border" />
+            <a
+              href={cleanedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-xs text-muted-foreground truncate block hover:underline"
+            >
+              {truncatedUrl}
+            </a>
+            </div>
+          </div>
+        )
+      }
+
+      // Render portrait image on left (30% bigger: w-40 * 1.3 = w-52)
+      return (
+        <div
+          className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
+        >
+          {displayImage && (isPortrait || isImageLoading) && (
+            <div className="w-52 flex-shrink-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden">
+              <Image
+                image={{ url: displayImage, pubkey: fetchedEvent?.pubkey }}
+                className="w-full h-full object-cover"
+                hideIfError
+              />
+            </div>
+          )}
+          <div className="flex-1 min-w-0 pl-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              {fetchedEvent ? (
+                <>
+                  <Username userId={fetchedEvent.pubkey} className="text-xs" />
+                  {eventAuthorProfile?.avatar && (
+                    <img
+                      src={eventAuthorProfile.avatar}
+                      alt=""
+                      className="w-5 h-5 rounded-full flex-shrink-0 object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                      }}
+                    />
+                  )}
+                  <span className="text-xs text-muted-foreground">•</span>
+                  <span className="text-xs text-muted-foreground">{eventTypeName}</span>
+                </>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {isFetchingEventFinal ? 'Loading event...' : 'Event'}
+                </span>
+              )}
+              <a
+                href={cleanedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="ml-auto"
+              >
+                <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
+              </a>
+            </div>
+            {fetchedEvent && (
+              <>
+                {/* Always show title in card header, hide it in content preview */}
+                {eventTitle && (
+                  <div className="font-semibold text-sm line-clamp-2 mb-1 text-green-900 dark:text-green-100">{eventTitle}</div>
+                )}
+                {isBookstrEvent && bookMetadata && (
+                  <div className="text-xs text-muted-foreground space-x-2 mb-1">
+                    {bookMetadata.type && <span>Type: {bookMetadata.type}</span>}
+                    {bookMetadata.book && <span>Book: {formatBookName(bookMetadata.book)}</span>}
+                    {bookMetadata.chapter && <span>Chapter: {bookMetadata.chapter}</span>}
+                    {bookMetadata.verse && <span>Verse: {bookMetadata.verse}</span>}
+                    {bookMetadata.version && <span>Version: {bookMetadata.version.toUpperCase()}</span>}
+                  </div>
+                )}
+                {eventSummary && !showContentPreview && (
+                  <div className="text-xs text-muted-foreground line-clamp-2 mb-1">{eventSummary}</div>
+                )}
+                {showContentPreview && (
+                  <div className="my-2 text-sm line-clamp-6 overflow-hidden [&_img]:hidden [&_h1]:hidden [&_h2]:hidden">
+                    {isAsciidocEvent ? (
+                      <AsciidocArticle 
+                        event={previewEvent} 
+                        className="pointer-events-none"
+                        hideImagesAndInfo={true}
+                      />
+                    ) : (
+                      <MarkdownArticle 
+                        event={previewEvent} 
+                        className="pointer-events-none"
+                        hideMetadata={true}
+                      />
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+            <hr className="mt-4 mb-2 border-t border-border" />
+            <a
+              href={cleanedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-xs text-muted-foreground truncate block hover:underline"
+            >
+              {truncatedUrl}
+            </a>
           </div>
         </div>
       )
@@ -462,20 +622,18 @@ export default function WebPreview({ url, className }: { url: string; className?
       
       return (
         <div
-          className={cn('p-3 clickable flex w-full border rounded-lg overflow-hidden gap-3 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
-          onClick={(e) => {
-            e.stopPropagation()
-            window.open(cleanedUrl, '_blank')
-          }}
+          className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
         >
           {fetchedProfile?.avatar && (
-            <Image
-              image={{ url: fetchedProfile.avatar, pubkey: fetchedProfile.pubkey }}
-              className="w-16 h-16 rounded-lg flex-shrink-0 object-cover border border-green-200 dark:border-green-800"
-              hideIfError
-            />
+            <div className="w-40 flex-shrink-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden">
+              <Image
+                image={{ url: fetchedProfile.avatar, pubkey: fetchedProfile.pubkey }}
+                className="w-full h-full object-cover"
+                hideIfError
+              />
+            </div>
           )}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 pl-3">
             <div className="flex items-center gap-2 mb-1">
               {fetchedProfile ? (
                 <>
@@ -492,12 +650,29 @@ export default function WebPreview({ url, className }: { url: string; className?
                   {isFetchingProfile ? 'Loading profile...' : 'Profile'}
                 </span>
               )}
-              <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0 ml-auto" />
+              <a
+                href={cleanedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="ml-auto"
+              >
+                <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
+              </a>
             </div>
             {fetchedProfile?.about && (
               <div className="text-xs text-muted-foreground line-clamp-2 mb-1 mt-1">{fetchedProfile.about}</div>
             )}
-            <div className="text-xs text-muted-foreground truncate mt-1">{truncatedUrl}</div>
+            <hr className="mt-4 mb-2 border-t border-border" />
+            <a
+              href={cleanedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-xs text-muted-foreground truncate block hover:underline"
+            >
+              {truncatedUrl}
+            </a>
           </div>
         </div>
       )
@@ -506,18 +681,30 @@ export default function WebPreview({ url, className }: { url: string; className?
     // Basic fallback for non-nostr URLs - show site information
     return (
       <div
-        className={cn('p-3 clickable flex w-full border rounded-lg overflow-hidden gap-3 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
-        onClick={(e) => {
-          e.stopPropagation()
-          window.open(cleanedUrl, '_blank')
-        }}
+        className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-3 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20', className)}
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <div className="text-sm font-semibold text-green-900 dark:text-green-100 truncate">{hostname}</div>
-            <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
+            <a
+              href={cleanedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400 flex-shrink-0" />
+            </a>
           </div>
-          <div className="text-xs text-muted-foreground break-all line-clamp-2">{cleanedUrl}</div>
+            <hr className="mt-4 mb-2 border-t border-border" />
+            <a
+              href={cleanedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-xs text-muted-foreground break-all line-clamp-2 block hover:underline"
+            >
+              {cleanedUrl}
+            </a>
         </div>
       </div>
     )
@@ -525,46 +712,61 @@ export default function WebPreview({ url, className }: { url: string; className?
 
   if (isSmallScreen && image) {
     return (
-      <div
-        className="rounded-lg border mt-2 overflow-hidden"
-        onClick={(e) => {
-          e.stopPropagation()
-          window.open(cleanedUrl, '_blank')
-        }}
-      >
-        <Image image={{ url: image }} className="w-20 h-20 rounded-lg object-cover" hideIfError />
-        <div className="bg-muted p-2 w-full">
+      <div className="rounded-lg border mt-2 overflow-hidden flex">
+        <div className="w-40 flex-shrink-0 bg-muted flex items-center justify-center rounded-l-lg overflow-hidden">
+          <Image image={{ url: image }} className="w-full h-full object-cover" hideIfError />
+        </div>
+        <div className="bg-muted p-2 w-full flex-1">
           <div className="flex items-center gap-2">
             <div className="text-xs text-muted-foreground truncate">{hostname}</div>
-            <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+            <a
+              href={cleanedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+            </a>
           </div>
           {title && <div className="font-semibold line-clamp-1">{title}</div>}
           {!title && description && <div className="font-semibold line-clamp-1">{description}</div>}
-          <div className="text-xs text-muted-foreground truncate mt-1">{url}</div>
+          <hr className="my-2 border-t border-border" />
+          <a
+            href={cleanedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-xs text-muted-foreground truncate block hover:underline"
+          >
+            {url}
+          </a>
         </div>
       </div>
     )
   }
 
   return (
-    <div
-      className={cn('p-2 clickable flex w-full border rounded-lg overflow-hidden gap-2', className)}
-      onClick={(e) => {
-        e.stopPropagation()
-        window.open(cleanedUrl, '_blank')
-      }}
-    >
+    <div className={cn('p-2 flex w-full border rounded-lg overflow-hidden gap-0', className)}>
       {image && (
-        <Image
-          image={{ url: image }}
-          className="w-20 h-20 rounded-lg flex-shrink-0 object-cover"
-          hideIfError
-        />
+        <div className="w-40 flex-shrink-0 bg-muted flex items-center justify-center -my-2 -ml-2 -mr-0 rounded-l-lg overflow-hidden">
+          <Image
+            image={{ url: image }}
+            className="w-full h-full object-cover"
+            hideIfError
+          />
+        </div>
       )}
-      <div className="flex-1 w-0 p-2">
+      <div className="flex-1 w-0 p-2 pl-2">
         <div className="flex items-center gap-2 mb-1">
           <div className="text-xs text-muted-foreground truncate">{hostname}</div>
-          <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+          <a
+            href={cleanedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ExternalLink className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+          </a>
         </div>
         {title && <div className="font-semibold line-clamp-2 mb-1">{title}</div>}
         {description && (
@@ -572,7 +774,16 @@ export default function WebPreview({ url, className }: { url: string; className?
             {description}
           </div>
         )}
-        <div className="text-xs text-muted-foreground truncate">{url}</div>
+        <hr className="my-2 border-t border-border" />
+        <a
+          href={cleanedUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-xs text-muted-foreground truncate block hover:underline"
+        >
+          {url}
+        </a>
       </div>
     </div>
   )
