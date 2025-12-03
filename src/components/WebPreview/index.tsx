@@ -18,6 +18,7 @@ import client from '@/services/client.service'
 import { Event } from 'nostr-tools'
 import { BIG_RELAY_URLS } from '@/constants'
 import { getImetaInfosFromEvent } from '@/lib/event'
+import MarkdownArticle from '../Note/MarkdownArticle/MarkdownArticle'
 
 // Helper function to get event type name
 function getEventTypeName(kind: number): string {
@@ -346,11 +347,15 @@ export default function WebPreview({ url, className }: { url: string; className?
   const { profile: eventAuthorProfile } = useFetchProfile(eventAuthorProfileId)
   
 
-  // Get content preview (first 500 chars, stripped of markdown) - ALWAYS call hooks before any returns
-  const contentPreview = useMemo(() => {
-    if (!fetchedEvent?.content) return ''
-    const stripped = stripMarkdown(fetchedEvent.content)
-    return stripped.length > 500 ? stripped.substring(0, 500) + '...' : stripped
+  // Create synthetic event for content preview rendering - ALWAYS call hooks before any returns
+  const previewEvent = useMemo(() => {
+    if (!fetchedEvent?.content) return null
+    // Create a synthetic event with the content for MarkdownArticle rendering
+    // We'll use the full content and let CSS handle truncation
+    return {
+      ...fetchedEvent,
+      content: fetchedEvent.content
+    } as Event
   }, [fetchedEvent])
 
   // Early return after ALL hooks are called
@@ -458,9 +463,13 @@ export default function WebPreview({ url, className }: { url: string; className?
                 {eventSummary && (
                   <div className="text-xs text-muted-foreground line-clamp-2 mb-1">{eventSummary}</div>
                 )}
-                {contentPreview && (
-                  <div className="my-2 text-sm whitespace-pre-wrap break-words line-clamp-6">
-                    {contentPreview}
+                {previewEvent && previewEvent.content && (
+                  <div className="my-2 text-sm line-clamp-6 overflow-hidden">
+                    <MarkdownArticle 
+                      event={previewEvent} 
+                      className="pointer-events-none"
+                      hideMetadata={true}
+                    />
                   </div>
                 )}
               </>
