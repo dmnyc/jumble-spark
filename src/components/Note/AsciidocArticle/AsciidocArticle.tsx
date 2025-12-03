@@ -675,7 +675,6 @@ export default function AsciidocArticle({
           let m
           while ((m = nostrRegex.exec(textContent)) !== null) {
             const bech32Id = m[1]
-            const emptyBrackets = m[2] // [] suffix if present
             const start = m.index
             const end = m.index + m[0].length
             
@@ -943,8 +942,6 @@ export default function AsciidocArticle({
       const parent = element.parentNode
       if (!parent) {
         logger.warn('Nostr mention placeholder has no parent node')
-        // Fallback: show as plain text
-        const textNode = document.createTextNode(`nostr:${bech32Id}`)
         return
       }
       parent.replaceChild(container, element)
@@ -980,8 +977,6 @@ export default function AsciidocArticle({
       const parent = element.parentNode
       if (!parent) {
         logger.warn('Nostr note placeholder has no parent node')
-        // Fallback: show as plain text
-        const textNode = document.createTextNode(`nostr:${bech32Id}`)
         return
       }
       parent.replaceChild(container, element)
