@@ -1034,7 +1034,11 @@ function parseMarkdownContent(
       )
       if (!isInOther && !isWithinBlockPattern(start, end, blockPatterns)) {
         const citationType = match[1]
-        const citationId = match[2]
+        let citationId = match[2]
+        // Strip nostr: prefix if present
+        if (citationId.startsWith('nostr:')) {
+          citationId = citationId.substring(6) // Remove 'nostr:' prefix
+        }
         const citationIndex = citations.length
         citations.push({ id: `citation-${citationIndex}`, type: citationType, citationId })
         patterns.push({
@@ -1096,12 +1100,25 @@ function parseMarkdownContent(
   })
   
   // Wikilinks ([[link]] or [[link|display]]) - but not inside markdown links
+  // Exclude citations ([[citation::...]]) and bookstr links ([[book::...]]) from wikilink processing
   const wikilinkRegex = /\[\[([^\]]+)\]\]/g
   const wikilinkMatches = Array.from(content.matchAll(wikilinkRegex))
   wikilinkMatches.forEach(match => {
     if (match.index !== undefined) {
       const start = match.index
       const end = match.index + match[0].length
+      const linkContent = match[1]
+      
+      // Skip citations - they're already processed above
+      if (linkContent.startsWith('citation::')) {
+        return
+      }
+      
+      // Skip bookstr links - they're handled separately
+      if (linkContent.startsWith('book::')) {
+        return
+      }
+      
       // Only add if not already covered by another pattern and not in block pattern
       const isInOther = patterns.some(p => 
         start >= p.index && 
@@ -1112,7 +1129,7 @@ function parseMarkdownContent(
           index: start,
           end: end,
           type: 'wikilink',
-          data: match[1]
+          data: linkContent
         })
       }
     }

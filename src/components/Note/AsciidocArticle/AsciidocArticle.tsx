@@ -15,6 +15,8 @@ import Lightbox from 'yet-another-react-lightbox'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import { EmbeddedNote, EmbeddedMention } from '@/components/Embedded'
 import EmbeddedCitation from '@/components/EmbeddedCitation'
+import { DeletedEventProvider } from '@/providers/DeletedEventProvider'
+import { ReplyProvider } from '@/providers/ReplyProvider'
 import Wikilink from '@/components/UniversalContent/Wikilink'
 import { BookstrContent } from '@/components/Bookstr'
 import { preprocessAsciidocMediaLinks } from '../MarkdownArticle/preprocessMarkup'
@@ -61,6 +63,7 @@ function convertMarkdownToAsciidoc(content: string): string {
   // Do this early so they're protected from other markdown conversions
   // naddr addresses can be 200+ characters, so we use + instead of specific length
   // Also handle optional [] suffix (empty link text in AsciiDoc)
+  // Note: Citations are already protected in passthrough (+++...+++), so nostr: links inside them won't be processed
   asciidoc = asciidoc.replace(/nostr:(npub1[a-z0-9]{58,}|nprofile1[a-z0-9]+|note1[a-z0-9]{58,}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)(\[\])?/g, (_match, bech32Id, emptyBrackets) => {
     // Convert directly to AsciiDoc link format
     // This will be processed later in HTML post-processing to render as React components
@@ -358,11 +361,27 @@ export default function AsciidocArticle({
       return `+++BOOKSTR_MARKER:${cleanContent}:BOOKSTR_END+++`
     })
     
+    // Protect citations by converting them to passthrough format
+    // Don't use [[...]] inside passthrough as AsciiDoc processes it - use a plain marker instead
+    content = content.replace(/\[\[citation::(end|foot|foot-end|inline|quote|prompt-end|prompt-inline)::([^\]]+)\]\]/g, (_match, citationType, citationId) => {
+      // Strip all nostr: prefixes if present (handle cases like nostr:nostr:nevent1...)
+      let cleanId = citationId.trim()
+      while (cleanId.startsWith('nostr:')) {
+        cleanId = cleanId.substring(6) // Remove 'nostr:' prefix
+      }
+      // Use a unique marker format that won't conflict with other content
+      return `+++CITATION_MARKER:${citationType}::${cleanId}:CITATION_END+++`
+    })
+    
     // Then protect regular wikilinks by converting them to passthrough format
     // This prevents AsciiDoc from processing them and prevents URLs inside from being processed
     content = content.replace(/\[\[([^\]]+)\]\]/g, (_match, linkContent) => {
       // Skip if this was already processed as a bookstr wikilink (shouldn't happen, but safety check)
       if (linkContent.startsWith('book::')) {
+        return _match
+      }
+      // Skip citations - they're already processed above
+      if (linkContent.startsWith('citation::')) {
         return _match
       }
       // Convert to AsciiDoc passthrough format so it's preserved
@@ -640,6 +659,24 @@ export default function AsciidocArticle({
         // Note: Markdown is now converted to AsciiDoc in preprocessing,
         // so post-processing markdown should not be necessary
         
+        // IMPORTANT: Process citations FIRST before any nostr: link processing
+        // This prevents nostr: links inside citations from being processed incorrectly
+        // Handle citation markers - convert passthrough markers to placeholders
+        // AsciiDoc passthrough +++CITATION_MARKER:type::id:CITATION_END+++ outputs CITATION_MARKER:type::id:CITATION_END in HTML
+        htmlString = htmlString.replace(/CITATION_MARKER:\s*(end|foot|foot-end|inline|quote|prompt-end|prompt-inline)::\s*(.+?)\s*:CITATION_END/g, (_match, citationType, citationId) => {
+          // Strip all nostr: prefixes if present (handle cases like nostr:nostr:nevent1...)
+          let cleanId = citationId.trim()
+          while (cleanId.startsWith('nostr:')) {
+            cleanId = cleanId.substring(6) // Remove 'nostr:' prefix
+          }
+          const escapedId = cleanId.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+          // Use inline element for inline citations and footnotes/endnotes (they need to be inline)
+          // Only block-level citations (quote) should use div
+          const isInline = citationType === 'inline' || citationType === 'prompt-inline' || citationType === 'foot' || citationType === 'foot-end' || citationType === 'end' || citationType === 'prompt-end'
+          const tag = isInline ? 'span' : 'div'
+          return `<${tag} data-citation="${escapedId}" data-citation-type="${citationType}" class="citation-placeholder${isInline ? ' inline' : ''}"></${tag}>`
+        })
+        
         // Post-process HTML to handle nostr: links
         // Mentions (npub/nprofile) should be inline, events (note/nevent/naddr) should be block-level
         // First, handle nostr: links in <a> tags (from AsciiDoc link: syntax)
@@ -729,13 +766,6 @@ export default function AsciidocArticle({
           const unescaped = latex.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
           const escaped = unescaped.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
           return `<div data-latex-block="${escaped}" class="latex-block-placeholder my-4"></div>`
-        })
-        
-        // Handle citation markup: [[citation::type::nevent...]]
-        // AsciiDoc passthrough +++[[citation::type::nevent...]]+++ outputs just [[citation::type::nevent...]] in HTML
-        htmlString = htmlString.replace(/\[\[citation::(end|foot|foot-end|inline|quote|prompt-end|prompt-inline)::([^\]]+)\]\]/g, (_match, citationType, citationId) => {
-          const escapedId = citationId.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
-          return `<div data-citation="${escapedId}" data-citation-type="${citationType}" class="citation-placeholder"></div>`
         })
         
         // Handle bookstr markers - convert passthrough markers to placeholders
@@ -897,6 +927,9 @@ export default function AsciidocArticle({
   const reactRootsRef = useRef<Map<Element, Root>>(new Map())
   // Track which placeholders have been processed to avoid re-processing
   const processedPlaceholdersRef = useRef<Set<string>>(new Set())
+  // Track citations for footnotes and endnotes sections
+  const citationsRef = useRef<Array<{ id: string; type: string; citationId: string; index: number }>>([])
+  const citationIndexRef = useRef(0)
   
   // Post-process rendered HTML to inject React components for nostr: links and handle hashtags
   useEffect(() => {
@@ -995,36 +1028,344 @@ export default function AsciidocArticle({
     })
     
     // Process citations - replace placeholders with React components
-    const citationPlaceholders = contentRef.current.querySelectorAll('.citation-placeholder[data-citation]')
+    // First pass: collect all citations and assign indices
+    const citationPlaceholders = Array.from(contentRef.current.querySelectorAll('.citation-placeholder[data-citation]'))
+    console.log('AsciidocArticle: Found citation placeholders', {
+      count: citationPlaceholders.length,
+      placeholders: citationPlaceholders.map(el => ({
+        id: el.getAttribute('data-citation'),
+        type: el.getAttribute('data-citation-type')
+      }))
+    })
+    
+    citationsRef.current = []
+    citationIndexRef.current = 0
+    
     citationPlaceholders.forEach((element) => {
       const citationId = element.getAttribute('data-citation')
       const citationType = element.getAttribute('data-citation-type') || 'end'
       if (!citationId) {
-        logger.warn('Citation placeholder found but no citation ID attribute')
+        console.warn('Citation placeholder found but no citation ID attribute')
         return
       }
       
-      // Determine container class based on citation type
-      const isInline = citationType === 'inline' || citationType === 'prompt-inline'
-      const container = document.createElement(isInline ? 'span' : 'div')
-      container.className = isInline ? 'inline' : 'w-full my-2'
+      const citationIndex = citationIndexRef.current++
+      citationsRef.current.push({
+        id: `citation-${citationIndex}`,
+        type: citationType,
+        citationId,
+        index: citationIndex
+      })
+    })
+    
+    console.log('AsciidocArticle: Collected citations', {
+      count: citationsRef.current.length,
+      citations: citationsRef.current
+    })
+    
+    // Second pass: render citations based on type
+    citationPlaceholders.forEach((element, idx) => {
+      const citationId = element.getAttribute('data-citation')
+      const citationType = element.getAttribute('data-citation-type') || 'end'
+      if (!citationId) return
+      
+      const citation = citationsRef.current[idx]
+      if (!citation) return
+      
+      const citationNumber = citation.index + 1
       const parent = element.parentNode
       if (!parent) {
         logger.warn('Citation placeholder has no parent node')
         return
       }
-      parent.replaceChild(container, element)
       
-      // Use React to render the component
-      const root = createRoot(container)
-      root.render(
-        <EmbeddedCitation
-          citationId={citationId}
-          displayType={citationType as 'end' | 'foot' | 'foot-end' | 'inline' | 'quote' | 'prompt-end' | 'prompt-inline'}
-        />
-      )
-      reactRootsRef.current.set(container, root)
+      // Handle different citation types
+      if (citationType === 'inline' || citationType === 'prompt-inline') {
+        // Inline citations render as clickable text
+        const container = document.createElement('span')
+        container.className = 'inline'
+        container.style.display = 'inline'
+        container.style.whiteSpace = 'nowrap'
+        parent.replaceChild(container, element)
+        
+        const root = createRoot(container)
+        root.render(
+          <DeletedEventProvider>
+            <ReplyProvider>
+              <EmbeddedCitation
+                citationId={citationId}
+                displayType={citationType as 'inline' | 'prompt-inline'}
+              />
+            </ReplyProvider>
+          </DeletedEventProvider>
+        )
+        reactRootsRef.current.set(container, root)
+      } else if (citationType === 'foot' || citationType === 'foot-end') {
+        // Footnotes render as superscript numbers
+        const sup = document.createElement('sup')
+        sup.className = 'citation-ref'
+        sup.style.display = 'inline'
+        sup.style.whiteSpace = 'nowrap'
+        const link = document.createElement('a')
+        link.href = `#citation-${citation.index}`
+        link.id = `citation-ref-${citation.index}`
+        link.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline no-underline'
+        link.textContent = `[${citationNumber}]`
+        link.addEventListener('click', (e) => {
+          e.preventDefault()
+          const citationElement = document.getElementById(`citation-${citation.index}`)
+          if (citationElement) {
+            citationElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        })
+        sup.appendChild(link)
+        parent.replaceChild(sup, element)
+      } else if (citationType === 'end' || citationType === 'prompt-end') {
+        // Endnotes render as superscript numbers that link to references section
+        const sup = document.createElement('sup')
+        sup.className = 'citation-ref'
+        sup.style.display = 'inline'
+        sup.style.whiteSpace = 'nowrap'
+        const link = document.createElement('a')
+        link.href = '#references-section'
+        link.id = `citation-ref-${citation.index}`
+        link.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline no-underline'
+        link.textContent = `[${citationNumber}]`
+        link.addEventListener('click', (e) => {
+          e.preventDefault()
+          const refSection = document.getElementById('references-section')
+          if (refSection) {
+            refSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        })
+        sup.appendChild(link)
+        parent.replaceChild(sup, element)
+      } else if (citationType === 'quote') {
+        // Quotes render as block-level citation cards
+        const container = document.createElement('div')
+        container.className = 'w-full my-2'
+        parent.replaceChild(container, element)
+        
+        const root = createRoot(container)
+        root.render(
+          <DeletedEventProvider>
+            <ReplyProvider>
+              <EmbeddedCitation
+                citationId={citationId}
+                displayType="quote"
+              />
+            </ReplyProvider>
+          </DeletedEventProvider>
+        )
+        reactRootsRef.current.set(container, root)
+      }
     })
+    
+    // Render footnotes and references sections
+    const footnotes = citationsRef.current.filter(c => c.type === 'foot' || c.type === 'foot-end')
+    const endCitations = citationsRef.current.filter(c => c.type === 'end' || c.type === 'prompt-end')
+    
+    console.log('AsciidocArticle: Processing citations', {
+      totalCitations: citationsRef.current.length,
+      footnotesCount: footnotes.length,
+      endCitationsCount: endCitations.length,
+      allCitations: citationsRef.current
+    })
+    
+    if (!contentRef.current?.parentElement) {
+      console.warn('AsciidocArticle: contentRef parent not found, cannot render footnotes/references')
+      return
+    }
+    
+    const parentContainer = contentRef.current.parentElement
+    
+    // Check if sections already exist
+    const existingFootnotes = parentContainer.querySelector('#footnotes-section')
+    const existingReferences = parentContainer.querySelector('#references-section')
+    
+    // If sections already exist and we have no new citations, preserve existing sections
+    // This handles the case where useEffect runs again after placeholders are replaced
+    if ((existingFootnotes || existingReferences) && citationsRef.current.length === 0) {
+      console.log('AsciidocArticle: Sections already exist, preserving them', {
+        hasFootnotes: !!existingFootnotes,
+        hasReferences: !!existingReferences
+      })
+      return
+    }
+    
+    // Remove existing sections only if we're going to recreate them with new data
+    if (existingFootnotes && footnotes.length > 0) {
+      existingFootnotes.remove()
+    }
+    if (existingReferences && endCitations.length > 0) {
+      existingReferences.remove()
+    }
+    
+    console.log('AsciidocArticle: Rendering citation sections', {
+      footnotesCount: footnotes.length,
+      endCitationsCount: endCitations.length,
+      totalCitations: citationsRef.current.length,
+      parentContainer: parentContainer.tagName,
+      hasContentRef: !!contentRef.current,
+      hadExistingFootnotes: !!existingFootnotes,
+      hadExistingReferences: !!existingReferences
+    })
+    
+    // Render footnotes section
+    if (footnotes.length > 0) {
+      const footnotesSection = document.createElement('div')
+      footnotesSection.id = 'footnotes-section'
+      footnotesSection.className = 'mt-8 pt-4 border-t border-gray-300 dark:border-gray-700'
+      
+      const h3 = document.createElement('h3')
+      h3.className = 'text-lg font-semibold mb-4'
+      h3.textContent = 'Footnotes'
+      footnotesSection.appendChild(h3)
+      
+      const ol = document.createElement('ol')
+      ol.className = 'list-decimal list-inside space-y-2'
+      
+      footnotes.forEach((citation) => {
+        const li = document.createElement('li')
+        li.id = citation.id
+        li.className = 'text-sm'
+        
+        const span = document.createElement('span')
+        span.className = 'font-semibold'
+        span.textContent = `[${citation.index + 1}]: `
+        li.appendChild(span)
+        
+        const citationContainer = document.createElement('span')
+        citationContainer.className = 'inline-block mt-1'
+        li.appendChild(citationContainer)
+        
+        const backLink = document.createElement('a')
+        backLink.href = `#citation-ref-${citation.index}`
+        backLink.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs ml-1'
+        backLink.textContent = '↩'
+        backLink.addEventListener('click', (e) => {
+          e.preventDefault()
+          const refElement = document.getElementById(`citation-ref-${citation.index}`)
+          if (refElement) {
+            refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        })
+        li.appendChild(backLink)
+        
+        ol.appendChild(li)
+        
+        // Render citation component
+        const citationRoot = createRoot(citationContainer)
+        citationRoot.render(
+          <DeletedEventProvider>
+            <ReplyProvider>
+              <EmbeddedCitation
+                citationId={citation.citationId}
+                displayType={citation.type === 'foot-end' ? 'foot-end' : 'foot'}
+              />
+            </ReplyProvider>
+          </DeletedEventProvider>
+        )
+        reactRootsRef.current.set(citationContainer, citationRoot)
+      })
+      
+      footnotesSection.appendChild(ol)
+      
+      // Insert after contentRef div - use insertAdjacentElement for more reliable insertion
+      contentRef.current.insertAdjacentElement('afterend', footnotesSection)
+      
+      // Verify insertion
+      const insertedFootnotes = parentContainer.querySelector('#footnotes-section')
+      console.log('AsciidocArticle: Footnotes section created and inserted', { 
+        footnotesCount: footnotes.length,
+        parentTagName: parentContainer.tagName,
+        sectionId: footnotesSection.id,
+        isInDOM: !!insertedFootnotes,
+        sectionVisible: insertedFootnotes ? window.getComputedStyle(insertedFootnotes).display !== 'none' : false,
+        sectionText: insertedFootnotes?.textContent?.substring(0, 100)
+      })
+    }
+    
+    // Render references section
+    if (endCitations.length > 0) {
+      const referencesSection = document.createElement('div')
+      referencesSection.id = 'references-section'
+      referencesSection.className = 'mt-8 pt-4 border-t border-gray-300 dark:border-gray-700'
+      
+      const h3 = document.createElement('h3')
+      h3.className = 'text-lg font-semibold mb-4'
+      h3.textContent = 'References'
+      referencesSection.appendChild(h3)
+      
+      const ol = document.createElement('ol')
+      ol.className = 'list-decimal list-inside space-y-2'
+      
+      endCitations.forEach((citation) => {
+        const li = document.createElement('li')
+        li.id = `citation-end-${citation.index}`
+        li.className = 'text-sm'
+        
+        const span = document.createElement('span')
+        span.className = 'font-semibold'
+        span.textContent = `[${citation.index + 1}]: `
+        li.appendChild(span)
+        
+        const citationContainer = document.createElement('span')
+        citationContainer.className = 'inline-block mt-1'
+        li.appendChild(citationContainer)
+        
+        const backLink = document.createElement('a')
+        backLink.href = `#citation-ref-${citation.index}`
+        backLink.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs ml-1'
+        backLink.textContent = '↩'
+        backLink.addEventListener('click', (e) => {
+          e.preventDefault()
+          const refElement = document.getElementById(`citation-ref-${citation.index}`)
+          if (refElement) {
+            refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        })
+        li.appendChild(backLink)
+        
+        ol.appendChild(li)
+        
+        // Render citation component
+        const citationRoot = createRoot(citationContainer)
+        citationRoot.render(
+          <DeletedEventProvider>
+            <ReplyProvider>
+              <EmbeddedCitation
+                citationId={citation.citationId}
+                displayType={citation.type as 'end' | 'prompt-end'}
+              />
+            </ReplyProvider>
+          </DeletedEventProvider>
+        )
+        reactRootsRef.current.set(citationContainer, citationRoot)
+      })
+      
+      referencesSection.appendChild(ol)
+      
+      // Insert after footnotes section if it exists, otherwise after contentRef
+      const footnotesSection = parentContainer.querySelector('#footnotes-section')
+      if (footnotesSection) {
+        // Insert after footnotes section
+        footnotesSection.insertAdjacentElement('afterend', referencesSection)
+      } else {
+        // No footnotes section, insert after contentRef
+        contentRef.current.insertAdjacentElement('afterend', referencesSection)
+      }
+      
+      // Verify insertion
+      const insertedReferences = parentContainer.querySelector('#references-section')
+      console.log('AsciidocArticle: References section created and inserted', { 
+        endCitationsCount: endCitations.length,
+        hasFootnotesSection: !!footnotesSection,
+        sectionId: referencesSection.id,
+        isInDOM: !!insertedReferences,
+        sectionHTML: insertedReferences?.outerHTML?.substring(0, 200)
+      })
+    }
     
     // Process LaTeX math expressions - render with KaTeX
     const latexInlinePlaceholders = contentRef.current.querySelectorAll('.latex-inline-placeholder[data-latex-inline]')
@@ -1422,6 +1763,21 @@ export default function AsciidocArticle({
         .dark .asciidoc-content a[href^="/notes?t="]:hover {
           color: #86efac !important;
         }
+        .asciidoc-content .citation-placeholder.inline,
+        .asciidoc-content .citation-placeholder.inline > * {
+          display: inline !important;
+        }
+        .asciidoc-content .citation-ref,
+        .asciidoc-content .citation-ref > * {
+          display: inline !important;
+          white-space: nowrap;
+        }
+        .asciidoc-content sup.citation-ref {
+          display: inline !important;
+          vertical-align: super;
+          font-size: 0.83em;
+          line-height: 0;
+        }
       `}</style>
       <div className={`prose prose-zinc max-w-none dark:prose-invert break-words overflow-wrap-anywhere ${className || ''}`}>
         {/* Metadata */}
@@ -1597,6 +1953,10 @@ export default function AsciidocArticle({
             ))}
           </div>
         )}
+        
+        {/* Footnotes and References sections - rendered via useEffect after citations are processed */}
+        <div id="footnotes-section-container"></div>
+        <div id="references-section-container"></div>
 
       </div>
       

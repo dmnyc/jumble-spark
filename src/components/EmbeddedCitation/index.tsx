@@ -10,23 +10,29 @@ interface EmbeddedCitationProps {
 }
 
 export default function EmbeddedCitation({ citationId, displayType = 'end', className }: EmbeddedCitationProps) {
+  // Strip all nostr: prefixes if present (handle cases like nostr:nostr:nevent1...)
+  let cleanId = citationId.trim()
+  while (cleanId.startsWith('nostr:')) {
+    cleanId = cleanId.substring(6) // Remove 'nostr:' prefix
+  }
+  
   // Try to decode as bech32 first
   let eventId: string | null = null
   
   try {
-    const decoded = nip19.decode(citationId)
+    const decoded = nip19.decode(cleanId)
     if (decoded.type === 'nevent') {
       const data = decoded.data as any
-      eventId = data.id || citationId
+      eventId = data.id || cleanId
     } else if (decoded.type === 'note') {
       eventId = decoded.data as string
     } else {
       // If it's not a note/nevent, use the original ID
-      eventId = citationId
+      eventId = cleanId
     }
   } catch {
     // If decoding fails, assume it's already a hex ID
-    eventId = citationId
+    eventId = cleanId
   }
 
   const { event, isFetching } = useFetchEvent(eventId || '')

@@ -1,0 +1,115 @@
+= Test Article: Citation Embedding Examples
+Author Name
+2024-01-15
+
+This article demonstrates all citation types and display methods that can be embedded in AsciiDoc articles.
+
+IMPORTANT: Replace all placeholder nevent IDs with actual citation event IDs from your Nostr relays.
+
+== Citation Format
+
+All citations use the format: `[[citation::TYPE::NEVENT_ID]]`
+
+The TYPE can be:
+- `inline` - renders inline within text
+- `foot` - creates a footnote
+- `foot-end` - creates a footnote that links to an endnote
+- `end` - appears at the end in references section
+- `quote` - block-level citation card
+- `prompt-inline` - inline prompt citation
+- `prompt-end` - prompt citation in references section
+
+== Internal Citations (Kind 30)
+
+Internal citations reference other Nostr events.
+
+=== Inline Internal Citation
+
+Here's an inline citation: [[citation::inline::nevent1qvzqqqqqrcpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpz4mhxue69uhhyetvv9ujuerpd46hxtnfduhsqgqpl98djyt2eln4uy4dlx2l6a6eyum8acgqz3vfnqptkx54suyyn5u59v88]]
+
+You can have multiple inline citations in one sentence: The first citation [[citation::inline::nevent1qvzqqqqqrcpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyry7njqtmu366utn3422xt84hv6pg3h5vsac602xne63hw7hmrjew8x37w3]] and the second citation [[citation::inline::nevent1qvzqqqqqrcpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyr977llj62ttqp3zw5dhdp3mdswng5ge7hfgdsz2vc7f5w5889w857hmzhr]] both reference Nostr events.
+
+=== Footnote Internal Citation
+
+This sentence has a footnote citation.footnote: [[citation::foot::nevent1qvzqqqqqrcpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpz4mhxue69uhhyetvv9ujuerpd46hxtnfduhsqgqpl98djyt2eln4uy4dlx2l6a6eyum8acgqz3vfnqptkx54suyyn5u59v88]]
+
+=== Endnote Internal Citation
+
+This paragraph uses an endnote citation that will appear in the references section [[citation::end::nevent1qvzqqqqqrcpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyry7njqtmu366utn3422xt84hv6pg3h5vsac602xne63hw7hmrjew8x37w3]].
+
+=== Block Quote Internal Citation
+
+For block-level display of citations:
+
+[[citation::quote::nevent1qvzqqqqqrcpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyry7njqtmu366utn3422xt84hv6pg3h5vsac602xne63hw7hmrjew8x37w3]]
+
+== External Web Citations (Kind 31)
+
+External citations reference web resources.
+
+=== Inline External Citation
+
+Here's an inline external citation: [[citation::inline::nevent1qvzqqqqqrupzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyqsdgj88q2tswy2stc9p5xfaf200kr9le8m75se084upkrqkex9yvwk8faj]]
+
+=== Footnote-End External Citation
+
+This creates a footnote that links to an endnote.footnote: [[[citation::foot-end::nevent1qvzqqqqqrupzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyqsdgj88q2tswy2stc9p5xfaf200kr9le8m75se084upkrqkex9yvwk8faj]]]
+
+=== Endnote External Citation
+
+This paragraph references a web source [[citation::end::nevent1qvzqqqqqrupzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyqsdgj88q2tswy2stc9p5xfaf200kr9le8m75se084upkrqkex9yvwk8faj]].
+
+== Hardcopy Citations (Kind 32)
+
+Hardcopy citations reference printed materials like books and journals.
+
+=== Inline Hardcopy Citation
+
+Here's an inline hardcopy citation: [[citation::inline::nevent1qvzqqqqqyqpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcprfmhxue69uhkvun9v4kxz7fwwdhhvcnfwshxsmmnwshsqgyzg2dv4w5dpsalmm28qvn3t0gsl09u0m5ar4jfupzkrt5t0fh2vgzych2c]]
+
+=== Endnote Hardcopy Citation
+
+This references a book [[citation::end::nevent1qvzqqqqqyqpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcprfmhxue69uhkvun9v4kxz7fwwdhhvcnfwshxsmmnwshsqgyzg2dv4w5dpsalmm28qvn3t0gsl09u0m5ar4jfupzkrt5t0fh2vgzych2c]].
+
+=== Block Quote Hardcopy Citation
+
+For important book references:
+
+[[citation::quote::nevent1qvzqqqqqyqpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcprfmhxue69uhkvun9v4kxz7fwwdhhvcnfwshxsmmnwshsqgyzg2dv4w5dpsalmm28qvn3t0gsl09u0m5ar4jfupzkrt5t0fh2vgzych2c]]
+
+== Prompt Citations (Kind 33)
+
+Prompt citations reference AI/LLM interactions.
+
+=== Inline Prompt Citation
+
+Here's an inline prompt citation: [[citation::prompt-inline::nevent1qvzqqqqqyypzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyprf7ddefkkvdedvredu83pqqn7payvvcnrqp2s72zrx823x0wpezqzpst2]]
+
+=== Endnote Prompt Citation
+
+This paragraph discusses AI-generated content [[citation::prompt-end::nevent1qvzqqqqqyypzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyprf7ddefkkvdedvredu83pqqn7payvvcnrqp2s72zrx823x0wpezqzpst2]].
+
+== Mixed Citation Usage
+
+You can mix different citation types in the same paragraph. For example, this sentence references both an external source [[citation::inline::nevent1qvzqqqqqrupzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyqsdgj88q2tswy2stc9p5xfaf200kr9le8m75se084upkrqkex9yvwk8faj]] and an internal Nostr event [[citation::inline::nevent1qvzqqqqqrcpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpz4mhxue69uhhyetvv9ujuerpd46hxtnfduhsqgqpl98djyt2eln4uy4dlx2l6a6eyum8acgqz3vfnqptkx54suyyn5u59v88]].
+
+Here's a combination with footnotes and endnotes: This sentence has a footnote.footnote: [[[citation::foot::nevent1qqst8cju0m99ner9ucsu0fw3p0p4v8x0nctvmfx03u67welhnevent1qvzqqqqqrcpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyry7njqtmu366utn3422xt84hv6pg3h5vsac602xne63hw7hmrjew8x37w34z5h27wwp4m8x7ttswf0lk2wr8gs4lw9z34vamnwvaz7tmwdaehgu3wvfhkummwvaz7tmjv4kxz7fwdehk6k6]]] and this sentence references an endnote [[citation::end::nevent1qvzqqqqqrcpzqez7hqy2ca5f7z94zslmu7489zd645hrhurfeqwj5g4q6we438qcqydhwumn8ghj7mmjd3uj6un9d3shjtnfd4mkzmry9ejh2tcpr3mhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6tcqyry7njqtmu366utn3422xt84hv6pg3h5vsac602xne63hw7hmrjew8x37w3]].
+
+== Citation Display Types Summary
+
+. *Inline* (`inline`, `prompt-inline`): Renders inline within the text as clickable citation text
+. *Footnotes* (`foot`): Creates superscript numbers that link to footnotes
+. *Foot-End* (`foot-end`): Creates footnotes that link to endnotes at the end
+. *Endnotes* (`end`, `prompt-end`): References appear at the end of the document in a references section
+. *Quotes* (`quote`): Block-level citation cards for emphasis
+
+== How to Use This Test Document
+
+. Replace all placeholder `nevent1qq...` IDs with actual citation event IDs from your Nostr relays
+. Create citations using the Post Editor for kinds 30, 31, 32, and 33
+. Copy the nevent ID (or note ID) of your created citation event
+. Replace the placeholder IDs in this document
+. Publish as an AsciiDoc article (kind 30818) or Wiki Article (kind 30817)
+. Verify all citation types render correctly
+
+NOTE: All citation event IDs in this document are placeholder examples. You must replace them with real citation event IDs to test properly.
