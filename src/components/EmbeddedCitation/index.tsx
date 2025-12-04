@@ -55,6 +55,6 @@ export default function EmbeddedCitation({ citationId, displayType = 'end', clas
     )
   }
 
-  return <CitationCard event={event} displayType={displayType} className={className} />
+  return <CitationCard event={event} displayType={displayType} className={className} citationId={citationId} />
 }
 

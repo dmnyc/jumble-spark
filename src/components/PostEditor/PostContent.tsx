@@ -580,14 +580,26 @@ export default function PostContent({
         summary: citationSummary.trim() || undefined
       })
     } else if (isCitationHardcopy) {
-      return createCitationHardcopyDraftEvent(cleanedText, {
-        accessedOn: citationAccessedOn.trim() || new Date().toISOString(),
+      // Convert date strings to ISO 8601 format if they exist
+      const formatDateToISO = (dateStr: string): string => {
+        if (!dateStr || !dateStr.trim()) return ''
+        // If already in ISO format, return as is
+        if (dateStr.includes('T')) return dateStr
+        // If in YYYY-MM-DD format, convert to ISO
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          return new Date(dateStr + 'T00:00:00Z').toISOString()
+        }
+        return dateStr
+      }
+      
+      const hardcopyOptions = {
+        accessedOn: formatDateToISO(citationAccessedOn.trim()) || new Date().toISOString(),
         title: citationTitle.trim() || undefined,
         author: citationAuthor.trim() || undefined,
         pageRange: citationHardcopyPageRange.trim() || undefined,
         chapterTitle: citationHardcopyChapterTitle.trim() || undefined,
         editor: citationHardcopyEditor.trim() || undefined,
-        publishedOn: citationPublishedOn.trim() || undefined,
+        publishedOn: citationPublishedOn.trim() ? formatDateToISO(citationPublishedOn.trim()) : undefined,
         publishedBy: citationPublishedBy.trim() || undefined,
         publishedIn: citationHardcopyPublishedIn.trim() || undefined,
         volume: citationHardcopyVolume.trim() || undefined,
@@ -596,7 +608,12 @@ export default function PostContent({
         location: citationLocation.trim() || undefined,
         geohash: citationGeohash.trim() || undefined,
         summary: citationSummary.trim() || undefined
-      })
+      }
+      
+      // Debug: Log what we're passing to the function
+      console.log('Creating hardcopy citation with options:', hardcopyOptions)
+      
+      return createCitationHardcopyDraftEvent(cleanedText, hardcopyOptions)
     } else if (isCitationPrompt) {
       return createCitationPromptDraftEvent(cleanedText, {
         llm: citationPromptLlm.trim(),
@@ -1641,13 +1658,14 @@ export default function PostContent({
       
       {/* Citation metadata fields */}
       {(isCitationInternal || isCitationExternal || isCitationHardcopy || isCitationPrompt) && (
-        <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+        <div className="p-4 border rounded-lg bg-muted/30">
           <div className="text-sm font-medium mb-3">
             {isCitationInternal && t('Internal Citation Settings')}
             {isCitationExternal && t('External Citation Settings')}
             {isCitationHardcopy && t('Hardcopy Citation Settings')}
             {isCitationPrompt && t('Prompt Citation Settings')}
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           
           {/* Prompt Citation specific fields - shown first if prompt */}
           {isCitationPrompt && (
@@ -1939,8 +1957,8 @@ export default function PostContent({
             />
           </div>
           
-          {/* Summary field - different label for prompt citations */}
-          <div className="space-y-2">
+          {/* Summary field - different label for prompt citations - spans full width on desktop */}
+          <div className="space-y-2 md:col-span-2">
             <Label htmlFor="citation-summary" className="text-sm font-medium">
               {isCitationPrompt ? t('Prompt Conversation Script') : t('Summary')}
             </Label>
@@ -1981,6 +1999,7 @@ export default function PostContent({
               </div>
             </>
           )}
+          </div>
         </div>
       )}
       

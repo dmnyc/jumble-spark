@@ -2509,33 +2509,36 @@ function parseMarkdownContent(
     wrappedParts.push(
       <div key="citations-footnotes-section" className="mt-8 pt-4 border-t border-gray-300 dark:border-gray-700">
         <h3 className="text-lg font-semibold mb-4">Citations</h3>
-        <ol className="list-decimal list-inside space-y-2">
+        <ol className="list-decimal pl-6 space-y-3" style={{ listStylePosition: 'outside' }}>
           {footCitations.map((citation, idx) => (
             <li 
               key={`citation-footnote-${idx}`} 
               id={`citation-${citation.id.replace('citation-', '')}`}
-              className="text-sm"
+              className="text-sm pl-2"
             >
-              <span className="font-semibold">[{idx + 1}]:</span>{' '}
-              <EmbeddedCitation
-                citationId={citation.citationId}
-                displayType={citation.type as 'foot' | 'foot-end'}
-                className="inline-block mt-1"
-              />
-              {' '}
-              <a 
-                href={`#citation-ref-${citation.id.replace('citation-', '')}`}
-                className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs"
-                onClick={(e) => {
-                  e.preventDefault()
-                  const refElement = document.getElementById(`citation-ref-${citation.id.replace('citation-', '')}`)
-                  if (refElement) {
-                    refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                  }
-                }}
-              >
-                ↩
-              </a>
+              <div className="inline-block w-full relative">
+                <span className="inline">
+                  <EmbeddedCitation
+                    citationId={citation.citationId}
+                    displayType={citation.type as 'foot' | 'foot-end'}
+                    className="inline"
+                  />
+                </span>
+                <a 
+                  href={`#citation-ref-${citation.id.replace('citation-', '')}`}
+                  className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs ml-2 inline-flex items-center absolute right-0 top-0"
+                  aria-label="Return to citation"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    const refElement = document.getElementById(`citation-ref-${citation.id.replace('citation-', '')}`)
+                    if (refElement) {
+                      refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    }
+                  }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                </a>
+              </div>
             </li>
           ))}
         </ol>
@@ -2549,33 +2552,37 @@ function parseMarkdownContent(
     wrappedParts.push(
       <div key="references-section" id="references-section" className="mt-8 pt-4 border-t border-gray-300 dark:border-gray-700">
         <h3 className="text-lg font-semibold mb-4">References</h3>
-        <ol className="list-decimal list-inside space-y-2">
+        <ol className="list-decimal pl-6 space-y-3" style={{ listStylePosition: 'outside' }}>
           {endCitations.map((citation, idx) => (
             <li 
               key={`citation-end-${idx}`} 
               id={`citation-end-${idx}`}
-              className="text-sm"
+              className="text-sm pl-2"
+              style={{ display: 'list-item' }}
             >
-              <span className="font-semibold">[{idx + 1}]:</span>{' '}
-              <EmbeddedCitation
-                citationId={citation.citationId}
-                displayType={citation.type as 'end' | 'prompt-end'}
-                className="inline-block mt-1"
-              />
-              {' '}
-              <a 
-                href={`#citation-ref-${citation.id.replace('citation-', '')}`}
-                className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs"
-                onClick={(e) => {
-                  e.preventDefault()
-                  const refElement = document.getElementById(`citation-ref-${citation.id.replace('citation-', '')}`)
-                  if (refElement) {
-                    refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                  }
-                }}
-              >
-                ↩
-              </a>
+              <div className="inline-block w-full relative">
+                <span className="inline">
+                  <EmbeddedCitation
+                    citationId={citation.citationId}
+                    displayType={citation.type as 'end' | 'prompt-end'}
+                    className="inline"
+                  />
+                </span>
+                <a 
+                  href={`#citation-ref-${citation.id.replace('citation-', '')}`}
+                  className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs ml-2 inline-flex items-center absolute right-0 top-0"
+                  aria-label="Return to citation"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    const refElement = document.getElementById(`citation-ref-${citation.id.replace('citation-', '')}`)
+                    if (refElement) {
+                      refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    }
+                  }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                </a>
+              </div>
             </li>
           ))}
         </ol>

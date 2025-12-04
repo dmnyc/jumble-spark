@@ -1223,26 +1223,26 @@ export default function AsciidocArticle({
       footnotesSection.appendChild(h3)
       
       const ol = document.createElement('ol')
-      ol.className = 'list-decimal list-inside space-y-2'
+      // Academic style: proper list formatting with aligned numbers
+      ol.className = 'list-decimal pl-6 space-y-3'
+      ol.style.listStylePosition = 'outside'
       
       footnotes.forEach((citation) => {
         const li = document.createElement('li')
         li.id = citation.id
-        li.className = 'text-sm'
-        
-        const span = document.createElement('span')
-        span.className = 'font-semibold'
-        span.textContent = `[${citation.index + 1}]: `
-        li.appendChild(span)
+        li.className = 'text-sm pl-2'
+        li.style.display = 'list-item'
         
         const citationContainer = document.createElement('span')
-        citationContainer.className = 'inline-block mt-1'
+        citationContainer.className = 'inline'
         li.appendChild(citationContainer)
         
         const backLink = document.createElement('a')
         backLink.href = `#citation-ref-${citation.index}`
-        backLink.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs ml-1'
-        backLink.textContent = '↩'
+        backLink.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs ml-2 inline-flex items-center'
+        backLink.setAttribute('aria-label', 'Return to citation')
+        // Use hyperlink icon instead of emoji
+        backLink.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>'
         backLink.addEventListener('click', (e) => {
           e.preventDefault()
           const refElement = document.getElementById(`citation-ref-${citation.index}`)
@@ -1254,8 +1254,13 @@ export default function AsciidocArticle({
         
         ol.appendChild(li)
         
-        // Render citation component
-        const citationRoot = createRoot(citationContainer)
+        // Render citation component - use a wrapper div to position backlink
+        const citationWrapperDiv = document.createElement('div')
+        citationWrapperDiv.className = 'inline'
+        citationWrapperDiv.style.display = 'inline'
+        citationContainer.appendChild(citationWrapperDiv)
+        
+        const citationRoot = createRoot(citationWrapperDiv)
         citationRoot.render(
           <DeletedEventProvider>
             <ReplyProvider>
@@ -1266,7 +1271,22 @@ export default function AsciidocArticle({
             </ReplyProvider>
           </DeletedEventProvider>
         )
-        reactRootsRef.current.set(citationContainer, citationRoot)
+        reactRootsRef.current.set(citationWrapperDiv, citationRoot)
+        
+        // Insert backlink at end of first line after citation renders
+        setTimeout(() => {
+          const firstDiv = citationWrapperDiv.querySelector('div:first-child') as HTMLElement
+          if (firstDiv) {
+            firstDiv.style.display = 'inline'
+            firstDiv.style.position = 'relative'
+            backLink.style.position = 'absolute'
+            backLink.style.right = '0'
+            backLink.style.top = '0'
+            firstDiv.appendChild(backLink)
+          } else {
+            citationWrapperDiv.appendChild(backLink)
+          }
+        }, 100)
       })
       
       footnotesSection.appendChild(ol)
@@ -1298,26 +1318,29 @@ export default function AsciidocArticle({
       referencesSection.appendChild(h3)
       
       const ol = document.createElement('ol')
-      ol.className = 'list-decimal list-inside space-y-2'
+      // Academic style: proper list formatting with aligned numbers
+      ol.className = 'list-decimal pl-6 space-y-3'
+      ol.style.listStylePosition = 'outside'
       
       endCitations.forEach((citation) => {
         const li = document.createElement('li')
         li.id = `citation-end-${citation.index}`
-        li.className = 'text-sm'
+        li.className = 'text-sm pl-2'
+        li.style.display = 'list-item'
         
-        const span = document.createElement('span')
-        span.className = 'font-semibold'
-        span.textContent = `[${citation.index + 1}]: `
-        li.appendChild(span)
+        const citationWrapper = document.createElement('div')
+        citationWrapper.className = 'inline-block w-full relative'
+        li.appendChild(citationWrapper)
         
         const citationContainer = document.createElement('span')
-        citationContainer.className = 'inline-block mt-1'
-        li.appendChild(citationContainer)
+        citationContainer.className = 'inline'
+        citationWrapper.appendChild(citationContainer)
         
         const backLink = document.createElement('a')
         backLink.href = `#citation-ref-${citation.index}`
-        backLink.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs ml-1'
-        backLink.textContent = '↩'
+        backLink.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs ml-2 inline-flex items-center'
+        backLink.setAttribute('aria-label', 'Return to citation')
+        backLink.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>'
         backLink.addEventListener('click', (e) => {
           e.preventDefault()
           const refElement = document.getElementById(`citation-ref-${citation.index}`)
@@ -1325,7 +1348,6 @@ export default function AsciidocArticle({
             refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
           }
         })
-        li.appendChild(backLink)
         
         ol.appendChild(li)
         
@@ -1342,6 +1364,21 @@ export default function AsciidocArticle({
           </DeletedEventProvider>
         )
         reactRootsRef.current.set(citationContainer, citationRoot)
+        
+        // Insert backlink at end of first line after citation renders
+        setTimeout(() => {
+          const firstDiv = citationContainer.querySelector('div:first-child') as HTMLElement
+          if (firstDiv) {
+            firstDiv.style.display = 'inline'
+            firstDiv.style.position = 'relative'
+            backLink.style.position = 'absolute'
+            backLink.style.right = '0'
+            backLink.style.top = '0'
+            firstDiv.appendChild(backLink)
+          } else {
+            citationWrapper.appendChild(backLink)
+          }
+        }, 100)
       })
       
       referencesSection.appendChild(ol)
@@ -1777,6 +1814,38 @@ export default function AsciidocArticle({
           vertical-align: super;
           font-size: 0.83em;
           line-height: 0;
+        }
+        /* Academic references section formatting */
+        .asciidoc-content #references-section ol,
+        .asciidoc-content #footnotes-section ol {
+          list-style: decimal;
+          padding-left: 1.5rem;
+          list-style-position: outside;
+        }
+        .asciidoc-content #references-section li,
+        .asciidoc-content #footnotes-section li {
+          padding-left: 0.5rem;
+          margin-bottom: 0.5rem;
+          line-height: 1.6;
+          display: list-item;
+        }
+        /* Position backlink at end of first line */
+        .asciidoc-content #references-section li > div > span > div:first-child,
+        .asciidoc-content #footnotes-section li > div > span > div:first-child {
+          position: relative;
+          display: inline-block;
+          width: 100%;
+        }
+        .asciidoc-content #references-section h3,
+        .asciidoc-content #footnotes-section h3 {
+          font-size: 1.125rem;
+          font-weight: 600;
+          margin-bottom: 1rem;
+        }
+        /* Blockquote spacing in citations */
+        .asciidoc-content #references-section blockquote,
+        .asciidoc-content #footnotes-section blockquote {
+          padding-left: 1.5rem !important;
         }
       `}</style>
       <div className={`prose prose-zinc max-w-none dark:prose-invert break-words overflow-wrap-anywhere ${className || ''}`}>
