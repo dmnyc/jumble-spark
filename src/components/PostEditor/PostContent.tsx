@@ -123,6 +123,34 @@ export default function PostContent({
   const [isCitationExternal, setIsCitationExternal] = useState(false)
   const [isCitationHardcopy, setIsCitationHardcopy] = useState(false)
   const [isCitationPrompt, setIsCitationPrompt] = useState(false)
+  
+  // Citation metadata fields
+  // Internal Citation (30)
+  const [citationInternalCTag, setCitationInternalCTag] = useState('')
+  const [citationInternalRelayHint, setCitationInternalRelayHint] = useState('')
+  // External Citation (31) 
+  const [citationExternalUrl, setCitationExternalUrl] = useState('')
+  const [citationExternalOpenTimestamp, setCitationExternalOpenTimestamp] = useState('')
+  // Hardcopy Citation (32)
+  const [citationHardcopyPageRange, setCitationHardcopyPageRange] = useState('')
+  const [citationHardcopyChapterTitle, setCitationHardcopyChapterTitle] = useState('')
+  const [citationHardcopyEditor, setCitationHardcopyEditor] = useState('')
+  const [citationHardcopyPublishedIn, setCitationHardcopyPublishedIn] = useState('')
+  const [citationHardcopyVolume, setCitationHardcopyVolume] = useState('')
+  const [citationHardcopyDoi, setCitationHardcopyDoi] = useState('')
+  // Prompt Citation (33)
+  const [citationPromptLlm, setCitationPromptLlm] = useState('')
+  // Shared citation fields
+  const [citationTitle, setCitationTitle] = useState('')
+  const [citationAuthor, setCitationAuthor] = useState('')
+  const [citationPublishedOn, setCitationPublishedOn] = useState('')
+  const [citationPublishedBy, setCitationPublishedBy] = useState('')
+  const [citationAccessedOn, setCitationAccessedOn] = useState('')
+  const [citationLocation, setCitationLocation] = useState('')
+  const [citationGeohash, setCitationGeohash] = useState('')
+  const [citationVersion, setCitationVersion] = useState('')
+  const [citationSummary, setCitationSummary] = useState('')
+  
   const [hasPrivateRelaysAvailable, setHasPrivateRelaysAvailable] = useState(false)
   const [showMediaKindDialog, setShowMediaKindDialog] = useState(false)
   const [pendingMediaUpload, setPendingMediaUpload] = useState<{ url: string; tags: string[][]; file: File } | null>(null)
@@ -141,7 +169,12 @@ export default function PostContent({
       (!isProtectedEvent || additionalRelayUrls.length > 0) &&
       (!isHighlight || highlightData.sourceValue.trim() !== '') &&
       // For articles, dTag is mandatory
-      (!isArticle || !!articleDTag.trim())
+      (!isArticle || !!articleDTag.trim()) &&
+      // For citations, required fields must be filled
+      (!isCitationInternal || !!citationInternalCTag.trim()) &&
+      (!isCitationExternal || (!!citationExternalUrl.trim() && !!citationAccessedOn.trim())) &&
+      (!isCitationHardcopy || !!citationAccessedOn.trim()) &&
+      (!isCitationPrompt || (!!citationPromptLlm.trim() && !!citationAccessedOn.trim()))
     )
     
     return result
@@ -165,7 +198,15 @@ export default function PostContent({
     isWikiArticle,
     isWikiArticleMarkdown,
     isPublicationContent,
-    articleDTag
+    articleDTag,
+    isCitationInternal,
+    citationInternalCTag,
+    isCitationExternal,
+    citationExternalUrl,
+    citationAccessedOn,
+    isCitationHardcopy,
+    isCitationPrompt,
+    citationPromptLlm
   ])
 
   // Clear highlight data when initialHighlightData changes or is removed
@@ -514,24 +555,55 @@ export default function PostContent({
     // Citations
     if (isCitationInternal) {
       return createCitationInternalDraftEvent(cleanedText, {
-        cTag: '',
-        title: cleanedText.substring(0, 100)
+        cTag: citationInternalCTag.trim(),
+        relayHint: citationInternalRelayHint.trim() || undefined,
+        title: citationTitle.trim() || undefined,
+        author: citationAuthor.trim() || undefined,
+        publishedOn: citationPublishedOn.trim() || undefined,
+        accessedOn: citationAccessedOn.trim() || undefined,
+        location: citationLocation.trim() || undefined,
+        geohash: citationGeohash.trim() || undefined,
+        summary: citationSummary.trim() || undefined
       })
     } else if (isCitationExternal) {
       return createCitationExternalDraftEvent(cleanedText, {
-        url: '',
-        accessedOn: new Date().toISOString(),
-        title: cleanedText.substring(0, 100)
+        url: citationExternalUrl.trim(),
+        accessedOn: citationAccessedOn.trim() || new Date().toISOString(),
+        title: citationTitle.trim() || undefined,
+        author: citationAuthor.trim() || undefined,
+        publishedOn: citationPublishedOn.trim() || undefined,
+        publishedBy: citationPublishedBy.trim() || undefined,
+        version: citationVersion.trim() || undefined,
+        location: citationLocation.trim() || undefined,
+        geohash: citationGeohash.trim() || undefined,
+        openTimestamp: citationExternalOpenTimestamp.trim() || undefined,
+        summary: citationSummary.trim() || undefined
       })
     } else if (isCitationHardcopy) {
       return createCitationHardcopyDraftEvent(cleanedText, {
-        accessedOn: new Date().toISOString(),
-        title: cleanedText.substring(0, 100)
+        accessedOn: citationAccessedOn.trim() || new Date().toISOString(),
+        title: citationTitle.trim() || undefined,
+        author: citationAuthor.trim() || undefined,
+        pageRange: citationHardcopyPageRange.trim() || undefined,
+        chapterTitle: citationHardcopyChapterTitle.trim() || undefined,
+        editor: citationHardcopyEditor.trim() || undefined,
+        publishedOn: citationPublishedOn.trim() || undefined,
+        publishedBy: citationPublishedBy.trim() || undefined,
+        publishedIn: citationHardcopyPublishedIn.trim() || undefined,
+        volume: citationHardcopyVolume.trim() || undefined,
+        doi: citationHardcopyDoi.trim() || undefined,
+        version: citationVersion.trim() || undefined,
+        location: citationLocation.trim() || undefined,
+        geohash: citationGeohash.trim() || undefined,
+        summary: citationSummary.trim() || undefined
       })
     } else if (isCitationPrompt) {
       return createCitationPromptDraftEvent(cleanedText, {
-        llm: '',
-        accessedOn: new Date().toISOString()
+        llm: citationPromptLlm.trim(),
+        accessedOn: citationAccessedOn.trim() || new Date().toISOString(),
+        version: citationVersion.trim() || undefined,
+        summary: citationSummary.trim() || undefined,
+        url: citationExternalUrl.trim() || undefined
       })
     }
 
@@ -1363,6 +1435,11 @@ export default function PostContent({
     setIsWikiArticle(false)
     setIsWikiArticleMarkdown(false)
     setIsPublicationContent(false)
+    
+    // Set default accessedOn if not already set
+    if (!citationAccessedOn && (type === 'external' || type === 'hardcopy' || type === 'prompt')) {
+      setCitationAccessedOn(new Date().toISOString().split('T')[0]) // ISO date format YYYY-MM-DD
+    }
   }
 
   const handleClear = () => {
@@ -1390,6 +1467,27 @@ export default function PostContent({
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
     setIsCitationPrompt(false)
+    // Clear citation fields
+    setCitationInternalCTag('')
+    setCitationInternalRelayHint('')
+    setCitationExternalUrl('')
+    setCitationExternalOpenTimestamp('')
+    setCitationHardcopyPageRange('')
+    setCitationHardcopyChapterTitle('')
+    setCitationHardcopyEditor('')
+    setCitationHardcopyPublishedIn('')
+    setCitationHardcopyVolume('')
+    setCitationHardcopyDoi('')
+    setCitationTitle('')
+    setCitationAuthor('')
+    setCitationPublishedOn('')
+    setCitationPublishedBy('')
+    setCitationAccessedOn('')
+    setCitationLocation('')
+    setCitationGeohash('')
+    setCitationVersion('')
+    setCitationSummary('')
+    setCitationPromptLlm('')
     setPollCreateData({
       isMultipleChoice: false,
       options: ['', ''],
@@ -1538,6 +1636,351 @@ export default function PostContent({
               {t('A short description of the article content')}
             </p>
           </div>
+        </div>
+      )}
+      
+      {/* Citation metadata fields */}
+      {(isCitationInternal || isCitationExternal || isCitationHardcopy || isCitationPrompt) && (
+        <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+          <div className="text-sm font-medium mb-3">
+            {isCitationInternal && t('Internal Citation Settings')}
+            {isCitationExternal && t('External Citation Settings')}
+            {isCitationHardcopy && t('Hardcopy Citation Settings')}
+            {isCitationPrompt && t('Prompt Citation Settings')}
+          </div>
+          
+          {/* Prompt Citation specific fields - shown first if prompt */}
+          {isCitationPrompt && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="citation-prompt-llm" className="text-sm font-medium">
+                  {t('Language Model')} <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="citation-prompt-llm"
+                  value={citationPromptLlm}
+                  onChange={(e) => setCitationPromptLlm(e.target.value)}
+                  placeholder={t('e.g., GPT-4, Claude, etc. (required)')}
+                  className={!citationPromptLlm.trim() ? 'border-destructive' : ''}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('Name of the language model used')}
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-external-url" className="text-sm font-medium">
+                  {t('URL')}
+                </Label>
+                <Input
+                  id="citation-external-url"
+                  value={citationExternalUrl}
+                  onChange={(e) => setCitationExternalUrl(e.target.value)}
+                  placeholder={t('Website where LLM was accessed (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-version" className="text-sm font-medium">
+                  {t('Version')}
+                </Label>
+                <Input
+                  id="citation-version"
+                  value={citationVersion}
+                  onChange={(e) => setCitationVersion(e.target.value)}
+                  placeholder={t('Version number (optional)')}
+                />
+              </div>
+            </>
+          )}
+          
+          {/* Shared fields - not shown for prompt citations */}
+          {!isCitationPrompt && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="citation-title" className="text-sm font-medium">
+                  {t('Title')}
+                </Label>
+                <Input
+                  id="citation-title"
+                  value={citationTitle}
+                  onChange={(e) => setCitationTitle(e.target.value)}
+                  placeholder={t('Citation title (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-author" className="text-sm font-medium">
+                  {t('Author')}
+                </Label>
+                <Input
+                  id="citation-author"
+                  value={citationAuthor}
+                  onChange={(e) => setCitationAuthor(e.target.value)}
+                  placeholder={t('Author name (optional)')}
+                />
+              </div>
+            </>
+          )}
+          
+          {/* Internal Citation specific fields */}
+          {isCitationInternal && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="citation-internal-ctag" className="text-sm font-medium">
+                  {t('C-Tag')} <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="citation-internal-ctag"
+                  value={citationInternalCTag}
+                  onChange={(e) => setCitationInternalCTag(e.target.value)}
+                  placeholder={t('kind:pubkey:hex format (required)')}
+                  className={!citationInternalCTag.trim() ? 'border-destructive' : ''}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('Reference to the cited Nostr event in kind:pubkey:hex format')}
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-internal-relay-hint" className="text-sm font-medium">
+                  {t('Relay Hint')}
+                </Label>
+                <Input
+                  id="citation-internal-relay-hint"
+                  value={citationInternalRelayHint}
+                  onChange={(e) => setCitationInternalRelayHint(e.target.value)}
+                  placeholder={t('Relay URL (optional)')}
+                />
+              </div>
+            </>
+          )}
+          
+          {/* External Citation specific fields */}
+          {isCitationExternal && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="citation-external-url" className="text-sm font-medium">
+                  {t('URL')} <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="citation-external-url"
+                  value={citationExternalUrl}
+                  onChange={(e) => setCitationExternalUrl(e.target.value)}
+                  placeholder={t('https://example.com (required)')}
+                  className={!citationExternalUrl.trim() ? 'border-destructive' : ''}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-external-open-timestamp" className="text-sm font-medium">
+                  {t('Open Timestamp')}
+                </Label>
+                <Input
+                  id="citation-external-open-timestamp"
+                  value={citationExternalOpenTimestamp}
+                  onChange={(e) => setCitationExternalOpenTimestamp(e.target.value)}
+                  placeholder={t('e tag of kind 1040 event (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-published-by" className="text-sm font-medium">
+                  {t('Published By')}
+                </Label>
+                <Input
+                  id="citation-published-by"
+                  value={citationPublishedBy}
+                  onChange={(e) => setCitationPublishedBy(e.target.value)}
+                  placeholder={t('Publisher name (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-version" className="text-sm font-medium">
+                  {t('Version')}
+                </Label>
+                <Input
+                  id="citation-version"
+                  value={citationVersion}
+                  onChange={(e) => setCitationVersion(e.target.value)}
+                  placeholder={t('Version number (optional)')}
+                />
+              </div>
+            </>
+          )}
+          
+          {/* Hardcopy Citation specific fields */}
+          {isCitationHardcopy && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="citation-hardcopy-page-range" className="text-sm font-medium">
+                  {t('Page Range')}
+                </Label>
+                <Input
+                  id="citation-hardcopy-page-range"
+                  value={citationHardcopyPageRange}
+                  onChange={(e) => setCitationHardcopyPageRange(e.target.value)}
+                  placeholder={t('e.g., 123-145 (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-hardcopy-chapter-title" className="text-sm font-medium">
+                  {t('Chapter Title')}
+                </Label>
+                <Input
+                  id="citation-hardcopy-chapter-title"
+                  value={citationHardcopyChapterTitle}
+                  onChange={(e) => setCitationHardcopyChapterTitle(e.target.value)}
+                  placeholder={t('Chapter title (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-hardcopy-editor" className="text-sm font-medium">
+                  {t('Editor')}
+                </Label>
+                <Input
+                  id="citation-hardcopy-editor"
+                  value={citationHardcopyEditor}
+                  onChange={(e) => setCitationHardcopyEditor(e.target.value)}
+                  placeholder={t('Editor name (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-hardcopy-published-in" className="text-sm font-medium">
+                  {t('Published In')}
+                </Label>
+                <Input
+                  id="citation-hardcopy-published-in"
+                  value={citationHardcopyPublishedIn}
+                  onChange={(e) => setCitationHardcopyPublishedIn(e.target.value)}
+                  placeholder={t('Journal/Publication name (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-hardcopy-volume" className="text-sm font-medium">
+                  {t('Volume')}
+                </Label>
+                <Input
+                  id="citation-hardcopy-volume"
+                  value={citationHardcopyVolume}
+                  onChange={(e) => setCitationHardcopyVolume(e.target.value)}
+                  placeholder={t('Volume number (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-hardcopy-doi" className="text-sm font-medium">
+                  {t('DOI')}
+                </Label>
+                <Input
+                  id="citation-hardcopy-doi"
+                  value={citationHardcopyDoi}
+                  onChange={(e) => setCitationHardcopyDoi(e.target.value)}
+                  placeholder={t('Digital Object Identifier (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-published-by" className="text-sm font-medium">
+                  {t('Published By')}
+                </Label>
+                <Input
+                  id="citation-published-by"
+                  value={citationPublishedBy}
+                  onChange={(e) => setCitationPublishedBy(e.target.value)}
+                  placeholder={t('Publisher name (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-version" className="text-sm font-medium">
+                  {t('Version')}
+                </Label>
+                <Input
+                  id="citation-version"
+                  value={citationVersion}
+                  onChange={(e) => setCitationVersion(e.target.value)}
+                  placeholder={t('Version number (optional)')}
+                />
+              </div>
+            </>
+          )}
+          
+          {/* Shared date fields - not shown for prompt citations */}
+          {!isCitationPrompt && (
+            <div className="space-y-2">
+              <Label htmlFor="citation-published-on" className="text-sm font-medium">
+                {t('Published On')}
+              </Label>
+              <Input
+                id="citation-published-on"
+                type="date"
+                value={citationPublishedOn}
+                onChange={(e) => setCitationPublishedOn(e.target.value)}
+              />
+            </div>
+          )}
+          
+          <div className="space-y-2">
+            <Label htmlFor="citation-accessed-on" className="text-sm font-medium">
+              {t('Accessed On')} {(isCitationExternal || isCitationHardcopy || isCitationPrompt) && <span className="text-destructive">*</span>}
+            </Label>
+            <Input
+              id="citation-accessed-on"
+              type="date"
+              value={citationAccessedOn}
+              onChange={(e) => setCitationAccessedOn(e.target.value)}
+              className={(isCitationExternal || isCitationHardcopy || isCitationPrompt) && !citationAccessedOn.trim() ? 'border-destructive' : ''}
+            />
+          </div>
+          
+          {/* Summary field - different label for prompt citations */}
+          <div className="space-y-2">
+            <Label htmlFor="citation-summary" className="text-sm font-medium">
+              {isCitationPrompt ? t('Prompt Conversation Script') : t('Summary')}
+            </Label>
+            <Textarea
+              id="citation-summary"
+              value={citationSummary}
+              onChange={(e) => setCitationSummary(e.target.value)}
+              placeholder={isCitationPrompt ? t('The full prompt conversation (optional)') : t('Brief summary (optional)')}
+              rows={3}
+            />
+          </div>
+          
+          {/* Shared optional fields - not shown for prompt citations */}
+          {!isCitationPrompt && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="citation-location" className="text-sm font-medium">
+                  {t('Location')}
+                </Label>
+                <Input
+                  id="citation-location"
+                  value={citationLocation}
+                  onChange={(e) => setCitationLocation(e.target.value)}
+                  placeholder={t('Location (optional)')}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="citation-geohash" className="text-sm font-medium">
+                  {t('Geohash')}
+                </Label>
+                <Input
+                  id="citation-geohash"
+                  value={citationGeohash}
+                  onChange={(e) => setCitationGeohash(e.target.value)}
+                  placeholder={t('Geohash (optional)')}
+                />
+              </div>
+            </>
+          )}
         </div>
       )}
       
