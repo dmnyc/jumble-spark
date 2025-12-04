@@ -19,6 +19,7 @@ import ZapPreview from './ZapPreview'
 import DiscussionNote from '../DiscussionNote'
 import ApplicationHandlerInfo from '../ApplicationHandlerInfo'
 import ApplicationHandlerRecommendation from '../ApplicationHandlerRecommendation'
+import FollowPackPreview from './FollowPackPreview'
 
 export default function ContentPreview({
   event,
@@ -119,6 +120,10 @@ export default function ContentPreview({
 
   if (event.kind === ExtendedKind.APPLICATION_HANDLER_RECOMMENDATION) {
     return <ApplicationHandlerRecommendation event={event} className={className} />
+  }
+
+  if (event.kind === ExtendedKind.FOLLOW_PACK) {
+    return <FollowPackPreview event={event} className={className} />
   }
 
   return <div className={className}>[{t('Cannot handle event of kind k', { k: event.kind })}]</div>

@@ -39,6 +39,7 @@ import VideoNote from './VideoNote'
 import RelayReview from './RelayReview'
 import Zap from './Zap'
 import CitationCard from '@/components/CitationCard'
+import FollowPackPreview from '../ContentPreview/FollowPackPreview'
 
 export default function Note({
   event,
@@ -78,7 +79,8 @@ export default function Note({
     ExtendedKind.PUBLIC_MESSAGE,
     ExtendedKind.ZAP_REQUEST,
     ExtendedKind.ZAP_RECEIPT,
-    ExtendedKind.PUBLICATION_CONTENT // Only for rendering embedded content, not in feeds
+    ExtendedKind.PUBLICATION_CONTENT, // Only for rendering embedded content, not in feeds
+    ExtendedKind.FOLLOW_PACK // Only for rendering embedded content, not in feeds
   ]
   
   
@@ -173,6 +175,8 @@ export default function Note({
     content = <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
   } else if (event.kind === ExtendedKind.ZAP_REQUEST || event.kind === ExtendedKind.ZAP_RECEIPT) {
     content = <Zap className="mt-2" event={event} />
+  } else if (event.kind === ExtendedKind.FOLLOW_PACK) {
+    content = <FollowPackPreview className="mt-2" event={event} />
   } else if (event.kind === kinds.ShortTextNote || event.kind === ExtendedKind.COMMENT || event.kind === ExtendedKind.VOICE_COMMENT) {
     // Plain text notes use MarkdownArticle for proper markdown rendering
     content = <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />

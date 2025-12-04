@@ -181,8 +181,13 @@ class LocalStorageService {
 
     const showKindsStr = window.localStorage.getItem(StorageKey.SHOW_KINDS)
     if (!showKindsStr) {
-      // Default: show all supported kinds except reposts
-      this.showKinds = SUPPORTED_KINDS.filter(kind => kind !== kinds.Repost)
+      // Default: show all supported kinds except reposts, publications, and publication content
+      // Publications (30040) and Publication Content (30041) should only be embedded, not shown in feeds
+      this.showKinds = SUPPORTED_KINDS.filter(
+        kind => kind !== kinds.Repost && 
+                kind !== ExtendedKind.PUBLICATION && 
+                kind !== ExtendedKind.PUBLICATION_CONTENT
+      )
     } else {
       const showKindsVersionStr = window.localStorage.getItem(StorageKey.SHOW_KINDS_VERSION)
       const showKindsVersion = showKindsVersionStr ? parseInt(showKindsVersionStr) : 0
@@ -219,10 +224,21 @@ class LocalStorageService {
           showKinds.splice(pubContentIndex, 1)
         }
       }
+      if (showKindsVersion < 6) {
+        // Remove publications and publication content from existing users' filters (should only be embedded, not in feeds)
+        const pubIndex = showKinds.indexOf(ExtendedKind.PUBLICATION)
+        if (pubIndex !== -1) {
+          showKinds.splice(pubIndex, 1)
+        }
+        const pubContentIndex = showKinds.indexOf(ExtendedKind.PUBLICATION_CONTENT)
+        if (pubContentIndex !== -1) {
+          showKinds.splice(pubContentIndex, 1)
+        }
+      }
       this.showKinds = showKinds
     }
     window.localStorage.setItem(StorageKey.SHOW_KINDS, JSON.stringify(this.showKinds))
-    window.localStorage.setItem(StorageKey.SHOW_KINDS_VERSION, '5')
+    window.localStorage.setItem(StorageKey.SHOW_KINDS_VERSION, '6')
 
     this.hideContentMentioningMutedUsers =
       window.localStorage.getItem(StorageKey.HIDE_CONTENT_MENTIONING_MUTED_USERS) === 'true'
