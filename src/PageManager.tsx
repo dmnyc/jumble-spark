@@ -799,10 +799,23 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         }
       }
       
-      // For relay URLs and other non-note URLs, always push to secondary stack
-      // (will be rendered in drawer in single-pane mode, side panel in double-pane mode)
+      // Check if this is a primary page URL - don't push primary pages to secondary stack
+      const pathnameOnly = pathname.split('?')[0].split('#')[0]
+      const isPrimaryPageUrl = pathnameOnly === '/' || pathnameOnly === '/home' || 
+                                (pathnameOnly.startsWith('/') && pathnameOnly.slice(1).split('/')[0] in getPrimaryPageMap() && 
+                                 !pathnameOnly.match(/^\/(notes|users|relays|settings|profile-editor|mutes|follow-packs)/))
       
-      // For other non-note URLs, push to secondary stack
+      if (isPrimaryPageUrl) {
+        // This is a primary page - just navigate to it, don't push to secondary stack
+        const pageName = pathnameOnly === '/' || pathnameOnly === '/home' ? 'home' : pathnameOnly.slice(1).split('/')[0] as TPrimaryPageName
+        if (pageName in getPrimaryPageMap()) {
+          navigatePrimaryPage(pageName)
+        }
+        return
+      }
+      
+      // For relay URLs and other non-note URLs, push to secondary stack
+      // (will be rendered in drawer in single-pane mode, side panel in double-pane mode)
       setSecondaryStack((prevStack) => {
         if (isCurrentPage(prevStack, url)) return prevStack
 
@@ -889,10 +902,16 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                           urlToCheck.match(/\/notes\/(.+)$/)
       const noteIdToShow = noteUrlMatch ? noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0] : null
       
-      // If not a note URL and drawer is open - close the drawer
+      // If not a note URL and drawer is open - close the drawer immediately
       // Only in single-pane mode or mobile
       if (!noteIdToShow && drawerOpen && (isSmallScreen || panelMode === 'single')) {
-        closeDrawer()
+        setDrawerOpen(false)
+        setTimeout(() => {
+          setDrawerNoteId(null)
+          // Restore URL to current primary page
+          const pageUrl = currentPrimaryPage === 'home' ? '/' : `/${currentPrimaryPage}`
+          window.history.replaceState(null, '', pageUrl)
+        }, 350)
       }
 
       setSecondaryStack((pre) => {
@@ -933,7 +952,13 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           if (isPrimaryPage) {
             // On mobile or single-pane: if drawer is open, close it
             if (drawerOpen && (isSmallScreen || panelMode === 'single')) {
-              closeDrawer()
+              setDrawerOpen(false)
+              setTimeout(() => {
+                setDrawerNoteId(null)
+                // Ensure URL matches the primary page
+                const pageUrl = pathname === '/' || pathname === '/home' ? '/' : pathname
+                window.history.replaceState(null, '', pageUrl)
+              }, 350)
             }
             return []
           }
