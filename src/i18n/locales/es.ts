@@ -63,7 +63,7 @@ export default {
     Add: 'Agregar',
     'n relays': '{{n}} relés',
     Rename: 'Renombrar',
-    'Share with Njump': 'Compartir con Njump',
+    'Share with Jumble': 'Compartir con Jumble',
     'Share with Alexandria': 'Compartir con Alexandria',
     Delete: 'Eliminar',
     'Relay already exists': 'El relé ya existe',

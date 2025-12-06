@@ -62,7 +62,7 @@ export default {
     Add: 'Adicionar',
     'n relays': '{{n}} relays',
     Rename: 'Renomear',
-    'Share with Njump': 'Compartilhar com Njump',
+    'Share with Jumble': 'Compartilhar com Jumble',
     'Share with Alexandria': 'Compartilhar com Alexandria',
     Delete: 'Excluir',
     'Relay already exists': 'Relay já existe',

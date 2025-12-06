@@ -63,7 +63,7 @@ export default {
     Add: 'إضافة',
     'n relays': '{{n}} ريلايات',
     Rename: 'إعادة تسمية',
-    'Share with Njump': 'مشاركة مع Njump',
+    'Share with Jumble': 'مشاركة مع Jumble',
     'Share with Alexandria': 'مشاركة مع Alexandria',
     Delete: 'حذف',
     'Relay already exists': 'الريلاي موجود بالفعل',

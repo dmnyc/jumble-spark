@@ -32,7 +32,8 @@ export default function ScrollToTopButton({
       style={{
         bottom: isSmallScreen
           ? 'calc(env(safe-area-inset-bottom) + 3.75rem)'
-          : 'calc(env(safe-area-inset-bottom) + 0.75rem)'
+          : 'calc(env(safe-area-inset-bottom) + 0.75rem)',
+        willChange: 'opacity' // Hint to browser for better scroll performance
       }}
     >
       <Button

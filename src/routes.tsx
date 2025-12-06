@@ -23,12 +23,20 @@ import FollowPacksPage from './pages/secondary/FollowPacksPage'
 const ROUTES = [
   { path: '/notes', element: <NoteListPage /> },
   { path: '/notes/:id', element: <NotePage /> },
+  // Contextual note routes (e.g., /discussions/notes/:id, /search/notes/:id)
+  { path: '/discussions/notes/:id', element: <NotePage /> },
+  { path: '/search/notes/:id', element: <NotePage /> },
+  { path: '/profile/notes/:id', element: <NotePage /> },
+  { path: '/explore/notes/:id', element: <NotePage /> },
+  { path: '/notifications/notes/:id', element: <NotePage /> },
   { path: '/users', element: <ProfileListPage /> },
   { path: '/users/:id', element: <ProfilePage /> },
   { path: '/users/:id/following', element: <FollowingListPage /> },
   { path: '/users/:id/relays', element: <OthersRelaySettingsPage /> },
   { path: '/relays/:url', element: <RelayPage /> },
   { path: '/relays/:url/reviews', element: <RelayReviewsPage /> },
+  // Contextual relay route (only for explore page where you discover relays)
+  { path: '/explore/relays/:url', element: <RelayPage /> },
   { path: '/search', element: <SearchPage /> },
   { path: '/settings', element: <SettingsPage /> },
   { path: '/settings/relays', element: <RelaySettingsPage /> },

@@ -60,6 +60,7 @@ class LocalStorageService {
   private respectQuietTags: boolean = true
   private globalQuietMode: boolean = false
   private showRssFeed: boolean = true
+  private panelMode: 'single' | 'double' = 'single'
 
   constructor() {
     if (!LocalStorageService.instance) {
@@ -295,6 +296,9 @@ class LocalStorageService {
 
     const showRssFeedStr = window.localStorage.getItem(StorageKey.SHOW_RSS_FEED)
     this.showRssFeed = showRssFeedStr === null ? true : showRssFeedStr === 'true' // Default to true
+
+    const panelModeStr = window.localStorage.getItem(StorageKey.PANE_MODE)
+    this.panelMode = panelModeStr === 'double' ? 'double' : 'single' // Default to 'single'
 
     // Clean up deprecated data
     window.localStorage.removeItem(StorageKey.ACCOUNT_PROFILE_EVENT_MAP)
@@ -674,6 +678,15 @@ class LocalStorageService {
   setShowRssFeed(show: boolean) {
     this.showRssFeed = show
     window.localStorage.setItem(StorageKey.SHOW_RSS_FEED, show.toString())
+  }
+
+  getPanelMode(): 'single' | 'double' {
+    return this.panelMode
+  }
+
+  setPanelMode(mode: 'single' | 'double') {
+    this.panelMode = mode
+    window.localStorage.setItem(StorageKey.PANE_MODE, mode)
   }
 }
 

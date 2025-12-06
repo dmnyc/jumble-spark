@@ -62,7 +62,7 @@ export default {
     Add: '추가',
     'n relays': '{{n}}개의 릴레이',
     Rename: '이름 변경',
-    'Share with Njump': 'Njump로 공유',
+    'Share with Jumble': 'Jumble로 공유',
     'Share with Alexandria': 'Alexandria로 공유',
     Delete: '삭제',
     'Relay already exists': '릴레이가 이미 존재합니다',

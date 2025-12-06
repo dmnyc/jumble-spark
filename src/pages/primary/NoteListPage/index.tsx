@@ -38,11 +38,8 @@ const NoteListPage = forwardRef((_, ref) => {
   const [showRelayDetails, setShowRelayDetails] = useState(false)
   useImperativeHandle(ref, () => layoutRef.current)
 
-  useEffect(() => {
-    if (layoutRef.current) {
-      layoutRef.current.scrollToTop('instant')
-    }
-  }, [JSON.stringify(relayUrls), feedInfo])
+  // REMOVED: Scroll-to-top logic - feed should NEVER scroll to top when drawer opens/closes
+  // The feed stays mounted and maintains scroll position at all times
 
   useEffect(() => {
     if (relayUrls.length) {

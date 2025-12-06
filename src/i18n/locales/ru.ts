@@ -63,7 +63,7 @@ export default {
     Add: 'Добавить',
     'n relays': '{{n}} ретрансляторов',
     Rename: 'Переименовать',
-    'Share with Njump': 'Поделиться через Njump',
+    'Share with Jumble': 'Поделиться через Jumble',
     'Share with Alexandria': 'Поделиться через Alexandria',
     Delete: 'Удалить',
     'Relay already exists': 'Ретранслятор уже существует',

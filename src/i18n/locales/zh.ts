@@ -62,7 +62,7 @@ export default {
     Add: '添加',
     'n relays': '{{n}} 个服务器',
     Rename: '重命名',
-    'Share with Njump': '通过Njump分享',
+    'Share with Jumble': '通过Jumble分享',
     'Share with Alexandria': '通过Alexandria分享',
     Delete: '删除',
     'Relay already exists': '服务器已存在',

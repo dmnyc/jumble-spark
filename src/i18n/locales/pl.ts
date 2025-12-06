@@ -62,7 +62,7 @@ export default {
     Add: 'Dodaj',
     'n relays': '{{n}} szt.',
     Rename: 'Zmień nazwę',
-    'Share with Njump': 'Udostępnij przez Njump',
+    'Share with Jumble': 'Udostępnij przez Jumble',
     'Share with Alexandria': 'Udostępnij przez Alexandria',
     Delete: 'Usuń',
     'Relay already exists': 'Transmiter już istnieje',

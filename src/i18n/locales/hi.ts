@@ -62,7 +62,7 @@ export default {
     Add: 'जोड़ें',
     'n relays': '{{n}} रिले',
     Rename: 'नाम बदलें',
-    'Share with Njump': 'Njump के साथ शेयर करें',
+    'Share with Jumble': 'Jumble के साथ शेयर करें',
     'Share with Alexandria': 'Alexandria के साथ शेयर करें',
     Delete: 'हटाएं',
     'Relay already exists': 'रिले पहले से मौजूद है',

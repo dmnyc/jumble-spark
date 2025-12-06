@@ -63,7 +63,7 @@ export default {
     Add: '追加',
     'n relays': '{{n}} 個のリレイ',
     Rename: '名前変更',
-    'Share with Njump': 'Njumpで共有',
+    'Share with Jumble': 'Jumbleで共有',
     'Share with Alexandria': 'Alexandriaで共有',
     Delete: '削除',
     'Relay already exists': 'リレイは既に存在します',

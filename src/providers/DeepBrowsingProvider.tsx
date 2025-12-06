@@ -33,30 +33,41 @@ export function DeepBrowsingProvider({
   useEffect(() => {
     if (!active) return
 
+    let rafId: number | null = null
     const handleScroll = () => {
-      const scrollTop = (!scrollAreaRef ? window.scrollY : scrollAreaRef.current?.scrollTop) || 0
-      const diff = scrollTop - lastScrollTopRef.current
-      lastScrollTopRef.current = scrollTop
-      setLastScrollTop(scrollTop)
-      if (scrollTop <= 800) {
-        setDeepBrowsing(false)
-        return
-      }
+      // Use requestAnimationFrame to throttle scroll updates and prevent scroll-linked positioning warnings
+      if (rafId !== null) return
+      
+      rafId = requestAnimationFrame(() => {
+        const scrollTop = (!scrollAreaRef ? window.scrollY : scrollAreaRef.current?.scrollTop) || 0
+        const diff = scrollTop - lastScrollTopRef.current
+        lastScrollTopRef.current = scrollTop
+        setLastScrollTop(scrollTop)
+        if (scrollTop <= 800) {
+          setDeepBrowsing(false)
+          rafId = null
+          return
+        }
 
-      if (diff > 20) {
-        setDeepBrowsing(true)
-      } else if (diff < -20) {
-        setDeepBrowsing(false)
-      }
+        if (diff > 20) {
+          setDeepBrowsing(true)
+        } else if (diff < -20) {
+          setDeepBrowsing(false)
+        }
+        rafId = null
+      })
     }
 
     const target = scrollAreaRef ? scrollAreaRef.current : window
 
-    target?.addEventListener('scroll', handleScroll)
+    target?.addEventListener('scroll', handleScroll, { passive: true })
     return () => {
       target?.removeEventListener('scroll', handleScroll)
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+      }
     }
-  }, [active])
+  }, [active, scrollAreaRef])
 
   return (
     <DeepBrowsingContext.Provider value={{ deepBrowsing, lastScrollTop }}>

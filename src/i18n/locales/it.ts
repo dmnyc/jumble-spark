@@ -62,7 +62,7 @@ export default {
     Add: 'Aggiungi',
     'n relays': '{{n}} relays',
     Rename: 'Rinomina',
-    'Share with Njump': 'Condividi con Njump',
+    'Share with Jumble': 'Condividi con Jumble',
     'Share with Alexandria': 'Condividi con Alexandria',
     Delete: 'Cancella',
     'Relay already exists': 'Relay già esistente',

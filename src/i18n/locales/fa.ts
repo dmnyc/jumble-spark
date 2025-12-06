@@ -62,7 +62,7 @@ export default {
     Add: 'افزودن',
     'n relays': '{{n}} رله',
     Rename: 'تغییر نام',
-    'Share with Njump': 'اشتراک‌گذاری با Njump',
+    'Share with Jumble': 'اشتراک‌گذاری با Jumble',
     'Share with Alexandria': 'اشتراک‌گذاری با Alexandria',
     Delete: 'حذف',
     'Relay already exists': 'رله از قبل موجود است',

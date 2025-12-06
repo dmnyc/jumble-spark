@@ -11,6 +11,7 @@ import ProfileButton from './ProfileButton'
 import RssButton from './RssButton'
 import SearchButton from './SearchButton'
 import SettingsButton from './SettingsButton'
+import PaneModeToggle from './PaneModeToggle'
 import storage from '@/services/local-storage.service'
 
 export default function PrimaryPageSidebar() {
@@ -40,7 +41,10 @@ export default function PrimaryPageSidebar() {
         <SettingsButton />
         <PostButton />
       </div>
-      <AccountButton />
+      <div className="space-y-2">
+        <AccountButton />
+        <PaneModeToggle />
+      </div>
     </div>
   )
 }

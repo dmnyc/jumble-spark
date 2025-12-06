@@ -1,7 +1,7 @@
 import { ExtendedKind } from '@/constants'
 import { getNoteBech32Id, isProtectedEvent, getRootEventHexId } from '@/lib/event'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
-import { toNjump, toAlexandria } from '@/lib/link'
+import { toAlexandria } from '@/lib/link'
 import logger from '@/lib/logger'
 import { pubkeyToNpub } from '@/lib/pubkey'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
@@ -18,6 +18,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import RelayIcon from '../RelayIcon'
+import { usePrimaryPage } from '@/PageManager'
 
 export interface SubMenuAction {
   label: React.ReactNode
@@ -55,6 +56,7 @@ export function useMenuActions({
   openHighlightEditor
 }: UseMenuActionsProps) {
   const { t } = useTranslation()
+  const { current: currentPrimaryPage } = usePrimaryPage()
   const { pubkey, attemptDelete, publish } = useNostr()
   const { relayUrls: currentBrowsingRelayUrls } = useCurrentRelays()
   const { relaySets, favoriteRelays } = useFavoriteRelays()
@@ -455,9 +457,15 @@ export function useMenuActions({
       },
       {
         icon: Link,
-        label: t('Share with Njump'),
+        label: t('Share with Jumble'),
         onClick: () => {
-          navigator.clipboard.writeText(toNjump(getNoteBech32Id(event)))
+          const noteId = getNoteBech32Id(event)
+          // Only include context for discussions page, use plain /notes/{id} for others
+          const path = currentPrimaryPage === 'discussions'
+            ? `/discussions/notes/${noteId}`
+            : `/notes/${noteId}`
+          const jumbleUrl = `https://jumble.imwald.eu${path}`
+          navigator.clipboard.writeText(jumbleUrl)
           closeDrawer()
         }
       },

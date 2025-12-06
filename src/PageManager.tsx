@@ -14,8 +14,10 @@ import PostSettingsPage from '@/pages/secondary/PostSettingsPage'
 import GeneralSettingsPage from '@/pages/secondary/GeneralSettingsPage'
 import TranslationPage from '@/pages/secondary/TranslationPage'
 import RssFeedSettingsPage from '@/pages/secondary/RssFeedSettingsPage'
-import NotePage from '@/pages/secondary/NotePage'
+import NoteDrawer from '@/components/NoteDrawer'
 import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
+import storage from '@/services/local-storage.service'
+import { Sheet, SheetContent } from '@/components/ui/sheet'
 import FollowingListPage from '@/pages/secondary/FollowingListPage'
 import MuteListPage from '@/pages/secondary/MuteListPage'
 import OthersRelaySettingsPage from '@/pages/secondary/OthersRelaySettingsPage'
@@ -51,7 +53,6 @@ import { routes } from './routes'
 import modalManager from './services/modal-manager.service'
 import CreateWalletGuideToast from './components/CreateWalletGuideToast'
 
-export type TPrimaryPageName = keyof typeof PRIMARY_PAGE_MAP
 
 type TPrimaryPageContext = {
   navigate: (page: TPrimaryPageName, props?: object) => void
@@ -84,7 +85,9 @@ const PRIMARY_PAGE_REF_MAP = {
   discussions: createRef<TPageRef>()
 }
 
-const PRIMARY_PAGE_MAP = {
+// Lazy function to create PRIMARY_PAGE_MAP to avoid circular dependency
+// This is only evaluated when called, not at module load time
+const getPrimaryPageMap = () => ({
   home: <NoteListPage ref={PRIMARY_PAGE_REF_MAP.home} />,
   explore: <ExplorePage ref={PRIMARY_PAGE_REF_MAP.explore} />,
   notifications: <NotificationListPage ref={PRIMARY_PAGE_REF_MAP.notifications} />,
@@ -93,7 +96,10 @@ const PRIMARY_PAGE_MAP = {
   relay: <RelayPage ref={PRIMARY_PAGE_REF_MAP.relay} />,
   search: <SearchPage ref={PRIMARY_PAGE_REF_MAP.search} />,
   discussions: <DiscussionsPage ref={PRIMARY_PAGE_REF_MAP.discussions} />
-}
+})
+
+// Type for primary page names - use the return type of getPrimaryPageMap
+export type TPrimaryPageName = keyof ReturnType<typeof getPrimaryPageMap>
 
 const PrimaryPageContext = createContext<TPrimaryPageContext | undefined>(undefined)
 
@@ -103,6 +109,13 @@ const PrimaryNoteViewContext = createContext<{
   setPrimaryNoteView: (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => void
   primaryViewType: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null
   getNavigationCounter: () => number
+} | undefined>(undefined)
+
+const NoteDrawerContext = createContext<{
+  openDrawer: (noteId: string) => void
+  closeDrawer: () => void
+  isDrawerOpen: boolean
+  drawerNoteId: string | null
 } | undefined>(undefined)
 
 export function usePrimaryPage() {
@@ -129,44 +142,124 @@ export function usePrimaryNoteView() {
   return context
 }
 
-// Fixed: Note navigation now uses primary note view on mobile, secondary routing on desktop
+export function useNoteDrawer() {
+  const context = useContext(NoteDrawerContext)
+  if (!context) {
+    throw new Error('useNoteDrawer must be used within a NoteDrawerContext.Provider')
+  }
+  return context
+}
+
+// Helper function to build contextual note URL
+function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): string {
+  // Pages that should preserve context in the URL
+  const contextualPages: TPrimaryPageName[] = ['discussions', 'search', 'profile', 'explore', 'notifications']
+  
+  if (currentPage && contextualPages.includes(currentPage) && currentPage !== 'home') {
+    return `/${currentPage}/notes/${noteId}`
+  }
+  
+  return `/notes/${noteId}`
+}
+
+// Helper function to build contextual relay URL
+function buildRelayUrl(relayUrl: string, currentPage: TPrimaryPageName | null): string {
+  const encodedRelayUrl = encodeURIComponent(relayUrl)
+  
+  // Only preserve context for explore page (where you discover relays)
+  if (currentPage === 'explore') {
+    return `/explore/relays/${encodedRelayUrl}`
+  }
+  
+  return `/relays/${encodedRelayUrl}`
+}
+
+// Helper function to extract noteId and context from URL
+function parseNoteUrl(url: string): { noteId: string; context?: string } {
+  // Match patterns like /discussions/notes/{noteId} or /notes/{noteId}
+  const contextualMatch = url.match(/\/(discussions|search|profile|explore|notifications)\/notes\/(.+)$/)
+  if (contextualMatch) {
+    return { noteId: contextualMatch[2], context: contextualMatch[1] }
+  }
+  
+  // Match standard pattern /notes/{noteId}
+  const standardMatch = url.match(/\/notes\/(.+)$/)
+  if (standardMatch) {
+    return { noteId: standardMatch[1] }
+  }
+  
+  // Fallback: extract from any /notes/ pattern
+  const fallbackMatch = url.replace(/.*\/notes\//, '')
+  return { noteId: fallbackMatch || url }
+}
+
+// Fixed: Note navigation uses drawer on mobile/single-pane, secondary panel on double-pane desktop
 export function useSmartNoteNavigation() {
-  const { setPrimaryNoteView } = usePrimaryNoteView()
   const { push: pushSecondaryPage } = useSecondaryPage()
+  const { openDrawer, isDrawerOpen } = useNoteDrawer()
   const { isSmallScreen } = useScreenSize()
+  const { current: currentPrimaryPage } = usePrimaryPage()
   
   const navigateToNote = (url: string) => {
-    // Event ID will be saved when setPrimaryNoteView or pushSecondaryPage is called
+    // Extract noteId from URL (handles both /notes/{id} and /{context}/notes/{id})
+    const { noteId } = parseNoteUrl(url)
+    
+    // Build contextual URL based on current page
+    const contextualUrl = buildNoteUrl(noteId, currentPrimaryPage)
     
     if (isSmallScreen) {
-      // Use primary note view on mobile
-      const noteId = url.replace('/notes/', '')
-      window.history.pushState(null, '', url)
-      setPrimaryNoteView(<NotePage id={noteId} index={0} hideTitlebar={true} />, 'note')
+      // Mobile: always push to secondary stack AND update drawer
+      // This ensures back button works when clicking embedded events
+      pushSecondaryPage(contextualUrl)
+      openDrawer(noteId)
     } else {
-      // Use secondary routing on desktop
-      pushSecondaryPage(url)
+      // Desktop: check panel mode
+      const currentPanelMode = storage.getPanelMode()
+      if (currentPanelMode === 'single') {
+        // Single-pane: if drawer is already open, push to stack AND update drawer
+        // Otherwise, just open drawer
+        if (isDrawerOpen) {
+          // Navigating from within drawer - push to stack for back button support
+          pushSecondaryPage(contextualUrl)
+          openDrawer(noteId)
+        } else {
+          // Opening drawer for first time
+          window.history.pushState(null, '', contextualUrl)
+          openDrawer(noteId)
+        }
+      } else {
+        // Double-pane: use secondary panel
+        pushSecondaryPage(contextualUrl)
+      }
     }
   }
   
   return { navigateToNote }
 }
 
-// Fixed: Relay navigation now uses primary note view on mobile, secondary routing on desktop
+// Fixed: Relay navigation now uses primary note view on mobile, secondary routing (drawer in single-pane, side panel in double-pane) on desktop
 export function useSmartRelayNavigation() {
   const { setPrimaryNoteView } = usePrimaryNoteView()
   const { push: pushSecondaryPage } = useSecondaryPage()
   const { isSmallScreen } = useScreenSize()
+  const { current: currentPrimaryPage } = usePrimaryPage()
   
   const navigateToRelay = (url: string) => {
+    // Extract relay URL from path (handles both /relays/{url} and /{context}/relays/{url})
+    const relayUrlMatch = url.match(/\/(discussions|search|profile|explore|notifications)\/relays\/(.+)$/) || 
+                          url.match(/\/relays\/(.+)$/)
+    const relayUrl = relayUrlMatch ? decodeURIComponent(relayUrlMatch[relayUrlMatch.length - 1]) : decodeURIComponent(url.replace(/.*\/relays\//, ''))
+    
+    // Build contextual URL based on current page
+    const contextualUrl = buildRelayUrl(relayUrl, currentPrimaryPage)
+    
     if (isSmallScreen) {
       // Use primary note view on mobile
-      const relayUrl = decodeURIComponent(url.replace('/relays/', ''))
-      window.history.pushState(null, '', url)
+      window.history.pushState(null, '', contextualUrl)
       setPrimaryNoteView(<SecondaryRelayPage url={relayUrl} index={0} hideTitlebar={true} />, 'relay')
     } else {
-      // Use secondary routing on desktop
-      pushSecondaryPage(url)
+      // Desktop: always use secondary routing (will be rendered in drawer in single-pane, side panel in double-pane)
+      pushSecondaryPage(contextualUrl)
     }
   }
   
@@ -439,577 +532,28 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   >([
     {
       name: 'home',
-      element: PRIMARY_PAGE_MAP.home
+      element: getPrimaryPageMap().home
     }
   ])
   const [secondaryStack, setSecondaryStack] = useState<TStackItem[]>([])
   const [primaryNoteView, setPrimaryNoteViewState] = useState<ReactNode | null>(null)
   const [primaryViewType, setPrimaryViewType] = useState<'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null>(null)
   const [savedPrimaryPage, setSavedPrimaryPage] = useState<TPrimaryPageName | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerNoteId, setDrawerNoteId] = useState<string | null>(null)
+  const [panelMode, setPanelMode] = useState<'single' | 'double'>(() => storage.getPanelMode())
   const navigationCounterRef = useRef(0)
-  const savedEventIdsRef = useRef<Map<TPrimaryPageName, string>>(new Map())
   const savedFeedStateRef = useRef<Map<TPrimaryPageName, { 
-    eventIds: string[], 
-    scrollPosition: number, 
     tab?: string,
     discussionsState?: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' },
     trendingTab?: 'nostr' | 'relays' | 'hashtags'
   }>>(new Map())
-  const restoringScrollRef = useRef<Set<string>>(new Set()) // Track which eventIds are currently being restored
   const currentTabStateRef = useRef<Map<TPrimaryPageName, string>>(new Map()) // Track current tab state for each page
-  
-  // Helper function to wait for an event element to appear and scroll to it
-  // Optionally uses cached feed state to restore scroll position first
-  const waitForEventAndScroll = useCallback((eventId: string, page: TPrimaryPageName, maxAttempts = 100, delay = 100) => {
-    // Prevent duplicate restoration attempts
-    if (restoringScrollRef.current.has(eventId)) {
-      logger.debug('PageManager: Already restoring scroll for event', { eventId })
-      return
-    }
-    restoringScrollRef.current.add(eventId)
-    
-    logger.info('PageManager: Starting waitForEventAndScroll', { eventId, page, isSmallScreen })
-    
-    let attempts = 0
-    let timeoutId: NodeJS.Timeout | null = null
-    let observer: MutationObserver | null = null
-    let isResolved = false
-    let lastScrollHeight = 0
-    let stuckAttempts = 0
-    
-    const scrollToEvent = () => {
-      if (isResolved) return
-      
-      if (isSmallScreen) {
-        // Find all elements with this event ID (there might be multiple - original and embedded quotes)
-        const allEventElements = Array.from(document.querySelectorAll(`[data-event-id="${eventId}"]`)) as HTMLElement[]
-        
-        // Filter out embedded notes - they're inside [data-embedded-note] containers or are embedded themselves
-        const mainEventElements = allEventElements.filter(el => {
-          // Check if this element is inside an embedded note container
-          const isInsideEmbedded = el.closest('[data-embedded-note]') !== null
-          // Check if this element itself is an embedded note
-          const isEmbedded = el.hasAttribute('data-embedded-note')
-          return !isInsideEmbedded && !isEmbedded
-        })
-        
-        // If we have cached scroll position, find the element closest to it
-        // Otherwise, just use the first main event element
-        let eventElement: HTMLElement | null = null
-        if (mainEventElements.length > 0) {
-          const cachedFeedState = savedFeedStateRef.current.get(page)
-          if (cachedFeedState && cachedFeedState.scrollPosition > 0) {
-            // Find the element closest to the cached scroll position
-            let closestElement: HTMLElement | null = null
-            let closestDistance = Infinity
-            
-            mainEventElements.forEach(el => {
-              const rect = el.getBoundingClientRect()
-              const elementTop = rect.top + window.scrollY
-              const distance = Math.abs(elementTop - cachedFeedState.scrollPosition)
-              if (distance < closestDistance) {
-                closestDistance = distance
-                closestElement = el
-              }
-            })
-            
-            eventElement = closestElement || mainEventElements[0]
-          } else {
-            eventElement = mainEventElements[0]
-          }
-        }
-        
-        if (eventElement) {
-          // Scroll to top of the feed (event at the top)
-          eventElement.scrollIntoView({ behavior: 'instant', block: 'start' })
-          logger.info('PageManager: Mobile - Scrolled to saved event at top', { 
-            eventId, 
-            attempts,
-            totalElements: allEventElements.length,
-            mainElements: mainEventElements.length
-          })
-          isResolved = true
-          cleanup()
-          return true
-        }
-      } else {
-        const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
-        if (scrollArea) {
-          // Find all elements with this event ID (there might be multiple - original and embedded quotes)
-          const allEventElements = Array.from(scrollArea.querySelectorAll(`[data-event-id="${eventId}"]`)) as HTMLElement[]
-          
-          // Filter out embedded notes - they're inside [data-embedded-note] containers or are embedded themselves
-          const mainEventElements = allEventElements.filter(el => {
-            // Check if this element is inside an embedded note container
-            const isInsideEmbedded = el.closest('[data-embedded-note]') !== null
-            // Check if this element itself is an embedded note
-            const isEmbedded = el.hasAttribute('data-embedded-note')
-            return !isInsideEmbedded && !isEmbedded
-          })
-          
-          // If we have cached scroll position, find the element closest to it
-          // Otherwise, just use the first main event element
-          let eventElement: HTMLElement | null = null
-          if (mainEventElements.length > 0) {
-            const cachedFeedState = savedFeedStateRef.current.get(page)
-            if (cachedFeedState && cachedFeedState.scrollPosition > 0) {
-              // Find the element closest to the cached scroll position
-              let closestElement: HTMLElement | null = null
-              let closestDistance = Infinity
-              
-              mainEventElements.forEach(el => {
-                const rect = el.getBoundingClientRect()
-                const scrollAreaRect = scrollArea.getBoundingClientRect()
-                const elementTop = rect.top - scrollAreaRect.top + scrollArea.scrollTop
-                const distance = Math.abs(elementTop - cachedFeedState.scrollPosition)
-                if (distance < closestDistance) {
-                  closestDistance = distance
-                  closestElement = el
-                }
-              })
-              
-              eventElement = closestElement || mainEventElements[0]
-            } else {
-              eventElement = mainEventElements[0]
-            }
-          }
-          
-          if (eventElement) {
-            // Get the element's current position relative to the scroll container
-            const scrollAreaRect = scrollArea.getBoundingClientRect()
-            const elementRect = eventElement.getBoundingClientRect()
-            
-            // Calculate where the element currently is relative to the scroll container's viewport
-            const elementTopInViewport = elementRect.top - scrollAreaRect.top
-            
-            // The element's position in the scroll container's content = current viewport position + current scroll position
-            const elementTopInContent = elementTopInViewport + scrollArea.scrollTop
-            
-            // Scroll to position the element at the top (scrollTop = element's position in content)
-            scrollArea.scrollTop = elementTopInContent
-            
-            // Verify after a brief delay to allow scroll to complete
-            setTimeout(() => {
-              const verifyRect = eventElement.getBoundingClientRect()
-              const verifyScrollAreaRect = scrollArea.getBoundingClientRect()
-              const actualTop = verifyRect.top - verifyScrollAreaRect.top
-              
-              // If still not at top, try one more time with a small adjustment
-              if (Math.abs(actualTop) > 10) {
-                const adjustedScrollTop = scrollArea.scrollTop + actualTop
-                scrollArea.scrollTop = adjustedScrollTop
-                
-                // Verify again
-                setTimeout(() => {
-                  const finalRect = eventElement.getBoundingClientRect()
-                  const finalScrollAreaRect = scrollArea.getBoundingClientRect()
-                  const finalTop = finalRect.top - finalScrollAreaRect.top
-                  logger.info('PageManager: Desktop - Scrolled to saved event at top (adjusted)', { 
-                    eventId, 
-                    attempts,
-                    elementTopInContent,
-                    adjustedScrollTop,
-                    actualScrollTop: scrollArea.scrollTop,
-                    elementTopRelativeToViewport: finalTop
-                  })
-                }, 10)
-              } else {
-                logger.info('PageManager: Desktop - Scrolled to saved event at top', { 
-                  eventId, 
-                  attempts,
-                  elementTopInContent,
-                  actualScrollTop: scrollArea.scrollTop,
-                  elementTopRelativeToViewport: actualTop
-                })
-              }
-            }, 10)
-            
-            isResolved = true
-            cleanup()
-            return true
-          } else {
-            // Event not found - check if we need to trigger lazy loading by scrolling down
-            const allEvents = scrollArea.querySelectorAll('[data-event-id]')
-            const loadedEventIds = Array.from(allEvents).map(el => el.getAttribute('data-event-id'))
-            const eventIsLoaded = loadedEventIds.includes(eventId)
-            
-            // If event is not loaded, try to trigger lazy loading
-            if (!eventIsLoaded) {
-              const currentScrollTop = scrollArea.scrollTop
-              const scrollHeight = scrollArea.scrollHeight
-              const clientHeight = scrollArea.clientHeight
-              const maxScroll = Math.max(0, scrollHeight - clientHeight)
-              const cachedFeedState = savedFeedStateRef.current.get(page)
-              
-              // Check if the target event is in the cached event IDs - if so, we know it should be loaded
-              const eventIsInCachedList = cachedFeedState?.eventIds.includes(eventId) ?? false
-              
-              // If we have cached state and the event is in the cached list, we know it should exist
-              // Scroll to bottom to trigger lazy loading, but only if we're not already at the bottom
-              if (eventIsInCachedList && cachedFeedState) {
-                // Track if scroll height is increasing (content is loading)
-                const scrollHeightIncreased = scrollHeight > lastScrollHeight
-                if (scrollHeightIncreased) {
-                  lastScrollHeight = scrollHeight
-                  stuckAttempts = 0
-                } else if (lastScrollHeight > 0) {
-                  stuckAttempts++
-                } else {
-                  lastScrollHeight = scrollHeight
-                }
-                
-                // If cached position is beyond current scroll height, we need to load more content
-                // Scroll to the bottom to trigger the IntersectionObserver
-                if (cachedFeedState.scrollPosition > maxScroll) {
-                  // If we're stuck (scroll height not increasing), wait longer before trying again
-                  if (stuckAttempts > 5 && attempts > 10) {
-                    // Wait a bit longer - content might be loading but DOM hasn't updated yet
-                    if (attempts % 10 === 0) {
-                      logger.debug('PageManager: Desktop - Scroll height not increasing, waiting for content to load', { 
-                        eventId, 
-                        attempts,
-                        stuckAttempts,
-                        scrollHeight,
-                        lastScrollHeight,
-                        loadedEvents: allEvents.length
-                      })
-                    }
-                    return false
-                  }
-                  
-                  // Scroll to bottom to trigger lazy loading
-                  scrollArea.scrollTop = maxScroll
-                  
-                  if (attempts % 3 === 0 || attempts < 5) {
-                    logger.info('PageManager: Desktop - Scrolling to bottom to trigger lazy loading (event in cached list)', { 
-                      eventId, 
-                      attempts,
-                      currentScrollTop,
-                      maxScroll,
-                      cachedPosition: cachedFeedState.scrollPosition,
-                      scrollHeight,
-                      loadedEvents: allEvents.length,
-                      cachedEventCount: cachedFeedState.eventIds.length,
-                      scrollHeightIncreased
-                    })
-                  }
-                  return false
-                } else {
-                  // Cached position is within current scroll height, but event not found yet
-                  // This might mean the event order changed or it's not rendered yet
-                  // Scroll towards cached position to trigger loading
-                  const distanceToCached = Math.abs(currentScrollTop - cachedFeedState.scrollPosition)
-                  if (distanceToCached > 10) {
-                    const targetScroll = Math.min(cachedFeedState.scrollPosition, maxScroll)
-                    scrollArea.scrollTop = targetScroll
-                    
-                    if (attempts % 3 === 0 || attempts < 5) {
-                      logger.info('PageManager: Desktop - Scrolling towards cached position (event in cached list)', { 
-                        eventId, 
-                        attempts,
-                        currentScrollTop,
-                        targetScroll,
-                        cachedPosition: cachedFeedState.scrollPosition,
-                        scrollHeight,
-                        maxScroll,
-                        loadedEvents: allEvents.length
-                      })
-                    }
-                    return false
-                  }
-                }
-              } else {
-                // Event not in cached list or no cached state - scroll down gradually to trigger lazy loading
-                if (maxScroll > 0 && currentScrollTop < maxScroll * 0.95) {
-                  // Scroll down more aggressively - by a full viewport or 1000px, whichever is smaller
-                  const scrollIncrement = Math.min(clientHeight * 1.0, 1000)
-                  const newScrollTop = Math.min(currentScrollTop + scrollIncrement, maxScroll)
-                  scrollArea.scrollTop = newScrollTop
-                  
-                  if (attempts % 5 === 0) {
-                    logger.info('PageManager: Desktop - Scrolling down to trigger lazy loading', { 
-                      eventId, 
-                      attempts,
-                      currentScrollTop,
-                      newScrollTop,
-                      scrollHeight,
-                      maxScroll,
-                      loadedEvents: allEvents.length,
-                      scrollIncrement
-                    })
-                  }
-                } else {
-                  if (attempts % 10 === 0) {
-                    logger.debug('PageManager: Desktop - Cannot scroll further or at bottom', { 
-                      eventId, 
-                      attempts,
-                      currentScrollTop,
-                      maxScroll,
-                      scrollPercentage: maxScroll > 0 ? (currentScrollTop / maxScroll).toFixed(2) : 'N/A',
-                      loadedEvents: allEvents.length
-                    })
-                  }
-                }
-              }
-            }
-            
-            // Log debug info periodically
-            if (attempts === 0 || attempts % 10 === 0) {
-              logger.debug('PageManager: Desktop - Event not found yet', { 
-                eventId, 
-                attempts,
-                totalEventsInDocument: document.querySelectorAll('[data-event-id]').length,
-                totalEventsInScrollArea: allEvents.length,
-                eventIsLoaded
-              })
-            }
-          }
-        } else {
-          if (attempts === 0 || attempts % 10 === 0) {
-            logger.debug('PageManager: Desktop - ScrollArea not found yet', { eventId, attempts })
-          }
-        }
-      }
-      return false
-    }
-    
-    const tryScroll = () => {
-      if (isResolved) return
-      attempts++
-      
-      if (scrollToEvent()) {
-        return
-      }
-      
-      if (attempts < maxAttempts) {
-        timeoutId = setTimeout(tryScroll, delay)
-      } else {
-        // Final debug: Check what events are actually in the DOM
-        const allEvents = document.querySelectorAll('[data-event-id]')
-        const eventIds = Array.from(allEvents).slice(0, 10).map(el => el.getAttribute('data-event-id'))
-        const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
-        const scrollAreaEvents = scrollArea ? scrollArea.querySelectorAll('[data-event-id]') : []
-        const scrollAreaEventIds = Array.from(scrollAreaEvents).slice(0, 10).map(el => el.getAttribute('data-event-id'))
-        
-        logger.warn('PageManager: Could not find saved event element after max attempts', { 
-          eventId, 
-          page, 
-          attempts,
-          totalEventsInDocument: allEvents.length,
-          totalEventsInScrollArea: scrollAreaEvents.length,
-          sampleEventIds: eventIds,
-          sampleScrollAreaEventIds: scrollAreaEventIds
-        })
-        cleanup()
-      }
-    }
-    
-    const cleanup = () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
-      if (observer) {
-        observer.disconnect()
-        observer = null
-      }
-      restoringScrollRef.current.delete(eventId)
-    }
-    
-    // Wait a bit for the page to render before trying
-    setTimeout(() => {
-      // First, restore scroll position from cached feed state to trigger lazy loading
-      const cachedFeedState = savedFeedStateRef.current.get(page)
-      const eventIsInCachedList = cachedFeedState?.eventIds.includes(eventId) ?? false
-      logger.debug('PageManager: Checking cached feed state for restoration', { 
-        page, 
-        hasCachedState: !!cachedFeedState,
-        cachedScrollPosition: cachedFeedState?.scrollPosition,
-        cachedEventCount: cachedFeedState?.eventIds.length,
-        eventIdInCachedList: eventIsInCachedList,
-        allCachedPages: Array.from(savedFeedStateRef.current.keys())
-      })
-      
-      if (cachedFeedState && !eventIsInCachedList) {
-        logger.warn('PageManager: Target event not in cached event list - may not exist in feed', { 
-          eventId, 
-          page,
-          cachedEventCount: cachedFeedState.eventIds.length,
-          sampleCachedIds: cachedFeedState.eventIds.slice(0, 5)
-        })
-      }
-      
-      if (cachedFeedState && cachedFeedState.scrollPosition > 0) {
-        if (isSmallScreen) {
-          window.scrollTo({ top: cachedFeedState.scrollPosition, behavior: 'instant' })
-          logger.info('PageManager: Mobile - Restored scroll position from cache', { 
-            page, 
-            scrollPosition: cachedFeedState.scrollPosition,
-            cachedEventCount: cachedFeedState.eventIds.length
-          })
-        } else {
-          const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
-          if (scrollArea) {
-            const maxScroll = Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight)
-            const needsMoreContent = cachedFeedState.scrollPosition > maxScroll
-            
-            // If cached position is beyond current scroll height, scroll to bottom to trigger loading
-            // Otherwise, scroll to the cached position
-            const targetScroll = needsMoreContent ? maxScroll : Math.min(cachedFeedState.scrollPosition, maxScroll)
-            scrollArea.scrollTop = targetScroll
-            
-            logger.info('PageManager: Desktop - Restored scroll position from cache', { 
-              page, 
-              scrollPosition: cachedFeedState.scrollPosition,
-              targetScroll,
-              cachedEventCount: cachedFeedState.eventIds.length,
-              scrollAreaScrollHeight: scrollArea.scrollHeight,
-              maxScroll,
-              needsMoreContent,
-              eventIdInCachedList: cachedFeedState.eventIds.includes(eventId)
-            })
-          } else {
-            logger.warn('PageManager: Desktop - ScrollArea not found when trying to restore cached position', { page })
-          }
-        }
-      } else {
-        logger.debug('PageManager: No cached scroll position to restore', { 
-          page, 
-          hasCachedState: !!cachedFeedState,
-          cachedScrollPosition: cachedFeedState?.scrollPosition
-        })
-      }
-      
-      // Wait a bit longer for lazy loading to trigger after restoring scroll position
-      setTimeout(() => {
-        // Try to find and scroll to the event
-        if (scrollToEvent()) {
-          return
-        }
-        
-        // Set up MutationObserver to watch for when the element appears
-        const targetNode = isSmallScreen ? document.body : document.querySelector('[data-radix-scroll-area-viewport]') || document.body
-        if (targetNode) {
-          observer = new MutationObserver(() => {
-            if (!isResolved && scrollToEvent()) {
-              return
-            }
-          })
-          
-          observer.observe(targetNode, {
-            childList: true,
-            subtree: true,
-            attributes: false
-          })
-          logger.debug('PageManager: MutationObserver set up', { eventId, targetNode: targetNode.tagName })
-        } else {
-          logger.warn('PageManager: Could not find target node for MutationObserver', { eventId, isSmallScreen })
-        }
-        
-        // Also poll as a fallback
-        timeoutId = setTimeout(tryScroll, delay)
-      }, 300) // Wait 300ms after restoring scroll position for lazy loading to trigger
-      
-      // Cleanup after max time (maxAttempts * delay)
-      setTimeout(() => {
-        if (!isResolved) {
-          // Final debug: Check what events are actually in the DOM
-          const allEvents = document.querySelectorAll('[data-event-id]')
-          const eventIds = Array.from(allEvents).slice(0, 20).map(el => el.getAttribute('data-event-id'))
-          const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
-          const scrollAreaEvents = scrollArea ? scrollArea.querySelectorAll('[data-event-id]') : []
-          const scrollAreaEventIds = Array.from(scrollAreaEvents).slice(0, 20).map(el => el.getAttribute('data-event-id'))
-          const eventExistsInDocument = Array.from(allEvents).some(el => el.getAttribute('data-event-id') === eventId)
-          const eventExistsInScrollArea = scrollArea ? Array.from(scrollAreaEvents).some(el => el.getAttribute('data-event-id') === eventId) : false
-          
-          logger.warn('PageManager: waitForEventAndScroll timed out', { 
-            eventId, 
-            page, 
-            attempts,
-            totalEventsInDocument: allEvents.length,
-            totalEventsInScrollArea: scrollAreaEvents.length,
-            eventExistsInDocument,
-            eventExistsInScrollArea,
-            sampleEventIds: eventIds,
-            sampleScrollAreaEventIds: scrollAreaEventIds,
-            scrollAreaExists: !!scrollArea
-          })
-          cleanup()
-        }
-      }, maxAttempts * delay)
-    }, 200) // Wait 200ms for initial render
-  }, [isSmallScreen])
   
   const setPrimaryNoteView = (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => {
     if (view && !primaryNoteView) {
       // Saving current primary page before showing overlay
       setSavedPrimaryPage(currentPrimaryPage)
-      
-      // Find the event that's currently visible in the viewport and save its ID
-      // Also cache the feed state (all visible event IDs and scroll position)
-      const findVisibleEventIdAndCacheFeedState = () => {
-        if (isSmallScreen) {
-          // On mobile, find event in window viewport
-          const viewportCenter = window.scrollY + window.innerHeight / 2
-          const allEvents = document.querySelectorAll('[data-event-id]')
-          let closestEvent: HTMLElement | null = null
-          let closestDistance = Infinity
-          const eventIds: string[] = []
-          
-          allEvents.forEach((el) => {
-            const eventId = el.getAttribute('data-event-id')
-            if (eventId) {
-              eventIds.push(eventId)
-            }
-            const rect = el.getBoundingClientRect()
-            const elementCenter = rect.top + window.scrollY + rect.height / 2
-            const distance = Math.abs(elementCenter - viewportCenter)
-            if (distance < closestDistance) {
-              closestDistance = distance
-              closestEvent = el as HTMLElement
-            }
-          })
-          
-          const visibleEventId = (closestEvent as HTMLElement | null)?.getAttribute('data-event-id')
-          const scrollPosition = window.scrollY
-          
-          return { visibleEventId, eventIds, scrollPosition }
-        } else {
-          // On desktop, find event in ScrollArea viewport
-          const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
-          if (scrollArea) {
-            const viewportCenter = scrollArea.scrollTop + scrollArea.clientHeight / 2
-            const allEvents = scrollArea.querySelectorAll('[data-event-id]')
-            let closestEvent: HTMLElement | null = null
-            let closestDistance = Infinity
-            const eventIds: string[] = []
-            
-            allEvents.forEach((el) => {
-              const eventId = el.getAttribute('data-event-id')
-              if (eventId) {
-                eventIds.push(eventId)
-              }
-              const rect = el.getBoundingClientRect()
-              const scrollAreaRect = scrollArea.getBoundingClientRect()
-              const elementTop = rect.top - scrollAreaRect.top + scrollArea.scrollTop
-              const elementCenter = elementTop + rect.height / 2
-              const distance = Math.abs(elementCenter - viewportCenter)
-              if (distance < closestDistance) {
-                closestDistance = distance
-                closestEvent = el as HTMLElement
-              }
-            })
-            
-            const visibleEventId = (closestEvent as HTMLElement | null)?.getAttribute('data-event-id')
-            const scrollPosition = scrollArea.scrollTop
-            
-            return { visibleEventId, eventIds, scrollPosition }
-          }
-        }
-        return { visibleEventId: null, eventIds: [], scrollPosition: 0 }
-      }
-      
-      const { visibleEventId, eventIds, scrollPosition } = findVisibleEventIdAndCacheFeedState()
       
       // Get current tab state from ref (updated by components via events)
       const currentTab = currentTabStateRef.current.get(currentPrimaryPage)
@@ -1036,36 +580,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       // Get trending tab if on search page
       const trendingTab = currentTabStateRef.current.get('search') as 'nostr' | 'relays' | 'hashtags' | undefined
       
-      if (visibleEventId) {
-        logger.info('PageManager: Saving visible event ID and feed state', { 
+      // Save state (tab, discussions, trending) if any exists
+      if (currentTab || discussionsState || trendingTab) {
+        logger.info('PageManager: Saving page state', { 
           page: currentPrimaryPage, 
-          eventId: visibleEventId,
-          eventCount: eventIds.length,
-          scrollPosition,
-          tab: currentTab,
-          discussionsState,
-          trendingTab
-        })
-        savedEventIdsRef.current.set(currentPrimaryPage, visibleEventId)
-        savedFeedStateRef.current.set(currentPrimaryPage, { 
-          eventIds, 
-          scrollPosition, 
-          tab: currentTab,
-          discussionsState,
-          trendingTab
-        })
-      } else if (scrollPosition > 0 || currentTab || discussionsState || trendingTab) {
-        // Save scroll position even if no event ID (for pages without event IDs like notifications, explore)
-        logger.info('PageManager: Saving scroll position and state (no event ID)', { 
-          page: currentPrimaryPage, 
-          scrollPosition,
           tab: currentTab,
           discussionsState,
           trendingTab
         })
         savedFeedStateRef.current.set(currentPrimaryPage, { 
-          eventIds: [], 
-          scrollPosition, 
           tab: currentTab,
           discussionsState,
           trendingTab
@@ -1086,11 +609,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     
     // If clearing the view, restore to the saved primary page
     if (!view && savedPrimaryPage) {
-      const newUrl = savedPrimaryPage === 'home' ? '/' : `/?page=${savedPrimaryPage}`
+      const newUrl = savedPrimaryPage === 'home' ? '/' : `/${savedPrimaryPage}`
       window.history.replaceState(null, '', newUrl)
       
       const savedFeedState = savedFeedStateRef.current.get(savedPrimaryPage)
-      const savedEventId = savedEventIdsRef.current.get(savedPrimaryPage)
       
       // Restore tab state first
       if (savedFeedState?.tab) {
@@ -1123,43 +645,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         }))
         currentTabStateRef.current.set('search', savedFeedState.trendingTab)
       }
-      
-      // Scroll to the saved event or position
-      if (savedEventId) {
-        logger.info('PageManager: Restoring to saved event', { page: savedPrimaryPage, eventId: savedEventId })
-        try {
-          waitForEventAndScroll(savedEventId, savedPrimaryPage)
-        } catch (error) {
-          logger.error('PageManager: Error calling waitForEventAndScroll', { error, savedEventId, savedPrimaryPage })
-        }
-      } else if (savedFeedState && savedFeedState.scrollPosition > 0) {
-        // Restore scroll position for pages without event IDs
-        logger.info('PageManager: Restoring scroll position (no event ID)', { 
-          page: savedPrimaryPage, 
-          scrollPosition: savedFeedState.scrollPosition 
-        })
-        // Wait longer for content to load, then restore scroll position
-        setTimeout(() => {
-          const restoreScroll = () => {
-            if (isSmallScreen) {
-              window.scrollTo({ top: savedFeedState.scrollPosition, behavior: 'instant' })
-            } else {
-              const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
-              if (scrollArea) {
-                const maxScroll = Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight)
-                const targetScroll = Math.min(savedFeedState.scrollPosition, maxScroll)
-                scrollArea.scrollTop = targetScroll
-                
-                // If content hasn't loaded enough yet, try again after a delay
-                if (targetScroll < savedFeedState.scrollPosition && maxScroll < savedFeedState.scrollPosition) {
-                  setTimeout(restoreScroll, 200)
-                }
-              }
-            }
-          }
-          restoreScroll()
-        }, 300)
-      }
     }
   }
 
@@ -1180,9 +665,21 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       window.history.back()
     }
   }
+
+  // Drawer handlers
+  const openDrawer = useCallback((noteId: string) => {
+    setDrawerNoteId(noteId)
+    setDrawerOpen(true)
+  }, [])
+
+  const closeDrawer = () => {
+    setDrawerOpen(false)
+    // Clear noteId after animation completes (Sheet animation is 300ms)
+    setTimeout(() => setDrawerNoteId(null), 300)
+  }
   const ignorePopStateRef = useRef(false)
 
-  // Handle browser back button
+  // Handle browser back button for primary note view
   useEffect(() => {
     const handlePopState = () => {
       if (ignorePopStateRef.current) {
@@ -1190,15 +687,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         return
       }
       
-      // If we have a primary note view open, close it and go back to the main page
-      if (primaryNoteView) {
+      // If we have a primary note view open (and drawer is not open), close it
+      if (primaryNoteView && !drawerOpen) {
         setPrimaryNoteView(null)
       }
     }
 
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [primaryNoteView])
+  }, [primaryNoteView, drawerOpen])
 
   useEffect(() => {
     if (['/npub1', '/nprofile1'].some((prefix) => window.location.pathname.startsWith(prefix))) {
@@ -1221,8 +718,91 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     window.history.pushState(null, '', window.location.href)
     if (window.location.pathname !== '/') {
       const url = window.location.pathname + window.location.search + window.location.hash
+      const pathname = window.location.pathname
       
-      // DEPRECATED: Double-panel logic removed - always add to secondary stack
+      // Check if this is a note URL - handle both /notes/{id} and /{context}/notes/{id}
+      const contextualNoteMatch = pathname.match(/\/(discussions|search|profile|explore|notifications)\/notes\/(.+)$/)
+      const standardNoteMatch = pathname.match(/\/notes\/(.+)$/)
+      const noteUrlMatch = contextualNoteMatch || standardNoteMatch
+      
+      if (noteUrlMatch) {
+        const noteId = noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0]
+        if (noteId) {
+          // If this is a contextual note URL, set the primary page first
+          if (contextualNoteMatch) {
+            const pageContext = contextualNoteMatch[1] as TPrimaryPageName
+            if (pageContext in getPrimaryPageMap()) {
+              // Open drawer immediately, then load background page asynchronously
+              // This prevents the background page loading from blocking the drawer
+              if (isSmallScreen || panelMode === 'single') {
+                // Single-pane mode or mobile: open drawer first
+                openDrawer(noteId)
+                
+                // Load background page asynchronously after drawer opens
+                setTimeout(() => {
+                  setCurrentPrimaryPage(pageContext)
+                  setPrimaryPages((prev) => {
+                    const exists = prev.find((p) => p.name === pageContext)
+                    if (!exists) {
+                      return [...prev, { name: pageContext, element: getPrimaryPageMap()[pageContext] }]
+                    }
+                    return prev
+                  })
+                  setSavedPrimaryPage(pageContext)
+                }, 0)
+                return
+              } else {
+                // Double-pane mode: set page immediately (no drawer)
+                setCurrentPrimaryPage(pageContext)
+                setPrimaryPages((prev) => {
+                  const exists = prev.find((p) => p.name === pageContext)
+                    if (!exists) {
+                      return [...prev, { name: pageContext, element: getPrimaryPageMap()[pageContext] }]
+                    }
+                  return prev
+                })
+                setSavedPrimaryPage(pageContext)
+              }
+            }
+          }
+          
+              // Build contextual URL based on current page (for both single and double-pane)
+          const contextualUrl = buildNoteUrl(noteId, currentPrimaryPage)
+          
+          // Check pane mode to determine how to open the note
+          if (isSmallScreen || panelMode === 'single') {
+            // Single-pane mode or mobile: open in drawer
+            openDrawer(noteId)
+            // Update URL to contextual URL if different
+            if (url !== contextualUrl) {
+              window.history.replaceState(null, '', contextualUrl)
+            }
+            return
+          } else {
+            // Double-pane mode: push to secondary stack with contextual URL
+            setSecondaryStack((prevStack) => {
+              if (isCurrentPage(prevStack, contextualUrl)) return prevStack
+
+              const { newStack, newItem } = pushNewPageToStack(
+                prevStack,
+                contextualUrl,
+                maxStackSize,
+                window.history.state?.index
+              )
+              if (newItem) {
+                window.history.replaceState({ index: newItem.index, url: contextualUrl }, '', contextualUrl)
+              }
+              return newStack
+            })
+            return
+          }
+        }
+      }
+      
+      // For relay URLs and other non-note URLs, always push to secondary stack
+      // (will be rendered in drawer in single-pane mode, side panel in double-pane mode)
+      
+      // For other non-note URLs, push to secondary stack
       setSecondaryStack((prevStack) => {
         if (isCurrentPage(prevStack, url)) return prevStack
 
@@ -1238,17 +818,51 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         return newStack
       })
     } else {
+      // Check for relay URL in query params (legacy support)
       const searchParams = new URLSearchParams(window.location.search)
       const r = searchParams.get('r')
-      const page = searchParams.get('page')
       
       if (r) {
         const url = normalizeUrl(r)
         if (url) {
           navigatePrimaryPage('relay', { url })
+          return
         }
-      } else if (page && page in PRIMARY_PAGE_MAP) {
-        navigatePrimaryPage(page as TPrimaryPageName)
+      }
+      
+      // Parse pathname to determine primary page
+      const pathname: string = window.location.pathname
+      
+      // Handle dedicated paths for primary pages
+      if (pathname === '/' || pathname === '/home') {
+        navigatePrimaryPage('home')
+      } else {
+        // Check if pathname matches a primary page name
+        // First, check if it's a contextual note URL (e.g., /discussions/notes/...)
+        const contextualNoteMatch = pathname.match(/^\/(discussions|search|profile|explore|notifications)\/notes\//)
+        if (contextualNoteMatch) {
+          // Extract the page context from the URL
+          const pageContext = contextualNoteMatch[1] as TPrimaryPageName
+          if (pageContext in getPrimaryPageMap()) {
+            navigatePrimaryPage(pageContext)
+            // The note URL will be handled by the note URL parsing above
+          }
+          return
+        }
+        
+        // Check if it's a standard primary page path
+        const pageName: string = pathname.slice(1).split('/')[0] // Get first segment after slash
+        if (pageName && pageName in getPrimaryPageMap()) {
+          // For relay page, check if there's a URL prop
+          if (pageName === 'relay') {
+            // Relay URLs are handled via secondary routing, not primary pages
+            // This should be caught earlier in the URL parsing
+          } else {
+            navigatePrimaryPage(pageName as TPrimaryPageName)
+          }
+        }
+        // If pathname doesn't match a primary page, it might be a secondary route
+        // which is handled elsewhere
       }
     }
 
@@ -1266,6 +880,21 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       }
 
       let state = e.state as { index: number; url: string } | null
+      
+      // Use state.url if available, otherwise fall back to current pathname
+      const urlToCheck = state?.url || window.location.pathname
+      
+      // Check if it's a note URL (we'll update drawer after stack is synced)
+      const noteUrlMatch = urlToCheck.match(/\/(discussions|search|profile|explore|notifications)\/notes\/(.+)$/) || 
+                          urlToCheck.match(/\/notes\/(.+)$/)
+      const noteIdToShow = noteUrlMatch ? noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0] : null
+      
+      // If not a note URL and drawer is open - close the drawer
+      // Only in single-pane mode or mobile
+      if (!noteIdToShow && drawerOpen && (isSmallScreen || panelMode === 'single')) {
+        closeDrawer()
+      }
+
       setSecondaryStack((pre) => {
         const currentItem = pre[pre.length - 1] as TStackItem | undefined
         const currentIndex = currentItem?.index
@@ -1292,8 +921,38 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         // Go back
         const newStack = pre.filter((item) => item.index <= state!.index)
         const topItem = newStack[newStack.length - 1] as TStackItem | undefined
+        
         if (!topItem) {
-          // Create a new stack item if it's not exist (e.g. when the user refreshes the page, the stack will be empty)
+          // Stack is empty - check if this is a primary page URL or a secondary route
+          const pathname = state.url.split('?')[0].split('#')[0]
+          const isPrimaryPage = pathname === '/' || pathname === '/home' || 
+                                (pathname.startsWith('/') && pathname.slice(1).split('/')[0] in getPrimaryPageMap() && 
+                                 !pathname.match(/^\/(notes|users|relays|settings|profile-editor|mutes|follow-packs)/))
+          
+          // If it's a primary page URL, return empty stack (right panel will close)
+          if (isPrimaryPage) {
+            // On mobile or single-pane: if drawer is open, close it
+            if (drawerOpen && (isSmallScreen || panelMode === 'single')) {
+              closeDrawer()
+            }
+            return []
+          }
+          
+          // Check if navigating to a note URL (supports both /notes/{id} and /{context}/notes/{id})
+          const noteUrlMatch = state.url.match(/\/(discussions|search|profile|explore|notifications)\/notes\/(.+)$/) || 
+                              state.url.match(/\/notes\/(.+)$/)
+          if (noteUrlMatch) {
+            const noteId = noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0]
+            if (noteId) {
+              if (isSmallScreen || panelMode === 'single') {
+                // Single-pane mode or mobile: open in drawer
+                openDrawer(noteId)
+                return pre
+              }
+              // Double-pane mode: continue with stack creation
+            }
+          }
+          // Create a new stack item if it's a secondary route (e.g., /follow-packs, /mutes)
           const { component, ref } = findAndCreateComponent(state.url, state.index)
           if (component) {
             newStack.push({
@@ -1302,6 +961,13 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               component,
               ref
             })
+          } else {
+            // No component found - likely a primary page, return empty stack
+            // On mobile or single-pane: if drawer is open, close it
+            if (drawerOpen && (isSmallScreen || panelMode === 'single')) {
+              closeDrawer()
+            }
+            return []
           }
         } else if (!topItem.component) {
           // Load the component if it's not cached
@@ -1312,7 +978,30 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           }
         }
         if (newStack.length === 0) {
-          window.history.replaceState(null, '', '/')
+          // On mobile or single-pane: if drawer is open, close it
+          if (drawerOpen && (isSmallScreen || panelMode === 'single')) {
+            closeDrawer()
+          }
+          // DO NOT update URL when closing panel - closing should NEVER affect the main page
+        } else {
+          // Stack still has items - update drawer to show the top item's note (for mobile/single-pane)
+          if (isSmallScreen || panelMode === 'single') {
+            // Extract noteId from top item's URL or from state.url
+            const topItemUrl = newStack[newStack.length - 1]?.url || state?.url
+            if (topItemUrl) {
+              const topNoteUrlMatch = topItemUrl.match(/\/(discussions|search|profile|explore|notifications)\/notes\/(.+)$/) || 
+                                     topItemUrl.match(/\/notes\/(.+)$/)
+              if (topNoteUrlMatch) {
+                const topNoteId = topNoteUrlMatch[topNoteUrlMatch.length - 1].split('?')[0].split('#')[0]
+                if (topNoteId) {
+                  // Use setTimeout to ensure drawer update happens after stack state is committed
+                  setTimeout(() => {
+                    openDrawer(topNoteId)
+                  }, 0)
+                }
+              }
+            }
+          }
         }
         return newStack
       })
@@ -1323,7 +1012,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     return () => {
       window.removeEventListener('popstate', onPopState)
     }
-  }, [])
+  }, [isSmallScreen, openDrawer, closeDrawer, panelMode, drawerOpen])
 
   // Listen for tab state changes from components
   useEffect(() => {
@@ -1337,12 +1026,24 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       window.removeEventListener('pageTabChanged', handleTabChange as EventListener)
     }
   }, [])
+
+  // Listen for panel mode changes from toggle
+  useEffect(() => {
+    const handlePanelModeChange = (e: CustomEvent<{ mode: 'single' | 'double' }>) => {
+      setPanelMode(e.detail.mode)
+      logger.debug('PageManager: Panel mode changed', { mode: e.detail.mode })
+    }
+    
+    window.addEventListener('panelModeChanged', handlePanelModeChange as EventListener)
+    return () => {
+      window.removeEventListener('panelModeChanged', handlePanelModeChange as EventListener)
+    }
+  }, [])
   
-  // Restore scroll position and tab state when returning to primary page from browser back button
+  // Restore tab state when returning to primary page from browser back button
   useEffect(() => {
     if (secondaryStack.length === 0 && currentPrimaryPage) {
       const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
-      const savedEventId = savedEventIdsRef.current.get(currentPrimaryPage)
       
       // Restore tab state first
       if (savedFeedState?.tab) {
@@ -1376,50 +1077,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         }))
         currentTabStateRef.current.set('search', savedFeedState.trendingTab)
       }
-      
-      // Restore scroll position
-      if (savedEventId) {
-        logger.info('PageManager: Browser back - Restoring to saved event', { page: currentPrimaryPage, eventId: savedEventId })
-        try {
-          waitForEventAndScroll(savedEventId, currentPrimaryPage)
-        } catch (error) {
-          logger.error('PageManager: Error calling waitForEventAndScroll from useEffect', { error, savedEventId, currentPrimaryPage })
-        }
-      } else if (savedFeedState && savedFeedState.scrollPosition > 0) {
-        // Restore scroll position for pages without event IDs
-        logger.info('PageManager: Browser back - Restoring scroll position (no event ID)', { 
-          page: currentPrimaryPage, 
-          scrollPosition: savedFeedState.scrollPosition 
-        })
-        // Wait longer for content to load, then restore scroll position
-        setTimeout(() => {
-          const restoreScroll = () => {
-            if (isSmallScreen) {
-              window.scrollTo({ top: savedFeedState.scrollPosition, behavior: 'instant' })
-            } else {
-              const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
-              if (scrollArea) {
-                const maxScroll = Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight)
-                const targetScroll = Math.min(savedFeedState.scrollPosition, maxScroll)
-                scrollArea.scrollTop = targetScroll
-                
-                // If content hasn't loaded enough yet, try again after a delay
-                if (targetScroll < savedFeedState.scrollPosition && maxScroll < savedFeedState.scrollPosition) {
-                  setTimeout(restoreScroll, 200)
-                }
-              }
-            }
-          }
-          restoreScroll()
-        }, 300)
-      }
     }
-  }, [secondaryStack.length, currentPrimaryPage, waitForEventAndScroll, isSmallScreen])
+  }, [secondaryStack.length, currentPrimaryPage])
 
 
   const navigatePrimaryPage = (page: TPrimaryPageName, props?: any) => {
-    const needScrollToTop = page === currentPrimaryPage
-    
     // Clear any primary note view when navigating to a new primary page
     // This ensures menu clicks always take you to the primary page, not stuck on overlays
     setPrimaryNoteView(null)
@@ -1435,85 +1097,35 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         exists.props = props
         return [...prev]
       } else if (!exists) {
-        return [...prev, { name: page, element: PRIMARY_PAGE_MAP[page], props }]
+        return [...prev, { name: page, element: getPrimaryPageMap()[page], props }]
       }
       return prev
     })
     setCurrentPrimaryPage(page)
     
-    // Update URL for primary pages (except home)
-    const newUrl = page === 'home' ? '/' : `/?page=${page}`
+    // Update URL for primary pages - use dedicated paths
+    // Home can be either / or /home, but we'll use / for home
+    const newUrl = page === 'home' ? '/' : `/${page}`
     window.history.pushState(null, '', newUrl)
     
-    if (needScrollToTop) {
-      PRIMARY_PAGE_REF_MAP[page].current?.scrollToTop('smooth')
-    }
+    // NEVER scroll to top - feed should maintain scroll position at all times
   }
 
 
   const pushSecondaryPage = (url: string, index?: number) => {
     logger.component('PageManager', 'pushSecondaryPage called', { url })
     
-    // Find and save the visible event ID and feed state before navigating
-    const findVisibleEventIdAndCacheFeedState = () => {
-      const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
-      if (scrollArea) {
-        const viewportCenter = scrollArea.scrollTop + scrollArea.clientHeight / 2
-        const allEvents = scrollArea.querySelectorAll('[data-event-id]')
-        let closestEvent: HTMLElement | null = null
-        let closestDistance = Infinity
-        const eventIds: string[] = []
-        
-        allEvents.forEach((el) => {
-          const eventId = el.getAttribute('data-event-id')
-          if (eventId) {
-            eventIds.push(eventId)
-          }
-          const rect = el.getBoundingClientRect()
-          const scrollAreaRect = scrollArea.getBoundingClientRect()
-          const elementTop = rect.top - scrollAreaRect.top + scrollArea.scrollTop
-          const elementCenter = elementTop + rect.height / 2
-          const distance = Math.abs(elementCenter - viewportCenter)
-          if (distance < closestDistance) {
-            closestDistance = distance
-            closestEvent = el as HTMLElement
-          }
-        })
-        
-        const visibleEventId = (closestEvent as HTMLElement | null)?.getAttribute('data-event-id')
-        const scrollPosition = scrollArea.scrollTop
-        
-        return { visibleEventId, eventIds, scrollPosition }
-      }
-      return { visibleEventId: null, eventIds: [], scrollPosition: 0 }
-    }
-    
-    const { visibleEventId, eventIds, scrollPosition } = findVisibleEventIdAndCacheFeedState()
+    // Save tab state before navigating
     const currentTab = currentTabStateRef.current.get(currentPrimaryPage)
-    
-    // Get trending tab if on search page
     const trendingTab = currentTabStateRef.current.get('search') as 'nostr' | 'relays' | 'hashtags' | undefined
     
-    if (visibleEventId && currentPrimaryPage) {
-      logger.info('PageManager: Desktop - Saving visible event ID and feed state', { 
+    if (currentPrimaryPage && (currentTab || trendingTab)) {
+      logger.info('PageManager: Desktop - Saving page state', { 
         page: currentPrimaryPage, 
-        eventId: visibleEventId,
-        eventCount: eventIds.length,
-        scrollPosition,
         tab: currentTab,
         trendingTab
       })
-      savedEventIdsRef.current.set(currentPrimaryPage, visibleEventId)
-      savedFeedStateRef.current.set(currentPrimaryPage, { eventIds, scrollPosition, tab: currentTab, trendingTab })
-    } else if (currentPrimaryPage && (scrollPosition > 0 || currentTab || trendingTab)) {
-      // Save scroll position even if no event ID (for pages without event IDs)
-      logger.info('PageManager: Desktop - Saving scroll position and state (no event ID)', { 
-        page: currentPrimaryPage, 
-        scrollPosition,
-        tab: currentTab,
-        trendingTab
-      })
-      savedFeedStateRef.current.set(currentPrimaryPage, { eventIds: [], scrollPosition, tab: currentTab, trendingTab })
+      savedFeedStateRef.current.set(currentPrimaryPage, { tab: currentTab, trendingTab })
     }
     
     setSecondaryStack((prevStack) => {
@@ -1534,11 +1146,8 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       }
       
       if (isCurrentPage(prevStack, url)) {
-        logger.component('PageManager', 'Page already exists, scrolling to top')
-        const currentItem = prevStack[prevStack.length - 1]
-        if (currentItem?.ref?.current) {
-          currentItem.ref.current.scrollToTop('instant')
-        }
+        logger.component('PageManager', 'Page already exists, not scrolling')
+        // NEVER scroll to top - maintain scroll position
         return prevStack
       }
 
@@ -1561,13 +1170,109 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   }
 
   const popSecondaryPage = () => {
-    if (secondaryStack.length === 1) {
-      // back to home page - restore to saved event
-      window.history.replaceState(null, '', '/')
+    // In double-pane mode, never open drawer - just pop from stack
+    if (panelMode === 'double' && !isSmallScreen) {
+      if (secondaryStack.length === 1) {
+        // Just close the panel - DO NOT change the main page or URL
+        // Closing panel should NEVER affect the main page
+        setSecondaryStack([])
+        
+        const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
+        
+        // Restore tab state first
+        if (savedFeedState?.tab) {
+          logger.info('PageManager: Desktop - Restoring tab state', { page: currentPrimaryPage, tab: savedFeedState.tab })
+          window.dispatchEvent(new CustomEvent('restorePageTab', { 
+            detail: { page: currentPrimaryPage, tab: savedFeedState.tab } 
+          }))
+          currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
+        }
+        
+        // Restore Discussions state
+        if (savedFeedState?.discussionsState && currentPrimaryPage === 'discussions') {
+          logger.info('PageManager: Desktop - Restoring Discussions state', { 
+            page: currentPrimaryPage, 
+            discussionsState: savedFeedState.discussionsState 
+          })
+          window.dispatchEvent(new CustomEvent('restoreDiscussionsState', { 
+            detail: { page: currentPrimaryPage, discussionsState: savedFeedState.discussionsState } 
+          }))
+        }
+        
+        // Restore trending tab for search page
+        if (savedFeedState?.trendingTab && currentPrimaryPage === 'search') {
+          logger.info('PageManager: Desktop - Restoring trending tab', { 
+            page: currentPrimaryPage, 
+            trendingTab: savedFeedState.trendingTab 
+          })
+          window.dispatchEvent(new CustomEvent('restorePageTab', { 
+            detail: { page: 'search', tab: savedFeedState.trendingTab } 
+          }))
+          currentTabStateRef.current.set('search', savedFeedState.trendingTab)
+        }
+      } else {
+        // Just go back in history - popstate will handle stack update
+        window.history.go(-1)
+      }
+      return
+    }
+    
+    // Single-pane mode or mobile: check if drawer is open and stack is empty - close drawer instead
+    if (drawerOpen && secondaryStack.length === 0) {
+      // Close drawer and reveal the background page
+      closeDrawer()
+      return
+    }
+    
+    // On mobile or single-pane: if stack has 1 item and drawer is open, close drawer and clear stack
+    if ((isSmallScreen || panelMode === 'single') && secondaryStack.length === 1 && drawerOpen) {
+      // Close drawer (this will restore the URL to the correct primary page)
+      closeDrawer()
+      // Clear stack
       setSecondaryStack([])
       
       const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
-      const savedEventId = savedEventIdsRef.current.get(currentPrimaryPage)
+      
+      // Restore tab state first
+      if (savedFeedState?.tab) {
+        logger.info('PageManager: Mobile/Single-pane - Restoring tab state', { page: currentPrimaryPage, tab: savedFeedState.tab })
+        window.dispatchEvent(new CustomEvent('restorePageTab', { 
+          detail: { page: currentPrimaryPage, tab: savedFeedState.tab } 
+        }))
+        currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
+      }
+      
+      // Restore Discussions state
+      if (savedFeedState?.discussionsState && currentPrimaryPage === 'discussions') {
+        logger.info('PageManager: Mobile/Single-pane - Restoring Discussions state', { 
+          page: currentPrimaryPage, 
+          discussionsState: savedFeedState.discussionsState 
+        })
+        window.dispatchEvent(new CustomEvent('restoreDiscussionsState', { 
+          detail: { page: currentPrimaryPage, discussionsState: savedFeedState.discussionsState } 
+        }))
+      }
+      
+      // Restore trending tab for search page
+      if (savedFeedState?.trendingTab && currentPrimaryPage === 'search') {
+        logger.info('PageManager: Mobile/Single-pane - Restoring trending tab', { 
+          page: currentPrimaryPage, 
+          trendingTab: savedFeedState.trendingTab 
+        })
+        window.dispatchEvent(new CustomEvent('restorePageTab', { 
+          detail: { page: 'search', tab: savedFeedState.trendingTab } 
+        }))
+        currentTabStateRef.current.set('search', savedFeedState.trendingTab)
+      }
+      return
+    }
+    
+    if (secondaryStack.length === 1) {
+      // Just close the panel - DO NOT change the main page or URL
+      // Closing panel should NEVER affect the main page
+      setSecondaryStack([])
+      
+      const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
       
       // Restore tab state first
       if (savedFeedState?.tab) {
@@ -1599,43 +1304,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           detail: { page: 'search', tab: savedFeedState.trendingTab } 
         }))
         currentTabStateRef.current.set('search', savedFeedState.trendingTab)
-      }
-      
-      // Scroll to the saved event or position
-      if (savedEventId) {
-        logger.info('PageManager: Desktop - Restoring to saved event', { page: currentPrimaryPage, eventId: savedEventId })
-        try {
-          waitForEventAndScroll(savedEventId, currentPrimaryPage)
-        } catch (error) {
-          logger.error('PageManager: Error calling waitForEventAndScroll from popSecondaryPage', { error, savedEventId, currentPrimaryPage })
-        }
-      } else if (savedFeedState && savedFeedState.scrollPosition > 0) {
-        // Restore scroll position for pages without event IDs
-        logger.info('PageManager: Desktop - Restoring scroll position (no event ID)', { 
-          page: currentPrimaryPage, 
-          scrollPosition: savedFeedState.scrollPosition 
-        })
-        // Wait longer for content to load, then restore scroll position
-        setTimeout(() => {
-          const restoreScroll = () => {
-            if (isSmallScreen) {
-              window.scrollTo({ top: savedFeedState.scrollPosition, behavior: 'instant' })
-            } else {
-              const scrollArea = document.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null
-              if (scrollArea) {
-                const maxScroll = Math.max(0, scrollArea.scrollHeight - scrollArea.clientHeight)
-                const targetScroll = Math.min(savedFeedState.scrollPosition, maxScroll)
-                scrollArea.scrollTop = targetScroll
-                
-                // If content hasn't loaded enough yet, try again after a delay
-                if (targetScroll < savedFeedState.scrollPosition && maxScroll < savedFeedState.scrollPosition) {
-                  setTimeout(restoreScroll, 200)
-                }
-              }
-            }
-          }
-          restoreScroll()
-        }, 300)
       }
     } else {
       window.history.go(-1)
@@ -1674,6 +1342,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         <CurrentRelaysProvider>
           <NotificationProvider>
             <PrimaryNoteViewContext.Provider value={{ setPrimaryNoteView, primaryViewType, getNavigationCounter: () => navigationCounterRef.current }}>
+            <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId }}>
             {primaryNoteView ? (
               // Show primary note view with back button on mobile
               <div className="flex flex-col h-full w-full">
@@ -1742,9 +1411,23 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                 ))}
               </>
             )}
+            {drawerNoteId && (
+              <NoteDrawer 
+                open={drawerOpen} 
+                onOpenChange={(open) => {
+                  if (!open) {
+                    closeDrawer()
+                  } else {
+                    setDrawerOpen(open)
+                  }
+                }} 
+                noteId={drawerNoteId} 
+              />
+            )}
             <BottomNavigationBar />
             <TooManyRelaysAlertDialog />
             <CreateWalletGuideToast />
+            </NoteDrawerContext.Provider>
             </PrimaryNoteViewContext.Provider>
           </NotificationProvider>
         </CurrentRelaysProvider>
@@ -1772,6 +1455,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         <CurrentRelaysProvider>
           <NotificationProvider>
             <PrimaryNoteViewContext.Provider value={{ setPrimaryNoteView, primaryViewType, getNavigationCounter: () => navigationCounterRef.current }}>
+            <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId }}>
             <div className="flex flex-col items-center bg-surface-background">
               <div
                 className="flex h-[var(--vh)] w-full bg-surface-background"
@@ -1780,44 +1464,102 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                 }}
               >
                 <Sidebar />
-                {secondaryStack.length > 0 ? (
-                  // Show secondary pages when there are any in the stack
-                  <div className="flex-1 overflow-auto">
+                {(() => {
+                  if (panelMode === 'double') {
+                    // Double-pane mode: show feed on left (flexible, maintains width), secondary stack on right (1042px, same as drawer)
+                    return (
+                      <div className="flex-1 flex overflow-hidden">
+                        {/* Left panel: Feed (flexible, takes remaining space after 1042px) */}
+                        <div className="flex-1 min-w-0 overflow-auto border-r">
+                          <MainContentArea 
+                            primaryPages={primaryPages}
+                            currentPrimaryPage={currentPrimaryPage}
+                            primaryNoteView={primaryNoteView}
+                            primaryViewType={primaryViewType}
+                            goBack={goBack}
+                          />
+                        </div>
+                        {/* Right panel: Secondary stack (1042px fixed width, same as drawer) */}
+                        <div className="w-[1042px] shrink-0 overflow-auto">
+                          {secondaryStack.length > 0 ? (
+                            secondaryStack.map((item, index) => {
+                              const isLast = index === secondaryStack.length - 1
+                              return (
+                                <div
+                                  key={item.index}
+                                  style={{
+                                    display: isLast ? 'block' : 'none'
+                                  }}
+                                >
+                                  {item.component}
+                                </div>
+                              )
+                            })
+                          ) : (
+                            <div className="h-full flex items-center justify-center text-muted-foreground">
+                              {/* Empty state - no secondary content */}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  } else {
+                    // Single-pane mode: show feed only, drawer overlay for notes
+                    return (
+                      <MainContentArea 
+                        primaryPages={primaryPages}
+                        currentPrimaryPage={currentPrimaryPage}
+                        primaryNoteView={primaryNoteView}
+                        primaryViewType={primaryViewType}
+                        goBack={goBack}
+                      />
+                    )
+                  }
+                })()}
+              </div>
+            </div>
+            {drawerNoteId && (
+              <NoteDrawer 
+                open={drawerOpen} 
+                onOpenChange={(open) => {
+                  if (!open) {
+                    closeDrawer()
+                  } else {
+                    setDrawerOpen(open)
+                  }
+                }} 
+                noteId={drawerNoteId} 
+              />
+            )}
+            {/* Generic drawer for secondary stack in single-pane mode (for relay pages, etc.) */}
+            {panelMode === 'single' && !isSmallScreen && secondaryStack.length > 0 && !drawerOpen && (
+              <Sheet 
+                open={true} 
+                onOpenChange={(open) => {
+                  if (!open) {
+                    // Close drawer and go back
+                    popSecondaryPage()
+                  }
+                }}
+              >
+                <SheetContent side="right" className="w-full sm:max-w-[1042px] overflow-y-auto p-0">
+                  <div className="h-full">
                     {secondaryStack.map((item, index) => {
                       const isLast = index === secondaryStack.length - 1
-                      logger.component('PageManager', 'Rendering desktop secondary stack item', { 
-                        index, 
-                        isLast, 
-                        url: item.url, 
-                        hasComponent: !!item.component,
-                        display: isLast ? 'block' : 'none'
-                      })
+                      if (!isLast) return null
                       return (
-                        <div
-                          key={item.index}
-                          style={{
-                            display: isLast ? 'block' : 'none'
-                          }}
-                        >
+                        <div key={item.index}>
                           {item.component}
                         </div>
                       )
                     })}
                   </div>
-                ) : (
-                  // Show primary pages when no secondary pages
-                  <MainContentArea 
-                    primaryPages={primaryPages}
-                    currentPrimaryPage={currentPrimaryPage}
-                    primaryNoteView={primaryNoteView}
-                    primaryViewType={primaryViewType}
-                    goBack={goBack}
-                  />
-                )}
-              </div>
-            </div>
+                </SheetContent>
+              </Sheet>
+            )}
             <TooManyRelaysAlertDialog />
             <CreateWalletGuideToast />
+            </NoteDrawerContext.Provider>
             </PrimaryNoteViewContext.Provider>
           </NotificationProvider>
         </CurrentRelaysProvider>

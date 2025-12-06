@@ -62,7 +62,7 @@ export default {
     Add: 'เพิ่ม',
     'n relays': '{{n}} รีเลย์',
     Rename: 'เปลี่ยนชื่อ',
-    'Share with Njump': 'แชร์ผ่าน Njump',
+    'Share with Jumble': 'แชร์ผ่าน Jumble',
     'Share with Alexandria': 'แชร์ผ่าน Alexandria',
     Delete: 'ลบ',
     'Relay already exists': 'รีเลย์มีอยู่แล้ว',
