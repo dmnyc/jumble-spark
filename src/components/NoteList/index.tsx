@@ -136,6 +136,8 @@ const NoteList = forwardRef(
       const idSet = new Set<string>()
 
       return events.slice(0, showCount).filter((evt) => {
+        // Filter out events that aren't in the whitelisted kinds
+        if (!showKinds.includes(evt.kind)) return false
         if (shouldHideEvent(evt)) return false
 
         const id = isReplaceableEvent(evt.kind) ? getReplaceableCoordinateFromEvent(evt) : evt.id
@@ -145,12 +147,14 @@ const NoteList = forwardRef(
         idSet.add(id)
         return true
       })
-    }, [events, showCount, shouldHideEvent])
+    }, [events, showCount, shouldHideEvent, showKinds])
 
     const filteredNewEvents = useMemo(() => {
       const idSet = new Set<string>()
 
       return newEvents.filter((event: Event) => {
+        // Filter out events that aren't in the whitelisted kinds
+        if (!showKinds.includes(event.kind)) return false
         if (shouldHideEvent(event)) return false
 
         const id = isReplaceableEvent(event.kind)
@@ -162,7 +166,7 @@ const NoteList = forwardRef(
         idSet.add(id)
         return true
       })
-    }, [newEvents, shouldHideEvent])
+    }, [newEvents, shouldHideEvent, showKinds])
 
     const scrollToTop = (behavior: ScrollBehavior = 'instant') => {
       setTimeout(() => {
@@ -217,6 +221,10 @@ const NoteList = forwardRef(
               }
             },
             onNew: (event) => {
+              // Filter out events that aren't in the whitelisted kinds
+              if (!showKinds.includes(event.kind)) {
+                return
+              }
               if (pubkey && event.pubkey === pubkey) {
                 // If the new event is from the current user, insert it directly into the feed
                 setEvents((oldEvents) =>
