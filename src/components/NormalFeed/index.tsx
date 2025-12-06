@@ -33,12 +33,17 @@ const NormalFeed = forwardRef<TNoteListRef, {
   const { showKinds } = useKindFilter()
   const [temporaryShowKinds, setTemporaryShowKinds] = useState(showKinds)
   const [listMode, setListMode] = useState<TNoteListMode>(() => {
-    // For main feed, always default to 'posts' (Notes tab) to show the main content
-    // Only use stored mode for non-main feeds
+    // Get stored mode preference
+    const storedMode = storage.getNoteListMode()
+    // For main feed, only allow 'posts' or 'postsAndReplies' as valid values
+    // Default to 'posts' if no valid preference is stored
     if (isMainFeed) {
+      if (storedMode === 'posts' || storedMode === 'postsAndReplies') {
+        return storedMode
+      }
       return 'posts'
     }
-    const storedMode = storage.getNoteListMode()
+    // For non-main feeds, use stored mode or default to 'posts'
     return storedMode || 'posts'
   })
   const internalNoteListRef = useRef<TNoteListRef>(null)
