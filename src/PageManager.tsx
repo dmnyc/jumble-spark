@@ -672,11 +672,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     setDrawerOpen(true)
   }, [])
 
-  const closeDrawer = () => {
+  const closeDrawer = useCallback(() => {
+    if (!drawerOpen) return // Already closed
     setDrawerOpen(false)
-    // Clear noteId after animation completes (Sheet animation is 300ms)
-    setTimeout(() => setDrawerNoteId(null), 300)
-  }
+    // Don't clear noteId here - let onOpenChange handle it when animation completes
+  }, [drawerOpen])
   const ignorePopStateRef = useRef(false)
 
   // Handle browser back button for primary note view
@@ -983,9 +983,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             closeDrawer()
           }
           // DO NOT update URL when closing panel - closing should NEVER affect the main page
-        } else {
+        } else if (newStack.length > 0) {
           // Stack still has items - update drawer to show the top item's note (for mobile/single-pane)
-          if (isSmallScreen || panelMode === 'single') {
+          // Only update drawer if drawer is currently open (not in the process of closing)
+          if ((isSmallScreen || panelMode === 'single') && drawerOpen && drawerNoteId) {
             // Extract noteId from top item's URL or from state.url
             const topItemUrl = newStack[newStack.length - 1]?.url || state?.url
             if (topItemUrl) {
@@ -993,16 +994,20 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                                      topItemUrl.match(/\/notes\/(.+)$/)
               if (topNoteUrlMatch) {
                 const topNoteId = topNoteUrlMatch[topNoteUrlMatch.length - 1].split('?')[0].split('#')[0]
-                if (topNoteId) {
+                if (topNoteId && topNoteId !== drawerNoteId) {
                   // Use setTimeout to ensure drawer update happens after stack state is committed
                   setTimeout(() => {
-                    openDrawer(topNoteId)
+                    // Double-check drawer is still open before updating
+                    if (drawerOpen) {
+                      openDrawer(topNoteId)
+                    }
                   }, 0)
                 }
               }
             }
           }
         }
+        // If newStack.length === 0, we're closing - don't reopen the drawer
         return newStack
       })
     }
@@ -1220,14 +1225,16 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     // Single-pane mode or mobile: check if drawer is open and stack is empty - close drawer instead
     if (drawerOpen && secondaryStack.length === 0) {
       // Close drawer and reveal the background page
-      closeDrawer()
+      setDrawerOpen(false)
+      setTimeout(() => setDrawerNoteId(null), 350)
       return
     }
     
     // On mobile or single-pane: if stack has 1 item and drawer is open, close drawer and clear stack
     if ((isSmallScreen || panelMode === 'single') && secondaryStack.length === 1 && drawerOpen) {
       // Close drawer (this will restore the URL to the correct primary page)
-      closeDrawer()
+      setDrawerOpen(false)
+      setTimeout(() => setDrawerNoteId(null), 350)
       // Clear stack
       setSecondaryStack([])
       
@@ -1415,10 +1422,14 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               <NoteDrawer 
                 open={drawerOpen} 
                 onOpenChange={(open) => {
+                  setDrawerOpen(open)
+                  // Only clear noteId when Sheet is fully closed (after animation completes)
+                  // Use 350ms to ensure animation is fully done (animation is 300ms)
                   if (!open) {
-                    closeDrawer()
-                  } else {
-                    setDrawerOpen(open)
+                    // Restore URL to current primary page
+                    const pageUrl = currentPrimaryPage === 'home' ? '/' : `/${currentPrimaryPage}`
+                    window.history.replaceState(null, '', pageUrl)
+                    setTimeout(() => setDrawerNoteId(null), 350)
                   }
                 }} 
                 noteId={drawerNoteId} 
@@ -1522,10 +1533,14 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               <NoteDrawer 
                 open={drawerOpen} 
                 onOpenChange={(open) => {
+                  setDrawerOpen(open)
+                  // Only clear noteId when Sheet is fully closed (after animation completes)
+                  // Use 350ms to ensure animation is fully done (animation is 300ms)
                   if (!open) {
-                    closeDrawer()
-                  } else {
-                    setDrawerOpen(open)
+                    // Restore URL to current primary page
+                    const pageUrl = currentPrimaryPage === 'home' ? '/' : `/${currentPrimaryPage}`
+                    window.history.replaceState(null, '', pageUrl)
+                    setTimeout(() => setDrawerNoteId(null), 350)
                   }
                 }} 
                 noteId={drawerNoteId} 
