@@ -383,15 +383,35 @@ export default function PublicationIndex({
     return toc
   }, [references, formatBookstrTitle])
 
-  // Scroll to ToC
+  // Scroll to ToC (scroll to top of page)
   const scrollToToc = useCallback(() => {
+    // Find the scrollable container (could be window or a drawer/scrollable div)
+    let scrollContainer: HTMLElement | Window = window
     const tocElement = document.getElementById('publication-toc')
+    
     if (tocElement) {
-      const rect = tocElement.getBoundingClientRect()
-      const elementTop = rect.top + window.scrollY
-      const offset = 96
-      const scrollPosition = Math.max(0, elementTop - offset)
-      window.scrollTo({ top: scrollPosition, behavior: 'smooth' })
+      // Walk up the DOM tree to find the scrollable container
+      let element = tocElement.parentElement
+      while (element && element !== document.body) {
+        const style = window.getComputedStyle(element)
+        const overflowY = style.overflowY
+        
+        // Check if this element is scrollable
+        if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
+          if (element.scrollHeight > element.clientHeight) {
+            scrollContainer = element
+            break
+          }
+        }
+        element = element.parentElement
+      }
+    }
+    
+    // Scroll to top
+    if (scrollContainer === window) {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } else {
+      (scrollContainer as HTMLElement).scrollTo({ top: 0, behavior: 'smooth' })
     }
   }, [])
 
