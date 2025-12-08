@@ -9,13 +9,14 @@ import { generateBech32IdFromATag } from '@/lib/tag'
 import client from '@/services/client.service'
 import logger from '@/lib/logger'
 import { Button } from '@/components/ui/button'
-import { MoreVertical, RefreshCw, ArrowUp } from 'lucide-react'
+import { RefreshCw, ArrowUp } from 'lucide-react'
 import indexedDb from '@/services/indexed-db.service'
 import { isReplaceableEvent } from '@/lib/event'
 import { useSecondaryPage } from '@/PageManager'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { dTagToTitleCase } from '@/lib/event-metadata'
 import Image from '@/components/Image'
+import NoteOptions from '@/components/NoteOptions'
 
 interface PublicationReference {
   coordinate?: string
@@ -1329,15 +1330,6 @@ export default function PublicationIndex({
                   </h1>
                 </div>
               )}
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="shrink-0"
-                onClick={exportPublication}
-                title="Export as AsciiDoc"
-              >
-                <MoreVertical className="h-5 w-5" />
-              </Button>
             </div>
             {metadata.summary && (
               <blockquote className="border-l-4 border-primary pl-6 italic text-muted-foreground mb-4 text-lg leading-relaxed">
@@ -1558,18 +1550,21 @@ export default function PublicationIndex({
               const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
               return (
                 <div key={index} id={sectionId} className="border-l-4 border-primary pl-6 scroll-mt-24 pt-6 relative">
-                  {!isNested && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="absolute top-0 right-0 opacity-70 hover:opacity-100"
-                      onClick={scrollToToc}
-                      title="Back to Table of Contents"
-                    >
-                      <ArrowUp className="h-4 w-4 mr-2" />
-                      ToC
-                    </Button>
-                  )}
+                  <div className="absolute top-0 right-0 flex items-center gap-2">
+                    {!isNested && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-70 hover:opacity-100"
+                        onClick={scrollToToc}
+                        title="Back to Table of Contents"
+                      >
+                        <ArrowUp className="h-4 w-4 mr-2" />
+                        ToC
+                      </Button>
+                    )}
+                    <NoteOptions event={ref.event} />
+                  </div>
                   <PublicationIndex event={ref.event} isNested={true} parentImageUrl={effectiveParentImageUrl} />
                 </div>
               )
@@ -1580,18 +1575,21 @@ export default function PublicationIndex({
               const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
               return (
                 <div key={index} id={sectionId} className="scroll-mt-24 pt-6 relative">
-                  {!isNested && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="absolute top-0 right-0 opacity-70 hover:opacity-100"
-                      onClick={scrollToToc}
-                      title="Back to Table of Contents"
-                    >
-                      <ArrowUp className="h-4 w-4 mr-2" />
-                      ToC
-                    </Button>
-                  )}
+                  <div className="absolute top-0 right-0 flex items-center gap-2">
+                    {!isNested && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-70 hover:opacity-100"
+                        onClick={scrollToToc}
+                        title="Back to Table of Contents"
+                      >
+                        <ArrowUp className="h-4 w-4 mr-2" />
+                        ToC
+                      </Button>
+                    )}
+                    <NoteOptions event={ref.event} />
+                  </div>
                   <AsciidocArticle event={ref.event} hideImagesAndInfo={true} parentImageUrl={effectiveParentImageUrl} />
                 </div>
               )
@@ -1602,18 +1600,21 @@ export default function PublicationIndex({
               const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
               return (
                 <div key={index} id={sectionId} className="scroll-mt-24 pt-6 relative">
-                  {!isNested && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="absolute top-0 right-0 opacity-70 hover:opacity-100"
-                      onClick={scrollToToc}
-                      title="Back to Table of Contents"
-                    >
-                      <ArrowUp className="h-4 w-4 mr-2" />
-                      ToC
-                    </Button>
-                  )}
+                  <div className="absolute top-0 right-0 flex items-center gap-2">
+                    {!isNested && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-70 hover:opacity-100"
+                        onClick={scrollToToc}
+                        title="Back to Table of Contents"
+                      >
+                        <ArrowUp className="h-4 w-4 mr-2" />
+                        ToC
+                      </Button>
+                    )}
+                    <NoteOptions event={ref.event} />
+                  </div>
                   <MarkdownArticle event={ref.event} hideMetadata={true} parentImageUrl={effectiveParentImageUrl} />
                 </div>
               )
