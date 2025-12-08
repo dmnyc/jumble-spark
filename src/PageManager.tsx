@@ -271,16 +271,36 @@ export function useSmartProfileNavigation() {
   const { setPrimaryNoteView } = usePrimaryNoteView()
   const { push: pushSecondaryPage } = useSecondaryPage()
   const { isSmallScreen } = useScreenSize()
+  const { closeDrawer, isDrawerOpen } = useNoteDrawer()
   
   const navigateToProfile = (url: string) => {
-    if (isSmallScreen) {
-      // Use primary note view on mobile
-      const profileId = url.replace('/users/', '')
-      window.history.pushState(null, '', url)
-      setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+    // Close drawer if open (profiles aren't shown in drawers)
+    // Navigate after drawer closes to avoid URL being restored by drawer's onOpenChange
+    if (isDrawerOpen) {
+      closeDrawer()
+      // Wait for drawer to close (350ms animation) before navigating
+      setTimeout(() => {
+        if (isSmallScreen) {
+          // Use primary note view on mobile
+          const profileId = url.replace('/users/', '')
+          window.history.pushState(null, '', url)
+          setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+        } else {
+          // Use secondary routing on desktop
+          pushSecondaryPage(url)
+        }
+      }, 400) // Slightly longer than drawer close animation (350ms)
     } else {
-      // Use secondary routing on desktop
-      pushSecondaryPage(url)
+      // No drawer open, navigate immediately
+      if (isSmallScreen) {
+        // Use primary note view on mobile
+        const profileId = url.replace('/users/', '')
+        window.history.pushState(null, '', url)
+        setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+      } else {
+        // Use secondary routing on desktop
+        pushSecondaryPage(url)
+      }
     }
   }
   
