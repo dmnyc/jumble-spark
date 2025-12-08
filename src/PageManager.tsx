@@ -1260,6 +1260,18 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           }))
           currentTabStateRef.current.set('search', savedFeedState.trendingTab)
         }
+      } else if (secondaryStack.length > 1) {
+        // Pop from stack directly instead of using history.go(-1)
+        // This ensures the stack is updated immediately
+        setSecondaryStack((prevStack) => {
+          const newStack = prevStack.slice(0, -1)
+          const topItem = newStack[newStack.length - 1]
+          if (topItem) {
+            // Update URL to match the top item
+            window.history.replaceState({ index: topItem.index, url: topItem.url }, '', topItem.url)
+          }
+          return newStack
+        })
       } else {
         // Just go back in history - popstate will handle stack update
         window.history.go(-1)
