@@ -533,11 +533,17 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
           
           setSections(updatedSections)
           
-          // Set initial selected versions
+          // Set initial selected versions - prioritize version from parsed wikilink
           const initialVersions = new Map<number, string>()
           updatedSections.forEach((section, index) => {
-            if (section.versions.length > 0) {
-              initialVersions.set(index, section.versions[0])
+            // Priority: 1) version from reference (parsed wikilink), 2) parsed.versions[0], 3) section.versions[0]
+            const versionFromRef = section.reference.version?.toUpperCase()
+            const versionFromParsed = parsed?.versions?.[0]?.toUpperCase()
+            const versionFromSection = section.versions.length > 0 ? section.versions[0] : ''
+            
+            const initialVersion = versionFromRef || versionFromParsed || versionFromSection
+            if (initialVersion) {
+              initialVersions.set(index, initialVersion)
             }
           })
           setSelectedVersions(initialVersions)
@@ -816,12 +822,21 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
           return updated
         })
         
-        // Update selected versions
+        // Update selected versions - prioritize version from parsed wikilink
         setSelectedVersions(prevVersions => {
           const updated = new Map(prevVersions)
           newSections.forEach((section, index) => {
-            if (section.versions.length > 0 && !updated.has(index)) {
-              updated.set(index, section.versions[0])
+            // Only set if not already set (preserve user selection)
+            if (!updated.has(index)) {
+              // Priority: 1) version from reference (parsed wikilink), 2) parsed.versions[0], 3) section.versions[0]
+              const versionFromRef = section.reference.version?.toUpperCase()
+              const versionFromParsed = parsed?.versions?.[0]?.toUpperCase()
+              const versionFromSection = section.versions.length > 0 ? section.versions[0] : ''
+              
+              const initialVersion = versionFromRef || versionFromParsed || versionFromSection
+              if (initialVersion) {
+                updated.set(index, initialVersion)
+              }
             }
           })
           return updated
@@ -898,7 +913,10 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
     <div className={cn('my-2', className)}>
       <div className="border rounded-lg bg-muted/30 overflow-hidden">
         {sections.map((section, sectionIndex) => {
-          const selectedVersion = selectedVersions.get(sectionIndex) || section.versions[0] || ''
+          // Priority for selected version: 1) user-selected, 2) version from reference, 3) parsed.versions[0], 4) section.versions[0]
+          const versionFromRef = section.reference.version?.toUpperCase()
+          const versionFromParsed = parsed?.versions?.[0]?.toUpperCase()
+          const selectedVersion = selectedVersions.get(sectionIndex) || versionFromRef || versionFromParsed || section.versions[0] || ''
           const filteredEvents = selectedVersion
             ? section.events.filter(event => {
                 const metadata = extractBookMetadata(event)
@@ -970,7 +988,9 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
                 return null
               }
               
-              const externalUrl = buildExternalUrl(section.reference, bookType, selectedVersion)
+              // Priority for Bible Gateway version: 1) version from reference, 2) selectedVersion, 3) parsed.versions[0], 4) DRA (default)
+              const versionForUrl = versionFromRef || selectedVersion || versionFromParsed || undefined
+              const externalUrl = buildExternalUrl(section.reference, bookType, versionForUrl)
               
               if (!externalUrl) return null
               

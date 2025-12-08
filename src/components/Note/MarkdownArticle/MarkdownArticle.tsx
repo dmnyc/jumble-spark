@@ -1100,7 +1100,8 @@ function parseMarkdownContent(
   })
   
   // Wikilinks ([[link]] or [[link|display]]) - but not inside markdown links
-  // Exclude citations ([[citation::...]]) and bookstr links ([[book::...]]) from wikilink processing
+  // Exclude citations ([[citation::...]]) from wikilink processing
+  // Note: bookstr links ([[book::...]]) are included as wikilink type and handled in rendering
   const wikilinkRegex = /\[\[([^\]]+)\]\]/g
   const wikilinkMatches = Array.from(content.matchAll(wikilinkRegex))
   wikilinkMatches.forEach(match => {
@@ -1114,11 +1115,7 @@ function parseMarkdownContent(
         return
       }
       
-      // Skip bookstr links - they're handled separately
-      if (linkContent.startsWith('book::')) {
-        return
-      }
-      
+      // Include bookstr links as wikilink type - they'll be handled in rendering
       // Only add if not already covered by another pattern and not in block pattern
       const isInOther = patterns.some(p => 
         start >= p.index && 
