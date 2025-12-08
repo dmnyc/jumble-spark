@@ -403,43 +403,6 @@ export default function PublicationIndex({
     }
   }
 
-  // Export publication as AsciiDoc
-  const exportPublication = async () => {
-    try {
-      // Collect all content from references
-      const contentParts: string[] = []
-      
-      for (const ref of references) {
-        if (!ref.event) continue
-        
-        // Extract title
-        const title = ref.event.tags.find(tag => tag[0] === 'title')?.[1] || 'Untitled'
-        
-        // For AsciiDoc, output the raw content with title
-        contentParts.push(`= ${title}\n\n${ref.event.content}\n\n`)
-      }
-      
-      const fullContent = contentParts.join('\n')
-      const filename = `${metadata.title || 'publication'}.adoc`
-      
-      // Export as AsciiDoc
-      const blob = new Blob([fullContent], { type: 'text/plain' })
-      
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      
-      logger.info('[PublicationIndex] Exported publication as .adoc')
-    } catch (error) {
-      logger.error('[PublicationIndex] Error exporting publication:', error)
-      alert('Failed to export publication. Please try again.')
-    }
-  }
 
   // Add current event to visited set
   const currentCoordinate = useMemo(() => {

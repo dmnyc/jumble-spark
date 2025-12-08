@@ -5,6 +5,7 @@ import { toAlexandria } from '@/lib/link'
 import logger from '@/lib/logger'
 import { pubkeyToNpub } from '@/lib/pubkey'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
+import { generateBech32IdFromATag } from '@/lib/tag'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
@@ -394,13 +395,56 @@ export function useMenuActions({
       }
     }
 
-    const exportAsAsciidoc = () => {
+    const exportAsAsciidoc = async () => {
       if (!isArticleType) return
       
       try {
         const title = articleMetadata?.title || 'Article'
-        const content = event.content
-        const filename = `${title}.adoc`
+        let content = event.content
+        let filename = `${title}.adoc`
+        
+        // For publications (30040), export all referenced sections
+        if (event.kind === ExtendedKind.PUBLICATION) {
+          const contentParts: string[] = []
+          
+          // Extract all 'a' tag references
+          const aTags = event.tags.filter(tag => tag[0] === 'a' && tag[1])
+          
+          // Fetch all referenced events
+          const fetchPromises = aTags.map(async (tag) => {
+            try {
+              const coordinate = tag[1]
+              const [kindStr] = coordinate.split(':')
+              const kind = parseInt(kindStr)
+              
+              if (isNaN(kind)) return null
+              
+              // Try to fetch the event
+              const aTag = ['a', coordinate, tag[2] || '', tag[3] || '']
+              const bech32Id = generateBech32IdFromATag(aTag)
+              if (bech32Id) {
+                const fetchedEvent = await client.fetchEvent(bech32Id)
+                return fetchedEvent
+              }
+              return null
+            } catch (error) {
+              logger.warn('[NoteOptions] Error fetching referenced event for export:', error)
+              return null
+            }
+          })
+          
+          const referencedEvents = (await Promise.all(fetchPromises)).filter((e): e is Event => e !== null)
+          
+          // Combine all events into one AsciiDoc document
+          for (const refEvent of referencedEvents) {
+            const refTitle = refEvent.tags.find(tag => tag[0] === 'title')?.[1] || 'Untitled'
+            contentParts.push(`= ${refTitle}\n\n${refEvent.content}\n\n`)
+          }
+          
+          if (contentParts.length > 0) {
+            content = contentParts.join('\n')
+          }
+        }
         
         const blob = new Blob([content], { type: 'text/plain' })
         const url = URL.createObjectURL(blob)
