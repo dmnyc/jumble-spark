@@ -15,6 +15,7 @@ import relaySelectionService from '@/services/relay-selection.service'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import logger from '@/lib/logger'
 
 export default function PostRelaySelector({
@@ -379,9 +380,9 @@ export default function PostRelaySelector({
                   <span className="text-sm text-muted-foreground truncate">{description}</span>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4">
+              <ScrollArea className="flex-1 p-4">
                 {content}
-              </div>
+              </ScrollArea>
             </div>
           </SheetContent>
         </Sheet>
@@ -411,9 +412,9 @@ export default function PostRelaySelector({
             <span className="text-sm font-medium">{t('Select relays')}</span>
             <span className="text-xs text-muted-foreground truncate ml-2">{description}</span>
           </div>
-          <div className="p-3 overflow-y-auto overscroll-contain touch-pan-y max-h-[30vh] -webkit-overflow-scrolling-touch">
+          <ScrollArea className="p-3 max-h-[30vh]">
             {content}
-          </div>
+          </ScrollArea>
         </PopoverContent>
       </Popover>
     </div>
