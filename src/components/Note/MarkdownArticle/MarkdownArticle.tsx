@@ -3022,11 +3022,13 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
 export default function MarkdownArticle({
   event,
   className,
-  hideMetadata = false
+  hideMetadata = false,
+  parentImageUrl
 }: {
   event: Event
   className?: string
   hideMetadata?: boolean
+  parentImageUrl?: string
 }) {
   const { push } = useSecondaryPage()
   const { navigateToHashtag } = useSmartHashtagNavigation()
@@ -3273,6 +3275,7 @@ export default function MarkdownArticle({
   // Filter tag media to only show what's not in content
   const leftoverTagMedia = useMemo(() => {
     const metadataImageUrl = metadata.image ? cleanUrl(metadata.image) : null
+    const parentImageUrlCleaned = parentImageUrl ? cleanUrl(parentImageUrl) : null
     return tagMedia.filter(media => {
       const cleaned = cleanUrl(media.url)
       if (!cleaned) return false
@@ -3286,9 +3289,12 @@ export default function MarkdownArticle({
       
       // Skip if this is the metadata image (shown separately)
       if (metadataImageUrl && cleaned === metadataImageUrl && !hideMetadata) return false
+      
+      // Skip if this matches the parent publication's image (to avoid duplicate cover images)
+      if (parentImageUrlCleaned && cleaned === parentImageUrlCleaned) return false
       return true
     })
-  }, [tagMedia, mediaUrlsInContent, metadata.image, hideMetadata])
+  }, [tagMedia, mediaUrlsInContent, metadata.image, hideMetadata, parentImageUrl])
   
   // Filter tag YouTube URLs to only show what's not in content
   const leftoverTagYouTubeUrls = useMemo(() => {
@@ -3482,12 +3488,16 @@ export default function MarkdownArticle({
         {/* Metadata image */}
                 {!hideMetadata && metadata.image && (() => {
         const cleanedMetadataImage = cleanUrl(metadata.image)
+        const parentImageUrlCleaned = parentImageUrl ? cleanUrl(parentImageUrl) : null
           // Don't show if already in content (check by URL and by identifier)
           if (cleanedMetadataImage) {
             if (mediaUrlsInContent.has(cleanedMetadataImage)) return null
             const identifier = getImageIdentifier(cleanedMetadataImage)
             if (identifier && mediaUrlsInContent.has(`__img_id:${identifier}`)) return null
           }
+          
+          // Don't show if it matches the parent publication's image (to avoid duplicate cover images)
+          if (parentImageUrlCleaned && cleanedMetadataImage === parentImageUrlCleaned) return null
           
           const metadataImageIndex = imageIndexMap.get(cleanedMetadataImage)
         

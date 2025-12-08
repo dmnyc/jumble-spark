@@ -15,6 +15,7 @@ import { isReplaceableEvent } from '@/lib/event'
 import { useSecondaryPage } from '@/PageManager'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { dTagToTitleCase } from '@/lib/event-metadata'
+import Image from '@/components/Image'
 
 interface PublicationReference {
   coordinate?: string
@@ -49,11 +50,13 @@ interface PublicationMetadata {
 export default function PublicationIndex({
   event,
   className,
-  isNested = false
+  isNested = false,
+  parentImageUrl
 }: {
   event: Event
   className?: string
   isNested?: boolean
+  parentImageUrl?: string
 }) {
   const { push } = useSecondaryPage()
   // Parse publication metadata from event tags
@@ -1341,6 +1344,19 @@ export default function PublicationIndex({
                 <p className="break-words">{metadata.summary}</p>
               </blockquote>
             )}
+            {/* Display image for top-level 30040 publication */}
+            {metadata.image && (
+              <div className="mb-4">
+                <Image
+                  image={{ url: metadata.image, pubkey: event.pubkey }}
+                  className="max-w-[400px] w-full h-auto rounded-lg"
+                  classNames={{
+                    wrapper: 'rounded-lg',
+                    errorPlaceholder: 'aspect-square h-[30vh]'
+                  }}
+                />
+              </div>
+            )}
             <div className="text-sm text-muted-foreground space-y-1">
               {metadata.author && (
                 <div>
@@ -1538,6 +1554,8 @@ export default function PublicationIndex({
             
             if (eventKind === ExtendedKind.PUBLICATION) {
               // Recursively render nested 30040 publication index
+              // Use the top-level publication's image as parent for nested publications
+              const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
               return (
                 <div key={index} id={sectionId} className="border-l-4 border-primary pl-6 scroll-mt-24 pt-6 relative">
                   {!isNested && (
@@ -1552,11 +1570,14 @@ export default function PublicationIndex({
                       ToC
                     </Button>
                   )}
-                  <PublicationIndex event={ref.event} isNested={true} />
+                  <PublicationIndex event={ref.event} isNested={true} parentImageUrl={effectiveParentImageUrl} />
                 </div>
               )
             } else if (eventKind === ExtendedKind.PUBLICATION_CONTENT || eventKind === ExtendedKind.WIKI_ARTICLE) {
               // Render 30041 or 30818 content as AsciidocArticle
+              // Pass parent image URL to avoid showing duplicate cover images
+              // Use the top-level publication's image as parent, or the passed parentImageUrl for nested publications
+              const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
               return (
                 <div key={index} id={sectionId} className="scroll-mt-24 pt-6 relative">
                   {!isNested && (
@@ -1571,11 +1592,14 @@ export default function PublicationIndex({
                       ToC
                     </Button>
                   )}
-                  <AsciidocArticle event={ref.event} hideImagesAndInfo={true} />
+                  <AsciidocArticle event={ref.event} hideImagesAndInfo={true} parentImageUrl={effectiveParentImageUrl} />
                 </div>
               )
             } else if (eventKind === ExtendedKind.WIKI_ARTICLE_MARKDOWN) {
               // Render 30817 content as MarkdownArticle
+              // Pass parent image URL to avoid showing duplicate cover images
+              // Use the top-level publication's image as parent, or the passed parentImageUrl for nested publications
+              const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
               return (
                 <div key={index} id={sectionId} className="scroll-mt-24 pt-6 relative">
                   {!isNested && (
@@ -1590,7 +1614,7 @@ export default function PublicationIndex({
                       ToC
                     </Button>
                   )}
-                  <MarkdownArticle event={ref.event} hideMetadata={true} />
+                  <MarkdownArticle event={ref.event} hideMetadata={true} parentImageUrl={effectiveParentImageUrl} />
                 </div>
               )
             } else {

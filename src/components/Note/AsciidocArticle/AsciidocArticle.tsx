@@ -329,11 +329,13 @@ function convertMarkdownToAsciidoc(content: string): string {
 export default function AsciidocArticle({
   event,
   className,
-  hideImagesAndInfo = false
+  hideImagesAndInfo = false,
+  parentImageUrl
 }: {
   event: Event
   className?: string
   hideImagesAndInfo?: boolean
+  parentImageUrl?: string
 }) {
   const { push } = useSecondaryPage()
   const { navigateToHashtag } = useSmartHashtagNavigation()
@@ -560,6 +562,7 @@ export default function AsciidocArticle({
   // Filter tag media to only show what's not in content
   const leftoverTagMedia = useMemo(() => {
     const metadataImageUrl = metadata.image ? cleanUrl(metadata.image) : null
+    const parentImageUrlCleaned = parentImageUrl ? cleanUrl(parentImageUrl) : null
     return tagMedia.filter(media => {
       const cleaned = cleanUrl(media.url)
       if (!cleaned) return false
@@ -567,9 +570,11 @@ export default function AsciidocArticle({
       if (mediaUrlsInContent.has(cleaned)) return false
       // Skip if this is the metadata image (shown separately)
       if (metadataImageUrl && cleaned === metadataImageUrl && !hideImagesAndInfo) return false
+      // Skip if this matches the parent publication's image (to avoid duplicate cover images)
+      if (parentImageUrlCleaned && cleaned === parentImageUrlCleaned) return false
       return true
     })
-  }, [tagMedia, mediaUrlsInContent, metadata.image, hideImagesAndInfo])
+  }, [tagMedia, mediaUrlsInContent, metadata.image, hideImagesAndInfo, parentImageUrl])
   
   // Filter tag YouTube URLs to only show what's not in content
   const leftoverTagYouTubeUrls = useMemo(() => {
@@ -1907,8 +1912,13 @@ export default function AsciidocArticle({
         {/* Metadata image */}
         {!hideImagesAndInfo && metadata.image && (() => {
           const cleanedMetadataImage = cleanUrl(metadata.image)
+          const parentImageUrlCleaned = parentImageUrl ? cleanUrl(parentImageUrl) : null
           // Don't show if already in content
           if (cleanedMetadataImage && mediaUrlsInContent.has(cleanedMetadataImage)) {
+            return null
+          }
+          // Don't show if it matches the parent publication's image (to avoid duplicate cover images)
+          if (parentImageUrlCleaned && cleanedMetadataImage === parentImageUrlCleaned) {
             return null
           }
           
