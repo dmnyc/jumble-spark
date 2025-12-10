@@ -125,8 +125,8 @@ export function parseBookWikilink(wikilink: string): { references: BookReference
   }
   
   // Use collection as bookType (e.g., "bible", "quran", "torah")
-  // If no collection, default to "bible"
-  const inferredBookType = collection || 'bible'
+  // If no collection, default to "book"
+  const inferredBookType = collection || 'book'
   
   return { references, versions, bookType: inferredBookType }
 }

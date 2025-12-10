@@ -244,7 +244,7 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
       
       const result = parseBookWikilink(wikilinkToParse)
       if (result) {
-        const inferredBookType = result.bookType || 'bible'
+        const inferredBookType = result.bookType || 'book'
         const parsedResult = { ...result, bookType: inferredBookType }
         
         // Only log if this is a new parse (not a re-render with same wikilink)
@@ -399,7 +399,7 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
         const newSections: BookSection[] = []
         
         // Step 1: Check cache for ALL references first (in parallel)
-        const bookType = (parsed as any).bookType || 'bible'
+        const bookType = (parsed as any).bookType || 'book'
         const cacheChecks = parsed.references.map(async (ref) => {
           const normalizedBook = ref.book.toLowerCase().replace(/\s+/g, '-')
           const versionsToFetch = parsed.versions || (ref.version ? [ref.version] : [])
@@ -979,8 +979,8 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
 
             {/* External URL preview/button for bible/torah/quran */}
             {(() => {
-              // Get bookType from parsed wikilink (defaults to 'bible')
-              const bookType = parsed?.bookType || 'bible'
+              // Get bookType from parsed wikilink (defaults to 'book')
+              const bookType = parsed?.bookType || 'book'
               
               // Only show external link for bible, torah, or quran collections
               // Other collections (secular books) don't have external links
