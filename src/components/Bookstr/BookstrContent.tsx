@@ -208,9 +208,12 @@ function buildExternalUrl(reference: BookReference, bookType: string, version?: 
     return buildSefariaUrl(reference)
   } else if (bookType === 'quran') {
     return buildQuranComUrl(reference)
-  } else {
-    // Default to Bible Gateway for bible and other types
+  } else if (bookType === 'bible') {
+    // Only build Bible Gateway URL for bible type
     return buildBibleGatewayUrl(reference, version)
+  } else {
+    // For other types (like 'book'), return null - no external link
+    return null
   }
 }
 
