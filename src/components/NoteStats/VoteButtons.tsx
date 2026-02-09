@@ -7,8 +7,11 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import logger from '@/lib/logger'
+import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
+import { useTranslation } from 'react-i18next'
 
 export default function VoteButtons({ event }: { event: Event }) {
+  const { t } = useTranslation()
   const { pubkey, publish, checkLogin } = useNostr()
   const [voting, setVoting] = useState<string | null>(null)
   const noteStats = useNoteStatsById(event.id)
@@ -62,6 +65,22 @@ export default function VoteButtons({ event }: { event: Event }) {
           // Remove vote by creating a reaction with the same emoji (this will toggle it off)
           const reaction = createReactionDraftEvent(event, emoji)
           const evt = await publish(reaction)
+          
+          // Show publishing feedback
+          if ((evt as any)?.relayStatuses) {
+            showPublishingFeedback({
+              success: true,
+              relayStatuses: (evt as any).relayStatuses,
+              successCount: (evt as any).relayStatuses.filter((s: any) => s.success).length,
+              totalCount: (evt as any).relayStatuses.length
+            }, {
+              message: t('Vote removed'),
+              duration: 4000
+            })
+          } else {
+            showSimplePublishSuccess(t('Vote removed'))
+          }
+          
           noteStatsService.updateNoteStatsByEvents([evt])
         } else {
           // If user voted the opposite way, first remove the old vote
@@ -74,6 +93,22 @@ export default function VoteButtons({ event }: { event: Event }) {
           // Then add the new vote
           const reaction = createReactionDraftEvent(event, emoji)
           const evt = await publish(reaction)
+          
+          // Show publishing feedback
+          if ((evt as any)?.relayStatuses) {
+            showPublishingFeedback({
+              success: true,
+              relayStatuses: (evt as any).relayStatuses,
+              successCount: (evt as any).relayStatuses.filter((s: any) => s.success).length,
+              totalCount: (evt as any).relayStatuses.length
+            }, {
+              message: t('Vote published'),
+              duration: 4000
+            })
+          } else {
+            showSimplePublishSuccess(t('Vote published'))
+          }
+          
           noteStatsService.updateNoteStatsByEvents([evt])
         }
       } catch (error) {

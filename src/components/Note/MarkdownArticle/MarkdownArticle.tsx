@@ -652,28 +652,49 @@ function parseMarkdownContent(
         })
       }
     }
-    // Blockquotes (> text or >)
+    // Blockquotes (> text or >) and Greentext (>text with no space)
     else if (line.match(/^>\s*/)) {
-      // Collect consecutive blockquote lines
+      // Check if this is greentext: >text with no space after >
+      // Pattern: > followed immediately by non-whitespace, non-> character
+      const greentextMatch = line.match(/^>([^\s>].*)$/)
+      const isGreentext = greentextMatch !== null
+      
+      // Collect consecutive blockquote/greentext lines
       const blockquoteLines: string[] = []
       const blockquoteStartIndex = lineStartIndex
       let blockquoteLineIdx = lineIdx
       let tempIndex = lineStartIndex
+      let allGreentext = isGreentext
       
       while (blockquoteLineIdx < lines.length) {
         const blockquoteLine = lines[blockquoteLineIdx]
+        const lineGreentextMatch = blockquoteLine.match(/^>([^\s>].*)$/)
+        const lineIsGreentext = lineGreentextMatch !== null
+        
         if (blockquoteLine.match(/^>\s*/)) {
+          // If we started with greentext, only continue if this line is also greentext
+          // If we started with regular blockquote, only continue if this line is also regular blockquote
+          if (isGreentext && !lineIsGreentext) {
+            break
+          }
+          if (!isGreentext && lineIsGreentext) {
+            break
+          }
+          
           // Strip the > prefix and optional space
           const content = blockquoteLine.replace(/^>\s?/, '')
           blockquoteLines.push(content)
           blockquoteLineIdx++
           tempIndex += blockquoteLine.length + 1 // +1 for newline
+          
+          // Update allGreentext flag (all lines must be greentext for it to be a greentext block)
+          allGreentext = allGreentext && lineIsGreentext
         } else if (blockquoteLine.trim() === '') {
-          // Empty line without > - this ALWAYS ends the blockquote
+          // Empty line without > - this ALWAYS ends the blockquote/greentext
           // Even if the next line is another blockquote, we want separate blockquotes
           break
         } else {
-          // Non-empty line that doesn't start with > - ends the blockquote
+          // Non-empty line that doesn't start with > - ends the blockquote/greentext
           break
         }
       }
@@ -693,10 +714,13 @@ function parseMarkdownContent(
           // Calculate end index: tempIndex - 1 (subtract 1 because we don't want the trailing newline)
           const blockquoteEndIndex = tempIndex - 1
           
+          // Use greentext type if all lines are greentext, otherwise use blockquote
+          const patternType = allGreentext ? 'greentext' : 'blockquote'
+          
           blockPatterns.push({
             index: blockquoteStartIndex,
             end: blockquoteEndIndex,
-            type: 'blockquote',
+            type: patternType,
             data: { lines: blockquoteLines, lineNum: lineIdx }
           })
           // Update currentIndex to position at the start of the line after the blockquote
@@ -1165,9 +1189,9 @@ function parseMarkdownContent(
   patterns.sort((a, b) => a.index - b.index)
   
   // Remove overlapping patterns (keep the first one)
-  // Block-level patterns (headers, lists, horizontal rules, tables, blockquotes, code blocks) take priority
+  // Block-level patterns (headers, lists, horizontal rules, tables, blockquotes, greentext, code blocks) take priority
   const filteredPatterns: typeof patterns = []
-  const blockLevelTypes = ['header', 'horizontal-rule', 'bullet-list-item', 'numbered-list-item', 'table', 'blockquote', 'footnote-definition', 'fenced-code-block']
+  const blockLevelTypes = ['header', 'horizontal-rule', 'bullet-list-item', 'numbered-list-item', 'table', 'blockquote', 'greentext', 'footnote-definition', 'fenced-code-block']
   const blockLevelPatternsFromAll = patterns.filter(p => blockLevelTypes.includes(p.type))
   const otherPatterns = patterns.filter(p => !blockLevelTypes.includes(p.type))
   
@@ -1221,7 +1245,9 @@ function parseMarkdownContent(
         pattern.type !== 'numbered-list-item' && 
         pattern.type !== 'table' && 
         pattern.type !== 'blockquote' &&
-        pattern.type !== 'footnote-definition') {
+        pattern.type !== 'greentext' &&
+        pattern.type !== 'footnote-definition' &&
+        pattern.type !== 'fenced-code-block') {
       // This pattern was already processed as part of merged text
       // Skip it to avoid duplicate rendering
       return
@@ -1972,6 +1998,29 @@ function parseMarkdownContent(
         >
           {blockquoteContent}
         </blockquote>
+      )
+    } else if (pattern.type === 'greentext') {
+      const { lines } = pattern.data
+      // Join all greentext lines with <br> to preserve line breaks
+      // Each line should have the > prefix preserved
+      const greentextContent = lines.map((line: string, lineIdx: number) => {
+        // Parse inline markdown for each line (for links, hashtags, etc.)
+        const lineContent = parseInlineMarkdown(line, `greentext-${patternIdx}-line-${lineIdx}`, footnotes)
+        return (
+          <React.Fragment key={`greentext-${patternIdx}-line-${lineIdx}`}>
+            {lineIdx > 0 && <br />}
+            &gt;{lineContent}
+          </React.Fragment>
+        )
+      })
+      
+      parts.push(
+        <span
+          key={`greentext-${patternIdx}`}
+          className="greentext block my-1"
+        >
+          {greentextContent}
+        </span>
       )
     } else if (pattern.type === 'fenced-code-block') {
       const { code, language } = pattern.data

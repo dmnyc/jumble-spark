@@ -101,7 +101,7 @@ const getPrimaryPageMap = () => ({
 // Type for primary page names - use the return type of getPrimaryPageMap
 export type TPrimaryPageName = keyof ReturnType<typeof getPrimaryPageMap>
 
-const PrimaryPageContext = createContext<TPrimaryPageContext | undefined>(undefined)
+export const PrimaryPageContext = createContext<TPrimaryPageContext | undefined>(undefined)
 
 const SecondaryPageContext = createContext<TSecondaryPageContext | undefined>(undefined)
 

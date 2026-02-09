@@ -6,6 +6,7 @@ export type RelayStatus = {
   url: string
   success: boolean
   error?: string
+  message?: string
   authAttempted?: boolean
 }
 

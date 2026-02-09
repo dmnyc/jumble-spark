@@ -19,7 +19,7 @@ import { useGroupList } from '@/providers/GroupListProvider'
 import { TDraftEvent, TRelaySet } from '@/types'
 import { NostrEvent } from 'nostr-tools'
 import { prefixNostrAddresses } from '@/lib/nostr-address'
-import { showPublishingError } from '@/lib/publishing-feedback'
+import { showPublishingError, showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import { simplifyUrl } from '@/lib/url'
 import relaySelectionService from '@/services/relay-selection.service'
 import dayjs from 'dayjs'
@@ -460,6 +460,21 @@ export default function CreateThreadDialog({
       
       
       if (publishedEvent) {
+        // Show publishing feedback with relay messages
+        if ((publishedEvent as any).relayStatuses) {
+          showPublishingFeedback({
+            success: true,
+            relayStatuses: (publishedEvent as any).relayStatuses,
+            successCount: (publishedEvent as any).relayStatuses.filter((s: any) => s.success).length,
+            totalCount: (publishedEvent as any).relayStatuses.length
+          }, {
+            message: t('Thread published'),
+            duration: 6000
+          })
+        } else {
+          showSimplePublishSuccess(t('Thread published'))
+        }
+        
         onThreadCreated(publishedEvent)
         onClose()
       } else {

@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 import logger from '@/lib/logger'
 import PostEditor from '../PostEditor'
 import { formatCount } from './utils'
+import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 
 export default function RepostButton({ event, hideCount = false }: { event: Event; hideCount?: boolean }) {
   const { t } = useTranslation()
@@ -59,6 +60,22 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
 
         const repost = createRepostDraftEvent(event)
         const evt = await publish(repost)
+        
+        // Show publishing feedback
+        if ((evt as any)?.relayStatuses) {
+          showPublishingFeedback({
+            success: true,
+            relayStatuses: (evt as any).relayStatuses,
+            successCount: (evt as any).relayStatuses.filter((s: any) => s.success).length,
+            totalCount: (evt as any).relayStatuses.length
+          }, {
+            message: t('Repost published'),
+            duration: 4000
+          })
+        } else {
+          showSimplePublishSuccess(t('Repost published'))
+        }
+        
         noteStatsService.updateNoteStatsByEvents([evt])
       } catch (error) {
         logger.error('Repost failed', { error, eventId: event.id })

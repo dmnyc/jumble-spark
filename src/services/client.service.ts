@@ -90,6 +90,15 @@ class ClientService extends EventTarget {
     event: NEvent,
     { specifiedRelayUrls, additionalRelayUrls }: TPublishOptions = {}
   ) {
+    if (event.kind === kinds.RelayList) {
+      logger.info('[DetermineTargetRelays] Determining target relays for relay list event', {
+        pubkey: event.pubkey?.substring(0, 8),
+        hasSpecifiedRelays: !!specifiedRelayUrls?.length,
+        specifiedRelayCount: specifiedRelayUrls?.length ?? 0,
+        hasAdditionalRelays: !!additionalRelayUrls?.length,
+        additionalRelayCount: additionalRelayUrls?.length ?? 0
+      })
+    }
     // For Report events, always include user's write relays first, then add seen relays if they're write-capable
     if (event.kind === kinds.Report) {
       // Start with user's write relays (outboxes) - these are the primary targets for reports
@@ -160,14 +169,42 @@ class ClientService extends EventTarget {
         ].includes(event.kind)
       ) {
         _additionalRelayUrls.push(...BIG_RELAY_URLS, ...PROFILE_RELAY_URLS)
+        logger.debug('[DetermineTargetRelays] Relay list event detected, adding BIG_RELAY_URLS and PROFILE_RELAY_URLS', {
+          kind: event.kind,
+          bigRelays: BIG_RELAY_URLS,
+          profileRelays: PROFILE_RELAY_URLS,
+          additionalRelayCount: _additionalRelayUrls.length
+        })
       } else if (event.kind === ExtendedKind.RSS_FEED_LIST) {
         _additionalRelayUrls.push(...FAST_WRITE_RELAY_URLS, ...PROFILE_RELAY_URLS)
       }
 
+      if (event.kind === kinds.RelayList) {
+        logger.debug('[DetermineTargetRelays] Fetching user relay list for relay list event publication', {
+          pubkey: event.pubkey?.substring(0, 8),
+          kind: event.kind
+        })
+      }
       const relayList = await this.fetchRelayList(event.pubkey)
+      if (event.kind === kinds.RelayList) {
+        logger.debug('[DetermineTargetRelays] User relay list fetched', {
+          hasRelayList: !!relayList,
+          writeRelayCount: relayList?.write?.length ?? 0,
+          readRelayCount: relayList?.read?.length ?? 0,
+          writeRelays: relayList?.write?.slice(0, 10) ?? []
+        })
+      }
       relays = (relayList?.write.slice(0, 10) ?? []).concat(
         Array.from(new Set(_additionalRelayUrls)) ?? []
       )
+      if (event.kind === kinds.RelayList) {
+        logger.info('[DetermineTargetRelays] Final relay list for relay list event publication', {
+          totalRelayCount: relays.length,
+          userWriteRelays: relayList?.write?.slice(0, 10) ?? [],
+          additionalRelays: Array.from(new Set(_additionalRelayUrls)),
+          allRelays: relays
+        })
+      }
     }
 
     if (!relays.length) {
@@ -185,7 +222,15 @@ class ClientService extends EventTarget {
     })
     
     const uniqueRelayUrls = Array.from(new Set(relayUrls))
-    logger.debug('[PublishEvent] Unique relays', { count: uniqueRelayUrls.length, relays: uniqueRelayUrls.slice(0, 5) })
+    if (event.kind === kinds.RelayList) {
+      logger.info('[PublishEvent] Publishing relay list event to relays', {
+        eventId: event.id?.substring(0, 8),
+        totalRelayCount: uniqueRelayUrls.length,
+        allRelays: uniqueRelayUrls
+      })
+    } else {
+      logger.debug('[PublishEvent] Unique relays', { count: uniqueRelayUrls.length, relays: uniqueRelayUrls.slice(0, 5) })
+    }
     
     const relayStatuses: { url: string; success: boolean; error?: string }[] = []
     
@@ -1575,13 +1620,30 @@ class ClientService extends EventTarget {
     // Deduplicate concurrent requests for the same pubkey's relay list
     const existingRequest = this.relayListRequestCache.get(pubkey)
     if (existingRequest) {
+      logger.debug('[FetchRelayList] Using cached in-flight request', { pubkey: pubkey.substring(0, 8) })
       return existingRequest
     }
     
+    logger.debug('[FetchRelayList] Starting fetch', { pubkey: pubkey.substring(0, 8) })
     const requestPromise = (async () => {
       try {
+        const startTime = Date.now()
         const [relayList] = await this.fetchRelayLists([pubkey])
+        const duration = Date.now() - startTime
+        logger.debug('[FetchRelayList] Fetch completed', {
+          pubkey: pubkey.substring(0, 8),
+          duration: `${duration}ms`,
+          hasRelayList: !!relayList,
+          writeCount: relayList?.write?.length ?? 0,
+          readCount: relayList?.read?.length ?? 0
+        })
         return relayList
+      } catch (error) {
+        logger.error('[FetchRelayList] Fetch failed', {
+          pubkey: pubkey.substring(0, 8),
+          error: error instanceof Error ? error.message : String(error)
+        })
+        throw error
       } finally {
         // Remove from cache after completion (cache result in replaceableEventCacheMap)
         this.relayListRequestCache.delete(pubkey)

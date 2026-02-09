@@ -15,11 +15,12 @@ import client from '@/services/client.service'
 import { Bell, BellOff, Code, Copy, Link, SatelliteDish, Trash2, TriangleAlert, Pin, FileDown, Globe, BookOpen, Highlighter } from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useContext } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import RelayIcon from '../RelayIcon'
-import { usePrimaryPage } from '@/PageManager'
+import { PrimaryPageContext } from '@/PageManager'
+import { showPublishingFeedback } from '@/lib/publishing-feedback'
 
 export interface SubMenuAction {
   label: React.ReactNode
@@ -57,7 +58,9 @@ export function useMenuActions({
   openHighlightEditor
 }: UseMenuActionsProps) {
   const { t } = useTranslation()
-  const { current: currentPrimaryPage } = usePrimaryPage()
+  // Use useContext directly to avoid error if provider is not available
+  const primaryPageContext = useContext(PrimaryPageContext)
+  const currentPrimaryPage = primaryPageContext?.current ?? null
   const { pubkey, attemptDelete, publish } = useNostr()
   const { relayUrls: currentBrowsingRelayUrls } = useCurrentRelays()
   const { relaySets, favoriteRelays } = useFavoriteRelays()
@@ -182,7 +185,7 @@ export function useMenuActions({
       
       // Create and publish the new pin list event
       logger.component('PinNote', 'Publishing new pin list event', { tagCount: newTags.length, relayCount: comprehensiveRelays.length })
-      await publish({
+      const publishedEvent = await publish({
         kind: 10001,
         tags: newTags,
         content: '',
@@ -191,9 +194,23 @@ export function useMenuActions({
         specifiedRelayUrls: comprehensiveRelays
       })
       
+      // Show publishing feedback with relay messages
+      if ((publishedEvent as any)?.relayStatuses) {
+        showPublishingFeedback({
+          success: true,
+          relayStatuses: (publishedEvent as any).relayStatuses,
+          successCount: (publishedEvent as any).relayStatuses.filter((s: any) => s.success).length,
+          totalCount: (publishedEvent as any).relayStatuses.length
+        }, {
+          message: successMessage,
+          duration: 4000
+        })
+      } else {
+        toast.success(successMessage)
+      }
+      
       // Update local state - the publish will update the cache automatically
       setIsPinned(!isPinned)
-      toast.success(successMessage)
       closeDrawer()
     } catch (error) {
       logger.component('PinNote', 'Error pinning/unpinning note', { error: (error as Error).message })

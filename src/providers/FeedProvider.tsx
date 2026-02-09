@@ -6,7 +6,7 @@ import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import { TFeedInfo, TFeedType } from '@/types'
 import { kinds } from 'nostr-tools'
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
 import { useNostr } from './NostrProvider'
 
@@ -41,77 +41,7 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
   })
   const feedInfoRef = useRef<TFeedInfo>(feedInfo)
 
-  useEffect(() => {
-    const init = async () => {
-      logger.debug('FeedProvider init:', { isInitialized, pubkey })
-      if (!isInitialized) {
-        return
-      }
-
-      // Get first visible (non-blocked) favorite relay as default
-      const visibleRelays = favoriteRelays.filter(relay => !blockedRelays.includes(relay))
-      let feedInfo: TFeedInfo = {
-        feedType: 'relay',
-        id: visibleRelays[0] ?? DEFAULT_FAVORITE_RELAYS[0]
-      }
-      
-      // Ensure we always have a valid relay ID
-      if (!feedInfo.id) {
-        feedInfo.id = DEFAULT_FAVORITE_RELAYS[0]
-      }
-      logger.debug('Initial feedInfo setup:', { visibleRelays, favoriteRelays, blockedRelays, feedInfo })
-      
-      if (pubkey) {
-        const storedFeedInfo = storage.getFeedInfo(pubkey)
-        logger.debug('Stored feed info:', storedFeedInfo)
-        if (storedFeedInfo) {
-          feedInfo = storedFeedInfo
-        }
-      }
-
-      if (feedInfo.feedType === 'relays') {
-        return await switchFeed('relays', { activeRelaySetId: feedInfo.id })
-      }
-
-      if (feedInfo.feedType === 'relay') {
-        // Check if the stored relay is blocked, if so use first visible relay instead
-        if (feedInfo.id && blockedRelays.includes(feedInfo.id)) {
-          logger.component('FeedProvider', 'Stored relay is blocked, using first visible relay instead')
-          feedInfo.id = visibleRelays[0] ?? DEFAULT_FAVORITE_RELAYS[0]
-        }
-        logger.component('FeedProvider', 'Initial relay setup, calling switchFeed', { relayId: feedInfo.id })
-        return await switchFeed('relay', { relay: feedInfo.id })
-      }
-
-      // update following feed if pubkey changes
-      if (feedInfo.feedType === 'following' && pubkey) {
-        return await switchFeed('following', { pubkey })
-      }
-
-      if (feedInfo.feedType === 'bookmarks' && pubkey) {
-        return await switchFeed('bookmarks', { pubkey })
-      }
-
-      if (feedInfo.feedType === 'all-favorites') {
-        logger.debug('Initializing all-favorites feed')
-        return await switchFeed('all-favorites')
-      }
-    }
-
-    init()
-  }, [pubkey, isInitialized])
-
-  // Update relay URLs when favoriteRelays change and we're in all-favorites mode
-  useEffect(() => {
-    if (feedInfo.feedType === 'all-favorites') {
-      // Filter out blocked relays
-      const visibleRelays = favoriteRelays.filter(relay => !blockedRelays.includes(relay))
-      logger.debug('Updating relay URLs for all-favorites:', visibleRelays)
-      setRelayUrls(visibleRelays)
-    }
-  }, [favoriteRelays, blockedRelays, feedInfo.feedType])
-
-  const switchFeed = async (
+  const switchFeed = useCallback(async (
     feedType: TFeedType,
     options: {
       activeRelaySetId?: string | null
@@ -232,7 +162,85 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
       return
     }
     setIsReady(true)
-  }
+  }, [pubkey, favoriteRelays, blockedRelays, relaySets])
+
+  useEffect(() => {
+    const init = async () => {
+      logger.debug('FeedProvider init:', { isInitialized, pubkey, favoriteRelays: favoriteRelays.length, blockedRelays: blockedRelays.length })
+      if (!isInitialized) {
+        return
+      }
+
+      // Wait for favoriteRelays to be initialized (should have at least default relays)
+      // If favoriteRelays is empty, it might not be initialized yet, so wait
+      if (favoriteRelays.length === 0 && !pubkey) {
+        // For anonymous users, favoriteRelays should be initialized from BIG_RELAY_URLS
+        // If it's still empty, something is wrong, but we'll use defaults
+        logger.debug('FeedProvider: favoriteRelays is empty, using defaults')
+      }
+
+      // Get first visible (non-blocked) favorite relay as default
+      const visibleRelays = favoriteRelays.filter(relay => !blockedRelays.includes(relay))
+      let feedInfo: TFeedInfo = {
+        feedType: 'relay',
+        id: visibleRelays[0] ?? DEFAULT_FAVORITE_RELAYS[0]
+      }
+      
+      // Ensure we always have a valid relay ID
+      if (!feedInfo.id) {
+        feedInfo.id = DEFAULT_FAVORITE_RELAYS[0]
+      }
+      logger.debug('Initial feedInfo setup:', { visibleRelays, favoriteRelays, blockedRelays, feedInfo })
+      
+      if (pubkey) {
+        const storedFeedInfo = storage.getFeedInfo(pubkey)
+        logger.debug('Stored feed info:', storedFeedInfo)
+        if (storedFeedInfo) {
+          feedInfo = storedFeedInfo
+        }
+      }
+
+      if (feedInfo.feedType === 'relays') {
+        return await switchFeed('relays', { activeRelaySetId: feedInfo.id })
+      }
+
+      if (feedInfo.feedType === 'relay') {
+        // Check if the stored relay is blocked, if so use first visible relay instead
+        if (feedInfo.id && blockedRelays.includes(feedInfo.id)) {
+          logger.component('FeedProvider', 'Stored relay is blocked, using first visible relay instead')
+          feedInfo.id = visibleRelays[0] ?? DEFAULT_FAVORITE_RELAYS[0]
+        }
+        logger.component('FeedProvider', 'Initial relay setup, calling switchFeed', { relayId: feedInfo.id })
+        return await switchFeed('relay', { relay: feedInfo.id })
+      }
+
+      // update following feed if pubkey changes
+      if (feedInfo.feedType === 'following' && pubkey) {
+        return await switchFeed('following', { pubkey })
+      }
+
+      if (feedInfo.feedType === 'bookmarks' && pubkey) {
+        return await switchFeed('bookmarks', { pubkey })
+      }
+
+      if (feedInfo.feedType === 'all-favorites') {
+        logger.debug('Initializing all-favorites feed')
+        return await switchFeed('all-favorites')
+      }
+    }
+
+    init()
+  }, [pubkey, isInitialized, favoriteRelays, blockedRelays, switchFeed])
+
+  // Update relay URLs when favoriteRelays change and we're in all-favorites mode
+  useEffect(() => {
+    if (feedInfo.feedType === 'all-favorites') {
+      // Filter out blocked relays
+      const visibleRelays = favoriteRelays.filter(relay => !blockedRelays.includes(relay))
+      logger.debug('Updating relay URLs for all-favorites:', visibleRelays)
+      setRelayUrls(visibleRelays)
+    }
+  }, [pubkey, isInitialized, favoriteRelays, blockedRelays, relaySets])
 
   return (
     <FeedContext.Provider

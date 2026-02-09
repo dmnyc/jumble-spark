@@ -425,3 +425,22 @@
     transform: translate(-1px, -1px) rotate(-1deg);
   }
 }
+
+/* Greentext styling - 4chan style */
+.greentext {
+  color: #4a7c3a; /* Deeper, darker green for better readability in light mode */
+  display: block;
+  margin: 0.25rem 0;
+  font-family: inherit;
+}
+
+.dark .greentext {
+  color: #8fbc8f; /* Lighter green for dark mode */
+}
+
+/* Ensure greentext lines appear on their own line even if markdown processes them */
+.markdown-content .greentext,
+.prose .greentext {
+  display: block;
+  margin: 0.25rem 0;
+}

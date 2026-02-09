@@ -90,8 +90,24 @@ function ReportContent({ event, closeDialog }: { event: NostrEvent; closeDialog:
     try {
       setReporting(true)
       const draftEvent = createReportDraftEvent(event, reason)
-      await publish(draftEvent)
-      toast.success(t('Successfully report'))
+      const publishedEvent = await publish(draftEvent)
+      
+      // Show publishing feedback with relay messages
+      if ((publishedEvent as any)?.relayStatuses) {
+        const { showPublishingFeedback } = await import('@/lib/publishing-feedback')
+        showPublishingFeedback({
+          success: true,
+          relayStatuses: (publishedEvent as any).relayStatuses,
+          successCount: (publishedEvent as any).relayStatuses.filter((s: any) => s.success).length,
+          totalCount: (publishedEvent as any).relayStatuses.length
+        }, {
+          message: t('Successfully report'),
+          duration: 4000
+        })
+      } else {
+        toast.success(t('Successfully report'))
+      }
+      
       closeDialog()
     } catch (error) {
       toast.error(t('Failed to report') + ': ' + (error as Error).message)

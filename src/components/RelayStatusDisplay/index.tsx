@@ -1,3 +1,4 @@
+import React from 'react'
 import { Check, X } from 'lucide-react'
 import { simplifyUrl } from '@/lib/url'
 
@@ -44,10 +45,53 @@ function formatRelayError(error: string): string {
   return error
 }
 
+/**
+ * Render text with URLs as clickable hyperlinks
+ */
+function renderTextWithLinks(text: string): React.ReactNode {
+  // URL regex pattern - matches http://, https://, ws://, wss:// URLs
+  const urlRegex = /(https?:\/\/[^\s]+|wss?:\/\/[^\s]+)/gi
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = urlRegex.exec(text)) !== null) {
+    // Add text before the URL
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index))
+    }
+    
+    // Add the URL as a link
+    const url = match[0]
+    parts.push(
+      <a
+        key={match.index}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 dark:text-blue-400 hover:underline break-all"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {url}
+      </a>
+    )
+    
+    lastIndex = match.index + match[0].length
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex))
+  }
+  
+  return parts.length > 0 ? <>{parts}</> : text
+}
+
 interface RelayStatus {
   url: string
   success: boolean
   error?: string
+  message?: string
   authAttempted?: boolean
 }
 
@@ -103,7 +147,12 @@ export default function RelayStatusDisplay({
                 
                 {!status.success && status.error && (
                   <div className="text-xs text-red-600 dark:text-red-400 break-words">
-                    {formatRelayError(status.error)}
+                    {renderTextWithLinks(formatRelayError(status.error))}
+                  </div>
+                )}
+                {status.success && status.message && (
+                  <div className="text-xs text-green-600 dark:text-green-400 break-words">
+                    {renderTextWithLinks(status.message)}
                   </div>
                 )}
               </div>

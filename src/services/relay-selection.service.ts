@@ -304,12 +304,9 @@ class RelaySelectionService {
       // Deduplicate the selected relays
       selectedRelays = Array.from(new Set(selectedRelays))
     }
-    // For discussion replies, use relay hint from the kind 11 at the top of the thread
+    // For discussion replies, use relay hints from the kind 11 + user's outboxes + local relays + thecitadel
     else if (parentEvent && (parentEvent.kind === ExtendedKind.DISCUSSION || parentEvent.kind === ExtendedKind.COMMENT)) {
-      const discussionRelay = this.getDiscussionRelayHint(parentEvent)
-      if (discussionRelay) {
-        selectedRelays = [discussionRelay]
-      }
+      selectedRelays = await this.getDiscussionReplyRelays(context)
     }
     // For public messages, use sender outboxes + receiver inboxes
     else if (isPublicMessage || (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE)) {
@@ -567,30 +564,109 @@ class RelaySelectionService {
   }
 
   /**
-   * Get relay hint from discussion events
+   * Get all relay hints from a kind 11 discussion event
+   * Returns all relays where the event was seen (excluding local relays)
    */
-  private getDiscussionRelayHint(parentEvent: Event): string | null {
-    // For kind 1111 (COMMENT): look for 'E' tag which points to the root event
+  private getDiscussionRelayHints(discussionEventId: string): string[] {
+    const eventHints = client.getEventHints(discussionEventId)
+    return eventHints.map(url => normalizeUrl(url) || url).filter(Boolean)
+  }
+
+  /**
+   * Get relays for discussion replies (kind 11 or kind 1111)
+   * Includes: relay hints from kind 11, wss://thecitadel.nostr1.com, user's outboxes, and local relays
+   */
+  private async getDiscussionReplyRelays(context: RelaySelectionContext): Promise<string[]> {
+    const { parentEvent, userWriteRelays, userPubkey, blockedRelays } = context
+    if (!parentEvent) return []
+
+    const relayUrls = new Set<string>()
+
+    // Step 1: Get relay hints from the kind 11 event
+    let discussionEventId: string | null = null
+    
     if (parentEvent.kind === ExtendedKind.COMMENT) {
+      // For kind 1111 (COMMENT): get root kind 11 event ID from E tag
       const ETag = parentEvent.tags.find(tag => tag[0] === 'E')
-      if (ETag && ETag[2]) {
-        return normalizeUrl(ETag[2]) || ETag[2]
-      }
-      
-      // If no 'E' tag, check lowercase 'e' tag for parent event
-      const eTag = parentEvent.tags.find(tag => tag[0] === 'e')
-      if (eTag && eTag[2]) {
-        return normalizeUrl(eTag[2]) || eTag[2]
+      if (ETag && ETag[1]) {
+        discussionEventId = ETag[1]
+      } else {
+        // Fallback to lowercase e tag
+        const eTag = parentEvent.tags.find(tag => tag[0] === 'e')
+        if (eTag && eTag[1]) {
+          discussionEventId = eTag[1]
+        }
       }
     } else if (parentEvent.kind === ExtendedKind.DISCUSSION) {
-      // For kind 11 (DISCUSSION): get relay hint from where it was found
-      const eventHints = client.getEventHints(parentEvent.id)
-      if (eventHints.length > 0) {
-        return normalizeUrl(eventHints[0]) || eventHints[0]
+      // For kind 11 (DISCUSSION): use the event itself
+      discussionEventId = parentEvent.id
+    }
+
+    // Get all relay hints from the kind 11 event
+    if (discussionEventId) {
+      const discussionHints = this.getDiscussionRelayHints(discussionEventId)
+      discussionHints.forEach(url => relayUrls.add(url))
+    }
+
+    // Step 2: Add wss://thecitadel.nostr1.com
+    const thecitadelUrl = normalizeUrl('wss://thecitadel.nostr1.com')
+    if (thecitadelUrl) {
+      relayUrls.add(thecitadelUrl)
+    }
+
+    // Step 3: Add user's outboxes (write relays from kind 10002)
+    if (userWriteRelays.length > 0) {
+      userWriteRelays.forEach(url => {
+        const normalized = normalizeUrl(url)
+        if (normalized) {
+          relayUrls.add(normalized)
+        }
+      })
+    } else if (userPubkey) {
+      // Fetch user's relay list if not provided
+      try {
+        const relayList = await this.getCachedRelayList(userPubkey)
+        if (relayList?.write) {
+          relayList.write.forEach(url => {
+            const normalized = normalizeUrl(url)
+            if (normalized) {
+              relayUrls.add(normalized)
+            }
+          })
+        }
+      } catch (error) {
+        logger.warn('Failed to fetch user relay list for discussion reply', { error, userPubkey })
       }
     }
 
-    return null
+    // Step 4: Add local relays (cache relays from kind 10432)
+    if (userPubkey) {
+      try {
+        const cacheRelayEvent = await indexedDb.getReplaceableEvent(userPubkey, ExtendedKind.CACHE_RELAYS)
+        if (cacheRelayEvent) {
+          cacheRelayEvent.tags.forEach(tag => {
+            if (tag[0] === 'relay' && tag[1]) {
+              const normalized = normalizeUrl(tag[1])
+              if (normalized) {
+                relayUrls.add(normalized)
+              }
+            }
+          })
+        }
+      } catch (error) {
+        logger.warn('Failed to fetch cache relays for discussion reply', { error, userPubkey })
+      }
+    }
+
+    // Step 5: Convert to array, normalize, and deduplicate
+    const normalizedRelays = Array.from(relayUrls)
+      .map(url => normalizeUrl(url))
+      .filter((url): url is string => !!url)
+
+    const deduplicatedRelays = Array.from(new Set(normalizedRelays))
+
+    // Step 6: Filter out blocked relays
+    return this.filterBlockedRelays(deduplicatedRelays, blockedRelays)
   }
 
   /**

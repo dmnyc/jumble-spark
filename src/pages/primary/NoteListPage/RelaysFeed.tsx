@@ -20,6 +20,12 @@ export default function RelaysFeed() {
 
   useEffect(() => {
     const init = async () => {
+      // If relayUrls is empty, we can't initialize the feed
+      if (relayUrls.length === 0) {
+        logger.debug('RelaysFeed: relayUrls is empty, not initializing')
+        setIsReady(false)
+        return
+      }
       const relayInfos = await relayInfoService.getRelayInfos(relayUrls)
       setAreAlgoRelays(relayInfos.every((relayInfo) => checkAlgoRelay(relayInfo)))
       setIsReady(true)

@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import logger from '@/lib/logger'
+import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 
 export default function Poll({ event, className }: { event: Event; className?: string }) {
   const { t } = useTranslation()
@@ -119,9 +120,24 @@ export default function Poll({ event, className }: { event: Event; className?: s
       const additionalRelayUrls = await ensurePollRelays(event.pubkey, poll)
 
       const draftEvent = createPollResponseDraftEvent(event, selectedOptionIds)
-      await publish(draftEvent, {
+      const publishedEvent = await publish(draftEvent, {
         additionalRelayUrls
       })
+
+      // Show publishing feedback
+      if ((publishedEvent as any)?.relayStatuses) {
+        showPublishingFeedback({
+          success: true,
+          relayStatuses: (publishedEvent as any).relayStatuses,
+          successCount: (publishedEvent as any).relayStatuses.filter((s: any) => s.success).length,
+          totalCount: (publishedEvent as any).relayStatuses.length
+        }, {
+          message: t('Vote published'),
+          duration: 4000
+        })
+      } else {
+        showSimplePublishSuccess(t('Vote published'))
+      }
 
       setSelectedOptionIds([])
       pollResultsService.addPollResponse(event.id, pubkey, selectedOptionIds)

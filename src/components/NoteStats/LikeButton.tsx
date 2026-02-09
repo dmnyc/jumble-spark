@@ -24,6 +24,7 @@ import Emoji from '../Emoji'
 import EmojiPicker from '../EmojiPicker'
 import SuggestedEmojis from '../SuggestedEmojis'
 import { formatCount } from './utils'
+import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 
 const DISCUSSION_EMOJIS = ['⬆️', '⬇️']
 
@@ -120,13 +121,44 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
             if (reactionEvent) {
               // Create and publish a deletion request (kind 5)
               const deletionRequest = createDeletionRequestDraftEvent(reactionEvent)
-              await publish(deletionRequest)
+              const deletedEvent = await publish(deletionRequest)
+              
+              // Show publishing feedback
+              if ((deletedEvent as any)?.relayStatuses) {
+                showPublishingFeedback({
+                  success: true,
+                  relayStatuses: (deletedEvent as any).relayStatuses,
+                  successCount: (deletedEvent as any).relayStatuses.filter((s: any) => s.success).length,
+                  totalCount: (deletedEvent as any).relayStatuses.length
+                }, {
+                  message: t('Reaction removed'),
+                  duration: 4000
+                })
+              } else {
+                showSimplePublishSuccess(t('Reaction removed'))
+              }
             }
           }
         } else {
           // User is adding a new reaction
           const reaction = createReactionDraftEvent(event, emoji)
           const evt = await publish(reaction)
+          
+          // Show publishing feedback
+          if ((evt as any)?.relayStatuses) {
+            showPublishingFeedback({
+              success: true,
+              relayStatuses: (evt as any).relayStatuses,
+              successCount: (evt as any).relayStatuses.filter((s: any) => s.success).length,
+              totalCount: (evt as any).relayStatuses.length
+            }, {
+              message: t('Reaction published'),
+              duration: 4000
+            })
+          } else {
+            showSimplePublishSuccess(t('Reaction published'))
+          }
+          
           noteStatsService.updateNoteStatsByEvents([evt])
         }
       } catch (error) {
