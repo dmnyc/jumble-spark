@@ -124,6 +124,8 @@
   "overrides": {
     "sucrase": {
       "glob": "^11.1.0"
-    }
+    },
+    "minimatch": "^10.0.1",
+    "lodash": "^4.17.21"
   }
 }
