@@ -35,6 +35,19 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     }
   },
+  build: {
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // Suppress vite:reporter warnings about mixed static/dynamic imports
+        // These are informational warnings about code splitting, not errors
+        if (warning.plugin === 'vite:reporter' && warning.message.includes('dynamically imported') && warning.message.includes('statically imported')) {
+          return
+        }
+        // Use default warning handler for other warnings
+        warn(warning)
+      }
+    }
+  },
   test: {
     globals: true,
     environment: 'jsdom',
