@@ -163,7 +163,6 @@ class ClientService extends EventTarget {
           kinds.RelayList,
           ExtendedKind.CACHE_RELAYS,
           kinds.Contacts,
-          ExtendedKind.FAVORITE_RELAYS,
           ExtendedKind.BLOSSOM_SERVER_LIST,
           ExtendedKind.RELAY_REVIEW
         ].includes(event.kind)
@@ -175,18 +174,26 @@ class ClientService extends EventTarget {
           profileRelays: PROFILE_RELAY_URLS,
           additionalRelayCount: _additionalRelayUrls.length
         })
+      } else if (event.kind === ExtendedKind.FAVORITE_RELAYS) {
+        // Use fast write relays for favorite relays to avoid timeouts and payment requirements
+        _additionalRelayUrls.push(...FAST_WRITE_RELAY_URLS)
+        logger.debug('[DetermineTargetRelays] Favorite relays event detected, adding FAST_WRITE_RELAY_URLS', {
+          kind: event.kind,
+          fastWriteRelays: FAST_WRITE_RELAY_URLS,
+          additionalRelayCount: _additionalRelayUrls.length
+        })
       } else if (event.kind === ExtendedKind.RSS_FEED_LIST) {
         _additionalRelayUrls.push(...FAST_WRITE_RELAY_URLS, ...PROFILE_RELAY_URLS)
       }
 
-      if (event.kind === kinds.RelayList) {
-        logger.debug('[DetermineTargetRelays] Fetching user relay list for relay list event publication', {
+      if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
+        logger.debug('[DetermineTargetRelays] Fetching user relay list for event publication', {
           pubkey: event.pubkey?.substring(0, 8),
           kind: event.kind
         })
       }
       const relayList = await this.fetchRelayList(event.pubkey)
-      if (event.kind === kinds.RelayList) {
+      if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
         logger.debug('[DetermineTargetRelays] User relay list fetched', {
           hasRelayList: !!relayList,
           writeRelayCount: relayList?.write?.length ?? 0,
@@ -197,8 +204,9 @@ class ClientService extends EventTarget {
       relays = (relayList?.write.slice(0, 10) ?? []).concat(
         Array.from(new Set(_additionalRelayUrls)) ?? []
       )
-      if (event.kind === kinds.RelayList) {
-        logger.info('[DetermineTargetRelays] Final relay list for relay list event publication', {
+      if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
+        logger.info('[DetermineTargetRelays] Final relay list for event publication', {
+          kind: event.kind,
           totalRelayCount: relays.length,
           userWriteRelays: relayList?.write?.slice(0, 10) ?? [],
           additionalRelays: Array.from(new Set(_additionalRelayUrls)),
@@ -222,9 +230,10 @@ class ClientService extends EventTarget {
     })
     
     const uniqueRelayUrls = Array.from(new Set(relayUrls))
-    if (event.kind === kinds.RelayList) {
-      logger.info('[PublishEvent] Publishing relay list event to relays', {
+    if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
+      logger.info('[PublishEvent] Publishing event to relays', {
         eventId: event.id?.substring(0, 8),
+        kind: event.kind,
         totalRelayCount: uniqueRelayUrls.length,
         allRelays: uniqueRelayUrls
       })

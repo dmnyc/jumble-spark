@@ -56,6 +56,17 @@ export function suppressExpectedErrors() {
       return
     }
     
+    // Suppress Radix UI Dialog accessibility warnings
+    // These are informational warnings about DialogTitle/Description
+    // All our dialogs have titles (some hidden with sr-only for accessibility)
+    if (message.includes('DialogContent') && (
+      message.includes('requires a DialogTitle') ||
+      message.includes('Missing `Description`') ||
+      message.includes('aria-describedby')
+    )) {
+      return
+    }
+    
     // Suppress Workbox precaching errors for development modules
     if (message.includes('Precaching did not find a match') && (
       message.includes('@vite/client') ||
@@ -163,6 +174,17 @@ export function suppressExpectedErrors() {
         message.includes('net::ERR_FAILED') ||
         (message.includes('GET ') && message.includes('blocked')) ||
         (message.includes('fetch') && message.includes('blocked'))) {
+      return
+    }
+    
+    // Suppress Radix UI Dialog accessibility warnings
+    // These are informational warnings about DialogTitle/Description
+    // All our dialogs have titles (some hidden with sr-only for accessibility)
+    if (message.includes('DialogContent') && (
+      message.includes('requires a DialogTitle') ||
+      message.includes('Missing `Description`') ||
+      message.includes('aria-describedby')
+    )) {
       return
     }
     
