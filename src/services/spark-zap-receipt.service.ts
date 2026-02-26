@@ -153,7 +153,7 @@ class SparkZapReceiptService {
     ]
 
     // Add preimage if available
-    const preimage = payment.details?.type === 'lightning' ? payment.details.preimage : undefined
+    const preimage = payment.details?.type === 'lightning' ? payment.details.htlcDetails?.preimage : undefined
     if (preimage) {
       tags.push(['preimage', preimage])
     }

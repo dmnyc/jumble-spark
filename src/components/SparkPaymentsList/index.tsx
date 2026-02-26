@@ -223,11 +223,12 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
 
                     return (
                       <>
+                        {lightningDetails.htlcDetails?.paymentHash && (
                         <div className="flex items-center justify-between gap-2 min-h-6">
                           <span className="text-muted-foreground font-medium">Payment Hash:</span>
                           <div className="flex items-center gap-1 min-w-0">
                             <code className="text-xs bg-muted px-1 py-0.5 rounded truncate max-w-[200px]">
-                              {lightningDetails.paymentHash}
+                              {lightningDetails.htlcDetails.paymentHash}
                             </code>
                             <Button
                               variant="ghost"
@@ -235,13 +236,14 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
                               className="size-6 p-0"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                copyToClipboard(lightningDetails.paymentHash, 'Payment hash')
+                                copyToClipboard(lightningDetails.htlcDetails!.paymentHash, 'Payment hash')
                               }}
                             >
                               <Copy className="size-3" />
                             </Button>
                           </div>
                         </div>
+                        )}
 
                         {lightningDetails.invoice && (
                           <div className="flex items-center justify-between gap-2 min-h-6">
@@ -265,12 +267,12 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
                           </div>
                         )}
 
-                        {lightningDetails.preimage && (
+                        {lightningDetails.htlcDetails?.preimage && (
                           <div className="flex items-center justify-between gap-2 min-h-6">
                             <span className="text-muted-foreground font-medium">Preimage:</span>
                             <div className="flex items-center gap-1 min-w-0">
                               <code className="text-xs bg-muted px-1 py-0.5 rounded truncate max-w-[200px]">
-                                {lightningDetails.preimage}
+                                {lightningDetails.htlcDetails.preimage}
                               </code>
                               <Button
                                 variant="ghost"
@@ -278,7 +280,7 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
                                 className="size-6 p-0"
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  copyToClipboard(lightningDetails.preimage!, 'Preimage')
+                                  copyToClipboard(lightningDetails.htlcDetails!.preimage!, 'Preimage')
                                 }}
                               >
                                 <Copy className="size-3" />
