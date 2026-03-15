@@ -126,6 +126,13 @@
       "glob": "^11.1.0"
     },
     "minimatch": "^10.0.1",
-    "lodash": "^4.17.21"
+    "lodash": "^4.17.21",
+    "vite-plugin-pwa": {
+      "workbox-build": {
+        "@rollup/plugin-terser": {
+          "serialize-javascript": "7.0.4"
+        }
+      }
+    }
   }
 }
