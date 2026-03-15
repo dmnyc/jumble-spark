@@ -27,21 +27,29 @@ function parseGifFromEvent(event: NEvent): GifMetadata | null {
   let fallbackUrl: string | undefined
   let sha256: string | undefined
 
-  // imeta tags (NIP-92)
+  // imeta tags (NIP-92): accept url when it contains .gif or when m is image/gif
   const imetaTags = event.tags.filter((t) => t[0] === 'imeta')
   for (const imetaTag of imetaTags) {
+    const mimeField = imetaTag.find((f) => f?.startsWith('m '))
+    const imetaMime = mimeField?.substring(2).trim()
+    const isGifMime = imetaMime === 'image/gif'
     for (let i = 1; i < imetaTag.length; i++) {
       const field = imetaTag[i]
       if (field?.startsWith('url ')) {
         const candidateUrl = field.substring(4).trim()
-        if (candidateUrl && candidateUrl.toLowerCase().includes('.gif')) {
+        if (!candidateUrl) continue
+        const urlHasGif = candidateUrl.toLowerCase().includes('.gif')
+        if (urlHasGif || isGifMime) {
           url = candidateUrl
-          const mimeField = imetaTag.find((f) => f?.startsWith('m '))
-          if (mimeField) mimeType = mimeField.substring(2).trim()
-          const xField = imetaTag.find((f) => f?.startsWith('x '))
-          const yField = imetaTag.find((f) => f?.startsWith('y '))
-          if (xField) width = parseInt(xField.substring(2).trim(), 10)
-          if (yField) height = parseInt(yField.substring(2).trim(), 10)
+          if (mimeField) mimeType = imetaMime
+          const dimField = imetaTag.find((f) => f?.startsWith('dim '))
+          if (dimField) {
+            const dims = dimField.substring(4).trim().split('x')
+            if (dims.length >= 2) {
+              width = parseInt(dims[0], 10)
+              height = parseInt(dims[1], 10)
+            }
+          }
           break
         }
       }
@@ -80,11 +88,15 @@ function parseGifFromEvent(event: NEvent): GifMetadata | null {
     }
   }
 
-  // url tag
+  // url tag (accept any URL; isGif check below uses mime from 'm' tag if URL has no .gif)
   if (!url) {
     const urlTag = event.tags.find((t) => t[0] === 'url' && t[1])
-    if (urlTag?.[1] && urlTag[1].toLowerCase().includes('.gif')) {
+    if (urlTag?.[1]) {
       url = urlTag[1]
+      if (!mimeType) {
+        const mTag = event.tags.find((t) => t[0] === 'm' && t[1])
+        mimeType = mTag?.[1]
+      }
     }
   }
 

@@ -12,7 +12,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { ExtendedKind, GIF_RELAY_URLS } from '@/constants'
 import { fetchGifs, searchGifs, type GifMetadata } from '@/services/gif.service'
 import mediaUpload from '@/services/media-upload.service'
-import { Loader2 } from 'lucide-react'
+import { Loader2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -20,10 +20,13 @@ const GIFBUDDY_URL = 'https://www.gifbuddy.lol/'
 
 export default function GifPicker({
   children,
-  onSelect
+  onSelect,
+  portalContainer
 }: {
   children: React.ReactNode
   onSelect?: (gifUrl: string) => void
+  /** When set (e.g. inside a modal), picker content portals here so it stays on top of the modal */
+  portalContainer?: HTMLElement | null
 }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
@@ -125,13 +128,23 @@ export default function GifPicker({
 
   const content = (
     <div className="flex flex-col gap-2 p-2 min-w-[280px] max-w-[360px]">
-      <div className="flex gap-1">
+      <div className="flex items-center gap-1">
         <Input
           placeholder={t('Search GIFs')}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           className="flex-1"
         />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="shrink-0 size-8"
+          onClick={() => setOpen(false)}
+          aria-label={t('Close')}
+        >
+          <X className="size-4" />
+        </Button>
       </div>
       {error && (
         <p className="text-sm text-muted-foreground px-1">{error}</p>
@@ -207,7 +220,7 @@ export default function GifPicker({
     return (
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerTrigger asChild>{children}</DrawerTrigger>
-        <DrawerContent>
+        <DrawerContent portalContainer={portalContainer}>
           <DrawerHeader className="sr-only">
             <DrawerTitle>{t('Choose a GIF')}</DrawerTitle>
           </DrawerHeader>
@@ -220,7 +233,7 @@ export default function GifPicker({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
-      <DropdownMenuContent side="top" className="p-0">
+      <DropdownMenuContent side="top" className="p-0" portalContainer={portalContainer}>
         {content}
       </DropdownMenuContent>
     </DropdownMenu>

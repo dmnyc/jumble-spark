@@ -11,10 +11,13 @@ import EmojiPicker from '../EmojiPicker'
 
 export default function EmojiPickerDialog({
   children,
-  onEmojiClick
+  onEmojiClick,
+  portalContainer
 }: {
   children: React.ReactNode
   onEmojiClick?: (emoji: string | TEmoji | undefined) => void
+  /** When set (e.g. inside a modal), picker content portals here so it stays on top of the modal */
+  portalContainer?: HTMLElement | null
 }) {
   const { isSmallScreen } = useScreenSize()
   const [open, setOpen] = useState(false)
@@ -23,7 +26,7 @@ export default function EmojiPickerDialog({
     return (
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerTrigger asChild>{children}</DrawerTrigger>
-        <DrawerContent>
+        <DrawerContent portalContainer={portalContainer}>
           <DrawerHeader className="sr-only">
             <DrawerTitle>Emoji Picker</DrawerTitle>
           </DrawerHeader>
@@ -42,7 +45,7 @@ export default function EmojiPickerDialog({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
-      <DropdownMenuContent side="top" className="p-0 w-fit">
+      <DropdownMenuContent side="top" className="p-0 w-fit" portalContainer={portalContainer}>
         <EmojiPicker
           onEmojiClick={(emoji, e) => {
             e.stopPropagation()

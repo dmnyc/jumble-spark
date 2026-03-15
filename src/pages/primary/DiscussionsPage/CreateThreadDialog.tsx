@@ -126,6 +126,7 @@ export default function CreateThreadDialog({
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
   const [isLoadingRelays, setIsLoadingRelays] = useState(true)
   const [isTopicSelectorOpen, setIsTopicSelectorOpen] = useState(false)
+  const [pickerPortalContainer, setPickerPortalContainer] = useState<HTMLElement | null>(null)
 
   // Readings options state
   const [isReadingGroup, setIsReadingGroup] = useState(false)
@@ -541,6 +542,12 @@ export default function CreateThreadDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
+      {/* Portal target for GIF/emoji pickers so they render as children of this modal */}
+      <div
+        ref={setPickerPortalContainer}
+        className="absolute inset-0 pointer-events-none"
+        aria-hidden
+      />
       <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto relative bg-background">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="text-xl font-semibold">{t('Create New Thread')}</CardTitle>
@@ -710,13 +717,14 @@ export default function CreateThreadDialog({
                         {t('Upload Image')}
                       </Button>
                     </Uploader>
-                    <GifPicker onSelect={(gifUrl) => insertAtCursor(gifUrl)}>
+                    <GifPicker onSelect={(gifUrl) => insertAtCursor(gifUrl)} portalContainer={pickerPortalContainer}>
                       <Button type="button" variant="outline" size="sm">
                         <Film className="h-4 w-4 mr-1" />
                         {t('Insert GIF')}
                       </Button>
                     </GifPicker>
                     <EmojiPickerDialog
+                      portalContainer={pickerPortalContainer}
                       onEmojiClick={(emoji) => {
                         if (emoji == null) return
                         const char = typeof emoji === 'string' ? emoji : (emoji as { native?: string }).native ?? String(emoji)
