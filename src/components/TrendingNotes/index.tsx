@@ -27,7 +27,7 @@ let cachedCustomEvents: {
 // Flag to prevent concurrent initialization
 let isInitializing = false
 
-type TrendingTab = 'nostr' | 'relays' | 'hashtags'
+type TrendingTab = 'relays' | 'hashtags'
 type SortOrder = 'newest' | 'oldest' | 'most-popular' | 'least-popular'
 type HashtagFilter = 'popular'
 
@@ -38,9 +38,6 @@ export default function TrendingNotes() {
   const { pubkey, relayList } = useNostr()
   const { favoriteRelays } = useFavoriteRelays()
   const { zapReplyThreshold } = useZap()
-  const [nostrEvents, setNostrEvents] = useState<NostrEvent[]>([])
-  const [nostrLoading, setNostrLoading] = useState(false)
-  const [nostrError, setNostrError] = useState<string | null>(null)
   const [showCount, setShowCount] = useState(SHOW_COUNT)
   const [activeTab, setActiveTab] = useState<TrendingTab>('relays')
   const [sortOrder, setSortOrder] = useState<SortOrder>('most-popular')
@@ -50,71 +47,17 @@ export default function TrendingNotes() {
   const [cacheEvents, setCacheEvents] = useState<NostrEvent[]>([])
   const [cacheLoading, setCacheLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const isFetchingNostrRef = useRef(false)
-  const hasUserClickedNostrTabRef = useRef(false)
 
   // Listen for tab restoration from PageManager
   useEffect(() => {
     const handleRestore = (e: CustomEvent<{ page: string, tab: string }>) => {
-      if (e.detail.page === 'search' && e.detail.tab && ['nostr', 'relays', 'hashtags'].includes(e.detail.tab)) {
-        // If restoring to 'nostr' tab, mark it as clicked and clear events to force a fresh load
-        if (e.detail.tab === 'nostr') {
-          hasUserClickedNostrTabRef.current = true
-          // Clear any existing events and error state to force a fresh load (only for API tab)
-          setNostrEvents([])
-          setNostrError(null)
-        }
-        // For 'relays' and 'hashtags' tabs, just set the active tab
-        // The cache should already be loaded, but if it's empty, the initialization useEffect will handle it
-        // Then set the active tab - this will trigger the useEffect that loads the feed
+      if (e.detail.page === 'search' && e.detail.tab && ['relays', 'hashtags'].includes(e.detail.tab)) {
         setActiveTab(e.detail.tab as TrendingTab)
       }
     }
     window.addEventListener('restorePageTab', handleRestore as EventListener)
     return () => window.removeEventListener('restorePageTab', handleRestore as EventListener)
   }, [])
-
-  // Load Nostr.band trending feed only when user explicitly clicks the nostr tab
-  useEffect(() => {
-    const loadTrending = async () => {
-      // Prevent concurrent fetches
-      if (isFetchingNostrRef.current) {
-        return
-      }
-      
-      try {
-        isFetchingNostrRef.current = true
-        setNostrLoading(true)
-        setNostrError(null)
-        const events = await client.fetchTrendingNotes()
-        setNostrEvents(events)
-        setNostrError(null)
-      } catch (error) {
-        if (error instanceof Error && error.message === 'TIMEOUT') {
-          setNostrError('timeout')
-          logger.warn('nostr.band API request timed out after 5 seconds')
-        } else {
-          logger.warn('Failed to load nostr.band trending notes', error as Error)
-          setNostrError(null) // Other errors are handled silently (empty array)
-        }
-      } finally {
-        setNostrLoading(false)
-        isFetchingNostrRef.current = false
-      }
-    }
-
-    // Only fetch if user has explicitly clicked the nostr tab AND it's currently active
-    if (activeTab === 'nostr' && hasUserClickedNostrTabRef.current && nostrEvents.length === 0 && !nostrLoading && !nostrError && !isFetchingNostrRef.current) {
-      loadTrending()
-    }
-  }, [activeTab, nostrEvents.length, nostrLoading, nostrError])
-  
-  // Reset error when switching away from nostr tab
-  useEffect(() => {
-    if (activeTab !== 'nostr') {
-      setNostrError(null)
-    }
-  }, [activeTab])
 
   // Debug: Track cacheEvents changes
   useEffect(() => {
@@ -131,10 +74,9 @@ export default function TrendingNotes() {
 
   // Calculate popular hashtags from cache events (all events from relays)
   const calculatePopularHashtags = useMemo(() => {
-    logger.debug('[TrendingNotes] calculatePopularHashtags - cacheEvents.length:', cacheEvents.length, 'nostrEvents.length:', nostrEvents.length)
+    logger.debug('[TrendingNotes] calculatePopularHashtags - cacheEvents.length:', cacheEvents.length)
     
-    // Use cache events if available, otherwise fallback to trending notes
-    const eventsToAnalyze = cacheEvents.length > 0 ? cacheEvents : nostrEvents
+    const eventsToAnalyze = cacheEvents
     
     if (eventsToAnalyze.length === 0) {
       return []
@@ -178,7 +120,7 @@ export default function TrendingNotes() {
     logger.debug('[TrendingNotes] calculatePopularHashtags - eventsWithHashtags:', eventsWithHashtags)
     
     return result
-  }, [cacheEvents, nostrEvents, activeTab, hashtagFilter, pubkey])
+  }, [cacheEvents, activeTab, hashtagFilter, pubkey])
 
   // Get relays based on user login status
   const getRelays = useMemo(() => {
@@ -213,15 +155,6 @@ export default function TrendingNotes() {
     logger.debug('[TrendingNotes] calculatePopularHashtags result:', calculatePopularHashtags)
     setPopularHashtags(calculatePopularHashtags)
   }, [calculatePopularHashtags])
-
-  // Fallback: populate cacheEvents from nostrEvents if cache is empty
-  useEffect(() => {
-    if (activeTab === 'hashtags' && cacheEvents.length === 0 && nostrEvents.length > 0) {
-      logger.debug('[TrendingNotes] Fallback: populating cacheEvents from nostrEvents')
-      setCacheEvents(nostrEvents)
-    }
-  }, [activeTab, cacheEvents.length, nostrEvents])
-
 
   // Initialize cache only once on mount
   useEffect(() => {
@@ -436,7 +369,7 @@ export default function TrendingNotes() {
   // Compute filtered events without slicing (for pagination length check)
   const relaysFilteredEventsAll = useMemo(() => {
     const idSet = new Set<string>()
-    const sourceEvents = cacheEvents.length > 0 ? cacheEvents : nostrEvents
+    const sourceEvents = cacheEvents
 
     const filtered = sourceEvents.filter((evt) => {
       if (isEventDeleted(evt)) return false
@@ -519,7 +452,6 @@ export default function TrendingNotes() {
     return filtered
   }, [
     cacheEvents,
-    nostrEvents,
     hideUntrustedNotes,
     isEventDeleted,
     isUserTrusted,
@@ -536,11 +468,8 @@ export default function TrendingNotes() {
   }, [relaysFilteredEventsAll, showCount])
 
   const filteredEvents = useMemo(() => {
-    if (activeTab === 'nostr') {
-      return nostrEvents.slice(0, showCount)
-    }
     return relaysFilteredEvents
-  }, [activeTab, nostrEvents, showCount, relaysFilteredEvents])
+  }, [relaysFilteredEvents])
 
 
 
@@ -565,12 +494,7 @@ export default function TrendingNotes() {
 
 
   useEffect(() => {
-    // For relays/hashtags tabs, use the filtered length (before slicing)
-    // For nostr tab, use the raw events length
-    const totalLength =
-      activeTab === 'nostr'
-        ? nostrEvents.length
-        : relaysFilteredEventsAll.length
+    const totalLength = relaysFilteredEventsAll.length
 
     if (showCount >= totalLength) return
 
@@ -597,7 +521,7 @@ export default function TrendingNotes() {
         observerInstance.unobserve(currentBottomRef)
       }
     }
-  }, [activeTab, nostrEvents.length, relaysFilteredEventsAll.length, showCount, cacheLoading, nostrLoading])
+  }, [relaysFilteredEventsAll.length, showCount, cacheLoading])
 
   return (
     <div className="min-h-screen">
@@ -637,22 +561,6 @@ export default function TrendingNotes() {
               }`}
             >
               hashtags
-            </button>
-            <button
-              onClick={() => {
-                hasUserClickedNostrTabRef.current = true
-                setActiveTab('nostr')
-                window.dispatchEvent(new CustomEvent('pageTabChanged', { 
-                  detail: { page: 'search', tab: 'nostr' } 
-                }))
-              }}
-              className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                activeTab === 'nostr'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted hover:bg-muted/80 text-muted-foreground'
-              }`}
-            >
-              on Nostr
             </button>
           </div>
         </div>
@@ -738,19 +646,6 @@ export default function TrendingNotes() {
         )}
       </div>
       
-      {/* Show error message for nostr tab timeout (show instead of loading when error occurs, only if no events) */}
-      {activeTab === 'nostr' && nostrError === 'timeout' && !nostrLoading && filteredEvents.length === 0 && (
-        <div className="text-center text-sm text-muted-foreground mt-8 px-4 py-2 bg-muted/50 rounded-md mx-4">
-          {t('The nostr.band relay appears to be temporarily out of service. Please try again later.')}
-        </div>
-      )}
-      
-      {/* Show loading message for nostr tab (only if not in error state) */}
-      {activeTab === 'nostr' && nostrLoading && nostrEvents.length === 0 && !nostrError && (
-        <div className="text-center text-sm text-muted-foreground mt-8">
-          Loading trending notes from nostr.band...
-        </div>
-      )}
       {/* Show loading message for relays tab when cache is loading */}
       {activeTab === 'relays' && cacheLoading && cacheEvents.length === 0 && (
         <div className="text-center text-sm text-muted-foreground mt-8">
@@ -762,28 +657,11 @@ export default function TrendingNotes() {
         <NoteCard key={event.id} className="w-full" event={event} />
       ))}
       
-      {/* Show error message at the end for nostr tab timeout (only if there are events) */}
-      {activeTab === 'nostr' && nostrError === 'timeout' && !nostrLoading && filteredEvents.length > 0 && (
-        <div className="text-center text-sm text-muted-foreground mt-4 px-4 py-2 bg-muted/50 rounded-md mx-4">
-          {t('The nostr.band relay appears to be temporarily out of service. Please try again later.')}
-        </div>
-      )}
-      
       {(() => {
-        const totalAvailableLength =
-          activeTab === 'nostr'
-            ? nostrEvents.length
-            : cacheEvents.length
-
-        // For relays/hashtags tabs, we need to check the filtered length, not raw cache length
-        // because filtering might reduce the available items
-        const actualAvailableLength = activeTab === 'nostr' 
-          ? totalAvailableLength
-          : relaysFilteredEventsAll.length
+        const actualAvailableLength = relaysFilteredEventsAll.length
 
         const shouldShowLoading =
-          (activeTab === 'nostr' && nostrLoading) ||
-          ((activeTab === 'relays' || activeTab === 'hashtags') && cacheLoading) ||
+          cacheLoading ||
           showCount < actualAvailableLength
 
         if (shouldShowLoading) {

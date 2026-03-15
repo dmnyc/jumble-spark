@@ -26,7 +26,6 @@ import {
   nip19,
   Relay,
   SimplePool,
-  validateEvent,
   VerifiedEvent
 } from 'nostr-tools'
 import { AbstractRelay } from 'nostr-tools/abstract-relay'
@@ -62,8 +61,6 @@ class ClientService extends EventTarget {
     this.fetchEventsFromBigRelays.bind(this),
     { cache: false, batchScheduleFn: (callback) => setTimeout(callback, 50) }
   )
-  private trendingNotesCache: NEvent[] | null = null
-
   private userIndex = new FlexSearch.Index({
     tokenize: 'forward'
   })
@@ -1183,61 +1180,6 @@ class ClientService extends EventTarget {
     return this.eventDataLoader.load(id)
   }
 
-  async fetchTrendingNotes() {
-    if (this.trendingNotesCache) {
-      return this.trendingNotesCache
-    }
-
-    try {
-      // Create a timeout promise that rejects after 5 seconds
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
-          reject(new Error('TIMEOUT'))
-        }, 5000)
-      })
-
-      // Race between the fetch and timeout
-      const response = await Promise.race([
-        fetch('https://api.nostr.band/v0/trending/notes'),
-        timeoutPromise
-      ])
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-      const events: NEvent[] = []
-      for (const note of data.notes ?? []) {
-        if (validateEvent(note.event)) {
-          events.push(note.event)
-          this.addEventToCache(note.event)
-          if (note.relays?.length) {
-            note.relays.map((r: string) => {
-              try {
-                const relay = new Relay(r)
-                this.trackEventSeenOn(note.event.id, relay)
-              } catch {
-                return null
-              }
-            })
-          }
-        }
-      }
-      this.trendingNotesCache = events
-      return this.trendingNotesCache
-    } catch (error) {
-      // Re-throw timeout errors so the component can handle them
-      // Don't cache on timeout - let the component handle the error state
-      if (error instanceof Error && error.message === 'TIMEOUT') {
-        throw error
-      }
-      // For other errors, return empty array and cache it (existing behavior)
-      this.trendingNotesCache = []
-      return []
-    }
-  }
-
   addEventToCache(event: NEvent) {
     // Remove relayStatuses before caching (it's metadata for logging, not part of the event)
     const cleanEvent = { ...event } as NEvent
@@ -1657,7 +1599,6 @@ class ClientService extends EventTarget {
     this.relayListRequestCache.clear()
     this.eventDataLoader.clearAll()
     this.replaceableEventFromBigRelaysDataloader.clearAll()
-    this.trendingNotesCache = null
     this.followingFavoriteRelaysCache?.clear()
     logger.info('[ClientService] In-memory caches cleared')
   }

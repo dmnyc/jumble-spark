@@ -566,7 +566,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   const savedFeedStateRef = useRef<Map<TPrimaryPageName, { 
     tab?: string,
     discussionsState?: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' },
-    trendingTab?: 'nostr' | 'relays' | 'hashtags'
+    trendingTab?: 'relays' | 'hashtags'
   }>>(new Map())
   const currentTabStateRef = useRef<Map<TPrimaryPageName, string>>(new Map()) // Track current tab state for each page
   
@@ -598,7 +598,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       }
       
       // Get trending tab if on search page
-      const trendingTab = currentTabStateRef.current.get('search') as 'nostr' | 'relays' | 'hashtags' | undefined
+      const trendingTab = currentTabStateRef.current.get('search') as 'relays' | 'hashtags' | undefined
       
       // Save state (tab, discussions, trending) if any exists
       if (currentTab || discussionsState || trendingTab) {
@@ -654,16 +654,17 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         }))
       }
       
-      // Restore trending tab for search page
+      // Restore trending tab for search page (map legacy 'nostr' to 'relays')
       if (savedFeedState?.trendingTab && savedPrimaryPage === 'search') {
+        const tab = (savedFeedState.trendingTab as string) === 'nostr' ? 'relays' : savedFeedState.trendingTab
         logger.info('PageManager: Restoring trending tab', { 
           page: savedPrimaryPage, 
-          trendingTab: savedFeedState.trendingTab 
+          trendingTab: tab 
         })
         window.dispatchEvent(new CustomEvent('restorePageTab', { 
-          detail: { page: 'search', tab: savedFeedState.trendingTab } 
+          detail: { page: 'search', tab } 
         }))
-        currentTabStateRef.current.set('search', savedFeedState.trendingTab)
+        currentTabStateRef.current.set('search', tab)
       }
     }
   }
@@ -1118,14 +1119,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       
       // Restore trending tab for search page
       if (savedFeedState?.trendingTab && currentPrimaryPage === 'search') {
-        logger.info('PageManager: Browser back - Restoring trending tab', { 
-          page: currentPrimaryPage, 
-          trendingTab: savedFeedState.trendingTab 
+        const tab = (savedFeedState.trendingTab as string) === 'nostr' ? 'relays' : savedFeedState.trendingTab
+        logger.info('PageManager: Browser back - Restoring trending tab', {
+          page: currentPrimaryPage,
+          trendingTab: tab
         })
-        window.dispatchEvent(new CustomEvent('restorePageTab', { 
-          detail: { page: 'search', tab: savedFeedState.trendingTab } 
+        window.dispatchEvent(new CustomEvent('restorePageTab', {
+          detail: { page: 'search', tab }
         }))
-        currentTabStateRef.current.set('search', savedFeedState.trendingTab)
+        currentTabStateRef.current.set('search', tab)
       }
     }
   }, [secondaryStack.length, currentPrimaryPage])
@@ -1167,7 +1169,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     
     // Save tab state before navigating
     const currentTab = currentTabStateRef.current.get(currentPrimaryPage)
-    const trendingTab = currentTabStateRef.current.get('search') as 'nostr' | 'relays' | 'hashtags' | undefined
+    const trendingTab = currentTabStateRef.current.get('search') as 'relays' | 'hashtags' | undefined
     
     if (currentPrimaryPage && (currentTab || trendingTab)) {
       logger.info('PageManager: Desktop - Saving page state', { 
@@ -1251,14 +1253,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         
         // Restore trending tab for search page
         if (savedFeedState?.trendingTab && currentPrimaryPage === 'search') {
-          logger.info('PageManager: Desktop - Restoring trending tab', { 
-            page: currentPrimaryPage, 
-            trendingTab: savedFeedState.trendingTab 
+          const tab = (savedFeedState.trendingTab as string) === 'nostr' ? 'relays' : savedFeedState.trendingTab
+          logger.info('PageManager: Desktop - Restoring trending tab', {
+            page: currentPrimaryPage,
+            trendingTab: tab
           })
-          window.dispatchEvent(new CustomEvent('restorePageTab', { 
-            detail: { page: 'search', tab: savedFeedState.trendingTab } 
+          window.dispatchEvent(new CustomEvent('restorePageTab', {
+            detail: { page: 'search', tab }
           }))
-          currentTabStateRef.current.set('search', savedFeedState.trendingTab)
+          currentTabStateRef.current.set('search', tab)
         }
       } else if (secondaryStack.length > 1) {
         // Pop from stack directly instead of using history.go(-1)
@@ -1319,14 +1322,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       
       // Restore trending tab for search page
       if (savedFeedState?.trendingTab && currentPrimaryPage === 'search') {
-        logger.info('PageManager: Mobile/Single-pane - Restoring trending tab', { 
-          page: currentPrimaryPage, 
-          trendingTab: savedFeedState.trendingTab 
+        const tab = (savedFeedState.trendingTab as string) === 'nostr' ? 'relays' : savedFeedState.trendingTab
+        logger.info('PageManager: Mobile/Single-pane - Restoring trending tab', {
+          page: currentPrimaryPage,
+          trendingTab: tab
         })
-        window.dispatchEvent(new CustomEvent('restorePageTab', { 
-          detail: { page: 'search', tab: savedFeedState.trendingTab } 
+        window.dispatchEvent(new CustomEvent('restorePageTab', {
+          detail: { page: 'search', tab }
         }))
-        currentTabStateRef.current.set('search', savedFeedState.trendingTab)
+        currentTabStateRef.current.set('search', tab)
       }
       return
     }
@@ -1360,14 +1364,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       
       // Restore trending tab for search page
       if (savedFeedState?.trendingTab && currentPrimaryPage === 'search') {
-        logger.info('PageManager: Desktop - Restoring trending tab', { 
-          page: currentPrimaryPage, 
-          trendingTab: savedFeedState.trendingTab 
+        const tab = (savedFeedState.trendingTab as string) === 'nostr' ? 'relays' : savedFeedState.trendingTab
+        logger.info('PageManager: Desktop - Restoring trending tab', {
+          page: currentPrimaryPage,
+          trendingTab: tab
         })
-        window.dispatchEvent(new CustomEvent('restorePageTab', { 
-          detail: { page: 'search', tab: savedFeedState.trendingTab } 
+        window.dispatchEvent(new CustomEvent('restorePageTab', {
+          detail: { page: 'search', tab }
         }))
-        currentTabStateRef.current.set('search', savedFeedState.trendingTab)
+        currentTabStateRef.current.set('search', tab)
       }
     } else {
       window.history.go(-1)
