@@ -54,9 +54,7 @@ export default function KindFilter({
     showKinds: savedShowKinds,
     showKind1OPs: savedShowKind1OPs,
     showRepliesAndComments: savedShowRepliesAndComments,
-    updateShowKinds,
-    updateShowKind1OPs,
-    updateShowRepliesAndComments
+    updateShowKinds
   } = useKindFilter()
   const [open, setOpen] = useState(false)
   const [temporaryShowKinds, setTemporaryShowKinds] = useState(showKinds)
