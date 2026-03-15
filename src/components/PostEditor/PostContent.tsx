@@ -156,6 +156,13 @@ export default function PostContent({
   const [showMediaKindDialog, setShowMediaKindDialog] = useState(false)
   const [pendingMediaUpload, setPendingMediaUpload] = useState<{ url: string; tags: string[][]; file: File } | null>(null)
   const uploadedMediaFileMap = useRef<Map<string, File>>(new Map())
+  /** Accumulates imeta tags for kind 20 (picture) so multiple rapid uploads don’t overwrite each other. */
+  const pictureImetaTagsRef = useRef<string[][]>([])
+  useEffect(() => {
+    if (mediaNoteKind === ExtendedKind.PICTURE && mediaImetaTags.length > 0) {
+      pictureImetaTagsRef.current = mediaImetaTags
+    }
+  }, [mediaNoteKind, mediaImetaTags])
   const isFirstRender = useRef(true)
   const canPost = useMemo(() => {
     const isArticle = isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
@@ -957,7 +964,8 @@ export default function PostContent({
     setUploadProgresses((prev) => [...prev, { file, progress: 0, cancel }])
     // Track file for media upload
     if (file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/')) {
-      uploadedMediaFileMap.current.set(file.name, file)
+      const mapKey = `${file.name}-${file.size}-${file.lastModified}`
+      uploadedMediaFileMap.current.set(mapKey, file)
       
       // For replies and PMs, if it's an audio file, set mediaNoteKind immediately for preview
       if (parentEvent || isPublicMessage) {
@@ -1133,19 +1141,16 @@ export default function PostContent({
           }
         }
         
-        // Accumulate multiple imeta tags for picture notes
-        setMediaImetaTags(prev => {
-          // Check if this URL already exists in the tags
-          const urlExists = prev.some(tag => {
-            const urlItem = tag.find(item => item.startsWith('url '))
-            return urlItem && urlItem.slice(4) === url
-          })
-          if (urlExists) {
-            return prev // Don't add duplicate
-          }
-          return [...prev, newImetaTag]
+        // Accumulate multiple imeta tags for picture notes (use ref so rapid multi-upload doesn’t lose tags)
+        const urlExists = pictureImetaTagsRef.current.some((tag) => {
+          const urlItem = tag.find((item) => item.startsWith('url '))
+          return urlItem && urlItem.slice(4).trim() === url
         })
-        
+        if (!urlExists) {
+          pictureImetaTagsRef.current = [...pictureImetaTagsRef.current, newImetaTag]
+          setMediaImetaTags([...pictureImetaTagsRef.current])
+        }
+
         // Set the first URL as the primary mediaUrl (for backwards compatibility)
         if (!mediaUrl) {
           setMediaUrl(url)
@@ -1164,6 +1169,7 @@ export default function PostContent({
         }, 100)
       } else {
         // For non-picture media, replace the existing tags (single media)
+        pictureImetaTagsRef.current = []
         setMediaUrl(url)
         const imetaTag = mediaUpload.getImetaTagByUrl(url)
         if (imetaTag) {
@@ -1214,37 +1220,40 @@ export default function PostContent({
       // Fallback to picture if processing fails
       setMediaNoteKind(ExtendedKind.PICTURE)
       const imetaTag = mediaUpload.getImetaTagByUrl(url)
-      if (imetaTag) {
-        setMediaImetaTags(prev => [...prev, imetaTag])
-      } else {
-        const basicImetaTag: string[] = ['imeta', `url ${url}`]
-        if (uploadingFile.type) {
-          basicImetaTag.push(`m ${uploadingFile.type}`)
-        }
-        setMediaImetaTags(prev => [...prev, basicImetaTag])
-      }
+      const tagToAdd = imetaTag ?? (() => {
+        const basic: string[] = ['imeta', `url ${url}`]
+        if (uploadingFile.type) basic.push(`m ${uploadingFile.type}`)
+        return basic
+      })()
+      pictureImetaTagsRef.current = [...pictureImetaTagsRef.current, tagToAdd]
+      setMediaImetaTags([...pictureImetaTagsRef.current])
       if (!mediaUrl) {
         setMediaUrl(url)
       }
     }
   }
 
-  const handleMediaUploadSuccess = async ({ url, tags }: { url: string; tags: string[][] }) => {
+  const handleMediaUploadSuccess = async ({
+    url,
+    tags,
+    file: fileFromCallback
+  }: {
+    url: string
+    tags: string[][]
+    file?: File
+  }) => {
     try {
-      // Find the file from the map - try to match by URL or get the most recent
-      let uploadingFile: File | undefined
-      // Try to find by matching URL pattern or get the first available
-      for (const [, file] of uploadedMediaFileMap.current.entries()) {
-        uploadingFile = file
-        break // Get first available
-      }
-      
+      let uploadingFile: File | undefined = fileFromCallback
       if (!uploadingFile) {
-        // Try to get from uploadProgresses as fallback
-        const progressItem = uploadProgresses.find(p => p.file)
+        for (const [, file] of uploadedMediaFileMap.current.entries()) {
+          uploadingFile = file
+          break
+        }
+      }
+      if (!uploadingFile) {
+        const progressItem = uploadProgresses.find((p) => p.file)
         uploadingFile = progressItem?.file
       }
-      
       if (!uploadingFile) {
         logger.warn('Media upload succeeded but file not found')
         return
@@ -1392,8 +1401,9 @@ export default function PostContent({
     setIsCitationHardcopy(false)
     setIsCitationPrompt(false)
     
-    // Clear uploaded file from map
+    // Clear uploaded file from map and picture accumulation ref
     uploadedMediaFileMap.current.clear()
+    pictureImetaTagsRef.current = []
   }
 
   const handleArticleToggle = (type: 'longform' | 'wiki' | 'wiki-markdown' | 'publication') => {
@@ -1517,6 +1527,7 @@ export default function PostContent({
       sourceValue: ''
     })
     uploadedMediaFileMap.current.clear()
+    pictureImetaTagsRef.current = []
     setUploadProgresses([])
   }
 
