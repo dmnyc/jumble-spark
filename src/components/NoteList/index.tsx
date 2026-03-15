@@ -19,7 +19,7 @@ import { useZap } from '@/providers/ZapProvider'
 import client from '@/services/client.service'
 import { TFeedSubRequest } from '@/types'
 import dayjs from 'dayjs'
-import { Event } from 'nostr-tools'
+import { Event, kinds } from 'nostr-tools'
 import { decode } from 'nostr-tools/nip19'
 import {
   forwardRef,
@@ -44,6 +44,8 @@ const NoteList = forwardRef(
     {
       subRequests,
       showKinds,
+      showKind1OPs = true,
+      showRepliesAndComments = true,
       filterMutedNotes = true,
       hideReplies = false,
       hideUntrustedNotes = false,
@@ -53,6 +55,8 @@ const NoteList = forwardRef(
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
+      showKind1OPs?: boolean
+      showRepliesAndComments?: boolean
       filterMutedNotes?: boolean
       hideReplies?: boolean
       hideUntrustedNotes?: boolean
@@ -136,8 +140,15 @@ const NoteList = forwardRef(
       const idSet = new Set<string>()
 
       return events.slice(0, showCount).filter((evt) => {
-        // Filter out events that aren't in the whitelisted kinds
         if (!showKinds.includes(evt.kind)) return false
+        // Kind 1: show only OPs if showKind1OPs, only replies if showRepliesAndComments
+        if (evt.kind === kinds.ShortTextNote) {
+          const isReply = isReplyNoteEvent(evt)
+          if (isReply && !showRepliesAndComments) return false
+          if (!isReply && !showKind1OPs) return false
+        }
+        // Kind 1111 (comments): show only if showRepliesAndComments
+        if (evt.kind === ExtendedKind.COMMENT && !showRepliesAndComments) return false
         if (shouldHideEvent(evt)) return false
 
         const id = isReplaceableEvent(evt.kind) ? getReplaceableCoordinateFromEvent(evt) : evt.id
@@ -147,14 +158,19 @@ const NoteList = forwardRef(
         idSet.add(id)
         return true
       })
-    }, [events, showCount, shouldHideEvent, showKinds])
+    }, [events, showCount, shouldHideEvent, showKinds, showKind1OPs, showRepliesAndComments])
 
     const filteredNewEvents = useMemo(() => {
       const idSet = new Set<string>()
 
       return newEvents.filter((event: Event) => {
-        // Filter out events that aren't in the whitelisted kinds
         if (!showKinds.includes(event.kind)) return false
+        if (event.kind === kinds.ShortTextNote) {
+          const isReply = isReplyNoteEvent(event)
+          if (isReply && !showRepliesAndComments) return false
+          if (!isReply && !showKind1OPs) return false
+        }
+        if (event.kind === ExtendedKind.COMMENT && !showRepliesAndComments) return false
         if (shouldHideEvent(event)) return false
 
         const id = isReplaceableEvent(event.kind)
@@ -166,7 +182,7 @@ const NoteList = forwardRef(
         idSet.add(id)
         return true
       })
-    }, [newEvents, shouldHideEvent, showKinds])
+    }, [newEvents, shouldHideEvent, showKinds, showKind1OPs, showRepliesAndComments])
 
     const scrollToTop = (behavior: ScrollBehavior = 'instant') => {
       setTimeout(() => {
@@ -221,10 +237,13 @@ const NoteList = forwardRef(
               }
             },
             onNew: (event) => {
-              // Filter out events that aren't in the whitelisted kinds
-              if (!showKinds.includes(event.kind)) {
-                return
+              if (!showKinds.includes(event.kind)) return
+              if (event.kind === kinds.ShortTextNote) {
+                const isReply = isReplyNoteEvent(event)
+                if (isReply && !showRepliesAndComments) return
+                if (!isReply && !showKind1OPs) return
               }
+              if (event.kind === ExtendedKind.COMMENT && !showRepliesAndComments) return
               if (pubkey && event.pubkey === pubkey) {
                 // If the new event is from the current user, insert it directly into the feed
                 setEvents((oldEvents) =>
@@ -268,7 +287,7 @@ const NoteList = forwardRef(
       return () => {
         promise.then((closer) => closer())
       }
-    }, [subRequestsKey, refreshCount, showKinds])
+    }, [subRequestsKey, refreshCount, showKinds, showKind1OPs, showRepliesAndComments])
 
     useEffect(() => {
       const options = {

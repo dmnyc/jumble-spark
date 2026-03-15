@@ -374,6 +374,8 @@ export default {
     'Maybe Later': 'Maybe Later',
     "Don't remind me again": "Don't remind me again",
     Posts: 'Posts',
+    'Posts (OPs)': 'Posts (OPs)',
+    'Replies & comments': 'Replies & comments',
     Articles: 'Articles',
     Highlights: 'Highlights',
     'A note from': 'A note from',

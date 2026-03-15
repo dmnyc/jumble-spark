@@ -12,8 +12,10 @@ import { kinds } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+const KIND_1 = kinds.ShortTextNote
+const KIND_1111 = ExtendedKind.COMMENT
+
 const KIND_FILTER_OPTIONS = [
-  { kindGroup: [kinds.ShortTextNote, ExtendedKind.COMMENT], label: 'Posts' },
   { kindGroup: [kinds.Repost], label: 'Reposts' },
   { kindGroup: [kinds.LongFormArticle], label: 'Articles' },
   { kindGroup: [ExtendedKind.PUBLICATION], label: 'Publications' },
@@ -27,6 +29,18 @@ const KIND_FILTER_OPTIONS = [
   { kindGroup: [ExtendedKind.ZAP_RECEIPT], label: 'Zaps' }
 ]
 
+function buildShowKindsFromOptions(
+  baseKinds: number[],
+  showKind1OPs: boolean,
+  showRepliesAndComments: boolean
+): number[] {
+  const rest = baseKinds.filter((k) => k !== KIND_1 && k !== KIND_1111)
+  const out = [...rest]
+  if (showKind1OPs || showRepliesAndComments) out.push(KIND_1)
+  if (showRepliesAndComments) out.push(KIND_1111)
+  return out.sort((a, b) => a - b)
+}
+
 export default function KindFilter({
   showKinds,
   onShowKindsChange
@@ -36,40 +50,71 @@ export default function KindFilter({
 }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
-  const { showKinds: savedShowKinds } = useKindFilter()
+  const {
+    showKinds: savedShowKinds,
+    showKind1OPs: savedShowKind1OPs,
+    showRepliesAndComments: savedShowRepliesAndComments,
+    updateShowKinds,
+    updateShowKind1OPs,
+    updateShowRepliesAndComments
+  } = useKindFilter()
   const [open, setOpen] = useState(false)
-  const { updateShowKinds } = useKindFilter()
   const [temporaryShowKinds, setTemporaryShowKinds] = useState(showKinds)
+  const [temporaryShowKind1OPs, setTemporaryShowKind1OPs] = useState(savedShowKind1OPs)
+  const [temporaryShowRepliesAndComments, setTemporaryShowRepliesAndComments] = useState(
+    savedShowRepliesAndComments
+  )
   const [isPersistent, setIsPersistent] = useState(false)
   const isDifferentFromSaved = useMemo(
     () => !isSameKindFilter(showKinds, savedShowKinds),
     [showKinds, savedShowKinds]
   )
   const isTemporaryDifferentFromSaved = useMemo(
-    () => !isSameKindFilter(temporaryShowKinds, savedShowKinds),
-    [temporaryShowKinds, savedShowKinds]
+    () =>
+      !isSameKindFilter(temporaryShowKinds, savedShowKinds) ||
+      temporaryShowKind1OPs !== savedShowKind1OPs ||
+      temporaryShowRepliesAndComments !== savedShowRepliesAndComments,
+    [
+      temporaryShowKinds,
+      savedShowKinds,
+      temporaryShowKind1OPs,
+      temporaryShowRepliesAndComments,
+      savedShowKind1OPs,
+      savedShowRepliesAndComments
+    ]
   )
 
   useEffect(() => {
-    setTemporaryShowKinds(showKinds)
-    setIsPersistent(false)
-  }, [open])
+    if (open) {
+      setTemporaryShowKinds(showKinds)
+      setTemporaryShowKind1OPs(savedShowKind1OPs)
+      setTemporaryShowRepliesAndComments(savedShowRepliesAndComments)
+      setIsPersistent(false)
+    }
+  }, [open, showKinds, savedShowKind1OPs, savedShowRepliesAndComments])
+
+  const appliedShowKinds = useMemo(
+    () =>
+      buildShowKindsFromOptions(
+        temporaryShowKinds,
+        temporaryShowKind1OPs,
+        temporaryShowRepliesAndComments
+      ),
+    [temporaryShowKinds, temporaryShowKind1OPs, temporaryShowRepliesAndComments]
+  )
+  const canApply = appliedShowKinds.length > 0
 
   const handleApply = () => {
-    if (temporaryShowKinds.length === 0) {
-      // must select at least one kind
-      return
-    }
+    if (!canApply) return
 
-    const newShowKinds = [...temporaryShowKinds].sort()
+    const newShowKinds = appliedShowKinds
     if (!isSameKindFilter(newShowKinds, showKinds)) {
       onShowKindsChange(newShowKinds)
     }
-
-    if (isPersistent) {
-      updateShowKinds(newShowKinds)
-    }
-
+    updateShowKinds(newShowKinds, {
+      showKind1OPs: temporaryShowKind1OPs,
+      showRepliesAndComments: temporaryShowRepliesAndComments
+    })
     setIsPersistent(false)
     setOpen(false)
   }
@@ -99,6 +144,28 @@ export default function KindFilter({
   const content = (
     <div>
       <div className="grid grid-cols-2 gap-2">
+        {/* Posts (OPs) - kind 1 top-level only */}
+        <div
+          className={cn(
+            'cursor-pointer grid gap-1.5 rounded-lg border px-4 py-3',
+            temporaryShowKind1OPs ? 'border-primary/60 bg-primary/5' : 'clickable'
+          )}
+          onClick={() => setTemporaryShowKind1OPs((prev) => !prev)}
+        >
+          <p className="leading-none font-medium">{t('Posts (OPs)')}</p>
+          <p className="text-muted-foreground text-xs">kind {KIND_1}</p>
+        </div>
+        {/* Replies & comments - kind 1 replies + kind 1111 */}
+        <div
+          className={cn(
+            'cursor-pointer grid gap-1.5 rounded-lg border px-4 py-3',
+            temporaryShowRepliesAndComments ? 'border-primary/60 bg-primary/5' : 'clickable'
+          )}
+          onClick={() => setTemporaryShowRepliesAndComments((prev) => !prev)}
+        >
+          <p className="leading-none font-medium">{t('Replies & comments')}</p>
+          <p className="text-muted-foreground text-xs">kind {KIND_1}, {KIND_1111}</p>
+        </div>
         {KIND_FILTER_OPTIONS.map(({ kindGroup, label }) => {
           const checked = kindGroup.every((k) => temporaryShowKinds.includes(k))
           return (
@@ -110,10 +177,8 @@ export default function KindFilter({
               )}
               onClick={() => {
                 if (!checked) {
-                  // add all kinds in this group
                   setTemporaryShowKinds((prev) => Array.from(new Set([...prev, ...kindGroup])))
                 } else {
-                  // remove all kinds in this group
                   setTemporaryShowKinds((prev) => prev.filter((k) => !kindGroup.includes(k)))
                 }
               }}
@@ -129,8 +194,11 @@ export default function KindFilter({
         <Button
           variant="secondary"
           onClick={() => {
-            // Select all supported kinds except reposts (matching default behavior)
-            setTemporaryShowKinds(SUPPORTED_KINDS.filter(kind => kind !== kinds.Repost))
+            setTemporaryShowKinds(
+              SUPPORTED_KINDS.filter((k) => k !== kinds.Repost && k !== KIND_1 && k !== KIND_1111)
+            )
+            setTemporaryShowKind1OPs(true)
+            setTemporaryShowRepliesAndComments(true)
           }}
         >
           {t('Select All')}
@@ -139,13 +207,19 @@ export default function KindFilter({
           variant="secondary"
           onClick={() => {
             setTemporaryShowKinds([])
+            setTemporaryShowKind1OPs(false)
+            setTemporaryShowRepliesAndComments(false)
           }}
         >
           {t('Clear All')}
         </Button>
         <Button
           variant="secondary"
-          onClick={() => setTemporaryShowKinds(savedShowKinds)}
+          onClick={() => {
+            setTemporaryShowKinds(savedShowKinds)
+            setTemporaryShowKind1OPs(savedShowKind1OPs)
+            setTemporaryShowRepliesAndComments(savedShowRepliesAndComments)
+          }}
           disabled={!isTemporaryDifferentFromSaved}
         >
           {t('Reset')}
@@ -164,7 +238,7 @@ export default function KindFilter({
       <Button
         onClick={handleApply}
         className="mt-4 w-full"
-        disabled={temporaryShowKinds.length === 0}
+        disabled={!canApply}
       >
         {t('Apply')}
       </Button>

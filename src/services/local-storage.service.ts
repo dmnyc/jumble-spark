@@ -48,6 +48,8 @@ class LocalStorageService {
   private defaultShowNsfw: boolean = false
   private dismissedTooManyRelaysAlert: boolean = false
   private showKinds: number[] = []
+  private showKind1OPs: boolean = true
+  private showRepliesAndComments: boolean = true
   private hideContentMentioningMutedUsers: boolean = false
   private notificationListStyle: TNotificationStyle = NOTIFICATION_LIST_STYLE.DETAILED
   private mediaAutoLoadPolicy: TMediaAutoLoadPolicy = MEDIA_AUTO_LOAD_POLICY.ALWAYS
@@ -240,6 +242,20 @@ class LocalStorageService {
     }
     window.localStorage.setItem(StorageKey.SHOW_KINDS, JSON.stringify(this.showKinds))
     window.localStorage.setItem(StorageKey.SHOW_KINDS_VERSION, '6')
+
+    // Feed filter: kind 1 OPs vs replies+comments (migrate from showKinds if not set)
+    const showKind1OPsStr = window.localStorage.getItem(StorageKey.SHOW_KIND_1_OPs)
+    const showRepliesStr = window.localStorage.getItem(StorageKey.SHOW_REPLIES_AND_COMMENTS)
+    if (showKind1OPsStr !== null) {
+      this.showKind1OPs = showKind1OPsStr === 'true'
+    } else {
+      this.showKind1OPs = this.showKinds.includes(kinds.ShortTextNote)
+    }
+    if (showRepliesStr !== null) {
+      this.showRepliesAndComments = showRepliesStr === 'true'
+    } else {
+      this.showRepliesAndComments = this.showKinds.includes(ExtendedKind.COMMENT)
+    }
 
     this.hideContentMentioningMutedUsers =
       window.localStorage.getItem(StorageKey.HIDE_CONTENT_MENTIONING_MUTED_USERS) === 'true'
@@ -564,9 +580,27 @@ class LocalStorageService {
     return this.showKinds
   }
 
-  setShowKinds(kinds: number[]) {
-    this.showKinds = kinds
-    window.localStorage.setItem(StorageKey.SHOW_KINDS, JSON.stringify(kinds))
+  setShowKinds(newKinds: number[]) {
+    this.showKinds = newKinds
+    window.localStorage.setItem(StorageKey.SHOW_KINDS, JSON.stringify(newKinds))
+  }
+
+  getShowKind1OPs(): boolean {
+    return this.showKind1OPs
+  }
+
+  setShowKind1OPs(value: boolean) {
+    this.showKind1OPs = value
+    window.localStorage.setItem(StorageKey.SHOW_KIND_1_OPs, value.toString())
+  }
+
+  getShowRepliesAndComments(): boolean {
+    return this.showRepliesAndComments
+  }
+
+  setShowRepliesAndComments(value: boolean) {
+    this.showRepliesAndComments = value
+    window.localStorage.setItem(StorageKey.SHOW_REPLIES_AND_COMMENTS, value.toString())
   }
 
   getHideContentMentioningMutedUsers() {

@@ -367,6 +367,8 @@ export default {
     'Maybe Later': 'Vielleicht später',
     "Don't remind me again": 'Nicht mehr erinnern',
     Posts: 'Beiträge',
+    'Posts (OPs)': 'Beiträge (OPs)',
+    'Replies & comments': 'Antworten & Kommentare',
     Articles: 'Artikel',
     Highlights: 'Highlights',
     Polls: 'Umfragen',

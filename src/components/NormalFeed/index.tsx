@@ -30,7 +30,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
   logger.debug('NormalFeed component rendering with:', { subRequests, areAlgoRelays, isMainFeed })
   const { t } = useTranslation()
   const { hideUntrustedNotes } = useUserTrust()
-  const { showKinds } = useKindFilter()
+  const { showKinds, showKind1OPs, showRepliesAndComments } = useKindFilter()
   const [temporaryShowKinds, setTemporaryShowKinds] = useState(showKinds)
   const [listMode, setListMode] = useState<TNoteListMode>(() => {
     // Get stored mode preference
@@ -267,6 +267,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
         <NoteList
           ref={noteListRef}
           showKinds={temporaryShowKinds}
+          showKind1OPs={showKind1OPs}
+          showRepliesAndComments={showRepliesAndComments}
           subRequests={subRequests}
           hideReplies={listMode === 'posts'}
           hideUntrustedNotes={hideUntrustedNotes}
