@@ -185,12 +185,14 @@ class LocalStorageService {
 
     const showKindsStr = window.localStorage.getItem(StorageKey.SHOW_KINDS)
     if (!showKindsStr) {
-      // Default: show all supported kinds except reposts, publications, and publication content
-      // Publications (30040) and Publication Content (30041) should only be embedded, not shown in feeds
+      // Default: show all supported kinds except reposts, publications, publication content, and NIP-89 handler kinds
       this.showKinds = SUPPORTED_KINDS.filter(
-        kind => kind !== kinds.Repost && 
-                kind !== ExtendedKind.PUBLICATION && 
-                kind !== ExtendedKind.PUBLICATION_CONTENT
+        kind =>
+          kind !== kinds.Repost &&
+          kind !== ExtendedKind.PUBLICATION &&
+          kind !== ExtendedKind.PUBLICATION_CONTENT &&
+          kind !== ExtendedKind.APPLICATION_HANDLER_RECOMMENDATION &&
+          kind !== ExtendedKind.APPLICATION_HANDLER_INFO
       )
     } else {
       const showKindsVersionStr = window.localStorage.getItem(StorageKey.SHOW_KINDS_VERSION)
@@ -239,10 +241,21 @@ class LocalStorageService {
           showKinds.splice(pubContentIndex, 1)
         }
       }
+      if (showKindsVersion < 7) {
+        // Remove NIP-89 handler kinds from feed (not in filter UI; avoid showing in main feed)
+        const nip89RecIndex = showKinds.indexOf(ExtendedKind.APPLICATION_HANDLER_RECOMMENDATION)
+        if (nip89RecIndex !== -1) {
+          showKinds.splice(nip89RecIndex, 1)
+        }
+        const nip89InfoIndex = showKinds.indexOf(ExtendedKind.APPLICATION_HANDLER_INFO)
+        if (nip89InfoIndex !== -1) {
+          showKinds.splice(nip89InfoIndex, 1)
+        }
+      }
       this.showKinds = showKinds
     }
     window.localStorage.setItem(StorageKey.SHOW_KINDS, JSON.stringify(this.showKinds))
-    window.localStorage.setItem(StorageKey.SHOW_KINDS_VERSION, '6')
+    window.localStorage.setItem(StorageKey.SHOW_KINDS_VERSION, '7')
 
     // Feed filter: kind 1 OPs, kind 1 replies, kind 1111 (migrate from legacy showRepliesAndComments if set)
     const showKind1OPsStr = window.localStorage.getItem(StorageKey.SHOW_KIND_1_OPs)

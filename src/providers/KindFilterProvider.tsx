@@ -42,12 +42,14 @@ export const useKindFilter = () => {
 }
 
 export function KindFilterProvider({ children }: { children: React.ReactNode }) {
-  // Ensure we always have a default value - show all supported kinds except reposts, publications, and publication content
+  // Ensure we always have a default value - show all supported kinds except reposts, publications, publication content, and NIP-89 handler kinds (not shown in feed filter UI)
   const defaultShowKinds = SUPPORTED_KINDS.filter(
     (kind) =>
       kind !== kinds.Repost &&
       kind !== ExtendedKind.PUBLICATION &&
-      kind !== ExtendedKind.PUBLICATION_CONTENT
+      kind !== ExtendedKind.PUBLICATION_CONTENT &&
+      kind !== ExtendedKind.APPLICATION_HANDLER_RECOMMENDATION &&
+      kind !== ExtendedKind.APPLICATION_HANDLER_INFO
   )
   const storedShowKinds = storage.getShowKinds()
   const storedShowKind1OPs = storage.getShowKind1OPs()

@@ -220,8 +220,8 @@ const NoteList = forwardRef(
           subRequests.map(({ urls, filter }) => ({
             urls,
             filter: {
-              kinds: showKinds,
               ...filter,
+              kinds: showKinds,
               limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
             }
           })),
