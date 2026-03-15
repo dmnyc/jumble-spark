@@ -32,6 +32,7 @@ import { showPublishingFeedback, showSimplePublishSuccess, showPublishingError }
 import { CloudUpload, Loader, Trash2, RefreshCw, Database, WrapText, Search, X, TriangleAlert, Terminal, XCircle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import postEditorCache from '@/services/post-editor-cache.service'
 import { StorageKey } from '@/constants'
@@ -262,10 +263,16 @@ export default function CacheRelaysSetting() {
       // Clear post editor cache
       postEditorCache.clearPostCache({})
 
+      // Clear in-memory caches so profile pics and reactions work after clear
+      client.clearInMemoryCaches()
+
       // Reload cache info
       await loadCacheInfo()
-      
+
       toast.success(t('Cache cleared successfully'))
+      // Reload the app so it re-fetches profiles and relay lists from the network.
+      // Without this, missing IndexedDB + stale in-memory state can break reactions and avatars.
+      setTimeout(() => window.location.reload(), 1500)
     } catch (error) {
       logger.error('Failed to clear cache', { error })
       toast.error(t('Failed to clear cache'))

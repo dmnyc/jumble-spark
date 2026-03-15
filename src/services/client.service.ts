@@ -1625,6 +1625,21 @@ class ClientService extends EventTarget {
     this.relayListRequestCache.delete(pubkey)
   }
 
+  /**
+   * Clear all in-memory caches. Call this after IndexedDB/cache clear so that
+   * subsequent fetches go to the network instead of serving stale in-memory data.
+   * Fixes missing profile pics and broken reactions after "Clear cache" on mobile.
+   */
+  clearInMemoryCaches(): void {
+    this.replaceableEventCacheMap.clear()
+    this.relayListRequestCache.clear()
+    this.eventDataLoader.clearAll()
+    this.replaceableEventFromBigRelaysDataloader.clearAll()
+    this.trendingNotesCache = null
+    this.followingFavoriteRelaysCache?.clear()
+    logger.info('[ClientService] In-memory caches cleared')
+  }
+
   async fetchRelayList(pubkey: string): Promise<TRelayList> {
     // Deduplicate concurrent requests for the same pubkey's relay list
     const existingRequest = this.relayListRequestCache.get(pubkey)
