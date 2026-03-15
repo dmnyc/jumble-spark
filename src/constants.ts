@@ -109,7 +109,6 @@ export const FAST_WRITE_RELAY_URLS = [
   'wss://relay.damus.io',
   'wss://relay.primal.net',
   'wss://thecitadel.nostr1.com',
-  'wss://bevo.nostr1.com',
   'wss://nos.lol'
 ]
 
@@ -117,7 +116,7 @@ export const FAST_WRITE_RELAY_URLS = [
 export const GIF_RELAY_URLS = [
   'wss://relay.damus.io',
   'wss://relay.primal.net',
-  'wss://relay.gifbuddy.lol'
+  'wss://thecitadel.nostr1.com'
 ]
 
 export const SEARCHABLE_RELAY_URLS = [

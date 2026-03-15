@@ -56,9 +56,11 @@ export function extractAllMediaFromEvent(
     })
   }
 
-  // 1. Extract from imeta tags
+  // 1. Extract from imeta tags (keep full metadata: alt, dim, blurHash, etc.)
   const imetaInfos = getImetaInfosFromEvent(event)
   imetaInfos.forEach((info) => {
+    const cleaned = cleanUrl(info.url)
+    if (!cleaned || seenUrls.has(cleaned)) return
     if (
       info.m?.startsWith('image/') ||
       info.m?.startsWith('video/') ||
@@ -66,7 +68,8 @@ export function extractAllMediaFromEvent(
       isImage(info.url) ||
       isMedia(info.url)
     ) {
-      addMedia(info.url, info.pubkey, info.m)
+      seenUrls.add(cleaned)
+      allMedia.push({ ...info, url: cleaned })
     }
   })
 
@@ -109,19 +112,19 @@ export function extractAllMediaFromEvent(
     }
   }
 
-  // 5. Try to match content URLs with imeta tags for better metadata
+  // 5. Try to match content URLs with imeta tags for better metadata (alt, dim, blurHash, m)
   imetaInfos.forEach((imeta) => {
+    const imetaUrl = cleanUrl(imeta.url)
     allMedia.forEach((media, index) => {
-      // Try to find matching imeta info
-      if (cleanUrl(imeta.url) === media.url && imeta.m) {
-        allMedia[index] = { ...media, m: imeta.m }
+      if (imetaUrl === media.url) {
+        allMedia[index] = { ...media, ...imeta, url: media.url }
       } else {
         // Try to get imeta from media upload service
         const tag = mediaUpload.getImetaTagByUrl(media.url)
         if (tag) {
           const parsedImeta = getImetaInfoFromImetaTag(tag, event.pubkey)
           if (parsedImeta) {
-            allMedia[index] = parsedImeta
+            allMedia[index] = { ...media, ...parsedImeta, url: media.url }
           }
         }
       }
