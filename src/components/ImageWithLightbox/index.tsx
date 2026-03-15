@@ -7,7 +7,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import Lightbox from 'yet-another-react-lightbox'
+import Captions from 'yet-another-react-lightbox/plugins/captions'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
+import 'yet-another-react-lightbox/plugins/captions.css'
 import Image from '../Image'
 
 export default function ImageWithLightbox({
@@ -73,11 +75,12 @@ export default function ImageWithLightbox({
           <div onClick={(e) => e.stopPropagation()}>
             <Lightbox
               index={index}
-              slides={[{ 
-                src: image.url, 
-                alt: image.alt || image.url 
+              slides={[{
+                src: image.url,
+                alt: image.alt || image.url,
+                title: image.alt || undefined
               }]}
-              plugins={[Zoom]}
+              plugins={[Zoom, Captions]}
               open={index >= 0}
               close={() => setIndex(-1)}
               controller={{

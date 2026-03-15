@@ -7,7 +7,9 @@ import { TImetaInfo } from '@/types'
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Lightbox from 'yet-another-react-lightbox'
+import Captions from 'yet-another-react-lightbox/plugins/captions'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
+import 'yet-another-react-lightbox/plugins/captions.css'
 import Image from '../Image'
 import ImageWithLightbox from '../ImageWithLightbox'
 
@@ -110,14 +112,15 @@ export default function ImageGallery({
             <Lightbox
               index={index}
               slides={(() => {
-                const slides = images.map(({ url, alt }) => ({ 
-                  src: url, 
-                  alt: alt || url 
+                const slides = images.map(({ url, alt }) => ({
+                  src: url,
+                  alt: alt || url,
+                  title: alt || undefined
                 }))
                 logger.debug('[ImageGallery] Lightbox slides:', { index, slidesCount: slides.length, slides })
                 return slides
               })()}
-              plugins={[Zoom]}
+              plugins={[Zoom, Captions]}
               open={index >= 0}
               close={() => setIndex(-1)}
               controller={{

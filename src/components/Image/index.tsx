@@ -128,6 +128,7 @@ export default function Image({
         <img
           src={imageUrl}
           alt={finalAlt}
+          title={finalAlt || undefined}
           decoding="async"
           loading="lazy"
           draggable={false}
