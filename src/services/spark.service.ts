@@ -102,6 +102,7 @@ class SparkService {
       this.config = defaultConfig(network)
       this.config.apiKey = apiKey
       this.config.privateEnabledDefault = true
+      this.config.supportLnurlVerify = true
       console.log('[SparkService] Config created:', {
         network: this.config.network,
         syncIntervalSecs: this.config.syncIntervalSecs,
