@@ -104,11 +104,13 @@ export const FAST_WRITE_RELAY_URLS = [
   'wss://relay.damus.io',
   'wss://relay.primal.net',
   'wss://thecitadel.nostr1.com',
-  'wss://bevo.nostr1.com'
+  'wss://bevo.nostr1.com',
+  'wss://nos.lol'
 ]
 
 export const SEARCHABLE_RELAY_URLS = [
-  'wss://relay.nostr.band', 
+  'wss://nostr.sovbit.host',
+  'wss://freelay.sovbit.host',
   'wss://search.nos.today',
   'wss://nostr.wine', 
   'wss://orly-relay.imwald.eu',
@@ -123,7 +125,8 @@ export const SEARCHABLE_RELAY_URLS = [
   ]
 
 export const PROFILE_RELAY_URLS = [
-    'wss://purplepag.es',
+    'wss://nos.lol',
+    'wss://relay.damus.io',
     'wss://profiles.nostr1.com'
   ]
 

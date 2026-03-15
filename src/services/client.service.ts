@@ -86,6 +86,14 @@ class ClientService extends EventTarget {
     await indexedDb.iterateProfileEvents((profileEvent) => this.addUsernameToIndex(profileEvent))
   }
 
+  /**
+   * Determine which relays to publish an event to.
+   * Fallbacks (used when user relay list is empty or fetch fails):
+   * - General events (reactions, notes, etc.): FAST_WRITE_RELAY_URLS
+   * - Relay list / cache relays / contacts: BIG_RELAY_URLS + PROFILE_RELAY_URLS (added to additional)
+   * - Favorite relays: FAST_WRITE_RELAY_URLS (added to additional)
+   * - Report events: FAST_WRITE_RELAY_URLS when no user/seen relays
+   */
   async determineTargetRelays(
     event: NEvent,
     { specifiedRelayUrls, additionalRelayUrls }: TPublishOptions = {}
@@ -192,7 +200,16 @@ class ClientService extends EventTarget {
           kind: event.kind
         })
       }
-      const relayList = await this.fetchRelayList(event.pubkey)
+      let relayList: TRelayList | undefined
+      try {
+        relayList = await this.fetchRelayList(event.pubkey)
+      } catch (err) {
+        logger.warn('[DetermineTargetRelays] fetchRelayList failed, using fallback relays', {
+          pubkey: event.pubkey?.substring(0, 8),
+          error: err instanceof Error ? err.message : String(err)
+        })
+        relayList = { write: [], read: [], originalRelays: [] }
+      }
       if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
         logger.debug('[DetermineTargetRelays] User relay list fetched', {
           hasRelayList: !!relayList,
@@ -215,8 +232,13 @@ class ClientService extends EventTarget {
       }
     }
 
+    // Fallback for all publishing when no relays (e.g. after cache clear or fetch failure).
+    // Use FAST_WRITE_RELAY_URLS so writes always have known-good write relays.
     if (!relays.length) {
-      relays.push(...BIG_RELAY_URLS)
+      relays = [...FAST_WRITE_RELAY_URLS]
+      logger.info('[DetermineTargetRelays] Using default write relays (no user/extra relays)', {
+        count: relays.length
+      })
     }
 
     return relays
