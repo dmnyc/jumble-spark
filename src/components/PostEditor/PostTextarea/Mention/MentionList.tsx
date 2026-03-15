@@ -10,6 +10,9 @@ import { SimpleUsername } from '../../../Username'
 export interface MentionListProps {
   items: string[]
   command: (payload: { id: string; label?: string }) => void
+  /** When provided, selection is controlled by parent (e.g. for plain textarea @-mentions). */
+  selectedIndex?: number
+  onSelectIndex?: (index: number) => void
 }
 
 export interface MentionListHandle {
@@ -17,7 +20,10 @@ export interface MentionListHandle {
 }
 
 const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref) => {
-  const [selectedIndex, setSelectedIndex] = useState<number>(0)
+  const [internalIndex, setInternalIndex] = useState<number>(0)
+  const isControlled = props.selectedIndex !== undefined
+  const selectedIndex = isControlled ? props.selectedIndex! : internalIndex
+  const setSelectedIndex = isControlled ? (n: number) => props.onSelectIndex?.(n) : setInternalIndex
 
   const selectItem = (index: number) => {
     const item = props.items[index]
@@ -40,8 +46,10 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
   }
 
   useEffect(() => {
-    setSelectedIndex(props.items.length ? 0 : -1)
-  }, [props.items])
+    if (!isControlled) {
+      setInternalIndex(props.items.length ? 0 : -1)
+    }
+  }, [props.items, isControlled])
 
   useImperativeHandle(ref, () => ({
     onKeyDown: ({ event }: SuggestionKeyDownProps) => {
@@ -71,8 +79,8 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
   return (
     <ScrollArea
       className="border rounded-lg bg-background z-50 pointer-events-auto flex flex-col max-h-80 overflow-y-auto"
-      onWheel={(e) => e.stopPropagation()}
-      onTouchMove={(e) => e.stopPropagation()}
+      onWheel={(e: React.WheelEvent) => e.stopPropagation()}
+      onTouchMove={(e: React.TouchEvent) => e.stopPropagation()}
     >
       {props.items.map((item, index) => (
         <button

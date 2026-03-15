@@ -110,6 +110,13 @@ export const FAST_WRITE_RELAY_URLS = [
   'wss://nos.lol'
 ]
 
+/** Relays used for NIP-94 file metadata (kind 1063) / GIF discovery and publish */
+export const GIF_RELAY_URLS = [
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://relay.gifbuddy.lol'
+]
+
 export const SEARCHABLE_RELAY_URLS = [
   'wss://nostr.sovbit.host',
   'wss://freelay.sovbit.host',
@@ -170,7 +177,9 @@ export const ExtendedKind = {
   APPLICATION_HANDLER_RECOMMENDATION: 31989,
   APPLICATION_HANDLER_INFO: 31990,
   PAYMENT_INFO: 10133,
-  FOLLOW_PACK: 39089
+  FOLLOW_PACK: 39089,
+  /** NIP-94 File Metadata (e.g. GIFs) */
+  FILE_METADATA: 1063
 }
 
 export const SUPPORTED_KINDS = [

@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
+import TextareaWithMentionAutocomplete from '@/components/TextareaWithMentionAutocomplete'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
@@ -10,8 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Hash, X, Users, Code, Coins, Newspaper, BookOpen, Scroll, Cpu, Trophy, Film, Heart, TrendingUp, Utensils, MapPin, Home, PawPrint, Shirt, Image, Zap, Settings, Book, Network, Car, Eye, Edit3, ChevronDown, Check } from 'lucide-react'
-import { useState, useEffect, useMemo } from 'react'
+import { Hash, X, Users, Code, Coins, Newspaper, BookOpen, Scroll, Cpu, Trophy, Film, Heart, TrendingUp, Utensils, MapPin, Home, PawPrint, Shirt, Image, Zap, Settings, Book, Network, Car, Eye, Edit3, ChevronDown, Check, ImageUp, Smile } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -26,6 +26,9 @@ import dayjs from 'dayjs'
 import { extractHashtagsFromContent, normalizeTopic } from '@/lib/discussion-topics'
 import MarkdownArticle from '@/components/Note/MarkdownArticle/MarkdownArticle'
 import RelayIcon from '@/components/RelayIcon'
+import GifPicker from '@/components/GifPicker'
+import EmojiPickerDialog from '@/components/EmojiPickerDialog'
+import Uploader from '@/components/PostEditor/Uploader'
 import logger from '@/lib/logger'
 
 // Utility functions for thread creation
@@ -133,6 +136,25 @@ export default function CreateThreadDialog({
   // Group options state
   const [selectedGroup, setSelectedGroup] = useState<string>('')
   const [isGroupSelectorOpen, setIsGroupSelectorOpen] = useState(false)
+
+  const contentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const insertAtCursor = (text: string) => {
+    const ta = contentTextareaRef.current
+    if (ta) {
+      const start = ta.selectionStart
+      const end = ta.selectionEnd
+      const before = content.slice(0, start)
+      const after = content.slice(end)
+      setContent(before + text + after)
+      setTimeout(() => {
+        ta.focus()
+        ta.setSelectionRange(start + text.length, start + text.length)
+      }, 0)
+    } else {
+      setContent((prev) => prev + text)
+    }
+  }
 
   // Create combined topics list (predefined + dynamic) with hierarchy
   const allAvailableTopics = useMemo(() => {
@@ -678,10 +700,40 @@ export default function CreateThreadDialog({
                   </TabsTrigger>
                 </TabsList>
                 <TabsContent value="edit" className="space-y-2">
-                  <Textarea
+                  <div className="flex items-center gap-1 mb-1 flex-wrap">
+                    <Uploader
+                      onUploadSuccess={({ url }) => insertAtCursor(url)}
+                      accept="image/*"
+                    >
+                      <Button type="button" variant="outline" size="sm">
+                        <ImageUp className="h-4 w-4 mr-1" />
+                        {t('Upload Image')}
+                      </Button>
+                    </Uploader>
+                    <GifPicker onSelect={(gifUrl) => insertAtCursor(gifUrl)}>
+                      <Button type="button" variant="outline" size="sm">
+                        <Film className="h-4 w-4 mr-1" />
+                        {t('Insert GIF')}
+                      </Button>
+                    </GifPicker>
+                    <EmojiPickerDialog
+                      onEmojiClick={(emoji) => {
+                        if (emoji == null) return
+                        const char = typeof emoji === 'string' ? emoji : (emoji as { native?: string }).native ?? String(emoji)
+                        insertAtCursor(char)
+                      }}
+                    >
+                      <Button type="button" variant="outline" size="sm">
+                        <Smile className="h-4 w-4 mr-1" />
+                        {t('Insert emoji')}
+                      </Button>
+                    </EmojiPickerDialog>
+                  </div>
+                  <TextareaWithMentionAutocomplete
+                    ref={contentTextareaRef}
                     id="content"
                     value={content}
-                    onChange={(e) => setContent(e.target.value)}
+                    onChange={setContent}
                     placeholder={t('Share your thoughts, ask questions, or start a discussion...')}
                     rows={8}
                     maxLength={5000}
@@ -854,7 +906,7 @@ export default function CreateThreadDialog({
                           <Checkbox
                             id={`relay-${relay}`}
                             checked={isChecked}
-                            onCheckedChange={(checked) => handleRelayCheckedChange(!!checked, relay)}
+                            onCheckedChange={(checked: boolean | 'indeterminate') => handleRelayCheckedChange(!!checked, relay)}
                             disabled={isLoadingRelays}
                           />
                           <label
@@ -958,7 +1010,7 @@ export default function CreateThreadDialog({
                     <div className="px-2">
                       <Slider
                         value={[minPow]}
-                        onValueChange={(value) => setMinPow(value[0])}
+                        onValueChange={(value: number[]) => setMinPow(value[0])}
                         max={20}
                         min={0}
                         step={1}

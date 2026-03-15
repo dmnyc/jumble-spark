@@ -41,7 +41,7 @@ import logger from '@/lib/logger'
 import postEditorCache from '@/services/post-editor-cache.service'
 import storage from '@/services/local-storage.service'
 import { TPollCreateData } from '@/types'
-import { ImageUp, ListTodo, LoaderCircle, MessageCircle, Settings, Smile, X, Highlighter, FileText, Quote, Upload, Mic, Music, Video } from 'lucide-react'
+import { ImageUp, ListTodo, LoaderCircle, MessageCircle, Settings, Smile, X, Highlighter, FileText, Quote, Upload, Mic, Music, Video, Film } from 'lucide-react'
 import { getMediaKindFromFile } from '@/lib/media-kind-detection'
 import { hasPrivateRelays, getPrivateRelayUrls } from '@/lib/private-relays'
 import mediaUpload from '@/services/media-upload.service'
@@ -52,6 +52,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { showPublishingFeedback, showSimplePublishSuccess, showPublishingError } from '@/lib/publishing-feedback'
 import EmojiPickerDialog from '../EmojiPickerDialog'
+import GifPicker from '../GifPicker'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import Mentions, { extractMentions } from './Mentions'
 import PollEditor from './PollEditor'
@@ -2259,6 +2260,15 @@ export default function PostContent({
               <ImageUp />
             </Button>
           </Uploader>
+          <GifPicker
+            onSelect={(gifUrl) => {
+              textareaRef.current?.insertText(gifUrl)
+            }}
+          >
+            <Button type="button" variant="ghost" size="icon" title={t('Insert GIF')}>
+              <Film className="h-4 w-4" />
+            </Button>
+          </GifPicker>
           {/* I'm not sure why, but after triggering the virtual keyboard,
               opening the emoji picker drawer causes an issue,
               the emoji I tap isn't the one that gets inserted. */}
