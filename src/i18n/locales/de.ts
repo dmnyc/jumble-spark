@@ -378,6 +378,8 @@ export default {
     "Don't remind me again": 'Nicht mehr erinnern',
     Posts: 'Beiträge',
     'Posts (OPs)': 'Beiträge (OPs)',
+    'Kind 1 replies': 'Kind-1-Antworten',
+    'Comments': 'Kommentare',
     'Replies & comments': 'Antworten & Kommentare',
     Articles: 'Artikel',
     Highlights: 'Highlights',

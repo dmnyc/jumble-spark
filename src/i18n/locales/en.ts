@@ -385,6 +385,8 @@ export default {
     "Don't remind me again": "Don't remind me again",
     Posts: 'Posts',
     'Posts (OPs)': 'Posts (OPs)',
+    'Kind 1 replies': 'Kind 1 replies',
+    'Comments': 'Comments',
     'Replies & comments': 'Replies & comments',
     Articles: 'Articles',
     Highlights: 'Highlights',

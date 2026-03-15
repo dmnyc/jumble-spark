@@ -49,7 +49,8 @@ class LocalStorageService {
   private dismissedTooManyRelaysAlert: boolean = false
   private showKinds: number[] = []
   private showKind1OPs: boolean = true
-  private showRepliesAndComments: boolean = true
+  private showKind1Replies: boolean = true
+  private showKind1111: boolean = true
   private hideContentMentioningMutedUsers: boolean = false
   private notificationListStyle: TNotificationStyle = NOTIFICATION_LIST_STYLE.DETAILED
   private mediaAutoLoadPolicy: TMediaAutoLoadPolicy = MEDIA_AUTO_LOAD_POLICY.ALWAYS
@@ -243,18 +244,29 @@ class LocalStorageService {
     window.localStorage.setItem(StorageKey.SHOW_KINDS, JSON.stringify(this.showKinds))
     window.localStorage.setItem(StorageKey.SHOW_KINDS_VERSION, '6')
 
-    // Feed filter: kind 1 OPs vs replies+comments (migrate from showKinds if not set)
+    // Feed filter: kind 1 OPs, kind 1 replies, kind 1111 (migrate from legacy showRepliesAndComments if set)
     const showKind1OPsStr = window.localStorage.getItem(StorageKey.SHOW_KIND_1_OPs)
     const showRepliesStr = window.localStorage.getItem(StorageKey.SHOW_REPLIES_AND_COMMENTS)
+    const showKind1RepliesStr = window.localStorage.getItem(StorageKey.SHOW_KIND_1_REPLIES)
+    const showKind1111Str = window.localStorage.getItem(StorageKey.SHOW_KIND_1111)
     if (showKind1OPsStr !== null) {
       this.showKind1OPs = showKind1OPsStr === 'true'
     } else {
       this.showKind1OPs = this.showKinds.includes(kinds.ShortTextNote)
     }
-    if (showRepliesStr !== null) {
-      this.showRepliesAndComments = showRepliesStr === 'true'
+    if (showKind1RepliesStr !== null) {
+      this.showKind1Replies = showKind1RepliesStr === 'true'
+    } else if (showRepliesStr !== null) {
+      this.showKind1Replies = showRepliesStr === 'true'
     } else {
-      this.showRepliesAndComments = this.showKinds.includes(ExtendedKind.COMMENT)
+      this.showKind1Replies = this.showKinds.includes(kinds.ShortTextNote)
+    }
+    if (showKind1111Str !== null) {
+      this.showKind1111 = showKind1111Str === 'true'
+    } else if (showRepliesStr !== null) {
+      this.showKind1111 = showRepliesStr === 'true'
+    } else {
+      this.showKind1111 = this.showKinds.includes(ExtendedKind.COMMENT)
     }
 
     this.hideContentMentioningMutedUsers =
@@ -594,13 +606,22 @@ class LocalStorageService {
     window.localStorage.setItem(StorageKey.SHOW_KIND_1_OPs, value.toString())
   }
 
-  getShowRepliesAndComments(): boolean {
-    return this.showRepliesAndComments
+  getShowKind1Replies(): boolean {
+    return this.showKind1Replies
   }
 
-  setShowRepliesAndComments(value: boolean) {
-    this.showRepliesAndComments = value
-    window.localStorage.setItem(StorageKey.SHOW_REPLIES_AND_COMMENTS, value.toString())
+  setShowKind1Replies(value: boolean) {
+    this.showKind1Replies = value
+    window.localStorage.setItem(StorageKey.SHOW_KIND_1_REPLIES, value.toString())
+  }
+
+  getShowKind1111(): boolean {
+    return this.showKind1111
+  }
+
+  setShowKind1111(value: boolean) {
+    this.showKind1111 = value
+    window.localStorage.setItem(StorageKey.SHOW_KIND_1111, value.toString())
   }
 
   getHideContentMentioningMutedUsers() {

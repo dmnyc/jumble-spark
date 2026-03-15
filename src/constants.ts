@@ -43,6 +43,9 @@ export const StorageKey = {
   SHOW_KINDS: 'showKinds',
   SHOW_KINDS_VERSION: 'showKindsVersion',
   SHOW_KIND_1_OPs: 'showKind1OPs',
+  SHOW_KIND_1_REPLIES: 'showKind1Replies',
+  SHOW_KIND_1111: 'showKind1111',
+  /** @deprecated use SHOW_KIND_1_REPLIES + SHOW_KIND_1111 */
   SHOW_REPLIES_AND_COMMENTS: 'showRepliesAndComments',
   HIDE_CONTENT_MENTIONING_MUTED_USERS: 'hideContentMentioningMutedUsers',
   NOTIFICATION_LIST_STYLE: 'notificationListStyle',
