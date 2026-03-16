@@ -72,6 +72,11 @@ const clients: Record<string, { name: string; getUrl: (id: string) => string }> 
   }
 }
 
+/** Raw hex event IDs (64 hex chars) are not NIP-19; nip19.decode() only accepts note1/nevent1/naddr1 etc. */
+function isRawHexEventId(id: string): boolean {
+  return /^[0-9a-f]{64}$/i.test(id)
+}
+
 export default function ClientSelect({
   event,
   originalNoteId,
@@ -88,7 +93,7 @@ export default function ClientSelect({
     let kind: number | undefined
     if (event) {
       kind = event.kind
-    } else if (originalNoteId) {
+    } else if (originalNoteId && !isRawHexEventId(originalNoteId)) {
       try {
         const pointer = nip19.decode(originalNoteId)
         if (pointer.type === 'naddr') {
@@ -117,7 +122,7 @@ export default function ClientSelect({
       default:
         return ['njump']
     }
-  }, [event])
+  }, [event, originalNoteId])
 
   if (!originalNoteId && !event) {
     return null
@@ -215,10 +220,14 @@ function RelayBasedGroupChatSelector({
 }) {
   const { relay, id } = useMemo(() => {
     let relay: string | undefined
-    if (originalNoteId) {
-      const pointer = nip19.decode(originalNoteId)
-      if (pointer.type === 'naddr' && pointer.data.relays?.length) {
-        relay = pointer.data.relays[0]
+    if (originalNoteId && !isRawHexEventId(originalNoteId)) {
+      try {
+        const pointer = nip19.decode(originalNoteId)
+        if (pointer.type === 'naddr' && pointer.data.relays?.length) {
+          relay = pointer.data.relays[0]
+        }
+      } catch {
+        // not NIP-19 or invalid; fall back to event hint
       }
     }
     if (!relay) {
