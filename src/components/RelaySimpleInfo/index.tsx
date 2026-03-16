@@ -19,8 +19,8 @@ export default function RelaySimpleInfo({
   const { t } = useTranslation()
 
   return (
-    <div className={cn('space-y-1', className)} {...props}>
-      <div className="flex items-start justify-between gap-2 w-full">
+    <div className={cn('min-w-0 space-y-1', className)} {...props}>
+      <div className="flex items-start justify-between gap-2 w-full min-w-0">
         <div className="flex flex-1 w-0 items-center gap-2">
           <RelayIcon url={relayInfo?.url} className="h-9 w-9" />
           <div className="flex-1 w-0">

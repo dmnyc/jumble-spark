@@ -72,6 +72,7 @@ const PrimaryPageLayout = forwardRef(
         <DeepBrowsingProvider active={current === pageName && display}>
           <div
             ref={smallScreenScrollAreaRef}
+            className="min-w-0 overflow-x-hidden"
             style={{
               paddingBottom: 'calc(env(safe-area-inset-bottom) + 3rem)'
             }}

@@ -136,7 +136,12 @@ export function suppressExpectedErrors() {
     if (message.includes('unrecognised filter item') || message.includes('unrecognized filter item')) {
       return
     }
-    
+
+    // Suppress "unreachable code after return" from third-party scripts (e.g. YouTube embed, bundled deps)
+    if (message.includes('unreachable code after return statement')) {
+      return
+    }
+
     // Call original console.error for unexpected errors
     originalConsoleError.apply(console, args)
   }
@@ -220,7 +225,12 @@ export function suppressExpectedErrors() {
         message.includes('too many concurrent REQs')) {
       return
     }
-    
+
+    // Suppress "unreachable code after return" from third-party scripts (e.g. YouTube embed, bundled deps)
+    if (message.includes('unreachable code after return statement')) {
+      return
+    }
+
     // Call original console.warn for unexpected warnings
     originalConsoleWarn.apply(console, args)
   }
