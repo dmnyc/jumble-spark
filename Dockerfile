@@ -34,8 +34,10 @@ RUN printf "server {\n\
     }\n\
 \n\
     location / {\n\
-        # For scrapers, serve index.html (they'll see static meta tags)\n\
-        # Note: To get dynamic meta tags, you need SSR or a meta tag service\n\
+        # For scrapers, always serve index.html so they see static og/twitter meta tags\n\
+        if (\$is_scraper = 1) {\n\
+            rewrite ^ /index.html last;\n\
+        }\n\
         try_files \$uri \$uri/ /index.html;\n\
     }\n\
 \n\

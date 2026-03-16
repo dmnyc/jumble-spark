@@ -65,10 +65,6 @@ class ClientService extends EventTarget {
     tokenize: 'forward'
   })
 
-  /** Min delay between starting subscriptions to the same relay to avoid hammering one relay with many REQs */
-  private static readonly PER_RELAY_SUB_STAGGER_MS = 80
-  private lastSubStartByRelay = new Map<string, number>()
-
   constructor() {
     super()
     this.pool = new SimplePool()
@@ -650,110 +646,35 @@ class ClientService extends EventTarget {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const that = this
     const _knownIds = new Set<string>()
-    let startedCount = 0
-    let eosedCount = 0
-    let eosed = false
-    let closedCount = 0
-    const closeReasons: string[] = []
-    const subPromises: Promise<{ close: () => void }>[] = []
-    const staggerMs = ClientService.PER_RELAY_SUB_STAGGER_MS
-    relays.forEach((url) => {
-      let hasAuthed = false
 
-      subPromises.push(startSub())
+    // One request per (relay, filter) so pool groups by relay and sends one REQ per relay with all filters
+    const requests = relays.flatMap((url) =>
+      filters.map((f) => ({ url: normalizeUrl(url) || url, filter: f }))
+    )
 
-      async function startSub() {
-        const relayKey = normalizeUrl(url) || url
-        const now = Date.now()
-        const last = that.lastSubStartByRelay.get(relayKey) ?? 0
-        const wait = staggerMs - (now - last)
-        if (wait > 0) {
-          await new Promise<void>((r) => setTimeout(r, wait))
+    const poolCloser = this.pool.subscribeMap(requests, {
+      onevent: (evt: NEvent) => onevent?.(evt),
+      oneose: () => oneose?.(true),
+      onclose: (reasons: string[]) => {
+        relays.forEach((url, i) => onclose?.(url, reasons[i] ?? ''))
+        onAllClose?.(reasons)
+      },
+      onauth: async (authEvt: EventTemplate) => {
+        if (that.signer) {
+          const evt = await that.signer.signEvent(authEvt)
+          if (!evt) throw new Error('sign event failed')
+          return evt as VerifiedEvent
         }
-        that.lastSubStartByRelay.set(relayKey, Date.now())
-        startedCount++
-        const relay = await that.pool.ensureRelay(url, { connectionTimeout: 5000 }).catch(() => {
-          return undefined
-        })
-        // cannot connect to relay
-        if (!relay) {
-          if (!eosed) {
-            eosedCount++
-            eosed = eosedCount >= startedCount
-            oneose?.(eosed)
-          }
-          return {
-            close: () => {}
-          }
-        }
-
-        return relay.subscribe(filters, {
-          receivedEvent: (relay, id) => {
-            that.trackEventSeenOn(id, relay)
-          },
-          alreadyHaveEvent: (id: string) => {
-            const have = _knownIds.has(id)
-            if (have) {
-              return true
-            }
-            _knownIds.add(id)
-            return false
-          },
-          onevent: (evt: NEvent) => {
-            onevent?.(evt)
-          },
-          oneose: () => {
-            // make sure eosed is not called multiple times
-            if (eosed) return
-
-            eosedCount++
-            eosed = eosedCount >= startedCount
-            oneose?.(eosed)
-          },
-          onclose: (reason: string) => {
-            // auth-required
-            if (reason.startsWith('auth-required') && !hasAuthed) {
-              // already logged in
-              if (that.signer) {
-                relay
-                  .auth(async (authEvt: EventTemplate) => {
-                    const evt = await that.signer!.signEvent(authEvt)
-                    if (!evt) {
-                      throw new Error('sign event failed')
-                    }
-                    return evt as VerifiedEvent
-                  })
-                  .then(() => {
-                    hasAuthed = true
-                    if (!eosed) {
-                      subPromises.push(startSub())
-                    }
-                  })
-                  .catch(() => {
-                    // ignore
-                  })
-                return
-              }
-
-              // open login dialog
-              if (startLogin) {
-                startLogin()
-                return
-              }
-            }
-
-            // close the subscription
-            closedCount++
-            closeReasons.push(reason)
-            onclose?.(url, reason)
-            if (closedCount >= startedCount) {
-              onAllClose?.(closeReasons)
-            }
-            return
-          },
-          eoseTimeout: 10_000 // 10s
-        })
-      }
+        startLogin?.()
+        throw new Error('Login required')
+      },
+      alreadyHaveEvent: (id: string) => {
+        const have = _knownIds.has(id)
+        if (have) return true
+        _knownIds.add(id)
+        return false
+      },
+      eoseTimeout: 10_000
     })
 
     const handleNewEventFromInternal = (data: Event) => {
@@ -774,15 +695,7 @@ class ClientService extends EventTarget {
     return {
       close: () => {
         this.removeEventListener('newEvent', handleNewEventFromInternal)
-        subPromises.forEach((subPromise) => {
-          subPromise
-            .then((sub) => {
-              sub.close()
-            })
-            .catch(() => {
-              // Silent fail
-            })
-        })
+        poolCloser.close()
       }
     }
   }
