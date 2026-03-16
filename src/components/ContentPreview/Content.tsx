@@ -2,6 +2,7 @@ import {
   EmbeddedEmojiParser,
   EmbeddedEventParser,
   EmbeddedMentionParser,
+  EmbeddedPaytoParser,
   EmbeddedUrlParser,
   parseContent
 } from '@/lib/content-parser'
@@ -10,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { TEmoji } from '@/types'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import PaytoLink from '../PaytoLink'
 import { EmbeddedMentionText } from '../Embedded'
 import Emoji from '../Emoji'
 
@@ -26,6 +28,7 @@ export default function Content({
   const nodes = useMemo(() => {
     return parseContent(content, [
       EmbeddedUrlParser,
+      EmbeddedPaytoParser,
       EmbeddedEventParser,
       EmbeddedMentionParser,
       EmbeddedEmojiParser
@@ -46,6 +49,15 @@ export default function Content({
         }
         if (node.type === 'mention') {
           return <EmbeddedMentionText key={index} userId={node.data.split(':')[1]} />
+        }
+        if (node.type === 'payto') {
+          return (
+            <PaytoLink
+              key={index}
+              paytoUri={node.data}
+              className="text-green-600 dark:text-green-400 hover:underline break-words"
+            />
+          )
         }
         if (node.type === 'emoji') {
           const shortcode = node.data.slice(1, -1).trim()

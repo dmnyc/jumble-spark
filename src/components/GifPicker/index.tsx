@@ -6,17 +6,21 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { ExtendedKind, GIF_RELAY_URLS } from '@/constants'
 import { fetchGifs, searchGifs, type GifMetadata } from '@/services/gif.service'
 import mediaUpload from '@/services/media-upload.service'
-import { Loader2, X } from 'lucide-react'
+import { ExternalLink, Loader2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const GIFBUDDY_URL = 'https://www.gifbuddy.lol/'
+/** Query param gifbuddy may use for pre-filled search (common convention). */
+const GIFBUDDY_SEARCH_URL = (q: string) =>
+  q.trim() ? `${GIFBUDDY_URL}gifsearch?q=${encodeURIComponent(q.trim())}` : GIFBUDDY_URL
 
 export default function GifPicker({
   children,
@@ -39,8 +43,11 @@ export default function GifPicker({
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [pasteUrl, setPasteUrl] = useState('')
+  const [publishingPaste, setPublishingPaste] = useState(false)
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const gifbuddyPopupRef = useRef<Window | null>(null)
 
   const loadGifs = useCallback(async (q: string, forceRefresh = false) => {
     setError(null)
@@ -126,6 +133,62 @@ export default function GifPicker({
 
   const isLoggedIn = !!pubkey
 
+  /** Open GifBuddy in a new tab (not a popup) so the picker doesn't close from focus loss. Listen for postMessage in case GifBuddy adds embed support. */
+  const openGifBuddySearch = useCallback(() => {
+    const url = GIFBUDDY_SEARCH_URL(searchInput)
+    const w = window.open(url, '_blank', 'noopener,noreferrer')
+    gifbuddyPopupRef.current = w ?? null
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== 'https://www.gifbuddy.lol' && event.origin !== 'https://gifbuddy.lol') return
+      const data = event.data
+      const urlToInsert =
+        typeof data === 'string' && (data.startsWith('http://') || data.startsWith('https://'))
+          ? data
+          : data?.url ?? data?.gifUrl
+      if (urlToInsert && typeof urlToInsert === 'string') {
+        window.removeEventListener('message', handler)
+        gifbuddyPopupRef.current = null
+        onSelect?.(urlToInsert)
+        setOpen(false)
+      }
+    }
+    window.addEventListener('message', handler)
+    const t = setTimeout(() => {
+      window.removeEventListener('message', handler)
+      gifbuddyPopupRef.current = null
+    }, 10 * 60 * 1000)
+    if (w) w.addEventListener('beforeunload', () => { clearTimeout(t); window.removeEventListener('message', handler) })
+  }, [searchInput, onSelect])
+
+  /** Insert pasted GIF URL and publish kind 1063 so it's added to Nostr GIF library. */
+  const handlePasteUrlInsert = useCallback(async () => {
+    const url = pasteUrl.trim()
+    if (!url || !/^https?:\/\//i.test(url)) return
+    onSelect?.(url)
+    setPasteUrl('')
+    setOpen(false)
+    if (pubkey) {
+      setPublishingPaste(true)
+      try {
+        const draft = {
+          kind: ExtendedKind.FILE_METADATA,
+          content: '',
+          tags: [
+            ['url', url],
+            ['m', 'image/gif'],
+            ['t', 'gif']
+          ],
+          created_at: Math.floor(Date.now() / 1000)
+        }
+        await publish(draft, { specifiedRelayUrls: GIF_RELAY_URLS })
+      } catch {
+        // ignore; URL was still inserted
+      } finally {
+        setPublishingPaste(false)
+      }
+    }
+  }, [pasteUrl, pubkey, onSelect, publish])
+
   /** In drawer mode we constrain height and make only the GIF grid scroll so the drawer doesn't "sink" */
   const isDrawer = isSmallScreen
   const content = (
@@ -194,14 +257,43 @@ export default function GifPicker({
         </ScrollArea>
       </div>
       <div className="flex flex-col gap-2 border-t pt-2 shrink-0">
-        <a
-          href={GIFBUDDY_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm text-muted-foreground hover:underline text-center"
-        >
-          {t('Search GifBuddy for more GIFs')}
-        </a>
+        <div className="flex flex-col gap-1.5">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={openGifBuddySearch}
+          >
+            <ExternalLink className="size-3.5 mr-1.5" />
+            {t('Search on GifBuddy')}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {t('Opens in a new tab. Copy a GIF URL there, then paste below. If this picker closed, click “Insert GIF” again to paste.')}
+          </p>
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">
+              {t('Paste URL of a GIF')}
+            </Label>
+            <div className="flex gap-1">
+              <Input
+                placeholder="https://..."
+                value={pasteUrl}
+                onChange={(e) => setPasteUrl(e.target.value)}
+                className="flex-1 min-w-0"
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={!pasteUrl.trim() || publishingPaste}
+                onClick={handlePasteUrlInsert}
+                title={t('Insert URL into your post and publish to Nostr GIF library (NIP-94).')}
+              >
+                {publishingPaste ? t('Adding…') : t('Insert')}
+              </Button>
+            </div>
+          </div>
+        </div>
         {isLoggedIn && (
           <>
             <input

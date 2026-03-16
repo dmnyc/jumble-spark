@@ -8,6 +8,7 @@ import {
   WS_URL_REGEX,
   YOUTUBE_URL_REGEX
 } from '@/constants'
+import { PAYTO_URI_REGEX } from '@/lib/payto'
 import { isImage, isMedia } from './url'
 
 export type TEmbeddedNodeType =
@@ -24,6 +25,7 @@ export type TEmbeddedNodeType =
   | 'emoji'
   | 'invoice'
   | 'youtube'
+  | 'payto'
 
 export type TEmbeddedNode =
   | {
@@ -72,6 +74,12 @@ export const EmbeddedEmojiParser: TContentParser = {
 export const EmbeddedLNInvoiceParser: TContentParser = {
   type: 'invoice',
   regex: LN_INVOICE_REGEX
+}
+
+/** payto:// URIs (RFC-8905 / NIP-A3) – e.g. in profile about or note content */
+export const EmbeddedPaytoParser: TContentParser = {
+  type: 'payto',
+  regex: PAYTO_URI_REGEX
 }
 
 export const EmbeddedUrlParser: TContentParser = (content: string) => {

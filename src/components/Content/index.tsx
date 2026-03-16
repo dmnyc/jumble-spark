@@ -5,6 +5,7 @@ import {
   EmbeddedHashtagParser,
   EmbeddedLNInvoiceParser,
   EmbeddedMentionParser,
+  EmbeddedPaytoParser,
   EmbeddedUrlParser,
   EmbeddedWebsocketUrlParser,
   parseContent
@@ -25,6 +26,7 @@ import {
   EmbeddedNote,
   EmbeddedWebsocketUrl
 } from '../Embedded'
+import PaytoLink from '../PaytoLink'
 import Emoji from '../Emoji'
 import ImageGallery from '../ImageGallery'
 import MediaPlayer from '../MediaPlayer'
@@ -90,6 +92,7 @@ export default function Content({
     const nodes = parseContent(_content, [
       EmbeddedUrlParser,
       EmbeddedLNInvoiceParser,
+      EmbeddedPaytoParser,
       EmbeddedWebsocketUrlParser,
       EmbeddedEventParser,
       EmbeddedMentionParser,
@@ -441,6 +444,15 @@ export default function Content({
         }
         if (node.type === 'invoice') {
           return <EmbeddedLNInvoice invoice={node.data} key={index} className="mt-2" />
+        }
+        if (node.type === 'payto') {
+          return (
+            <PaytoLink
+              key={index}
+              paytoUri={node.data}
+              className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+            />
+          )
         }
         if (node.type === 'websocket-url') {
           return <EmbeddedWebsocketUrl url={node.data} key={index} />
