@@ -1,5 +1,5 @@
 # Step 1: Build the application
-FROM node:alpine AS builder
+FROM node:20-alpine AS builder
 
 ARG VITE_PROXY_SERVER
 ENV VITE_PROXY_SERVER=${VITE_PROXY_SERVER}

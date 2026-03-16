@@ -329,7 +329,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       }
       if (storedRssFeedListEvent) {
         setRssFeedListEvent(storedRssFeedListEvent)
-        logger.info('[NostrProvider] Loaded RSS feed list event from cache', {
+        logger.debug('[NostrProvider] Loaded RSS feed list event from cache', {
           eventId: storedRssFeedListEvent.id,
           created_at: storedRssFeedListEvent.created_at
         })
@@ -340,7 +340,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         (dayjs().unix() - storedRssFeedListEvent.created_at > 3600) // 1 hour
       
       if (rssFeedListStale) {
-        logger.info('[NostrProvider] RSS feed list cache is missing or stale, fetching from relays', {
+        logger.debug('[NostrProvider] RSS feed list cache is missing or stale, fetching from relays', {
           hasCache: !!storedRssFeedListEvent,
           cacheAge: storedRssFeedListEvent ? dayjs().unix() - storedRssFeedListEvent.created_at : 'N/A'
         })
@@ -355,32 +355,32 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
           if (latestEvent) {
             // Only update if the fetched event is newer than cached
             if (!storedRssFeedListEvent || latestEvent.created_at > storedRssFeedListEvent.created_at) {
-              logger.info('[NostrProvider] Found newer RSS feed list event from relays', {
+              logger.debug('[NostrProvider] Found newer RSS feed list event from relays', {
                 eventId: latestEvent.id,
                 created_at: latestEvent.created_at,
                 wasCached: !!storedRssFeedListEvent
               })
               indexedDb.putReplaceableEvent(latestEvent).then(() => {
                 setRssFeedListEvent(latestEvent)
-                logger.info('[NostrProvider] Updated RSS feed list event in cache and state')
+                logger.debug('[NostrProvider] Updated RSS feed list event in cache and state')
               }).catch(err => {
                 logger.error('[NostrProvider] Failed to cache RSS feed list event', { error: err })
               })
             } else {
-              logger.info('[NostrProvider] Cached RSS feed list event is up to date', {
+              logger.debug('[NostrProvider] Cached RSS feed list event is up to date', {
                 cachedCreatedAt: storedRssFeedListEvent.created_at,
                 fetchedCreatedAt: latestEvent.created_at
               })
             }
           } else if (!storedRssFeedListEvent) {
-            logger.info('[NostrProvider] No RSS feed list event found on relays (user may not have created one yet)')
+            logger.debug('[NostrProvider] No RSS feed list event found on relays (user may not have created one yet)')
           }
         }).catch(err => {
           logger.error('[NostrProvider] Failed to fetch RSS feed list from relays', { error: err })
           // Don't clear cache on fetch error - use cached value
         })
       } else {
-        logger.info('[NostrProvider] RSS feed list cache is fresh, using cached value')
+        logger.debug('[NostrProvider] RSS feed list cache is fresh, using cached value')
       }
 
       const [relayListEvents, cacheRelayListEvents] = await Promise.all([

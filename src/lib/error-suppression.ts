@@ -59,11 +59,13 @@ export function suppressExpectedErrors() {
     // Suppress Radix UI Dialog accessibility warnings
     // These are informational warnings about DialogTitle/Description
     // All our dialogs have titles (some hidden with sr-only for accessibility)
-    if (message.includes('DialogContent') && (
-      message.includes('requires a DialogTitle') ||
-      message.includes('Missing `Description`') ||
-      message.includes('aria-describedby')
-    )) {
+    const isRadixDialogWarning =
+      (message.includes('DialogContent') || message.includes('DialogTitle')) &&
+      (message.includes('requires') ||
+        message.includes('Missing') ||
+        message.includes('aria-describedby') ||
+        message.includes('DialogTitle'))
+    if (isRadixDialogWarning) {
       return
     }
     
@@ -119,6 +121,15 @@ export function suppressExpectedErrors() {
       return
     }
     
+    // Suppress invalid URI / media resource errors (e.g. empty img src resolving to origin)
+    if (message.includes('Ungültige URI') ||
+        message.includes('Invalid URI') ||
+        message.includes('Laden der Medienressource fehlgeschlagen') ||
+        message.includes('Failed to load media resource') ||
+        message.includes('OpaqueResponseBlocking')) {
+      return
+    }
+    
     // Suppress "unrecognised filter item" errors from relays
     if (message.includes('unrecognised filter item') || message.includes('unrecognized filter item')) {
       return
@@ -133,6 +144,14 @@ export function suppressExpectedErrors() {
   
   console.warn = (...args: any[]) => {
     const message = args.join(' ')
+    
+    // Suppress invalid URI / failed media resource (e.g. empty img src)
+    if (message.includes('Ungültige URI') ||
+        message.includes('Invalid URI') ||
+        message.includes('Laden der Medienressource') ||
+        message.includes('Failed to load media resource')) {
+      return
+    }
     
     // Suppress React DevTools suggestion (only show once)
     if (message.includes('Download the React DevTools')) {
@@ -180,11 +199,21 @@ export function suppressExpectedErrors() {
     // Suppress Radix UI Dialog accessibility warnings
     // These are informational warnings about DialogTitle/Description
     // All our dialogs have titles (some hidden with sr-only for accessibility)
-    if (message.includes('DialogContent') && (
-      message.includes('requires a DialogTitle') ||
-      message.includes('Missing `Description`') ||
-      message.includes('aria-describedby')
-    )) {
+    const isRadixDialogWarn =
+      (message.includes('DialogContent') || message.includes('DialogTitle')) &&
+      (message.includes('requires') ||
+        message.includes('Missing') ||
+        message.includes('aria-describedby') ||
+        message.includes('DialogTitle'))
+    if (isRadixDialogWarn) {
+      return
+    }
+    
+    // Suppress Nostr relay NOTICE messages (too many subscriptions, too many REQs, etc.)
+    if (message.includes('NOTICE from') ||
+        message.includes('Too many subscriptions') ||
+        message.includes('Subscription rejected') ||
+        message.includes('too many concurrent REQs')) {
       return
     }
     
@@ -198,13 +227,21 @@ export function suppressExpectedErrors() {
   console.log = (...args: any[]) => {
     const message = args.join(' ')
     
+    // Suppress React DevTools suggestion (only show once)
+    if (message.includes('Download the React DevTools')) {
+      return
+    }
+    
     // Suppress Workbox logs
     if (message.includes('workbox') || message.includes('[NoteStats]')) {
       return
     }
     
-    // Suppress nostr-tools notices (ping, etc.)
-    if (message.includes('NOTICE from')) {
+    // Suppress nostr-tools / relay NOTICE messages (subscription limits, REQ limits, etc.)
+    if (message.includes('NOTICE from') ||
+        message.includes('Too many subscriptions') ||
+        message.includes('Subscription rejected') ||
+        message.includes('too many concurrent REQs')) {
       return
     }
     
@@ -213,7 +250,20 @@ export function suppressExpectedErrors() {
   }
 }
 
+// Suppress unhandled promise rejections that are expected (e.g. SW "operation is insecure" in dev)
+function suppressExpectedRejections() {
+  if (typeof window === 'undefined') return
+  window.addEventListener('unhandledrejection', (event) => {
+    const msg = event.reason?.message ?? String(event.reason)
+    if (msg.includes('The operation is insecure') || (event.reason?.name === 'SecurityError' && msg.includes('insecure'))) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+  })
+}
+
 // Initialize error suppression
 if (typeof window !== 'undefined') {
   suppressExpectedErrors()
+  suppressExpectedRejections()
 }

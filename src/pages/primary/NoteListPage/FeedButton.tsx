@@ -1,5 +1,5 @@
 import FeedSwitcher from '@/components/FeedSwitcher'
-import { Drawer, DrawerContent } from '@/components/ui/drawer'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { simplifyUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
@@ -11,6 +11,7 @@ import { forwardRef, HTMLAttributes, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export default function FeedButton({ className }: { className?: string }) {
+  const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
   const [open, setOpen] = useState(false)
 
@@ -20,6 +21,9 @@ export default function FeedButton({ className }: { className?: string }) {
         <FeedSwitcherTrigger className={className} onClick={() => setOpen(true)} />
         <Drawer open={open} onOpenChange={setOpen}>
           <DrawerContent className="max-h-[80vh]">
+            <DrawerHeader className="sr-only">
+              <DrawerTitle>{t('Choose feed')}</DrawerTitle>
+            </DrawerHeader>
             <div
               className="overflow-y-auto overscroll-contain py-2 px-4"
               style={{ touchAction: 'pan-y' }}

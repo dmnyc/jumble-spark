@@ -1,5 +1,5 @@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { QrCodeIcon } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
@@ -41,7 +41,12 @@ export default function NpubQrCode({ pubkey }: { pubkey: string }) {
     return (
       <Drawer>
         <DrawerTrigger>{trigger}</DrawerTrigger>
-        <DrawerContent>{content}</DrawerContent>
+        <DrawerContent>
+          <DrawerHeader className="sr-only">
+            <DrawerTitle>Profile QR Code</DrawerTitle>
+          </DrawerHeader>
+          {content}
+        </DrawerContent>
       </Drawer>
     )
   }

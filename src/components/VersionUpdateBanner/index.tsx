@@ -11,7 +11,8 @@ export default function VersionUpdateBanner() {
   const [isUpdating, setIsUpdating] = useState(false)
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    // Skip in dev: no SW is registered (vite-plugin-pwa devOptions.enabled: false), and .ready can reject with "operation is insecure"
+    if (import.meta.env.DEV || typeof window === 'undefined' || !window.isSecureContext || !('serviceWorker' in navigator)) {
       return
     }
 
@@ -65,11 +66,12 @@ export default function VersionUpdateBanner() {
           }
         }
       } catch (error) {
-        logger.error('Error checking for updates', { error })
+        // In non-secure contexts or when no SW is registered, ready can reject with "The operation is insecure"
+        logger.debug('Service worker update check skipped or failed', { error })
       }
     }
 
-    checkForUpdates()
+    checkForUpdates().catch(() => {})
   }, [])
 
   const handleUpdate = () => {

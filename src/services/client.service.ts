@@ -65,6 +65,10 @@ class ClientService extends EventTarget {
     tokenize: 'forward'
   })
 
+  /** Min delay between starting subscriptions to the same relay to avoid hammering one relay with many REQs */
+  private static readonly PER_RELAY_SUB_STAGGER_MS = 80
+  private lastSubStartByRelay = new Map<string, number>()
+
   constructor() {
     super()
     this.pool = new SimplePool()
@@ -652,12 +656,21 @@ class ClientService extends EventTarget {
     let closedCount = 0
     const closeReasons: string[] = []
     const subPromises: Promise<{ close: () => void }>[] = []
+    const staggerMs = ClientService.PER_RELAY_SUB_STAGGER_MS
     relays.forEach((url) => {
       let hasAuthed = false
 
       subPromises.push(startSub())
 
       async function startSub() {
+        const relayKey = normalizeUrl(url) || url
+        const now = Date.now()
+        const last = that.lastSubStartByRelay.get(relayKey) ?? 0
+        const wait = staggerMs - (now - last)
+        if (wait > 0) {
+          await new Promise<void>((r) => setTimeout(r, wait))
+        }
+        that.lastSubStartByRelay.set(relayKey, Date.now())
         startedCount++
         const relay = await that.pool.ensureRelay(url, { connectionTimeout: 5000 }).catch(() => {
           return undefined

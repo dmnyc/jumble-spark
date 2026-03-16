@@ -312,8 +312,8 @@ export default function CacheRelaysSetting() {
       let unregisteredCount = 0
       let cacheClearedCount = 0
 
-      // Check for service worker support
-      if ('serviceWorker' in navigator) {
+      // Check for service worker support and secure context (SW API throws in insecure contexts)
+      if (window.isSecureContext && 'serviceWorker' in navigator) {
         // Get all service worker registrations
         let registrations: readonly ServiceWorkerRegistration[] = []
         try {
@@ -1380,7 +1380,7 @@ export default function CacheRelaysSetting() {
         </Drawer>
       ) : (
         <Dialog open={showConsoleLogs} onOpenChange={setShowConsoleLogs}>
-          <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col">
+          <DialogContent className="max-w-4xl max-h-[80vh] flex flex-col" withoutClose>
             <DialogHeader>
               <div className="flex items-center justify-between">
                 <div className="flex-1">

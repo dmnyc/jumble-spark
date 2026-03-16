@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -164,6 +164,9 @@ function RelaySetOptions({ relaySet }: { relaySet: TRelaySet }) {
       <Drawer>
         <DrawerTrigger asChild>{trigger}</DrawerTrigger>
         <DrawerContent>
+          <DrawerHeader className="sr-only">
+            <DrawerTitle>{t('Relay set options')}</DrawerTitle>
+          </DrawerHeader>
           <div className="py-2">
             <DrawerMenuItem onClick={rename}>
               <Edit />

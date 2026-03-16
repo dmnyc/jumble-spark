@@ -130,7 +130,8 @@ export default defineConfig({
         ]
       },
       devOptions: {
-        enabled: true,
+        // Disable in dev to avoid registerSW.js 404 → index.html returned → SyntaxError (expected expression, got '<')
+        enabled: false,
         type: 'module'
       },
       manifest: {

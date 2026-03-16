@@ -1,7 +1,8 @@
 import { ExtendedKind } from '@/constants'
 import { tagNameEquals } from '@/lib/tag'
 import { TRelayInfo } from '@/types'
-import { Event, kinds } from 'nostr-tools'
+import type { Event } from 'nostr-tools'
+import { kinds } from 'nostr-tools'
 import { isReplaceableEvent } from '@/lib/event'
 import logger from '@/lib/logger'
 
@@ -36,6 +37,9 @@ export const StoreNames = {
   PUBLICATION_EVENTS: 'publicationEvents'
 }
 
+/** Schema version we expect. When adding stores or migrations, bump this. */
+const DB_VERSION = 17
+
 /** Convert IDB request.onerror Event to a proper Error for logging and UI */
 function idbEventToError(ev: Parameters<NonNullable<IDBRequest['onerror']>>[0]): Error {
   const request = ev.target as IDBRequest
@@ -59,22 +63,63 @@ class IndexedDbService {
 
   init(): Promise<void> {
     if (!this.initPromise) {
-      this.initPromise = new Promise<void>((resolve) => {
-        const request = window.indexedDB.open('jumble', 17)
+      this.initPromise = this.openDb()
+    }
+    return this.initPromise
+  }
 
-        request.onerror = (event) => {
-          // Resolve instead of reject so the app can run without IndexedDB (e.g. mobile private mode)
-          logger.warn('IndexedDB unavailable, running without local cache', idbEventToError(event))
-          this.db = null
-          resolve()
+  private openDb(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const request = window.indexedDB.open('jumble', DB_VERSION)
+
+      request.onerror = (event) => {
+        const err = idbEventToError(event)
+        const isHigherVersion =
+          err.message.includes('higher version') || err.message.includes('version requested')
+        if (isHigherVersion) {
+          // Stored DB is newer than our DB_VERSION (e.g. other tab or previous deploy). We cannot
+          // open with a lower version. Use the existing DB at its version so the app keeps working.
+          // When we later bump DB_VERSION and ship new code, users at lower stored version will
+          // open with our new version and run onupgradeneeded as usual.
+          const probe = window.indexedDB.open('jumble')
+          probe.onerror = () => {
+            logger.warn('IndexedDB unavailable, running without local cache', err)
+            this.db = null
+            resolve()
+          }
+          probe.onsuccess = () => {
+            const probeDb = probe.result
+            const storedVersion = probeDb.version
+            probeDb.close()
+            const openWithStored = window.indexedDB.open('jumble', storedVersion)
+            openWithStored.onerror = (e) => {
+              logger.warn('IndexedDB unavailable, running without local cache', idbEventToError(e))
+              this.db = null
+              resolve()
+            }
+            openWithStored.onsuccess = () => {
+              this.db = openWithStored.result
+              setTimeout(() => this.cleanUp(), 1000 * 60)
+              resolve()
+            }
+            openWithStored.onupgradeneeded = () => {
+              // Should not fire when opening with existing version
+            }
+          }
+          return
         }
+        logger.warn('IndexedDB unavailable, running without local cache', err)
+        this.db = null
+        resolve()
+      }
 
-        request.onsuccess = () => {
-          this.db = request.result
-          resolve()
-        }
+      request.onsuccess = () => {
+        this.db = request.result
+        setTimeout(() => this.cleanUp(), 1000 * 60)
+        resolve()
+      }
 
-        request.onupgradeneeded = (event) => {
+      request.onupgradeneeded = (event) => {
           const db = (event.target as IDBOpenDBRequest).result
           if (!db.objectStoreNames.contains(StoreNames.PROFILE_EVENTS)) {
             db.createObjectStore(StoreNames.PROFILE_EVENTS, { keyPath: 'key' })
@@ -142,10 +187,8 @@ class IndexedDbService {
             store.createIndex('pubDate', 'pubDate', { unique: false })
           }
         }
-      })
-      setTimeout(() => this.cleanUp(), 1000 * 60) // 1 minute
-    }
-    return this.initPromise
+      }
+    );
   }
 
   async putNullReplaceableEvent(pubkey: string, kind: number, d?: string) {
@@ -1212,7 +1255,7 @@ class IndexedDbService {
     
     // Check current version
     const checkRequest = window.indexedDB.open('jumble')
-    let currentVersion = 14
+    let currentVersion = DB_VERSION
     checkRequest.onsuccess = () => {
       const db = checkRequest.result
       currentVersion = db.version
