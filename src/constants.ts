@@ -140,7 +140,6 @@ export const SEARCHABLE_RELAY_URLS = [
   'wss://thecitadel.nostr1.com',
   'wss://relay.primal.net',
   'wss://relay.damus.io',
-  'wss://relay.lumina.rocks',
   'wss://relay.snort.social',
   'wss://nos.lol',
   'wss://nostr.mom'
