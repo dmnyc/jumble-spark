@@ -11,7 +11,7 @@ import { NostrEvent } from 'nostr-tools'
 import { Dispatch, SetStateAction, useCallback, useEffect, useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import RelayIcon from '../RelayIcon'
-import relaySelectionService from '@/services/relay-selection.service'
+import relaySelectionService, { type RelaySourceType } from '@/services/relay-selection.service'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
@@ -42,6 +42,7 @@ export default function PostRelaySelector({
   const { pubkey, relayList } = useNostr()
   const [selectedRelayUrls, setSelectedRelayUrls] = useState<string[]>([])
   const [selectableRelays, setSelectableRelays] = useState<string[]>([])
+  const [relayTypes, setRelayTypes] = useState<Record<string, RelaySourceType>>({})
   const [description, setDescription] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [hasManualSelection, setHasManualSelection] = useState(false)
@@ -133,6 +134,7 @@ export default function PostRelaySelector({
         const selectableRelaysChanged = newSelectableCount !== previousSelectableCount
         
         setSelectableRelays(result.selectableRelays)
+        setRelayTypes(result.relayTypes ?? {})
         setPreviousSelectableCount(newSelectableCount)
         
         // Only update selected relays if:
@@ -225,6 +227,7 @@ export default function PostRelaySelector({
           const selectableRelaysChanged = newSelectableCount !== previousSelectableCount
           
           setSelectableRelays(result.selectableRelays)
+          setRelayTypes(result.relayTypes ?? {})
           setPreviousSelectableCount(newSelectableCount)
           
           // Only update selected relays if:
@@ -326,17 +329,24 @@ export default function PostRelaySelector({
             
             return sortedRelays.map((url) => {
               const isChecked = selectedRelayUrls.includes(url)
+              const sourceType = relayTypes[url]
+              const typeLabel = sourceType ? t(`relayType_${sourceType}`) : ''
               return (
                 <div
                   key={url}
                   className="flex items-center gap-2 p-2 hover:bg-accent rounded cursor-pointer touch-manipulation"
                   onClick={() => handleRelayCheckedChange(!isChecked, url)}
                 >
-                  <div className="flex items-center justify-center w-4 h-4 border border-border rounded">
+                  <div className="flex items-center justify-center w-4 h-4 border border-border rounded shrink-0">
                     {isChecked && <Check className="w-3 h-3" />}
                   </div>
-                  <RelayIcon url={url} className="w-4 h-4" />
-                  <span className="text-sm flex-1 truncate">{simplifyUrl(url)}</span>
+                  <RelayIcon url={url} className="w-4 h-4 shrink-0" />
+                  <span className="text-sm flex-1 truncate min-w-0">{simplifyUrl(url)}</span>
+                  {typeLabel && (
+                    <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+                      {typeLabel}
+                    </span>
+                  )}
                 </div>
               )
             })

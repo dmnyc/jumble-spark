@@ -64,6 +64,7 @@ class LocalStorageService {
   private globalQuietMode: boolean = false
   private showRssFeed: boolean = true
   private panelMode: 'single' | 'double' = 'single'
+  private addRandomRelaysToPublish: boolean = true
 
   constructor() {
     if (!LocalStorageService.instance) {
@@ -341,6 +342,9 @@ class LocalStorageService {
     const panelModeStr = window.localStorage.getItem(StorageKey.PANE_MODE)
     this.panelMode = panelModeStr === 'double' ? 'double' : 'single' // Default to 'single'
 
+    const addRandomRelaysStr = window.localStorage.getItem(StorageKey.ADD_RANDOM_RELAYS_TO_PUBLISH)
+    this.addRandomRelaysToPublish = addRandomRelaysStr === null ? true : addRandomRelaysStr === 'true'
+
     // Clean up deprecated data
     window.localStorage.removeItem(StorageKey.ACCOUNT_PROFILE_EVENT_MAP)
     window.localStorage.removeItem(StorageKey.ACCOUNT_FOLLOW_LIST_EVENT_MAP)
@@ -599,6 +603,15 @@ class LocalStorageService {
   setShowRecommendedRelaysPanel(show: boolean) {
     this.showRecommendedRelaysPanel = show
     window.localStorage.setItem(StorageKey.SHOW_RECOMMENDED_RELAYS_PANEL, show.toString())
+  }
+
+  getAddRandomRelaysToPublish(): boolean {
+    return this.addRandomRelaysToPublish
+  }
+
+  setAddRandomRelaysToPublish(value: boolean) {
+    this.addRandomRelaysToPublish = value
+    window.localStorage.setItem(StorageKey.ADD_RANDOM_RELAYS_TO_PUBLISH, value.toString())
   }
 
   getShowKinds() {

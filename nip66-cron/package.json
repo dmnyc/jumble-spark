@@ -1,0 +1,14 @@
+{
+  "name": "jumble-nip66-cron",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NIP-66 relay monitor cron: publishes 30166/10166 from server, nsec never exposed to client",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.17.0",
+    "ws": "^8.18.0"
+  }
+}

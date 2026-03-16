@@ -1,6 +1,6 @@
 import { ExtendedKind } from '@/constants'
 import { tagNameEquals } from '@/lib/tag'
-import { TRelayInfo } from '@/types'
+import { TNip66RelayDiscovery, TRelayInfo } from '@/types'
 import type { Event } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
 import { isReplaceableEvent } from '@/lib/event'
@@ -34,11 +34,15 @@ export const StoreNames = {
   FOLLOWING_FAVORITE_RELAYS: 'followingFavoriteRelays',
   RELAY_INFOS: 'relayInfos',
   RELAY_INFO_EVENTS: 'relayInfoEvents', // deprecated
-  PUBLICATION_EVENTS: 'publicationEvents'
+  PUBLICATION_EVENTS: 'publicationEvents',
+  /** NIP-66: cached list of public lively relay URLs (from 30166 discovery). */
+  PUBLIC_LIVELY_RELAYS: 'publicLivelyRelays',
+  /** NIP-66: per-relay discovery cache (key = relay URL, value = { discovery, cachedAt }). */
+  NIP66_DISCOVERY: 'nip66Discovery'
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 17
+const DB_VERSION = 19
 
 /** Convert IDB request.onerror Event to a proper Error for logging and UI */
 function idbEventToError(ev: Parameters<NonNullable<IDBRequest['onerror']>>[0]): Error {
@@ -174,6 +178,12 @@ class IndexedDbService {
           }
           if (!db.objectStoreNames.contains(StoreNames.PUBLICATION_EVENTS)) {
             db.createObjectStore(StoreNames.PUBLICATION_EVENTS, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.PUBLIC_LIVELY_RELAYS)) {
+            db.createObjectStore(StoreNames.PUBLIC_LIVELY_RELAYS, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.NIP66_DISCOVERY)) {
+            db.createObjectStore(StoreNames.NIP66_DISCOVERY, { keyPath: 'key' })
           }
           if (!db.objectStoreNames.contains(StoreNames.CACHE_RELAYS_EVENTS)) {
             db.createObjectStore(StoreNames.CACHE_RELAYS_EVENTS, { keyPath: 'key' })
@@ -602,6 +612,96 @@ class IndexedDbService {
       }
 
       request.onerror = (event) => {
+        transaction.commit()
+        reject(event)
+      }
+    })
+  }
+
+  /** NIP-66: cache key for the single public lively relay list entry. */
+  private static PUBLIC_LIVELY_CACHE_KEY = 'list'
+
+  async getPublicLivelyRelayUrlsCache(): Promise<{ urls: string[]; cachedAt: number } | null> {
+    await this.initPromise
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        return resolve(null)
+      }
+      const transaction = this.db.transaction(StoreNames.PUBLIC_LIVELY_RELAYS, 'readonly')
+      const store = transaction.objectStore(StoreNames.PUBLIC_LIVELY_RELAYS)
+      const request = store.get(IndexedDbService.PUBLIC_LIVELY_CACHE_KEY)
+      request.onsuccess = () => {
+        transaction.commit()
+        const row = request.result as TValue<{ urls: string[]; cachedAt: number }> | undefined
+        resolve(row?.value ?? null)
+      }
+      request.onerror = (event) => {
+        transaction.commit()
+        reject(event)
+      }
+    })
+  }
+
+  async setPublicLivelyRelayUrlsCache(urls: string[]): Promise<void> {
+    await this.initPromise
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        return resolve()
+      }
+      const transaction = this.db.transaction(StoreNames.PUBLIC_LIVELY_RELAYS, 'readwrite')
+      const store = transaction.objectStore(StoreNames.PUBLIC_LIVELY_RELAYS)
+      const value = this.formatValue(IndexedDbService.PUBLIC_LIVELY_CACHE_KEY, {
+        urls,
+        cachedAt: Date.now()
+      })
+      const putRequest = store.put(value)
+      putRequest.onsuccess = () => {
+        transaction.commit()
+        resolve()
+      }
+      putRequest.onerror = (event) => {
+        transaction.commit()
+        reject(event)
+      }
+    })
+  }
+
+  async getNip66Discovery(relayUrl: string): Promise<{ discovery: TNip66RelayDiscovery; cachedAt: number } | null> {
+    await this.initPromise
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        return resolve(null)
+      }
+      const transaction = this.db.transaction(StoreNames.NIP66_DISCOVERY, 'readonly')
+      const store = transaction.objectStore(StoreNames.NIP66_DISCOVERY)
+      const request = store.get(relayUrl)
+      request.onsuccess = () => {
+        transaction.commit()
+        const row = request.result as TValue<{ discovery: TNip66RelayDiscovery; cachedAt: number }> | undefined
+        resolve(row?.value ?? null)
+      }
+      request.onerror = (event) => {
+        transaction.commit()
+        reject(event)
+      }
+    })
+  }
+
+  async setNip66Discovery(relayUrl: string, discovery: TNip66RelayDiscovery): Promise<void> {
+    await this.initPromise
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        return resolve()
+      }
+      const transaction = this.db.transaction(StoreNames.NIP66_DISCOVERY, 'readwrite')
+      const store = transaction.objectStore(StoreNames.NIP66_DISCOVERY)
+      const value = this.formatValue(relayUrl, { discovery, cachedAt: Date.now() })
+      const putRequest = store.put(value)
+      putRequest.onsuccess = () => {
+        transaction.commit()
+        resolve()
+      }
+      putRequest.onerror = (event) => {
         transaction.commit()
         reject(event)
       }

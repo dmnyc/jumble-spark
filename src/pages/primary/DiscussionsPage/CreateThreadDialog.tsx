@@ -8,7 +8,6 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Hash, X, Users, Code, Coins, Newspaper, BookOpen, Scroll, Cpu, Trophy, Film, Heart, TrendingUp, Utensils, MapPin, Home, PawPrint, Shirt, Image, Zap, Settings, Book, Network, Car, Eye, Edit3, ChevronDown, Check, ImageUp, Smile } from 'lucide-react'
 import { useState, useEffect, useMemo, useRef } from 'react'
@@ -21,7 +20,7 @@ import { NostrEvent } from 'nostr-tools'
 import { prefixNostrAddresses } from '@/lib/nostr-address'
 import { showPublishingError, showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import { simplifyUrl } from '@/lib/url'
-import relaySelectionService from '@/services/relay-selection.service'
+import relaySelectionService, { type RelaySourceType } from '@/services/relay-selection.service'
 import dayjs from 'dayjs'
 import { extractHashtagsFromContent, normalizeTopic } from '@/lib/discussion-topics'
 import MarkdownArticle from '@/components/Note/MarkdownArticle/MarkdownArticle'
@@ -118,6 +117,7 @@ export default function CreateThreadDialog({
   const [selectedTopic, setSelectedTopic] = useState(initialTopic)
   const [selectedRelayUrls, setSelectedRelayUrls] = useState<string[]>([])
   const [selectableRelays, setSelectableRelays] = useState<string[]>([])
+  const [relayTypes, setRelayTypes] = useState<Record<string, RelaySourceType>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errors, setErrors] = useState<{ title?: string; content?: string; relay?: string; author?: string; subject?: string; group?: string }>({})
   const [isNsfw, setIsNsfw] = useState(false)
@@ -256,11 +256,13 @@ export default function CreateThreadDialog({
 
         setSelectableRelays(result.selectableRelays)
         setSelectedRelayUrls(result.selectedRelays)
+        setRelayTypes(result.relayTypes ?? {})
       } catch (error) {
         logger.error('[CreateThreadDialog] Failed to initialize relays:', error)
         // Fallback to availableRelays
         setSelectableRelays(availableRelays)
         setSelectedRelayUrls(availableRelays)
+        setRelayTypes({})
       } finally {
         setIsLoadingRelays(false)
       }
@@ -896,7 +898,9 @@ export default function CreateThreadDialog({
             {/* Relay Selection */}
             <div className="space-y-2">
               <Label>{t('Publish to Relays')}</Label>
-              <ScrollArea className={`max-h-64 rounded-md border p-4 ${errors.relay ? 'border-destructive' : ''}`}>
+              <div
+                className={`max-h-64 min-h-0 overflow-y-scroll overflow-x-hidden rounded-md border p-4 ${errors.relay ? 'border-destructive' : ''}`}
+              >
                 {isLoadingRelays ? (
                   <div className="text-sm text-muted-foreground text-center py-4">
                     {t('Loading relays...')}
@@ -909,6 +913,8 @@ export default function CreateThreadDialog({
                   <div className="space-y-3">
                     {selectableRelays.map(relay => {
                       const isChecked = selectedRelayUrls.includes(relay)
+                      const sourceType = relayTypes[relay]
+                      const typeLabel = sourceType ? t(`relayType_${sourceType}`) : ''
                       return (
                         <div key={relay} className="flex items-center space-x-3">
                           <Checkbox
@@ -919,17 +925,22 @@ export default function CreateThreadDialog({
                           />
                           <label
                             htmlFor={`relay-${relay}`}
-                            className="flex items-center gap-2 text-sm font-medium leading-none cursor-pointer peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex-1"
+                            className="flex items-center gap-2 text-sm font-medium leading-none cursor-pointer peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex-1 min-w-0"
                           >
-                            <RelayIcon url={relay} className="w-4 h-4" />
+                            <RelayIcon url={relay} className="w-4 h-4 shrink-0" />
                             <span className="truncate">{simplifyUrl(relay)}</span>
+                            {typeLabel && (
+                              <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+                                {typeLabel}
+                              </span>
+                            )}
                           </label>
                         </div>
                       )
                     })}
                   </div>
                 )}
-              </ScrollArea>
+              </div>
               {errors.relay && (
                 <p className="text-sm text-destructive">{errors.relay}</p>
               )}

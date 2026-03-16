@@ -17,8 +17,12 @@ RUN npm run build
 # Step 2: Final container with Nginx and embedded config
 FROM nginx:alpine
 
+RUN apk add --no-cache jq
+
 # Copy only the generated static files
 COPY --from=builder /app/dist /usr/share/nginx/html
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # Embed Nginx configuration directly
 RUN printf "server {\n\
@@ -34,10 +38,10 @@ RUN printf "server {\n\
     }\n\
 \n\
     location / {\n\
-        # For scrapers, always serve index.html so they see static og/twitter meta tags\n\
-        if (\$is_scraper = 1) {\n\
-            rewrite ^ /index.html last;\n\
-        }\n\
+        # For scrapers, serve index.html so they see static og/twitter meta tags (skip if already requesting index.html to avoid redirect loop)\n\
+        set \$rewrite_scraper \$is_scraper;\n\
+        if (\$uri = /index.html) { set \$rewrite_scraper 0; }\n\
+        if (\$rewrite_scraper = 1) { rewrite ^ /index.html last; }\n\
         try_files \$uri \$uri/ /index.html;\n\
     }\n\
 \n\
@@ -56,4 +60,5 @@ RUN printf "server {\n\
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+# Entrypoint writes /config.json (e.g. NIP66_MONITOR_NPUB for relay info page) then starts nginx
+ENTRYPOINT ["/docker-entrypoint.sh"]

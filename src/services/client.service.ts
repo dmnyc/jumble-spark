@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS, BOOKSTR_RELAY_URLS, ExtendedKind, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { BIG_RELAY_URLS, BOOKSTR_RELAY_URLS, ExtendedKind, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, NIP66_DISCOVERY_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 
 /** NIP-01 filter keys only; NIP-50 adds `search` which non-searchable relays reject. */
 function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
@@ -16,7 +16,7 @@ import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata
 import logger from '@/lib/logger'
 import { formatPubkey, isValidPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib/pubkey'
 import { getPubkeysFromPTags, getServersFromServerTags, tagNameEquals } from '@/lib/tag'
-import { isLocalNetworkUrl, isWebsocketUrl, normalizeUrl } from '@/lib/url'
+import { isLocalNetworkUrl, isWebsocketUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import { isSafari } from '@/lib/utils'
 import { ISigner, TProfile, TPublishOptions, TRelayList, TMailboxRelay, TSubRequestFilter } from '@/types'
 import { sha256 } from '@noble/hashes/sha2'
@@ -37,6 +37,7 @@ import {
 } from 'nostr-tools'
 import { AbstractRelay } from 'nostr-tools/abstract-relay'
 import indexedDb, { StoreNames } from './indexed-db.service'
+import nip66Service from './nip66.service'
 
 type TTimelineRef = [string, number]
 
@@ -93,6 +94,50 @@ class ClientService extends EventTarget {
 
   async init() {
     await indexedDb.iterateProfileEvents((profileEvent) => this.addUsernameToIndex(profileEvent))
+    this.fetchNip66RelayDiscovery().catch(() => {})
+  }
+
+  /** NIP-66: fetch relay discovery events (30166) in background to supplement search/NIP support. */
+  private async fetchNip66RelayDiscovery(): Promise<void> {
+    try {
+      const discoveryRelays = Array.from(new Set([...BIG_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
+      const events = await this.query(
+        discoveryRelays,
+        { kinds: [ExtendedKind.RELAY_DISCOVERY] },
+        undefined,
+        { eoseTimeout: 4000, globalTimeout: 8000 }
+      )
+      if (events.length > 0) {
+        nip66Service.loadFromEvents(events)
+        logger.info('NIP-66: loaded relay discovery events', { count: events.length })
+      }
+    } catch (err) {
+      logger.info('NIP-66: failed to fetch relay discovery', { err })
+    }
+  }
+
+  /**
+   * NIP-66: fetch 30166 events for a single relay (relay info page). Uses discovery relay set,
+   * filter by #d so we get the newest report for this relay and can show monitor (author) info.
+   */
+  async fetchNip66DiscoveryForRelay(relayUrl: string): Promise<void> {
+    const discoveryRelays = Array.from(new Set([...BIG_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
+    const dTag = normalizeUrl(relayUrl) || relayUrl
+    const shortForm = simplifyUrl(dTag)
+    const dValues = dTag !== shortForm ? [dTag, shortForm] : [dTag]
+    try {
+      const events = await this.query(
+        discoveryRelays,
+        { kinds: [ExtendedKind.RELAY_DISCOVERY], '#d': dValues, limit: 20 },
+        undefined,
+        { eoseTimeout: 4000, globalTimeout: 6000 }
+      )
+      if (events.length > 0) {
+        nip66Service.loadFromEvents(events)
+      }
+    } catch {
+      // ignore per-relay fetch failure
+    }
   }
 
   /**
@@ -703,9 +748,12 @@ class ClientService extends EventTarget {
       if (!grouped.has(key)) grouped.set(key, [])
       grouped.get(key)!.push(...filters)
     }
-    const searchableSet = new Set(SEARCHABLE_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const searchableSet = new Set([
+      ...SEARCHABLE_RELAY_URLS.map((u) => normalizeUrl(u) || u),
+      ...nip66Service.getSearchableRelayUrls().map((u) => normalizeUrl(u) || u)
+    ])
     const groupedRequests = Array.from(grouped.entries()).map(([url, f]) => {
-      const relaySupportsSearch = searchableSet.has(url)
+      const relaySupportsSearch = searchableSet.has(url) || nip66Service.isRelaySearchable(url)
       const filtersForRelay = f.map((one) => filterForRelay(one, relaySupportsSearch))
       return { url, filters: filtersForRelay }
     })

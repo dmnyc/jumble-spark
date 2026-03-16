@@ -60,6 +60,7 @@ export const StorageKey = {
   GLOBAL_QUIET_MODE: 'globalQuietMode',
   SHOW_RSS_FEED: 'showRssFeed',
   PANE_MODE: 'paneMode',
+  ADD_RANDOM_RELAYS_TO_PUBLISH: 'addRandomRelaysToPublish',
   MEDIA_UPLOAD_SERVICE: 'mediaUploadService', // deprecated
   HIDE_UNTRUSTED_EVENTS: 'hideUntrustedEvents', // deprecated
   ACCOUNT_RELAY_LIST_EVENT_MAP: 'accountRelayListEventMap', // deprecated
@@ -86,6 +87,27 @@ export const BIG_RELAY_URLS = [
   'wss://orly-relay.imwald.eu',
   'wss://nostr.land',
   'wss://thecitadel.nostr1.com',
+]
+
+/** Relays to query for NIP-66 relay monitoring events (30166), in addition to BIG_RELAY_URLS. */
+export const NIP66_DISCOVERY_RELAY_URLS = [
+  'wss://thecitadel.nostr1.com',
+  'wss://relay.nostr.watch',
+  'wss://relaypag.es'
+]
+
+/**
+ * Known public (no auth, open write) relays for censorship-resilience: when the user opts in,
+ * we add 3 random relays from this list to every publish. Curated list of lively public relays.
+ */
+export const PUBLIC_LIVELY_RELAY_URLS = [
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://nos.lol',
+  'wss://thecitadel.nostr1.com',
+  'wss://relay.lumina.rocks',
+  'wss://nostr.mom',
+  'wss://freelay.sovbit.host'
 ]
 
 // Relay with bookstr composite index support
@@ -181,7 +203,11 @@ export const ExtendedKind = {
   PAYMENT_INFO: 10133,
   FOLLOW_PACK: 39089,
   /** NIP-94 File Metadata (e.g. GIFs) */
-  FILE_METADATA: 1063
+  FILE_METADATA: 1063,
+  /** NIP-66 Relay discovery (relay characteristics from NIP-11 or probing) */
+  RELAY_DISCOVERY: 30166,
+  /** NIP-66 Relay monitor announcement (intent to publish 30166 at a frequency) */
+  RELAY_MONITOR_ANNOUNCEMENT: 10166
 }
 
 export const SUPPORTED_KINDS = [

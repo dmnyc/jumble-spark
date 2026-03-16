@@ -1,5 +1,9 @@
 # Minimal compose for running the published image (e.g. on remote server).
 # Usage: docker compose -f docker-compose.prod.yml up -d
+#
+# NIP-66 monitor: set NIP66_MONITOR_NSEC (and optionally NIP66_MONITOR_NPUB) in the host env or .env.
+# - Cron (jumble-nip66-monitor) uses NIP66_MONITOR_NSEC to publish 30166/10166; nsec never goes to the client.
+# - Set NIP66_MONITOR_NPUB (npub1... derived from the same key) so the relay info page shows the monitor's avatar and handle in the NIP-66 liveliness section.
 
 services:
   jumble:
@@ -8,7 +12,9 @@ services:
     ports:
       - "8089:80"
     restart: unless-stopped
-    # Cap container impact: log size + optional memory limit
+    # Do NOT pass NIP66_MONITOR_NSEC to the web app; only npub is needed for the relay info page.
+    environment:
+      - NIP66_MONITOR_NPUB=${NIP66_MONITOR_NPUB}
     logging:
       driver: json-file
       options:
@@ -18,3 +24,26 @@ services:
       resources:
         limits:
           memory: 512M
+
+  # NIP-66 relay monitor cron: publishes 30166 (relay discovery) and 10166 (announcement).
+  # Starts and stops with the app. Requires NIP66_MONITOR_NSEC to do anything.
+  jumble-nip66-monitor:
+    build:
+      context: ./nip66-cron
+      dockerfile: Dockerfile
+    container_name: imwald-jumble-nip66-monitor
+    restart: unless-stopped
+    environment:
+      - NIP66_MONITOR_NSEC=${NIP66_MONITOR_NSEC}
+      # Optional: RELAYS_TO_MONITOR=wss://relay1,wss://relay2  (default: built-in list)
+      # Optional: PUBLISH_RELAYS=wss://...  (default: built-in list)
+      # Optional: INTERVAL_MS=3600000  (default: 1 hour between 30166 runs)
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    deploy:
+      resources:
+        limits:
+          memory: 128M

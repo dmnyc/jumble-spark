@@ -15,8 +15,10 @@ export default function RelayIcon({
 }) {
   const { relayInfo } = useFetchRelayInfo(url)
   const iconUrl = useMemo(() => {
-    if (relayInfo?.icon && typeof relayInfo.icon === 'string' && relayInfo.icon.startsWith('http')) {
-      return relayInfo.icon
+    const raw = relayInfo?.icon && typeof relayInfo.icon === 'string' ? relayInfo.icon : undefined
+    // Only use HTTP(S) URLs for images; reject ws(s):// (e.g. some relays return relay URL as icon)
+    if (raw && (raw.startsWith('https://') || raw.startsWith('http://'))) {
+      return raw
     }
     if (!url) return undefined
     try {

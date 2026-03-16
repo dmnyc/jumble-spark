@@ -7,6 +7,8 @@ import { TRelaySet, TRelayList } from '@/types'
 import logger from '@/lib/logger'
 import indexedDb from '@/services/indexed-db.service'
 import { getRelayListFromEvent } from '@/lib/event-metadata'
+import nip66Service from '@/services/nip66.service'
+import storage from '@/services/local-storage.service'
 
 export interface RelaySelectionContext {
   // User's own relays
@@ -25,10 +27,23 @@ export interface RelaySelectionContext {
   openFrom?: string[]
 }
 
+/** Display type for a relay in the publish relay selector */
+export type RelaySourceType =
+  | 'local'
+  | 'relay_list'
+  | 'client_default'
+  | 'open_from'
+  | 'favorite'
+  | 'relay_set'
+  | 'contextual'
+  | 'randomly_selected'
+
 export interface RelaySelectionResult {
   selectableRelays: string[]
   selectedRelays: string[]
   description: string
+  /** Source type per relay URL (for UI labels). */
+  relayTypes: Record<string, RelaySourceType>
 }
 
 class RelaySelectionService {
@@ -50,8 +65,8 @@ class RelaySelectionService {
    * Main entry point for relay selection logic
    */
   async selectRelays(context: RelaySelectionContext): Promise<RelaySelectionResult> {
-    // Step 1: Build the list of selectable relays
-    const selectableRelays = await this.buildSelectableRelays(context)
+    // Step 1: Build the list of selectable relays and their source types
+    const { relays: selectableRelays, relayTypes } = await this.buildSelectableRelaysWithTypes(context)
     
     // Step 2: Determine which relays should be selected (checked)
     const selectedRelays = await this.determineSelectedRelays(context)
@@ -62,16 +77,19 @@ class RelaySelectionService {
     return {
       selectableRelays,
       selectedRelays,
-      description
+      description,
+      relayTypes
     }
   }
 
   /**
-   * Build the list of all relays that can be selected
+   * Build the list of all relays that can be selected, with a source type for each (first source wins).
    * Always includes: user's write relays (or fast write fallback) + favorite relays + relay sets
-   * Plus contextual relays for replies and public messages
+   * Plus contextual relays for replies and public messages.
    */
-  private async buildSelectableRelays(context: RelaySelectionContext): Promise<string[]> {
+  private async buildSelectableRelaysWithTypes(
+    context: RelaySelectionContext
+  ): Promise<{ relays: string[]; relayTypes: Record<string, RelaySourceType> }> {
     const {
       userWriteRelays,
       favoriteRelays,
@@ -81,51 +99,67 @@ class RelaySelectionService {
       openFrom
     } = context
 
-    const selectableRelays = new Set<string>()
+    const order: { url: string; type: RelaySourceType }[] = []
+    const seen = new Set<string>()
 
-    // Helper function to safely add normalized URLs
-    const addRelay = (url: string) => {
+    const addRelay = (url: string, type: RelaySourceType) => {
       if (!url) return
       const normalized = normalizeUrl(url)
-      if (normalized) {
-        selectableRelays.add(normalized)
-      } else {
-        // If normalization fails or returns empty (invalid URL), skip it
+      if (normalized && !seen.has(normalized)) {
+        seen.add(normalized)
+        order.push({ url: normalized, type })
+      } else if (!normalized) {
         logger.warn('Skipping invalid relay URL', { url })
       }
     }
 
-    // Always include user's write relays (or fallback to fast write relays)
+    // User's write relays (or fallback = client default)
     const userRelays = userWriteRelays.length > 0 ? userWriteRelays : FAST_WRITE_RELAY_URLS
-    userRelays.forEach(addRelay)
+    const userType: RelaySourceType = userWriteRelays.length > 0 ? 'relay_list' : 'client_default'
+    userRelays.forEach((url) => addRelay(url, userType))
 
-    // Explicitly ensure cache relays (local network URLs) are included in selectable relays
-    // This ensures they show up even if there's a timing issue with relay list updates
-    const cacheRelays = userWriteRelays.filter(url => isLocalNetworkUrl(url))
-    cacheRelays.forEach(addRelay)
+    // Cache relays (local) – may duplicate user write; only add if not already present
+    const cacheRelays = userWriteRelays.filter((url) => isLocalNetworkUrl(url))
+    cacheRelays.forEach((url) => addRelay(url, 'local'))
 
-    // Always include favorite relays
-    favoriteRelays.forEach(addRelay)
+    favoriteRelays.forEach((url) => addRelay(url, 'favorite'))
 
-    // Always include relays from relay sets
-    relaySets.forEach(set => {
-      set.relayUrls.forEach(addRelay)
+    relaySets.forEach((set) => {
+      set.relayUrls.forEach((url) => addRelay(url, 'relay_set'))
     })
 
-    // Add contextual relays for replies and public messages
     if (parentEvent || isPublicMessage) {
       const contextualRelays = await this.getContextualRelays(context)
-      contextualRelays.forEach(addRelay)
+      contextualRelays.forEach((url) => addRelay(url, 'contextual'))
     }
 
-    // If called with specific relay URLs (e.g., from openFrom), include those
     if (openFrom && openFrom.length > 0) {
-      openFrom.forEach(addRelay)
+      openFrom.forEach((url) => addRelay(url, 'open_from'))
     }
 
-    // Filter out blocked relays and return deduplicated list
-    const deduplicatedRelays = Array.from(selectableRelays).filter(Boolean)
-    return this.filterBlockedRelays(deduplicatedRelays, context.blockedRelays)
+    // Optional random relays: preload list with 3 random public lively relays (unchecked) when setting is on
+    if (typeof window !== 'undefined' && storage.getAddRandomRelaysToPublish()) {
+      try {
+        const publicLively = await nip66Service.getPublicLivelyRelayUrls()
+        const existing = new Set(order.map((o) => o.url))
+        const candidates = publicLively.filter((u) => {
+          const n = normalizeUrl(u) || u
+          return !existing.has(n)
+        })
+        const shuffled = candidates.slice().sort(() => Math.random() - 0.5)
+        shuffled.slice(0, 3).forEach((url) => addRelay(normalizeUrl(url) || url, 'randomly_selected'))
+      } catch {
+        // ignore
+      }
+    }
+
+    const deduplicatedRelays = order.map((o) => o.url)
+    const filtered = this.filterBlockedRelays(deduplicatedRelays, context.blockedRelays)
+    const relayTypes: Record<string, RelaySourceType> = {}
+    order.forEach(({ url, type }) => {
+      if (filtered.includes(url)) relayTypes[url] = type
+    })
+    return { relays: filtered, relayTypes }
   }
 
   /**

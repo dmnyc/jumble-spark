@@ -32,7 +32,12 @@ const GeneralSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
     setMediaAutoLoadPolicy
   } = useContentPolicy()
   const { hideUntrustedNotes, updateHideUntrustedNotes } = useUserTrust()
-  const { notificationListStyle, updateNotificationListStyle } = useUserPreferences()
+  const {
+    notificationListStyle,
+    updateNotificationListStyle,
+    addRandomRelaysToPublish,
+    updateAddRandomRelaysToPublish
+  } = useUserPreferences()
 
   const handleLanguageChange = (value: TLanguage) => {
     i18n.changeLanguage(value)
@@ -141,6 +146,19 @@ const GeneralSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
             <div className="text-muted-foreground">{t('Enable video autoplay on this device')}</div>
           </Label>
           <Switch id="autoplay" checked={autoplay} onCheckedChange={setAutoplay} />
+        </SettingItem>
+        <SettingItem>
+          <Label htmlFor="add-random-relays" className="text-base font-normal">
+            <div>{t('Add 3 random relays to every publish')}</div>
+            <div className="text-muted-foreground">
+              {t('Add 3 random relays to every publish description')}
+            </div>
+          </Label>
+          <Switch
+            id="add-random-relays"
+            checked={addRandomRelaysToPublish}
+            onCheckedChange={updateAddRandomRelaysToPublish}
+          />
         </SettingItem>
         <SettingItem>
           <Label htmlFor="hide-untrusted-notes" className="text-base font-normal">

@@ -7,6 +7,8 @@ type TUserPreferencesContext = {
   updateNotificationListStyle: (style: TNotificationStyle) => void
   showRecommendedRelaysPanel: boolean
   updateShowRecommendedRelaysPanel: (show: boolean) => void
+  addRandomRelaysToPublish: boolean
+  updateAddRandomRelaysToPublish: (value: boolean) => void
 }
 
 const UserPreferencesContext = createContext<TUserPreferencesContext | undefined>(undefined)
@@ -26,7 +28,11 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
   // DEPRECATED: Double-panel functionality removed for technical debt reduction
   // Keeping for backward compatibility in case we miss any references
   const [showRecommendedRelaysPanel] = useState(false)
-  
+
+  const [addRandomRelaysToPublish, setAddRandomRelaysToPublish] = useState(
+    storage.getAddRandomRelaysToPublish()
+  )
+
   // DEPRECATED: Mobile panel forcing removed - double-panel functionality disabled
 
   const updateNotificationListStyle = (style: TNotificationStyle) => {
@@ -39,13 +45,20 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     // No-op: double-panel functionality has been removed
   }
 
+  const updateAddRandomRelaysToPublish = (value: boolean) => {
+    setAddRandomRelaysToPublish(value)
+    storage.setAddRandomRelaysToPublish(value)
+  }
+
   return (
     <UserPreferencesContext.Provider
       value={{
         notificationListStyle,
         updateNotificationListStyle,
         showRecommendedRelaysPanel,
-        updateShowRecommendedRelaysPanel
+        updateShowRecommendedRelaysPanel,
+        addRandomRelaysToPublish,
+        updateAddRandomRelaysToPublish
       }}
     >
       {children}

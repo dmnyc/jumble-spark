@@ -74,6 +74,24 @@ export type TRelayInfo = {
     auth_required?: boolean
     payment_required?: boolean
   }
+  /** Set when caching; used to expire relay info and refetch NIP-11. */
+  cachedAt?: number
+}
+
+/** NIP-66 relay discovery (kind 30166) parsed tags. Used to supplement NIP-11 / static lists. */
+export type TNip66RelayDiscovery = {
+  url: string
+  supportedNips: number[]
+  requirements: { auth?: boolean; payment?: boolean; writes?: boolean; pow?: boolean }
+  rttOpenMs?: number
+  rttReadMs?: number
+  rttWriteMs?: number
+  networkType?: string
+  relayType?: string
+  topics?: string[]
+  created_at: number
+  /** Pubkey of the 30166 event author (the monitor who reported this relay). */
+  monitorPubkey?: string
 }
 
 export type TWebMetadata = {
