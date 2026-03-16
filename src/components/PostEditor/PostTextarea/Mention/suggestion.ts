@@ -38,7 +38,7 @@ const suggestion = {
       },
       onStart: (props: { editor: Editor; clientRect?: (() => DOMRect | null) | null }) => {
         component = new ReactRenderer(MentionList, {
-          props,
+          ...props,
           editor: props.editor
         })
 

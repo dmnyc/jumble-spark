@@ -27,6 +27,9 @@ export default function MainNoteCard({
       className={className}
       data-event-id={event.id}
       onClick={(e) => {
+        // Don't navigate when user has selected text (e.g. for creating a highlight)
+        const sel = window.getSelection()
+        if (sel && !sel.isCollapsed) return
         // Don't navigate if clicking on interactive elements
         const target = e.target as HTMLElement
         if (target.closest('button') || target.closest('[role="button"]') || target.closest('a') || target.closest('[data-parent-note-preview]') || target.closest('[data-user-avatar]') || target.closest('[data-username]')) {

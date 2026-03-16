@@ -6,8 +6,11 @@ import logger from '@/lib/logger'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import type { HighlightData } from '@/components/PostEditor/HighlightEditor'
 import { Event, kinds } from 'nostr-tools'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { CreateHighlightContext } from './CreateHighlightContext'
+import SelectionHighlightTrigger from './SelectionHighlightTrigger'
 import AudioPlayer from '../AudioPlayer'
 import ClientTag from '../ClientTag'
 import { FormattedTimestamp } from '../FormattedTimestamp'
@@ -68,6 +71,25 @@ export default function Note({
   const [showNsfw, setShowNsfw] = useState(false)
   const { mutePubkeySet } = useMuteList()
   const [showMuted, setShowMuted] = useState(false)
+  const [highlightData, setHighlightData] = useState<HighlightData | undefined>(undefined)
+  const [highlightDefaultContent, setHighlightDefaultContent] = useState<string>('')
+  const [postEditorOpen, setPostEditorOpen] = useState(false)
+
+  const openHighlight = useCallback((data: HighlightData, eventContent?: string) => {
+    setHighlightData(data)
+    setHighlightDefaultContent(eventContent ?? '')
+    setPostEditorOpen(true)
+  }, [])
+
+  const isHighlightableKind =
+    event.kind === kinds.ShortTextNote ||
+    event.kind === kinds.LongFormArticle ||
+    event.kind === ExtendedKind.WIKI_ARTICLE ||
+    event.kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN ||
+    event.kind === ExtendedKind.PUBLICATION ||
+    event.kind === ExtendedKind.PUBLICATION_CONTENT ||
+    event.kind === ExtendedKind.DISCUSSION ||
+    event.kind === ExtendedKind.COMMENT
 
   let content: React.ReactNode
   
@@ -189,72 +211,91 @@ export default function Note({
     content = <MarkdownArticle className="mt-2" event={event} />
   }
 
+  const wrappedContent = isHighlightableKind ? (
+    <SelectionHighlightTrigger event={event}>{content}</SelectionHighlightTrigger>
+  ) : (
+    content
+  )
+
   return (
-    <div 
-      className={`${className} ${disableClick ? '' : 'clickable'}`}
-      onClick={disableClick ? undefined : (e) => {
-        // Don't navigate if clicking on interactive elements
-        const target = e.target as HTMLElement
-        if (target.closest('button') || target.closest('[role="button"]') || target.closest('a') || target.closest('[data-embedded-note]') || target.closest('[data-parent-note-preview]') || target.closest('[data-user-avatar]') || target.closest('[data-username]')) {
-          return
-        }
-        e.stopPropagation()
-        navigateToNote(toNote(event))
-      }}
-    >
-      <div className="flex justify-between items-start gap-2">
-        <div className="flex items-center space-x-2 flex-1">
-          <UserAvatar userId={event.pubkey} size={size === 'small' ? 'medium' : 'normal'} />
-          <div className="flex-1 w-0">
-            <div className="flex gap-2 items-center">
-              <Username
-                userId={event.pubkey}
-                className={`font-semibold flex truncate ${size === 'small' ? 'text-sm' : ''}`}
-                skeletonClassName={size === 'small' ? 'h-3' : 'h-4'}
-              />
-              <ClientTag event={event} />
-            </div>
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <Nip05 pubkey={event.pubkey} append="·" />
-              <FormattedTimestamp
-                timestamp={event.created_at}
-                className="shrink-0"
-                short={isSmallScreen}
-              />
+    <CreateHighlightContext.Provider value={openHighlight}>
+      <div
+        className={`${className} ${disableClick ? '' : 'clickable'}`}
+        onClick={disableClick ? undefined : (e) => {
+          // Don't navigate if clicking on interactive elements
+          const target = e.target as HTMLElement
+          if (target.closest('button') || target.closest('[role="button"]') || target.closest('a') || target.closest('[data-embedded-note]') || target.closest('[data-parent-note-preview]') || target.closest('[data-user-avatar]') || target.closest('[data-username]')) {
+            return
+          }
+          e.stopPropagation()
+          navigateToNote(toNote(event))
+        }}
+      >
+        <div className="flex justify-between items-start gap-2">
+          <div className="flex items-center space-x-2 flex-1">
+            <UserAvatar userId={event.pubkey} size={size === 'small' ? 'medium' : 'normal'} />
+            <div className="flex-1 w-0">
+              <div className="flex gap-2 items-center">
+                <Username
+                  userId={event.pubkey}
+                  className={`font-semibold flex truncate ${size === 'small' ? 'text-sm' : ''}`}
+                  skeletonClassName={size === 'small' ? 'h-3' : 'h-4'}
+                />
+                <ClientTag event={event} />
+              </div>
+              <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                <Nip05 pubkey={event.pubkey} append="·" />
+                <FormattedTimestamp
+                  timestamp={event.created_at}
+                  className="shrink-0"
+                  short={isSmallScreen}
+                />
+              </div>
             </div>
           </div>
+          <div className="flex items-center gap-1">
+            {event.kind === ExtendedKind.DISCUSSION && (
+              <button
+                className="p-1 hover:bg-muted rounded transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  navigateToNote(toNote(event))
+                }}
+                title="View in Discussions"
+              >
+                <MessageSquare className="w-4 h-4 text-blue-500" />
+              </button>
+            )}
+            <TranslateButton event={event} className={size === 'normal' ? '' : 'pr-0'} />
+            {size === 'normal' && (
+              <NoteOptions
+                event={event}
+                className="py-1 shrink-0 [&_svg]:size-5"
+                initialHighlightData={highlightData}
+                highlightDefaultContent={highlightDefaultContent}
+                isPostEditorOpen={postEditorOpen}
+                onPostEditorClose={() => {
+                  setPostEditorOpen(false)
+                  setHighlightData(undefined)
+                  setHighlightDefaultContent('')
+                }}
+              />
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          {event.kind === ExtendedKind.DISCUSSION && (
-            <button
-              className="p-1 hover:bg-muted rounded transition-colors"
-              onClick={(e) => {
-                e.stopPropagation()
-                navigateToNote(toNote(event))
-              }}
-              title="View in Discussions"
-            >
-              <MessageSquare className="w-4 h-4 text-blue-500" />
-            </button>
-          )}
-          <TranslateButton event={event} className={size === 'normal' ? '' : 'pr-0'} />
-          {size === 'normal' && (
-            <NoteOptions event={event} className="py-1 shrink-0 [&_svg]:size-5" />
-          )}
-        </div>
+        {parentEventId && (
+          <ParentNotePreview
+            eventId={parentEventId}
+            className="mt-2"
+            onClick={(e) => {
+              e.stopPropagation()
+              navigateToNote(toNote(parentEventId))
+            }}
+          />
+        )}
+        <IValue event={event} className="mt-2" />
+        {wrappedContent}
       </div>
-      {parentEventId && (
-        <ParentNotePreview
-          eventId={parentEventId}
-          className="mt-2"
-          onClick={(e) => {
-            e.stopPropagation()
-            navigateToNote(toNote(parentEventId))
-          }}
-        />
-      )}
-      <IValue event={event} className="mt-2" />
-      {content}
-    </div>
+    </CreateHighlightContext.Provider>
   )
 }

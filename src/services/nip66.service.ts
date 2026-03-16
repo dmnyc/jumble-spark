@@ -6,7 +6,6 @@
  * require this data to function; use as a hint only.
  */
 
-import { PUBLIC_LIVELY_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import indexDb from '@/services/indexed-db.service'
 import { TNip66RelayDiscovery, TRelayInfo } from '@/types'
@@ -164,13 +163,13 @@ class Nip66Service {
   }
 
   /**
-   * Returns relay URLs to use for "add 3 random relays to publish". Prefers NIP-66 discovery
-   * (in-memory then IndexedDB cache), falls back to static PUBLIC_LIVELY_RELAY_URLS.
+   * Returns relay URLs from NIP-66 discovery (in-memory then IndexedDB cache).
+   * Returns empty array when no monitoring list is available (caller may fallback to other relay lists).
    */
   async getPublicLivelyRelayUrls(): Promise<string[]> {
     const fromMemory = this.buildPublicLivelyFromDiscovery()
     if (fromMemory.length > 0) return fromMemory
-    if (typeof window === 'undefined') return [...PUBLIC_LIVELY_RELAY_URLS]
+    if (typeof window === 'undefined') return []
     try {
       const cached = await indexDb.getPublicLivelyRelayUrlsCache()
       if (cached?.urls?.length && (Date.now() - cached.cachedAt) < PUBLIC_LIVELY_CACHE_TTL_MS) {
@@ -179,7 +178,7 @@ class Nip66Service {
     } catch {
       // ignore
     }
-    return [...PUBLIC_LIVELY_RELAY_URLS]
+    return []
   }
 
   getDiscovery(url: string): TNip66RelayDiscovery | undefined {

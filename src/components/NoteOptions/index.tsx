@@ -8,9 +8,23 @@ import RawEventDialog from './RawEventDialog'
 import ReportDialog from './ReportDialog'
 import { SubMenuAction, useMenuActions } from './useMenuActions'
 import PostEditor from '../PostEditor'
-import { HighlightData } from '../PostEditor/HighlightEditor'
+import type { HighlightData } from '../PostEditor/HighlightEditor'
 
-export default function NoteOptions({ event, className }: { event: Event; className?: string }) {
+export default function NoteOptions({
+  event,
+  className,
+  initialHighlightData,
+  highlightDefaultContent,
+  isPostEditorOpen,
+  onPostEditorClose
+}: {
+  event: Event
+  className?: string
+  initialHighlightData?: HighlightData
+  highlightDefaultContent?: string
+  isPostEditorOpen?: boolean
+  onPostEditorClose?: () => void
+}) {
   const { isSmallScreen } = useScreenSize()
   const [isRawEventDialogOpen, setIsRawEventDialogOpen] = useState(false)
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
@@ -18,9 +32,6 @@ export default function NoteOptions({ event, className }: { event: Event; classN
   const [showSubMenu, setShowSubMenu] = useState(false)
   const [activeSubMenu, setActiveSubMenu] = useState<SubMenuAction[]>([])
   const [subMenuTitle, setSubMenuTitle] = useState('')
-  const [isPostEditorOpen, setIsPostEditorOpen] = useState(false)
-  const [initialHighlightData, setInitialHighlightData] = useState<HighlightData | undefined>(undefined)
-  const [highlightDefaultContent, setHighlightDefaultContent] = useState<string>('')
 
   const closeDrawer = () => {
     setIsDrawerOpen(false)
@@ -43,13 +54,7 @@ export default function NoteOptions({ event, className }: { event: Event; classN
     showSubMenuActions,
     setIsRawEventDialogOpen,
     setIsReportDialogOpen,
-    isSmallScreen,
-    openHighlightEditor: (highlightData: HighlightData, eventContent?: string) => {
-      setInitialHighlightData(highlightData)
-      setHighlightDefaultContent(eventContent || '')
-      setIsPostEditorOpen(true)
-      closeDrawer()
-    }
+    isSmallScreen
   })
 
   const trigger = useMemo(
@@ -92,18 +97,16 @@ export default function NoteOptions({ event, className }: { event: Event; classN
         isOpen={isReportDialogOpen}
         closeDialog={() => setIsReportDialogOpen(false)}
       />
-      <PostEditor
-        open={isPostEditorOpen}
-        setOpen={(open) => {
-          setIsPostEditorOpen(open)
-          if (!open) {
-            setInitialHighlightData(undefined)
-            setHighlightDefaultContent('')
-          }
-        }}
-        defaultContent={highlightDefaultContent}
-        initialHighlightData={initialHighlightData}
-      />
+      {onPostEditorClose != null && (
+        <PostEditor
+          open={isPostEditorOpen ?? false}
+          setOpen={(open) => {
+            if (!open) onPostEditorClose()
+          }}
+          defaultContent={highlightDefaultContent ?? ''}
+          initialHighlightData={initialHighlightData}
+        />
+      )}
     </div>
   )
 }

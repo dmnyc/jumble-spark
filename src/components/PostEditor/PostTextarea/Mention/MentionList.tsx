@@ -1,3 +1,4 @@
+import type { Editor } from '@tiptap/core'
 import { formatNpub, userIdToPubkey } from '@/lib/pubkey'
 import { cn } from '@/lib/utils'
 import { SuggestionKeyDownProps } from '@tiptap/suggestion'
@@ -12,6 +13,8 @@ export interface MentionListProps {
   /** When provided, selection is controlled by parent (e.g. for plain textarea @-mentions). */
   selectedIndex?: number
   onSelectIndex?: (index: number) => void
+  /** When provided, used to detect if we're inside a dialog (for z-index). */
+  editor?: Editor
 }
 
 export interface MentionListHandle {
@@ -19,6 +22,7 @@ export interface MentionListHandle {
 }
 
 const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref) => {
+  const inDialog = Boolean(props.editor?.view?.dom?.closest?.('[role="dialog"]'))
   const [internalIndex, setInternalIndex] = useState<number>(0)
   const isControlled = props.selectedIndex !== undefined
   const selectedIndex = isControlled ? props.selectedIndex! : internalIndex
@@ -77,7 +81,10 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
 
   return (
     <div
-      className="border rounded-lg bg-background z-[110] pointer-events-auto flex flex-col max-h-80 min-h-0 overflow-y-scroll overflow-x-hidden"
+      className={cn(
+        'border rounded-lg bg-background pointer-events-auto flex flex-col max-h-80 min-h-0 overflow-y-scroll overflow-x-hidden',
+        inDialog ? 'z-[210]' : 'z-[110]'
+      )}
       onWheel={(e: React.WheelEvent) => e.stopPropagation()}
       onTouchMove={(e: React.TouchEvent) => e.stopPropagation()}
     >

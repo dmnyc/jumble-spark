@@ -580,6 +580,21 @@ export default function PublicationIndex({
     return await fetchEventWithSubscription(filter, finalRelayUrls, logPrefix)
   }, [buildComprehensiveRelayList, fetchEventWithSubscription])
 
+  /** Resolve eventId (hex, note1, or nevent1) to 64-char hex for filter.ids. Relays require 64-char hex; wrong length causes "uneven size input to from_hex". */
+  const resolveEventIdToHex = useCallback((eventId: string): string | undefined => {
+    if (!eventId) return undefined
+    const trimmed = eventId.trim()
+    if (/^[0-9a-fA-F]{64}$/.test(trimmed)) return trimmed.toLowerCase()
+    try {
+      const decoded = nip19.decode(trimmed)
+      if (decoded.type === 'note') return decoded.data
+      if (decoded.type === 'nevent') return decoded.data.id
+    } catch {
+      // ignore
+    }
+    return undefined
+  }, [])
+
   // Fetch a single reference with retry logic
   const fetchSingleReference = useCallback(async (
     ref: PublicationReference,
@@ -652,8 +667,8 @@ export default function PublicationIndex({
         }
       } else if (ref.type === 'e' && ref.eventId) {
         // Handle event ID reference (e tag) - same as a tags
-        // First check indexedDb PUBLICATION_EVENTS store (events cached as part of publications)
-        const hexId = ref.eventId.length === 64 ? ref.eventId : undefined
+        // Resolve to 64-char hex only; relays require hex in filter.ids (wrong length → "uneven size input to from_hex")
+        const hexId = resolveEventIdToHex(ref.eventId)
         if (hexId) {
           try {
             // Check PUBLICATION_EVENTS store first (for non-replaceable events stored with master)
@@ -681,10 +696,19 @@ export default function PublicationIndex({
         
         // If not found in indexedDb cache, try to fetch from relay using unified method
         if (!fetchedEvent) {
-          // Build comprehensive relay list and fetch using unified method
-          const additionalRelays = ref.relay ? [ref.relay] : []
-          const filter = { ids: [hexId || ref.eventId], limit: 1 }
-          fetchedEvent = await fetchEventFromRelay(filter, additionalRelays, 'e tag')
+          if (hexId) {
+            // Only send filter.ids with valid 64-char hex; otherwise relays can return "bad req: uneven size input to from_hex"
+            const additionalRelays = ref.relay ? [ref.relay] : []
+            const filter = { ids: [hexId], limit: 1 }
+            fetchedEvent = await fetchEventFromRelay(filter, additionalRelays, 'e tag')
+          } else {
+            // ref.eventId is bech32 or invalid; client.fetchEvent decodes bech32 and builds correct filter internally
+            try {
+              fetchedEvent = await client.fetchEvent(ref.eventId)
+            } catch (err) {
+              logger.debug('[PublicationIndex] fetchEvent failed for ref.eventId:', ref.eventId, err)
+            }
+          }
           
           // Cache the fetched event if found
           if (fetchedEvent) {
@@ -777,7 +801,7 @@ export default function PublicationIndex({
       }
       return updatedRef
     }
-  }, [referencesData])
+  }, [referencesData, resolveEventIdToHex, fetchEventFromRelay])
 
   // Helper function to extract nested references from an event
   const extractNestedReferences = useCallback((
@@ -862,7 +886,7 @@ export default function PublicationIndex({
       if (ref.type === 'a' && ref.coordinate) {
         cached = await indexedDb.getPublicationEvent(ref.coordinate)
       } else if (ref.type === 'e' && ref.eventId) {
-        const hexId = ref.eventId.length === 64 ? ref.eventId : undefined
+        const hexId = resolveEventIdToHex(ref.eventId)
         if (hexId) {
           cached = await indexedDb.getEventFromPublicationStore(hexId)
           if (!cached && ref.kind && ref.pubkey && isReplaceableEvent(ref.kind)) {
@@ -905,7 +929,7 @@ export default function PublicationIndex({
       if (ref.type === 'a' && ref.coordinate) {
         cached = await indexedDb.getPublicationEvent(ref.coordinate)
       } else if (ref.type === 'e' && ref.eventId) {
-        const hexId = ref.eventId.length === 64 ? ref.eventId : undefined
+        const hexId = resolveEventIdToHex(ref.eventId)
         if (hexId) {
           cached = await indexedDb.getEventFromPublicationStore(hexId)
           if (!cached && ref.kind && ref.pubkey && isReplaceableEvent(ref.kind)) {
@@ -977,7 +1001,7 @@ export default function PublicationIndex({
                     if (nestedRef.type === 'a' && nestedRef.coordinate) {
                       nestedCached = await indexedDb.getPublicationEvent(nestedRef.coordinate)
                     } else if (nestedRef.type === 'e' && nestedRef.eventId) {
-                      const hexId = nestedRef.eventId.length === 64 ? nestedRef.eventId : undefined
+                      const hexId = resolveEventIdToHex(nestedRef.eventId)
                       if (hexId) {
                         nestedCached = await indexedDb.getEventFromPublicationStore(hexId)
                         if (!nestedCached && nestedRef.kind && nestedRef.pubkey && isReplaceableEvent(nestedRef.kind)) {
@@ -1073,7 +1097,7 @@ export default function PublicationIndex({
       fetched: allFetchedRefs,
       failed: allFetchedRefs.filter(ref => !ref.event)
               }
-  }, [fetchSingleReference, extractNestedReferences])
+  }, [fetchSingleReference, extractNestedReferences, resolveEventIdToHex])
 
   // Fetch referenced events
   useEffect(() => {

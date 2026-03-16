@@ -98,20 +98,6 @@ export const NIP66_DISCOVERY_RELAY_URLS = [
   'wss://relaypag.es'
 ]
 
-/**
- * Known public (no auth, open write) relays for censorship-resilience: when the user opts in,
- * we add 3 random relays from this list to every publish. Curated list of lively public relays.
- */
-export const PUBLIC_LIVELY_RELAY_URLS = [
-  'wss://relay.damus.io',
-  'wss://relay.primal.net',
-  'wss://nos.lol',
-  'wss://thecitadel.nostr1.com',
-  'wss://relay.lumina.rocks',
-  'wss://nostr.mom',
-  'wss://freelay.sovbit.host'
-]
-
 // Relay with bookstr composite index support
 export const BOOKSTR_RELAY_URLS = [
   'wss://orly-relay.imwald.eu'
