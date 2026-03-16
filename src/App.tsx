@@ -18,7 +18,6 @@ import { NostrProvider } from '@/providers/NostrProvider'
 import { ReplyProvider } from '@/providers/ReplyProvider'
 import { ScreenSizeProvider } from '@/providers/ScreenSizeProvider'
 import { ThemeProvider } from '@/providers/ThemeProvider'
-import { TranslationServiceProvider } from '@/providers/TranslationServiceProvider'
 import { UserPreferencesProvider } from '@/providers/UserPreferencesProvider'
 import { UserTrustProvider } from '@/providers/UserTrustProvider'
 import { ZapProvider } from '@/providers/ZapProvider'
@@ -33,7 +32,6 @@ export default function App(): JSX.Element {
           <DeletedEventProvider>
             <NostrProvider>
               <ZapProvider>
-                <TranslationServiceProvider>
                   <FavoriteRelaysProvider>
                     <FollowListProvider>
                       <MuteListProvider>
@@ -60,8 +58,7 @@ export default function App(): JSX.Element {
                       </MuteListProvider>
                     </FollowListProvider>
                   </FavoriteRelaysProvider>
-                </TranslationServiceProvider>
-              </ZapProvider>
+                </ZapProvider>
             </NostrProvider>
           </DeletedEventProvider>
         </ScreenSizeProvider>

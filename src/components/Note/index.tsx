@@ -17,7 +17,6 @@ import { FormattedTimestamp } from '../FormattedTimestamp'
 import Nip05 from '../Nip05'
 import NoteOptions from '../NoteOptions'
 import ParentNotePreview from '../ParentNotePreview'
-import TranslateButton from '../TranslateButton'
 import UserAvatar from '../UserAvatar'
 import Username from '../Username'
 import { MessageSquare } from 'lucide-react'
@@ -266,7 +265,6 @@ export default function Note({
                 <MessageSquare className="w-4 h-4 text-blue-500" />
               </button>
             )}
-            <TranslateButton event={event} className={size === 'normal' ? '' : 'pr-0'} />
             {size === 'normal' && (
               <NoteOptions
                 event={event}

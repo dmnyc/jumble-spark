@@ -17,7 +17,6 @@ import Nip05 from '../Nip05'
 import NoteOptions from '../NoteOptions'
 import NoteStats from '../NoteStats'
 import ParentNotePreview from '../ParentNotePreview'
-import TranslateButton from '../TranslateButton'
 import UserAvatar from '../UserAvatar'
 import Username from '../Username'
 
@@ -94,7 +93,6 @@ export default function ReplyNote({
                 </div>
               </div>
               <div className="flex items-center shrink-0">
-                <TranslateButton event={event} className="py-0" />
                 <NoteOptions event={event} className="shrink-0 [&_svg]:size-5" />
               </div>
             </div>

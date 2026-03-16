@@ -1,4 +1,4 @@
-import { useTranslatedEvent, useMediaExtraction } from '@/hooks'
+import { useMediaExtraction } from '@/hooks'
 import {
   EmbeddedEmojiParser,
   EmbeddedEventParser,
@@ -78,8 +78,7 @@ export default function Content({
   className?: string
   mustLoadMedia?: boolean
 }) {
-  const translatedEvent = useTranslatedEvent(event?.id)
-  const _content = translatedEvent?.content ?? event?.content ?? content
+  const _content = event?.content ?? content
   
   // Use unified media extraction service
   const extractedMedia = useMediaExtraction(event, _content)

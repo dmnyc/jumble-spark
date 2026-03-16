@@ -1,4 +1,3 @@
-import { useTranslatedEvent } from '@/hooks'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { Event } from 'nostr-tools'
 import { useMemo } from 'react'
@@ -11,12 +10,11 @@ export default function NormalContentPreview({
   event: Event
   className?: string
 }) {
-  const translatedEvent = useTranslatedEvent(event?.id)
   const emojiInfos = useMemo(() => getEmojiInfosFromEmojiTags(event?.tags), [event])
 
   return (
     <Content
-      content={translatedEvent?.content ?? event.content}
+      content={event.content}
       className={className}
       emojiInfos={emojiInfos}
     />

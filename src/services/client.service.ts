@@ -2152,11 +2152,6 @@ class ClientService extends EventTarget {
     await this.updateReplaceableEventCache(evt)
   }
 
-  /** Fetch profile (kind 0) event; uses replaceable cache and IndexedDB. */
-  async fetchProfileEvent(pubkey: string) {
-    return await this.fetchReplaceableEvent(pubkey, kinds.Metadata)
-  }
-
   /**
    * Force-refresh profile (kind 0) and payment info (kind 10133) cache for a pubkey:
    * clears in-memory cache and IndexedDB so the next fetch loads from relays.

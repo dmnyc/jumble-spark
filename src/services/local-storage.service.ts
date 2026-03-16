@@ -20,7 +20,6 @@ import {
   TNotificationStyle,
   TRelaySet,
   TThemeSetting,
-  TTranslationServiceConfig
 } from '@/types'
 
 class LocalStorageService {
@@ -43,7 +42,6 @@ class LocalStorageService {
   private hideUntrustedInteractions: boolean = false
   private hideUntrustedNotifications: boolean = false
   private hideUntrustedNotes: boolean = false
-  private translationServiceConfigMap: Record<string, TTranslationServiceConfig> = {}
   private mediaUploadServiceConfigMap: Record<string, TMediaUploadServiceConfig> = {}
   private defaultShowNsfw: boolean = false
   private dismissedTooManyRelaysAlert: boolean = false
@@ -161,13 +159,6 @@ class LocalStorageService {
     this.hideUntrustedNotes = storedHideUntrustedNotes
       ? storedHideUntrustedNotes === 'true'
       : hideUntrustedEvents
-
-    const translationServiceConfigMapStr = window.localStorage.getItem(
-      StorageKey.TRANSLATION_SERVICE_CONFIG_MAP
-    )
-    if (translationServiceConfigMapStr) {
-      this.translationServiceConfigMap = JSON.parse(translationServiceConfigMapStr)
-    }
 
     const mediaUploadServiceConfigMapStr = window.localStorage.getItem(
       StorageKey.MEDIA_UPLOAD_SERVICE_CONFIG_MAP
@@ -544,18 +535,6 @@ class LocalStorageService {
   setHideUntrustedNotes(hideUntrustedNotes: boolean) {
     this.hideUntrustedNotes = hideUntrustedNotes
     window.localStorage.setItem(StorageKey.HIDE_UNTRUSTED_NOTES, hideUntrustedNotes.toString())
-  }
-
-  getTranslationServiceConfig(pubkey?: string | null) {
-    return this.translationServiceConfigMap[pubkey ?? '_'] ?? { service: 'jumble' }
-  }
-
-  setTranslationServiceConfig(config: TTranslationServiceConfig, pubkey?: string | null) {
-    this.translationServiceConfigMap[pubkey ?? '_'] = config
-    window.localStorage.setItem(
-      StorageKey.TRANSLATION_SERVICE_CONFIG_MAP,
-      JSON.stringify(this.translationServiceConfigMap)
-    )
   }
 
   getMediaUploadServiceConfig(pubkey?: string | null): TMediaUploadServiceConfig {
