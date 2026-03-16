@@ -285,6 +285,7 @@ export default {
     'Are you sure you want to reset your API key? This action cannot be undone.':
       'Are you sure you want to reset your API key? This action cannot be undone.',
     Warning: 'Warning',
+    'Errors & warnings': 'Errors & warnings',
     'Your current API key will become invalid immediately, and any applications using it will stop working until you update them with the new key.':
       'Your current API key will become invalid immediately, and any applications using it will stop working until you update them with the new key.',
     'Service address': 'Service address',

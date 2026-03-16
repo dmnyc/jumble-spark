@@ -276,6 +276,7 @@ export default {
     'Are you sure you want to reset your API key? This action cannot be undone.':
       'Bist du sicher, dass du deinen API-Schlüssel zurücksetzen möchtest? Diese Aktion kann nicht rückgängig gemacht werden.',
     Warning: 'Warnung',
+    'Errors & warnings': 'Fehler & Warnungen',
     'Your current API key will become invalid immediately, and any applications using it will stop working until you update them with the new key.':
       'Dein aktueller API-Schlüssel wird sofort ungültig, und alle Anwendungen, die ihn verwenden, werden nicht mehr funktionieren, bis du sie mit dem neuen Schlüssel aktualisierst.',
     'Service address': 'Service-Adresse',

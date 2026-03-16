@@ -31,7 +31,6 @@ import { getRelayListFromEvent } from '@/lib/event-metadata'
 import { showPublishingFeedback, showSimplePublishSuccess, showPublishingError } from '@/lib/publishing-feedback'
 import { CloudUpload, Loader, Trash2, RefreshCw, Database, WrapText, Search, X, TriangleAlert, Terminal, XCircle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import postEditorCache from '@/services/post-editor-cache.service'
@@ -61,7 +60,7 @@ export default function CacheRelaysSetting() {
   const [consoleLogs, setConsoleLogs] = useState<Array<{ type: string; message: string; formattedParts?: Array<{ text: string; style?: string }>; timestamp: number }>>([])
   const [showConsoleLogs, setShowConsoleLogs] = useState(false)
   const [consoleLogSearch, setConsoleLogSearch] = useState('')
-  const [consoleLogLevel, setConsoleLogLevel] = useState<'error' | 'warn' | 'info' | 'log' | 'all'>('error')
+  const [consoleLogLevel, setConsoleLogLevel] = useState<'errors-warnings' | 'all'>('all')
   const consoleLogRef = useRef<Array<{ type: string; message: string; formattedParts?: Array<{ text: string; style?: string }>; timestamp: number }>>([])
 
   const sensors = useSensors(
@@ -523,9 +522,9 @@ export default function CacheRelaysSetting() {
   const handleShowConsoleLogs = () => {
     setConsoleLogs([...consoleLogRef.current])
     setShowConsoleLogs(true)
-    // Reset filters when opening
+    // Reset filters when opening – default to 'all' so user sees every entry (errors + warnings + info)
     setConsoleLogSearch('')
-    setConsoleLogLevel('error')
+    setConsoleLogLevel('all')
   }
 
   const handleClearConsoleLogs = () => {
@@ -538,9 +537,9 @@ export default function CacheRelaysSetting() {
   const filteredConsoleLogs = useMemo(() => {
     let filtered = [...consoleLogs]
     
-    // Filter by log level
-    if (consoleLogLevel !== 'all') {
-      filtered = filtered.filter(log => log.type === consoleLogLevel)
+    // Filter by log level: errors-warnings = error + warn only, all = everything
+    if (consoleLogLevel === 'errors-warnings') {
+      filtered = filtered.filter(log => log.type === 'error' || log.type === 'warn')
     }
     
     // Filter by search query
@@ -1293,18 +1292,24 @@ export default function CacheRelaysSetting() {
                   onChange={(e) => setConsoleLogSearch(e.target.value)}
                   className="flex-1"
                 />
-                <Select value={consoleLogLevel} onValueChange={(value: 'error' | 'warn' | 'info' | 'log' | 'all') => setConsoleLogLevel(value)}>
-                  <SelectTrigger className="w-full sm:w-[140px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="error">{t('Error')}</SelectItem>
-                    <SelectItem value="warn">{t('Warning')}</SelectItem>
-                    <SelectItem value="info">{t('Info')}</SelectItem>
-                    <SelectItem value="log">{t('Log')}</SelectItem>
-                    <SelectItem value="all">{t('All')}</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-1 shrink-0">
+                  <Button
+                    type="button"
+                    variant={consoleLogLevel === 'errors-warnings' ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={() => setConsoleLogLevel('errors-warnings')}
+                  >
+                    {t('Errors & warnings')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={consoleLogLevel === 'all' ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={() => setConsoleLogLevel('all')}
+                  >
+                    {t('All')}
+                  </Button>
+                </div>
               </div>
             </div>
             <div className="flex-1 overflow-auto px-4 pb-4">
@@ -1410,18 +1415,24 @@ export default function CacheRelaysSetting() {
                   onChange={(e) => setConsoleLogSearch(e.target.value)}
                   className="flex-1"
                 />
-                <Select value={consoleLogLevel} onValueChange={(value: 'error' | 'warn' | 'info' | 'log' | 'all') => setConsoleLogLevel(value)}>
-                  <SelectTrigger className="w-full sm:w-[140px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="error">{t('Error')}</SelectItem>
-                    <SelectItem value="warn">{t('Warning')}</SelectItem>
-                    <SelectItem value="info">{t('Info')}</SelectItem>
-                    <SelectItem value="log">{t('Log')}</SelectItem>
-                    <SelectItem value="all">{t('All')}</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-1 shrink-0">
+                  <Button
+                    type="button"
+                    variant={consoleLogLevel === 'errors-warnings' ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={() => setConsoleLogLevel('errors-warnings')}
+                  >
+                    {t('Errors & warnings')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={consoleLogLevel === 'all' ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={() => setConsoleLogLevel('all')}
+                  >
+                    {t('All')}
+                  </Button>
+                </div>
               </div>
             </div>
             <div className="flex-1 overflow-auto px-6 pb-4">
