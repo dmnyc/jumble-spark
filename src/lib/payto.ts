@@ -18,9 +18,10 @@ export function parsePaytoUri(uri: string): ParsedPayto | null {
   const trimmed = uri.trim()
   const m = /^payto:\/\/([a-z0-9-]+)\/(.+)$/i.exec(trimmed)
   if (!m) return null
-  const type = m[1].toLowerCase()
+  const typeRaw = m[1].toLowerCase()
   const authority = decodeURIComponent(m[2].replace(/\+/g, ' '))
-  if (!type || !authority) return null
+  if (!typeRaw || !authority) return null
+  const type = getCanonicalPaytoType(typeRaw)
   return { type, authority, raw: trimmed }
 }
 
@@ -36,42 +37,65 @@ export function buildPaytoUri(type: string, authority: string): string {
 /** Known payment types: NIP-A3 recommended + common extras (crypto, fiat, tipping) */
 export const PAYTO_KNOWN_TYPES: Record<
   string,
-  { label: string; shortLabel?: string; symbol?: string; category: 'crypto' | 'fiat' | 'lightning' | 'tip' }
+  { label: string; symbol?: string; category: 'bitcoin' | 'crypto' | 'stablecoin' | 'fiat' | 'lightning' | 'tip' }
 > = {
-  bitcoin: { label: 'Bitcoin', shortLabel: 'BTC', symbol: '₿', category: 'crypto' },
-  lightning: { label: 'Lightning Network', shortLabel: 'LBTC', symbol: '⚡', category: 'lightning' },
-  ethereum: { label: 'Ethereum', shortLabel: 'ETH', symbol: 'Ξ', category: 'crypto' },
-  monero: { label: 'Monero', shortLabel: 'XMR', symbol: 'ɱ', category: 'crypto' },
-  nano: { label: 'Nano', shortLabel: 'XNO', symbol: 'Ӿ', category: 'crypto' },
-  cashme: { label: 'Cash App', shortLabel: 'Cash App', symbol: '$', category: 'fiat' },
-  revolut: { label: 'Revolut', shortLabel: 'Revolut', symbol: '💳', category: 'fiat' },
-  venmo: { label: 'Venmo', shortLabel: 'Venmo', symbol: '$', category: 'fiat' },
+  bitcoin: { label: 'Bitcoin', symbol: '₿', category: 'bitcoin' },
+  sats: { label: 'Satoshis', symbol: '丰', category: 'bitcoin' },
+  lightning: { label: 'Lightning Network', symbol: '⚡', category: 'lightning' },
+  ethereum: { label: 'Ethereum', symbol: 'Ξ', category: 'crypto' },
+  monero: { label: 'Monero', symbol: 'ɱ', category: 'crypto' },
+  nano: { label: 'Nano', symbol: 'Ӿ', category: 'crypto' },
+  cashme: { label: 'Cash App', symbol: '$', category: 'fiat' },
+  revolut: { label: 'Revolut', symbol: '💳', category: 'fiat' },
+  venmo: { label: 'Venmo', symbol: '$', category: 'fiat' },
 
   // Common crypto
-  dogecoin: { label: 'Dogecoin', shortLabel: 'DOGE', symbol: 'Ð', category: 'crypto' },
-  litecoin: { label: 'Litecoin', shortLabel: 'LTC', symbol: 'Ł', category: 'crypto' },
-  usdt: { label: 'Tether', shortLabel: 'USDT', symbol: '₮', category: 'crypto' },
-  usdc: { label: 'USD Coin', shortLabel: 'USDC', symbol: '◎', category: 'crypto' },
-  dai: { label: 'Dai', shortLabel: 'DAI', symbol: '◈', category: 'crypto' },
-  euroc: { label: 'Euro Coin', shortLabel: 'EUROC', symbol: '€', category: 'crypto' },
-  solana: { label: 'Solana', shortLabel: 'SOL', symbol: '◎', category: 'crypto' },
+  'bitcoin-cash': { label: 'Bitcoin Cash', symbol: '₿', category: 'crypto' },
+  dogecoin: { label: 'Dogecoin', symbol: 'Ð', category: 'crypto' },
+  litecoin: { label: 'Litecoin', symbol: 'Ł', category: 'crypto' },
+  usdt: { label: 'Tether', symbol: '₮', category: 'stablecoin' },
+  usdc: { label: 'USD Coin', symbol: '◎', category: 'stablecoin' },
+  dai: { label: 'Dai', symbol: '◈', category: 'crypto' },
+  euroc: { label: 'Euro Coin', symbol: '€', category: 'stablecoin' },
+  solana: { label: 'Solana', symbol: '◎', category: 'crypto' },
 
   // Tipping / donation
-  paypal: { label: 'PayPal', shortLabel: 'PayPal', symbol: '💙', category: 'fiat' },
-  buymeacoffee: { label: 'Buy Me a Coffee', shortLabel: 'Buy Me a Coffee', symbol: '☕', category: 'tip' },
-  'ko-fi': { label: 'Ko-fi', shortLabel: 'Ko-fi', symbol: '☕', category: 'tip' },
-  kofi: { label: 'Ko-fi', shortLabel: 'Ko-fi', symbol: '☕', category: 'tip' },
-  patreon: { label: 'Patreon', shortLabel: 'Patreon', symbol: '🎭', category: 'tip' },
-  github: { label: 'GitHub Sponsors', shortLabel: 'GitHub', symbol: '🐙', category: 'tip' },
+  paypal: { label: 'PayPal', symbol: '💙', category: 'fiat' },
+  buymeacoffee: { label: 'Buy Me a Coffee', symbol: '☕', category: 'tip' },
+  'ko-fi': { label: 'Ko-fi', symbol: '☕', category: 'tip' },
+  kofi: { label: 'Ko-fi', symbol: '☕', category: 'tip' },
+  patreon: { label: 'Patreon', symbol: '🎭', category: 'tip' },
+  github: { label: 'GitHub Sponsors', symbol: '🐙', category: 'tip' },
 
   // Fiat / wallets
-  'apple-pay': { label: 'Apple Pay', shortLabel: 'Apple Pay', symbol: '🍎', category: 'fiat' },
-  'google-pay': { label: 'Google Pay', shortLabel: 'Google Pay', symbol: 'G', category: 'fiat' },
+  'apple-pay': { label: 'Apple Pay', symbol: '🍎', category: 'fiat' },
+  'google-pay': { label: 'Google Pay', symbol: 'G', category: 'fiat' },
 
   // Crowdfunding / fundraising
-  geyser: { label: 'Geyser Fund', shortLabel: 'Geyser', symbol: '⛲', category: 'tip' },
-  gofundme: { label: 'GoFundMe', shortLabel: 'GoFundMe', symbol: '🎯', category: 'tip' },
-  kickstarter: { label: 'Kickstarter', shortLabel: 'Kickstarter', symbol: '🚀', category: 'tip' }
+  geyser: { label: 'Geyser Fund', symbol: '⛲', category: 'tip' },
+  gofundme: { label: 'GoFundMe', symbol: '🎯', category: 'tip' },
+  kickstarter: { label: 'Kickstarter', symbol: '🚀', category: 'tip' }
+}
+
+/**
+ * Short labels accepted after payto:// that map to a canonical type.
+ * e.g. payto://BTC/..., payto://LBTC/..., payto://DOGE/... are recognized as bitcoin, lightning, dogecoin.
+ */
+export const PAYTO_TYPE_ALIASES: Record<string, string> = {
+  btc: 'bitcoin',
+  lbtc: 'lightning',
+  doge: 'dogecoin',
+  eth: 'ethereum',
+  xmr: 'monero',
+  ltc: 'litecoin',
+  xno: 'nano',
+  sol: 'solana',
+  bch: 'bitcoin-cash'
+}
+
+export function getCanonicalPaytoType(type: string): string {
+  const key = type.toLowerCase().trim()
+  return PAYTO_TYPE_ALIASES[key] ?? key
 }
 
 /** Icon character/symbol for known types; null for unknown (render HelpCircle or ?) */
@@ -104,8 +128,8 @@ export const PAYTO_LOGO_FILES: Record<string, string> = {
   kofi: 'ko-fi.png',
   patreon: 'patreon.png',
   github: 'github_sponsors.png',
-  'apple-pay': 'apple_pay.webp',
-  'google-pay': 'google_pay.png',
+  'apple-pay': 'apple_pay.svg',
+  'google-pay': 'google_pay.jpeg',
   geyser: 'geyser_fund.webp',
   gofundme: 'gofundme.jpeg',
   kickstarter: 'kickstarter.webp'
@@ -142,14 +166,14 @@ export function getPaytoLogoPath(type: string): string | null {
 }
 
 export function getPaytoTypeInfo(type: string): (typeof PAYTO_KNOWN_TYPES)[string] | undefined {
-  return PAYTO_KNOWN_TYPES[type.toLowerCase()]
+  return PAYTO_KNOWN_TYPES[getCanonicalPaytoType(type)]
 }
 
 export function isKnownPaytoType(type: string): boolean {
-  return type.toLowerCase() in PAYTO_KNOWN_TYPES
+  return getCanonicalPaytoType(type) in PAYTO_KNOWN_TYPES
 }
 
 /** Check if type is lightning (opens Zap flow when pubkey available) */
 export function isLightningPaytoType(type: string): boolean {
-  return type.toLowerCase() === 'lightning'
+  return getCanonicalPaytoType(type) === 'lightning'
 }

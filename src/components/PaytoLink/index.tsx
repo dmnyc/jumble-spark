@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import {
   parsePaytoUri,
   buildPaytoUri,
+  getCanonicalPaytoType,
   getPaytoTypeInfo,
   getPaytoIconChar,
   getPaytoLogoPath,
@@ -39,7 +40,11 @@ export default function PaytoLink({
   const parsed = paytoUri
     ? parsePaytoUri(paytoUri)
     : typeProp && authorityProp
-      ? { type: typeProp.toLowerCase(), authority: authorityProp, raw: buildPaytoUri(typeProp, authorityProp) }
+      ? {
+          type: getCanonicalPaytoType(typeProp),
+          authority: authorityProp,
+          raw: buildPaytoUri(typeProp, authorityProp)
+        }
       : null
 
   if (!parsed) {
@@ -68,6 +73,7 @@ export default function PaytoLink({
   }
 
   const displayLabel = info?.label ?? type
+  const categoryLabel = info?.category ? info.category.charAt(0).toUpperCase() + info.category.slice(1) : ''
   const logoPath = getPaytoLogoPath(type)
   const iconChar = getPaytoIconChar(type)
   const profileUrl = getPaytoProfileUrl(type, authority)
@@ -100,7 +106,7 @@ export default function PaytoLink({
           'text-primary hover:underline cursor-pointer text-left break-words inline-flex items-center gap-1.5',
           className
         )}
-        title={`${displayLabel}: ${t('Open on website')}`}
+        title={categoryLabel ? `${displayLabel} (${categoryLabel}): ${t('Open on website')}` : `${displayLabel}: ${t('Open on website')}`}
         onClick={(e) => e.stopPropagation()}
       >
         {iconEl}
@@ -118,7 +124,7 @@ export default function PaytoLink({
           'text-primary hover:underline cursor-pointer text-left break-words inline-flex items-center gap-1.5',
           className
         )}
-        title={known ? `${displayLabel}: ${t('Click to open payment options')}` : t('Click to copy address')}
+        title={known && categoryLabel ? `${displayLabel} (${categoryLabel}): ${t('Click to open payment options')}` : known ? `${displayLabel}: ${t('Click to open payment options')}` : t('Click to copy address')}
       >
         {iconEl}
         {content}
