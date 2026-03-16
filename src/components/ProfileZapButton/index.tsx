@@ -4,9 +4,19 @@ import { Zap } from 'lucide-react'
 import { useState } from 'react'
 import ZapDialog from '../ZapDialog'
 
-export default function ProfileZapButton({ pubkey }: { pubkey: string }) {
+export default function ProfileZapButton({
+  pubkey,
+  openZapDialog,
+  setOpenZapDialog
+}: {
+  pubkey: string
+  openZapDialog?: boolean
+  setOpenZapDialog?: (open: boolean) => void
+}) {
   const { checkLogin } = useNostr()
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = setOpenZapDialog ? (openZapDialog ?? false) : internalOpen
+  const setOpen = setOpenZapDialog ?? setInternalOpen
 
   return (
     <>
@@ -18,7 +28,7 @@ export default function ProfileZapButton({ pubkey }: { pubkey: string }) {
       >
         <Zap className="text-yellow-400" />
       </Button>
-      <ZapDialog open={open} setOpen={setOpen} pubkey={pubkey} />
+      {!setOpenZapDialog && <ZapDialog open={open} setOpen={setOpen} pubkey={pubkey} />}
     </>
   )
 }

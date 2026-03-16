@@ -48,8 +48,78 @@ import ProfileMedia from './ProfileMedia'
 import ProfileInteractions from './ProfileInteractions'
 import ProfileNotes from './ProfileNotes'
 import { toFollowPacks } from '@/lib/link'
+import ZapDialog from '@/components/ZapDialog'
+import type { TProfile } from '@/types'
 
 type ProfileTabValue = 'posts' | 'pins' | 'bookmarks' | 'interests' | 'articles' | 'media' | 'you' | 'notes'
+
+/** Normalize authority for deduplication (e.g. lightning addresses case-insensitive) */
+function normalizePaymentAuthority(type: string, authority: string): string {
+  if (type === 'lightning' && authority) return authority.toLowerCase().trim()
+  return authority.trim()
+}
+
+type MergedPaymentMethod = {
+  type: string
+  authority: string
+  payto?: string
+  displayType: string
+  currency?: string
+  minAmount?: number
+  maxAmount?: number
+}
+
+/** Merge payment methods from kind 10133 and profile (kind 0 lightning), deduplicated */
+function mergePaymentMethods(
+  paymentInfo: ReturnType<typeof getPaymentInfoFromEvent> | null,
+  profile: TProfile | null
+): MergedPaymentMethod[] {
+  const seen = new Set<string>()
+  const out: MergedPaymentMethod[] = []
+
+  const add = (type: string, authority: string, payto?: string, displayType?: string, extra?: { currency?: string; minAmount?: number; maxAmount?: number }) => {
+    const key = `${type}:${normalizePaymentAuthority(type, authority)}`
+    if (!authority || seen.has(key)) return
+    seen.add(key)
+    out.push({
+      type,
+      authority,
+      payto: payto || (type && authority ? `payto://${type}/${authority}` : undefined),
+      displayType: displayType || (type === 'lightning' ? 'Lightning Network' : type === 'bitcoin' ? 'Bitcoin' : type || 'Payment'),
+      ...extra
+    })
+  }
+
+  // From kind 10133
+  if (paymentInfo?.methods?.length) {
+    paymentInfo.methods.forEach((m) => {
+      const authority = m.authority || m.address || ''
+      add(
+        (m.type || 'lightning').toLowerCase(),
+        authority,
+        m.payto,
+        m.displayType,
+        { currency: m.currency, minAmount: m.minAmount, maxAmount: m.maxAmount }
+      )
+    })
+  } else if (paymentInfo?.payto) {
+    const type = (paymentInfo.type || 'lightning').toLowerCase()
+    const authority = paymentInfo.authority || paymentInfo.payto.replace(/^payto:\/\/[^/]+\//, '') || ''
+    add(type, authority, paymentInfo.payto, type === 'lightning' ? 'Lightning Network' : paymentInfo.type || 'Payment')
+  }
+
+  // From profile (kind 0) lightning addresses
+  const fromProfile = profile?.lightningAddressList?.length
+    ? profile.lightningAddressList
+    : profile?.lightningAddress
+      ? [profile.lightningAddress]
+      : []
+  fromProfile.forEach((addr) => {
+    if (addr) add('lightning', addr, `payto://lightning/${addr}`, 'Lightning Network')
+  })
+
+  return out
+}
 
 export default function Profile({ id }: { id?: string }) {
   const { t } = useTranslation()
@@ -57,7 +127,13 @@ export default function Profile({ id }: { id?: string }) {
   const { profile, isFetching } = useFetchProfile(id)
   const { pubkey: accountPubkey } = useNostr()
   const [paymentInfo, setPaymentInfo] = useState<ReturnType<typeof getPaymentInfoFromEvent> | null>(null)
-  
+  const [openZapDialog, setOpenZapDialog] = useState(false)
+
+  const mergedPaymentMethods = useMemo(
+    () => mergePaymentMethods(paymentInfo, profile ?? null),
+    [paymentInfo, profile]
+  )
+
   // Fetch payment info (kind 10133) for this profile
   useEffect(() => {
     if (!profile?.pubkey) {
@@ -295,7 +371,7 @@ export default function Profile({ id }: { id?: string }) {
   }
   if (!profile) return <NotFound />
 
-  const { banner, username, about, avatar, pubkey, website, websiteList, lightningAddress, lightningAddressList, nip05List } = profile
+  const { banner, username, about, avatar, pubkey, website, websiteList, nip05List } = profile
   
   logger.component('Profile', 'Profile data loaded', { 
     pubkey, 
@@ -338,7 +414,9 @@ export default function Profile({ id }: { id?: string }) {
               </div>
             ) : (
               <>
-                {!!lightningAddress && <ProfileZapButton pubkey={pubkey} />}
+                {mergedPaymentMethods.some((m) => m.type === 'lightning') && (
+                  <ProfileZapButton pubkey={pubkey} openZapDialog={openZapDialog} setOpenZapDialog={setOpenZapDialog} />
+                )}
                 <FollowButton pubkey={pubkey} />
               </>
             )}
@@ -356,23 +434,6 @@ export default function Profile({ id }: { id?: string }) {
             {/* Display multiple NIP-05 values if available, with verification */}
             {nip05List && nip05List.length > 1 && (
               <Nip05List nip05List={nip05List.slice(1)} pubkey={pubkey} />
-            )}
-            {/* Display lightning addresses - show first one prominently, others below */}
-            {lightningAddress && (
-              <div className="text-sm text-yellow-400 flex gap-1 items-center select-text">
-                <Zap className="size-4 shrink-0" />
-                <div className="flex-1 max-w-fit w-0 truncate">{lightningAddress}</div>
-              </div>
-            )}
-            {lightningAddressList && lightningAddressList.length > 1 && (
-              <div className="text-sm text-yellow-400/70 flex flex-wrap gap-2 mt-1">
-                {lightningAddressList.slice(1).map((addr, idx) => (
-                  <div key={idx} className="flex gap-1 items-center select-text">
-                    <Zap className="size-3 shrink-0" />
-                    <span className="truncate">{addr}</span>
-                  </div>
-                ))}
-              </div>
             )}
             <div className="flex gap-1 mt-1">
               <PubkeyCopy pubkey={pubkey} />
@@ -415,69 +476,69 @@ export default function Profile({ id }: { id?: string }) {
                 ))}
               </div>
             )}
-            {/* Display payment info from kind 10133 */}
-            {paymentInfo && ((paymentInfo.methods && paymentInfo.methods.length > 0) || paymentInfo.payto) && (
+            {/* Payment methods: merged from kind 10133 + profile lightning, deduplicated */}
+            {mergedPaymentMethods.length > 0 && (
               <div className="mt-2 p-2 border rounded-lg bg-muted/50 min-w-0 overflow-hidden">
                 <div className="text-xs font-semibold text-muted-foreground mb-2">Payment Methods</div>
                 <div className="space-y-2 min-w-0">
-                  {paymentInfo.methods && paymentInfo.methods.length > 0 ? (
-                    paymentInfo.methods.map((method, idx) => {
-                      // NIP-A3: type is in method.type, authority is in method.authority
-                      const displayType = method.displayType || method.type || 'Payment'
-                      const authority = method.authority || method.address || ''
-                      const paytoUri = method.payto || (method.type && authority ? `payto://${method.type}/${authority}` : undefined)
-                      
-                      return (
-                        <div key={idx} className="text-sm min-w-0">
-                          <div className="font-medium">{displayType}</div>
-                          {authority && (
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 min-w-0">
-                              {method.type === 'lightning' && <Zap className="size-3 text-yellow-400 shrink-0" />}
+                  {mergedPaymentMethods.map((method, idx) => {
+                    const authority = method.authority
+                    const paytoUri = method.payto
+                    const isLightning = method.type === 'lightning'
+                    return (
+                      <div key={idx} className="text-sm min-w-0">
+                        <div className="font-medium">{method.displayType}</div>
+                        {authority && (
+                          <div className="text-muted-foreground mt-1 flex items-center gap-2 min-w-0">
+                            {isLightning && <Zap className="size-3 text-yellow-400 shrink-0" />}
+                            {isLightning && pubkey ? (
+                              <button
+                                type="button"
+                                className="text-left hover:underline break-all min-w-0 text-primary"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setOpenZapDialog(true)
+                                }}
+                              >
+                                {authority}
+                              </button>
+                            ) : paytoUri ? (
+                              <a
+                                href={paytoUri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:underline break-all min-w-0 text-primary"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {authority}
+                              </a>
+                            ) : (
                               <span className="select-text min-w-0 break-all">{authority}</span>
-                            </div>
-                          )}
-                          {paytoUri && (
-                            <a
-                              href={paytoUri}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-muted-foreground text-xs mt-1 hover:underline block break-all min-w-0"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {paytoUri}
-                            </a>
-                          )}
-                          {(method.currency || (method.minAmount !== undefined && method.maxAmount !== undefined)) && (
-                            <div className="text-muted-foreground text-xs mt-1">
-                              {method.currency && <span>({method.currency})</span>}
-                              {method.minAmount !== undefined && method.maxAmount !== undefined && (
-                                <span className="ml-2">
-                                  {method.minAmount}-{method.maxAmount}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })
-                  ) : (
-                    // Display payto from root level if methods array is empty
-                    paymentInfo.payto && (
-                      <div className="text-sm min-w-0">
-                        <div className="font-medium">Lightning Network</div>
-                        <div className="text-muted-foreground mt-1 flex items-center gap-2 min-w-0">
-                          <Zap className="size-3 text-yellow-400 shrink-0" />
-                          <span className="select-text min-w-0 break-all">{paymentInfo.payto}</span>
-                        </div>
-                        {paymentInfo.currency && (
-                          <div className="text-muted-foreground text-xs mt-1">({paymentInfo.currency})</div>
+                            )}
+                          </div>
+                        )}
+                        {(method.currency || (method.minAmount !== undefined && method.maxAmount !== undefined)) && (
+                          <div className="text-muted-foreground text-xs mt-1">
+                            {method.currency && <span>({method.currency})</span>}
+                            {method.minAmount !== undefined && method.maxAmount !== undefined && (
+                              <span className="ml-2">
+                                {method.minAmount}-{method.maxAmount}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     )
-                  )}
+                  })}
                 </div>
               </div>
             )}
+            <ZapDialog
+              open={openZapDialog}
+              setOpen={setOpenZapDialog}
+              pubkey={pubkey}
+            />
             <div className="flex justify-between items-center mt-2 text-sm">
               <div className="flex gap-4 items-center">
                 <SmartFollowings pubkey={pubkey} />

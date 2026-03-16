@@ -4,7 +4,7 @@ import { MessageCircle, Hash, Users } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
-import { DISCUSSION_TOPICS } from '@/pages/primary/DiscussionsPage/CreateThreadDialog'
+import { DISCUSSION_TOPICS } from '@/pages/primary/DiscussionsPage/discussionTopics'
 import { extractGroupInfo } from '@/lib/discussion-topics'
 
 interface DiscussionNoteProps {

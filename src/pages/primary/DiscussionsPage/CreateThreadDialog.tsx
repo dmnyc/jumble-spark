@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Hash, X, Users, Code, Coins, Newspaper, BookOpen, Scroll, Cpu, Trophy, Film, Heart, TrendingUp, Utensils, MapPin, Home, PawPrint, Shirt, Image, Zap, Settings, Book, Network, Car, Eye, Edit3, ChevronDown, Check, ImageUp, Smile } from 'lucide-react'
+import { Hash, X, Users, Trophy, Film, Image, Zap, Settings, Book, Eye, Edit3, ChevronDown, Check, ImageUp, Smile } from 'lucide-react'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
@@ -23,6 +23,7 @@ import { simplifyUrl } from '@/lib/url'
 import relaySelectionService, { type RelaySourceType } from '@/services/relay-selection.service'
 import dayjs from 'dayjs'
 import { extractHashtagsFromContent, normalizeTopic } from '@/lib/discussion-topics'
+import { DISCUSSION_TOPICS } from './discussionTopics'
 import MarkdownArticle from '@/components/Note/MarkdownArticle/MarkdownArticle'
 import RelayIcon from '@/components/RelayIcon'
 import GifPicker from '@/components/GifPicker'
@@ -75,29 +76,6 @@ interface CreateThreadDialogProps {
   onClose: () => void
   onThreadCreated: (publishedEvent?: NostrEvent) => void
 }
-
-export const DISCUSSION_TOPICS = [
-  { id: 'general', label: 'General', icon: Hash },
-  { id: 'meetups', label: 'Meetups', icon: Users },
-  { id: 'devs', label: 'Developers', icon: Code },
-  { id: 'finance', label: 'Bitcoin, Finance & Economics', icon: Coins },
-  { id: 'politics', label: 'Politics & Breaking News', icon: Newspaper },
-  { id: 'literature', label: 'Literature & Art', icon: BookOpen },
-  { id: 'philosophy', label: 'Philosophy & Theology', icon: Scroll },
-  { id: 'tech', label: 'Technology & Science', icon: Cpu },
-  { id: 'nostr', label: 'Nostr', icon: Network },
-  { id: 'automotive', label: 'Automotive', icon: Car },
-  { id: 'sports', label: 'Sports and Gaming', icon: Trophy },
-  { id: 'entertainment', label: 'Entertainment & Pop Culture', icon: Film },
-  { id: 'health', label: 'Health & Wellness', icon: Heart },
-  { id: 'lifestyle', label: 'Lifestyle & Personal Development', icon: TrendingUp },
-  { id: 'food', label: 'Food & Cooking', icon: Utensils },
-  { id: 'travel', label: 'Travel & Adventure', icon: MapPin },
-  { id: 'home', label: 'Home & Garden', icon: Home },
-  { id: 'pets', label: 'Pets & Animals', icon: PawPrint },
-  { id: 'fashion', label: 'Fashion & Beauty', icon: Shirt },
-  { id: 'groups', label: 'Groups', icon: Users }
-]
 
 export default function CreateThreadDialog({ 
   topic: initialTopic, 
