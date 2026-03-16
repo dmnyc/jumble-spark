@@ -150,11 +150,6 @@ export async function createShortTextNoteDraftEvent(
   // p tags
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
 
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
-
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
   }
@@ -260,11 +255,6 @@ export async function createCommentDraftEvent(
     ]
   )
 
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
-
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
   }
@@ -347,11 +337,6 @@ export async function createPublicMessageReplyDraftEvent(
     ...Array.from(recipients).map((pubkey) => buildPTag(pubkey))
   )
 
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
-
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
   }
@@ -414,11 +399,6 @@ export async function createPublicMessageDraftEvent(
   tags.push(
     ...recipients.map((pubkey) => buildPTag(pubkey))
   )
-
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
 
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
@@ -641,11 +621,6 @@ export async function createPollDraftEvent(
     relayList.read.slice(0, 4).forEach((relay) => {
       tags.push(buildRelayTag(relay))
     })
-  }
-
-  if (addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
   }
 
   if (isNsfw) {
@@ -981,7 +956,7 @@ function buildResponseTag(value: string) {
   return ['response', value]
 }
 
-function buildClientTag(handlerPubkey?: string, handlerIdentifier?: string, relay?: string) {
+export function buildClientTag(handlerPubkey?: string, handlerIdentifier?: string, relay?: string) {
   // Use NIP-89 format if handler information is provided
   if (handlerPubkey && handlerIdentifier) {
     const aTag = `31990:${handlerPubkey}:${handlerIdentifier}`
@@ -996,7 +971,7 @@ function buildClientTag(handlerPubkey?: string, handlerIdentifier?: string, rela
   return ['client', 'jumble']
 }
 
-function buildAltTag() {
+export function buildAltTag() {
   return ['alt', 'This event was published by https://jumble.imwald.eu.']
 }
 
@@ -1164,11 +1139,6 @@ export async function createHighlightDraftEvent(
   }
 
   // Add optional tags
-  if (options?.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
-
   if (options?.isNsfw) {
     tags.push(buildNsfwTag())
   }
@@ -1212,11 +1182,6 @@ export async function createVoiceDraftEvent(
   tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
   tags.push(...imetaTags)
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
-  
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
   
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
@@ -1300,11 +1265,6 @@ export async function createVoiceCommentDraftEvent(
     ]
   )
   
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
-  
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
   }
@@ -1354,11 +1314,6 @@ export async function createPictureDraftEvent(
   tags.push(...imetaTags)
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
   
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
-  
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
   }
@@ -1404,11 +1359,6 @@ export async function createVideoDraftEvent(
   tags.push(...hashtags.map((hashtag) => buildTTag(hashtag)))
   tags.push(...imetaTags)
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
-  
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
   
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
@@ -1485,11 +1435,6 @@ export async function createLongFormArticleDraftEvent(
     tags.push(...generateImetaTags(images))
   }
   
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
-  
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
   }
@@ -1560,11 +1505,6 @@ export async function createWikiArticleDraftEvent(
   }
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
   
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
-  
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
   }
@@ -1626,11 +1566,6 @@ export async function createWikiArticleMarkdownDraftEvent(
   }
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
   
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
-  
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
   }
@@ -1691,11 +1626,6 @@ export async function createPublicationContentDraftEvent(
     tags.push(...normalizedTopics.map((topic) => buildTTag(topic)))
   }
   tags.push(...mentions.map((pubkey) => buildPTag(pubkey)))
-  
-  if (options.addClientTag) {
-    tags.push(buildClientTag())
-    tags.push(buildAltTag())
-  }
   
   if (options.isNsfw) {
     tags.push(buildNsfwTag())

@@ -126,9 +126,13 @@ export default function GifPicker({
 
   const isLoggedIn = !!pubkey
 
+  /** In drawer mode we constrain height and make only the GIF grid scroll so the drawer doesn't "sink" */
+  const isDrawer = isSmallScreen
   const content = (
-    <div className="flex flex-col gap-2 p-2 min-w-[280px] max-w-[360px]">
-      <div className="flex items-center gap-1">
+    <div
+      className={`flex flex-col gap-2 p-2 ${isDrawer ? 'w-full h-[70vh] max-h-[70vh] overflow-hidden' : 'min-w-[280px] max-w-[360px]'}`}
+    >
+      <div className="flex items-center gap-1 shrink-0">
         <Input
           placeholder={t('Search GIFs')}
           value={searchInput}
@@ -147,38 +151,49 @@ export default function GifPicker({
         </Button>
       </div>
       {error && (
-        <p className="text-sm text-muted-foreground px-1">{error}</p>
+        <p className="text-sm text-muted-foreground px-1 shrink-0">{error}</p>
       )}
-      <ScrollArea className="h-[280px] w-full rounded-md border">
-        {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-1 p-2">
-            {gifs.map((gif) => (
-              <button
-                key={gif.eventId}
-                type="button"
-                className="rounded overflow-hidden border border-transparent hover:border-primary focus:border-primary focus:outline-none aspect-square"
-                onClick={() => handleSelect(gif)}
-              >
-                <img
-                  src={gif.url}
-                  alt="GIF"
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                  onError={(e) => {
-                    const el = e.target as HTMLImageElement
-                    el.style.display = 'none'
-                  }}
-                />
-              </button>
-            ))}
-          </div>
-        )}
-      </ScrollArea>
-      <div className="flex flex-col gap-2 border-t pt-2">
+      <div
+        className={isDrawer ? 'flex-1 min-h-0 flex flex-col' : undefined}
+        {...(isDrawer && { 'data-vaul-no-drag': true })}
+      >
+        <ScrollArea
+          className={
+            isDrawer
+              ? 'flex-1 min-h-[200px] w-full rounded-md border'
+              : 'h-[280px] w-full rounded-md border'
+          }
+        >
+          {loading ? (
+            <div className="flex items-center justify-center h-full min-h-[200px]">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-1 p-2">
+              {gifs.map((gif) => (
+                <button
+                  key={gif.eventId}
+                  type="button"
+                  className="rounded overflow-hidden border border-transparent hover:border-primary focus:border-primary focus:outline-none aspect-square"
+                  onClick={() => handleSelect(gif)}
+                >
+                  <img
+                    src={gif.url}
+                    alt="GIF"
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      const el = e.target as HTMLImageElement
+                      el.style.display = 'none'
+                    }}
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+      </div>
+      <div className="flex flex-col gap-2 border-t pt-2 shrink-0">
         <a
           href={GIFBUDDY_URL}
           target="_blank"

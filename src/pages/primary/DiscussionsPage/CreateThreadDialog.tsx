@@ -45,15 +45,6 @@ function buildNsfwTag(): string[] {
   return ['content-warning', '']
 }
 
-function buildClientTag(): string[] {
-  return ['client', 'jumble']
-}
-
-function buildAltTag(): string[] {
-  return ['alt', 'This event was published by https://jumble.imwald.eu.']
-}
-
-
 interface DynamicTopic {
   id: string
   label: string
@@ -430,11 +421,7 @@ export default function CreateThreadDialog({
         tags.push(buildNsfwTag())
       }
       
-      // Add client tag if enabled
-      if (addClientTag) {
-        tags.push(buildClientTag())
-        tags.push(buildAltTag())
-      }
+      // Client tag is added in publish() based on user preference
       
       // Create the thread event (kind 11)
       const threadEvent: TDraftEvent = {
@@ -458,7 +445,8 @@ export default function CreateThreadDialog({
       // Publish to all selected relays
       const publishedEvent = await publish(threadEvent, {
         specifiedRelayUrls: selectedRelayUrls,
-        minPow
+        minPow,
+        addClientTag
       })
       
       

@@ -1283,6 +1283,8 @@ function parseMarkdownContent(
         
         // Check if there's text before the pattern (even on previous lines, as long as no paragraph break)
         const hasTextBefore = text.trim().length > 0 && !text.includes('\n\n')
+        // For hashtags at start of line: text after on same line (e.g. "#pyramid 1.1 has..." - merge so no hard break)
+        let hasTextAfterOnSameLine = false
         
         // For hashtags: check if the line contains only hashtags (and spaces)
         // This handles cases like "#orly #devstr #progressreport" on one line
@@ -1344,10 +1346,11 @@ function parseMarkdownContent(
           shouldMergeHashtag = lineHasOnlyHashtags || hasOtherHashtagsOnLine || hasHashtagsOnAdjacentLines || hasTextOnSameLine || hasTextBefore
           
           // If none of the above, but there's text after the hashtag on the same line, also merge
-          // This handles cases where hashtag is at start of line but followed by text
+          // This handles cases where hashtag is at start of line but followed by text (e.g. "#pyramid 1.1 has...")
           if (!shouldMergeHashtag) {
             const textAfterOnSameLine = content.substring(pattern.end, lineEndIndex)
-            if (textAfterOnSameLine.trim().length > 0) {
+            hasTextAfterOnSameLine = textAfterOnSameLine.trim().length > 0
+            if (hasTextAfterOnSameLine) {
               shouldMergeHashtag = true
             }
           }
@@ -1438,8 +1441,8 @@ function parseMarkdownContent(
             
             // Also update lastIndex immediately to prevent processing of patterns in this range
             lastIndex = textEndIndex
-          } else if (hasTextOnSameLine || hasTextBefore) {
-            // Hashtag is part of text - merge just this hashtag and text after it
+          } else if (hasTextOnSameLine || hasTextBefore || hasTextAfterOnSameLine) {
+            // Hashtag is part of text - merge just this hashtag and text after it (avoids hard break after #hashtag at start of line)
             const patternMarkdown = content.substring(pattern.index, pattern.end)
             const textAfterPattern = content.substring(pattern.end, lineEndIndex)
             text = text + patternMarkdown + textAfterPattern

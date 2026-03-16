@@ -1,6 +1,8 @@
 import LoginDialog from '@/components/LoginDialog'
-import { ApplicationDataKey, BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS } from '@/constants'
+import { ApplicationDataKey, BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, StorageKey } from '@/constants'
 import {
+  buildAltTag,
+  buildClientTag,
   createDeletionRequestDraftEvent,
   createFollowListDraftEvent,
   createMuteListDraftEvent,
@@ -865,6 +867,19 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     }
 
     const draft = JSON.parse(JSON.stringify(draftEvent)) as TDraftEvent
+    // 1) Remove any existing "client" tag so we control the only one
+    if (draft.tags?.length) {
+      draft.tags = draft.tags.filter((tag) => Array.isArray(tag) && tag[0] !== 'client')
+    }
+    // 2) If user has allowed adding a client tag, add our own
+    const addClientTag =
+      typeof options.addClientTag === 'boolean'
+        ? options.addClientTag
+        : (typeof window !== 'undefined' && window.localStorage.getItem(StorageKey.ADD_CLIENT_TAG) !== 'false')
+    if (addClientTag) {
+      draft.tags = draft.tags ?? []
+      draft.tags.push(buildClientTag(), buildAltTag())
+    }
     let event: VerifiedEvent
     if (minPow > 0) {
       const unsignedEvent = await minePow({ ...draft, pubkey: account.pubkey }, minPow)

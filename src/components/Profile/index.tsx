@@ -55,10 +55,32 @@ import type { TProfile } from '@/types'
 
 type ProfileTabValue = 'posts' | 'pins' | 'bookmarks' | 'interests' | 'articles' | 'media' | 'you' | 'notes'
 
-/** Normalize authority for deduplication (e.g. lightning addresses case-insensitive) */
+/**
+ * Normalize lightning/LUD-16 authority to a canonical form for deduplication.
+ * Handles "user@domain" and "user.domain" (dot variant) as the same address.
+ */
+function normalizeLightningAuthority(authority: string): string {
+  const s = authority.trim().toLowerCase()
+  if (!s) return s
+  if (s.includes('@')) return s
+  const firstDot = s.indexOf('.')
+  if (firstDot > 0) return s.slice(0, firstDot) + '@' + s.slice(firstDot + 1)
+  return s
+}
+
+/** Normalize authority for deduplication (canonical key per type) */
 function normalizePaymentAuthority(type: string, authority: string): string {
-  if (type === 'lightning' && authority) return authority.toLowerCase().trim()
-  return authority.trim()
+  const t = type.toLowerCase()
+  if (t === 'lightning' && authority) return normalizeLightningAuthority(authority)
+  return authority.trim().toLowerCase()
+}
+
+/** Prefer displaying lightning address in canonical "user@domain" form when we have both variants */
+function preferCanonicalLightningAuthority(a: string, b: string): string {
+  const hasAt = (s: string) => s.trim().includes('@')
+  if (hasAt(a) && !hasAt(b)) return a
+  if (hasAt(b) && !hasAt(a)) return b
+  return a
 }
 
 type MergedPaymentMethod = {
@@ -71,28 +93,48 @@ type MergedPaymentMethod = {
   maxAmount?: number
 }
 
-/** Merge payment methods from kind 10133 and profile (kind 0 lightning), deduplicated */
+/** Merge payment methods from kind 10133 and profile (kind 0: JSON + tags), normalized and deduplicated */
 function mergePaymentMethods(
   paymentInfo: ReturnType<typeof getPaymentInfoFromEvent> | null,
   profile: TProfile | null
 ): MergedPaymentMethod[] {
-  const seen = new Set<string>()
+  const seen = new Map<string, MergedPaymentMethod>()
   const out: MergedPaymentMethod[] = []
 
   const add = (type: string, authority: string, payto?: string, displayType?: string, extra?: { currency?: string; minAmount?: number; maxAmount?: number }) => {
-    const key = `${type}:${normalizePaymentAuthority(type, authority)}`
-    if (!authority || seen.has(key)) return
-    seen.add(key)
-    out.push({
-      type,
-      authority,
-      payto: payto || (type && authority ? `payto://${type}/${authority}` : undefined),
-      displayType: displayType || (type === 'lightning' ? 'Lightning Network' : type === 'bitcoin' ? 'Bitcoin' : type || 'Payment'),
+    if (!authority?.trim()) return
+    const normType = type.toLowerCase()
+    const key = `${normType}:${normalizePaymentAuthority(normType, authority)}`
+    const existing = seen.get(key)
+    if (existing) {
+      if (normType === 'lightning') {
+        existing.authority = preferCanonicalLightningAuthority(existing.authority, authority.trim())
+        existing.payto = existing.payto || payto || (normType && authority ? `payto://${normType}/${existing.authority}` : undefined)
+      }
+      return
+    }
+    const entry: MergedPaymentMethod = {
+      type: normType,
+      authority: authority.trim(),
+      payto: payto || (normType && authority ? `payto://${normType}/${authority.trim()}` : undefined),
+      displayType: displayType || (normType === 'lightning' ? 'Lightning Network' : normType === 'bitcoin' ? 'Bitcoin' : type || 'Payment'),
       ...extra
-    })
+    }
+    seen.set(key, entry)
+    out.push(entry)
   }
 
-  // From kind 10133
+  // Aggregate: profile (kind 0) first – from lightningAddressList (tags + JSON) and single lightningAddress
+  const fromProfile = profile?.lightningAddressList?.length
+    ? profile.lightningAddressList
+    : profile?.lightningAddress
+      ? [profile.lightningAddress]
+      : []
+  fromProfile.forEach((addr) => {
+    if (addr) add('lightning', addr, `payto://lightning/${addr}`, 'Lightning Network')
+  })
+
+  // Then kind 10133 (payto tags and JSON content)
   if (paymentInfo?.methods?.length) {
     paymentInfo.methods.forEach((m) => {
       const authority = m.authority || m.address || ''
@@ -109,16 +151,6 @@ function mergePaymentMethods(
     const authority = paymentInfo.authority || paymentInfo.payto.replace(/^payto:\/\/[^/]+\//, '') || ''
     add(type, authority, paymentInfo.payto, type === 'lightning' ? 'Lightning Network' : paymentInfo.type || 'Payment')
   }
-
-  // From profile (kind 0) lightning addresses
-  const fromProfile = profile?.lightningAddressList?.length
-    ? profile.lightningAddressList
-    : profile?.lightningAddress
-      ? [profile.lightningAddress]
-      : []
-  fromProfile.forEach((addr) => {
-    if (addr) add('lightning', addr, `payto://lightning/${addr}`, 'Lightning Network')
-  })
 
   return out
 }

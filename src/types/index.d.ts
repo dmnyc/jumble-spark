@@ -173,6 +173,8 @@ export type TPublishOptions = {
   additionalRelayUrls?: string[]
   minPow?: number
   disableFallbacks?: boolean // If true, don't use fallback relays when publishing fails
+  /** Override global "Add client tag" preference for this publish (default: read from localStorage) */
+  addClientTag?: boolean
 }
 
 export type TNoteListMode = 'posts' | 'postsAndReplies' | 'you' | 'bookmarksAndHashtags'

@@ -178,11 +178,12 @@ export async function fetchGifs(
 
   const filter = {
     kinds: [ExtendedKind.FILE_METADATA],
-    limit: Math.max(limit * 3, 150)
+    limit: Math.max(limit * 10, 200)
   }
 
   const events = await client.fetchEvents(GIF_RELAY_URLS, filter, {
-    eoseTimeout: 8000
+    eoseTimeout: 10000,
+    globalTimeout: 15000
   })
 
   const seenUrls = new Set<string>()

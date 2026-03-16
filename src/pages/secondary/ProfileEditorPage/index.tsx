@@ -24,7 +24,7 @@ import { isEmail } from '@/lib/utils'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
-import { ChevronDown, Loader, Pencil, RefreshCw, Upload } from 'lucide-react'
+import { ChevronDown, Loader, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -50,12 +50,16 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
   const [paymentInfoEvent, setPaymentInfoEvent] = useState<Event | null>(null)
   const [paymentInfoEditOpen, setPaymentInfoEditOpen] = useState(false)
   const [paymentInfoEditContent, setPaymentInfoEditContent] = useState('')
-  const [paymentInfoEditTagsJson, setPaymentInfoEditTagsJson] = useState('[]')
+  /** Payment method rows for kind 10133: each is a payto tag ["payto", type, authority]. */
+  const [paymentInfoEditMethods, setPaymentInfoEditMethods] = useState<Array<{ type: string; authority: string }>>([])
+  const [paymentInfoShowFullJson, setPaymentInfoShowFullJson] = useState(false)
   const [savingPaymentInfo, setSavingPaymentInfo] = useState(false)
   /** Editable full profile event (whole event as JSON string); synced from profileEvent. */
   const [profileEventJson, setProfileEventJson] = useState<string>('')
   const [savingFullProfile, setSavingFullProfile] = useState(false)
   const [refreshingCache, setRefreshingCache] = useState(false)
+  /** Editable tag list for kind 0 (e.g. lud16, nip05, website). Each row is [name, value]. */
+  const [profileTags, setProfileTags] = useState<string[][]>([])
   const defaultImage = useMemo(
     () => (account ? generateImageByPubkey(account.pubkey) : undefined),
     [account]
@@ -90,6 +94,15 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     }
   }, [profileEvent])
 
+  // Sync tag list from profileEvent (kind 0 tags)
+  useEffect(() => {
+    if (profileEvent?.tags?.length) {
+      setProfileTags(profileEvent.tags.map((t) => [...t]))
+    } else {
+      setProfileTags([])
+    }
+  }, [profileEvent])
+
   // Fetch payment info event (kind 10133) for current user
   useEffect(() => {
     if (!account?.pubkey) {
@@ -117,31 +130,41 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
           ? paymentInfoEvent.content
           : JSON.stringify(paymentInfoEvent.content ?? '', null, 2)
       )
-      setPaymentInfoEditTagsJson(
-        JSON.stringify(paymentInfoEvent.tags ?? [], null, 2)
+      const paytoTags = (paymentInfoEvent.tags ?? []).filter(
+        (tag) => Array.isArray(tag) && tag[0] === 'payto' && tag[1] != null
+      )
+      setPaymentInfoEditMethods(
+        paytoTags.length > 0
+          ? paytoTags.map((tag) => ({
+              type: (tag[1] as string) || 'lightning',
+              authority: (tag[2] as string) || ''
+            }))
+          : [{ type: 'lightning', authority: '' }]
       )
     } else {
       setPaymentInfoEditContent('{}')
-      setPaymentInfoEditTagsJson('[]')
+      setPaymentInfoEditMethods([{ type: 'lightning', authority: '' }])
     }
+    setPaymentInfoShowFullJson(false)
     setPaymentInfoEditOpen(true)
   }, [paymentInfoEvent])
 
   const savePaymentInfo = useCallback(async () => {
-    let tags: string[][]
-    try {
-      tags = JSON.parse(paymentInfoEditTagsJson)
-      if (!Array.isArray(tags)) throw new Error('Tags must be an array')
-      tags.forEach((t, i) => {
-        if (!Array.isArray(t)) throw new Error(`Tag at index ${i} must be an array of strings`)
-      })
-    } catch (e) {
-      toast.error(t('Invalid tags JSON'))
-      return
-    }
+    const tags: string[][] = paymentInfoEditMethods
+      .filter((m) => m.authority.trim())
+      .map((m) => ['payto', (m.type.trim() || 'lightning').toLowerCase(), m.authority.trim()])
     setSavingPaymentInfo(true)
     try {
-      const draft = createPaymentInfoDraftEvent(paymentInfoEditContent.trim(), tags)
+      const contentStr = paymentInfoEditContent.trim() || '{}'
+      let content = contentStr
+      try {
+        JSON.parse(contentStr)
+      } catch {
+        toast.error(t('Invalid content JSON'))
+        setSavingPaymentInfo(false)
+        return
+      }
+      const draft = createPaymentInfoDraftEvent(content, tags)
       const published = await publish(draft)
       await client.updatePaymentInfoCache(published)
       setPaymentInfoEvent(published)
@@ -152,9 +175,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     } finally {
       setSavingPaymentInfo(false)
     }
-  }, [paymentInfoEditContent, paymentInfoEditTagsJson, publish, t])
-
-  if (!account || !profile) return null
+  }, [paymentInfoEditContent, paymentInfoEditMethods, publish, t])
 
   const save = async () => {
     if (nip05 && !isEmail(nip05)) {
@@ -188,11 +209,14 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
       delete newProfileContent.lud16
     }
 
+    const tagsToSave = profileTags
+      .filter((tag) => Array.isArray(tag) && tag.length >= 2 && tag[0].trim() && tag[1].trim())
+      .map((tag) => [tag[0].trim(), tag[1].trim(), ...(tag.slice(2) || [])])
     setSaving(true)
     setHasChanged(false)
     const profileDraftEvent = createProfileDraftEvent(
       JSON.stringify(newProfileContent),
-      profileEvent?.tags ?? []
+      tagsToSave
     )
     const newProfileEvent = await publish(profileDraftEvent)
     await updateProfileEvent(newProfileEvent)
@@ -228,6 +252,8 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
       setRefreshingCache(false)
     }
   }, [account?.pubkey, updateProfileEvent, t])
+
+  if (!account || !profile) return null
 
   const saveFullProfile = async () => {
     let parsed: { kind?: number; content?: string; tags?: string[][] }
@@ -381,6 +407,65 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
           )}
         </Item>
 
+        <Item>
+          <Label className="text-muted-foreground">{t('Tag list')}</Label>
+          <p className="text-xs text-muted-foreground">
+            {t('Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.')}
+          </p>
+          <div className="space-y-2">
+            {profileTags.map((tag, idx) => (
+              <div key={idx} className="flex gap-2 items-center">
+                <Input
+                  placeholder={t('Tag name')}
+                  value={tag[0] ?? ''}
+                  onChange={(e) => {
+                    const next = profileTags.map((t, i) => (i === idx ? [e.target.value, t[1] ?? '', ...(t.slice(2) ?? [])] : t))
+                    setProfileTags(next)
+                    setHasChanged(true)
+                  }}
+                  className="flex-1 max-w-[140px] font-mono text-sm"
+                />
+                <Input
+                  placeholder={t('Tag value')}
+                  value={tag[1] ?? ''}
+                  onChange={(e) => {
+                    const next = profileTags.map((t, i) => (i === idx ? [t[0] ?? '', e.target.value, ...(t.slice(2) ?? [])] : t))
+                    setProfileTags(next)
+                    setHasChanged(true)
+                  }}
+                  className="flex-1 font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => {
+                    setProfileTags(profileTags.filter((_, i) => i !== idx))
+                    setHasChanged(true)
+                  }}
+                  aria-label={t('Remove')}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => {
+                setProfileTags([...profileTags, ['', '']])
+                setHasChanged(true)
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t('Add tag')}
+            </Button>
+          </div>
+        </Item>
+
         {/* Full profile event (kind 0): editable entire event as JSON */}
         {profileEvent && (
           <Item>
@@ -464,22 +549,94 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
           </DialogHeader>
           <div className="flex-1 overflow-auto space-y-4">
             <Item>
-              <Label htmlFor="payment-info-content">{t('Content (JSON)')}</Label>
-              <Textarea
+              <Label className="text-muted-foreground">{t('Payment methods')}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t('NIP-A3 payto tags: type (e.g. lightning) and authority (e.g. user@domain.com).')}
+              </p>
+              <div className="space-y-2">
+                {paymentInfoEditMethods.map((row, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <Input
+                      placeholder={t('Type (e.g. lightning)')}
+                      value={row.type}
+                      onChange={(e) => {
+                        const next = [...paymentInfoEditMethods]
+                        next[idx] = { ...next[idx], type: e.target.value }
+                        setPaymentInfoEditMethods(next)
+                      }}
+                      className="flex-1 max-w-[140px] font-mono text-sm"
+                    />
+                    <Input
+                      placeholder={t('Authority (e.g. user@domain.com)')}
+                      value={row.authority}
+                      onChange={(e) => {
+                        const next = [...paymentInfoEditMethods]
+                        next[idx] = { ...next[idx], authority: e.target.value }
+                        setPaymentInfoEditMethods(next)
+                      }}
+                      className="flex-1 font-mono text-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => {
+                        setPaymentInfoEditMethods(paymentInfoEditMethods.filter((_, i) => i !== idx))
+                      }}
+                      aria-label={t('Remove')}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => setPaymentInfoEditMethods([...paymentInfoEditMethods, { type: 'lightning', authority: '' }])}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {t('Add payment method')}
+                </Button>
+              </div>
+            </Item>
+            <Item>
+              <Label htmlFor="payment-info-content">{t('Additional content (JSON)')}</Label>
+              <Input
                 id="payment-info-content"
-                className="font-mono text-sm min-h-32"
+                className="font-mono text-sm"
                 value={paymentInfoEditContent}
                 onChange={(e) => setPaymentInfoEditContent(e.target.value)}
+                placeholder='{}'
               />
             </Item>
             <Item>
-              <Label htmlFor="payment-info-tags">{t('Tags (JSON array of arrays, e.g. [["payto","lightning","user@domain.com"]])')}</Label>
-              <Textarea
-                id="payment-info-tags"
-                className="font-mono text-sm min-h-24"
-                value={paymentInfoEditTagsJson}
-                onChange={(e) => setPaymentInfoEditTagsJson(e.target.value)}
-              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={() => setPaymentInfoShowFullJson((v) => !v)}
+              >
+                <ChevronDown className={`h-4 w-4 transition-transform ${paymentInfoShowFullJson ? 'rotate-180' : ''}`} />
+                {t('Show full event JSON')}
+              </Button>
+              {paymentInfoShowFullJson && (
+                <pre className="mt-2 p-3 rounded-md bg-muted text-xs overflow-auto max-h-48 break-all whitespace-pre-wrap border">
+                  {JSON.stringify(
+                    createPaymentInfoDraftEvent(
+                      paymentInfoEditContent.trim() || '{}',
+                      paymentInfoEditMethods
+                        .filter((m) => m.authority.trim())
+                        .map((m) => ['payto', (m.type.trim() || 'lightning').toLowerCase(), m.authority.trim()])
+                    ),
+                    null,
+                    2
+                  )}
+                </pre>
+              )}
             </Item>
           </div>
           <DialogFooter>

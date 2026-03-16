@@ -121,8 +121,10 @@ export const FAST_WRITE_RELAY_URLS = [
   'wss://nos.lol'
 ]
 
-/** Relays used for NIP-94 file metadata (kind 1063) / GIF discovery and publish */
+/** Relays used for NIP-94 file metadata (kind 1063) / GIF discovery and publish.
+ *  Include relay.gifbuddy.lol (GifBuddy) so we get many kind 1063 GIFs; damus/primal/thecitadel have fewer. */
 export const GIF_RELAY_URLS = [
+  'wss://relay.gifbuddy.lol',
   'wss://relay.damus.io',
   'wss://relay.primal.net',
   'wss://thecitadel.nostr1.com'

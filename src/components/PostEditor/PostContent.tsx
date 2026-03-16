@@ -815,7 +815,8 @@ export default function PostContent({
           specifiedRelayUrls: relayUrls,
           additionalRelayUrls: isPoll ? pollCreateData.relays : (isPrivateEvent ? privateRelayUrls : additionalRelayUrls),
           minPow,
-          disableFallbacks: additionalRelayUrls.length > 0 || isPrivateEvent // Don't use fallbacks if user explicitly selected relays or for private events
+          disableFallbacks: additionalRelayUrls.length > 0 || isPrivateEvent, // Don't use fallbacks if user explicitly selected relays or for private events
+          addClientTag
         })
         // console.log('Published event:', newEvent)
         
