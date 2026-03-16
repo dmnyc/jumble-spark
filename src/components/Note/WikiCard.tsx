@@ -24,7 +24,7 @@ export default function WikiCard({
     push(toNote(event.id))
   }
 
-  const titleComponent = <div className="text-xl font-semibold line-clamp-2">{metadata.title}</div>
+  const titleComponent = <div className="text-xl font-semibold break-words min-w-0 sm:line-clamp-2">{metadata.title}</div>
 
   const tagsComponent = metadata.tags.length > 0 && (
     <div className="flex gap-1 flex-wrap">

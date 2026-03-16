@@ -587,11 +587,11 @@ export default function CreateThreadDialog({
                   sideOffset={4}
                 >
                   <div className="max-h-60 overflow-y-auto">
-                    {allAvailableTopics.map((topic) => {
+                    {allAvailableTopics.map((topic, index) => {
                       const Icon = topic.icon
                       return (
                         <div
-                          key={topic.id}
+                          key={`topic-${index}-${topic.id}`}
                           className="flex items-center p-2 hover:bg-accent cursor-pointer rounded"
                           onClick={() => {
                             setSelectedTopic(topic.id)

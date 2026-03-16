@@ -417,9 +417,9 @@ export default function Profile({ id }: { id?: string }) {
             )}
             {/* Display payment info from kind 10133 */}
             {paymentInfo && ((paymentInfo.methods && paymentInfo.methods.length > 0) || paymentInfo.payto) && (
-              <div className="mt-2 p-2 border rounded-lg bg-muted/50">
+              <div className="mt-2 p-2 border rounded-lg bg-muted/50 min-w-0 overflow-hidden">
                 <div className="text-xs font-semibold text-muted-foreground mb-2">Payment Methods</div>
-                <div className="space-y-2">
+                <div className="space-y-2 min-w-0">
                   {paymentInfo.methods && paymentInfo.methods.length > 0 ? (
                     paymentInfo.methods.map((method, idx) => {
                       // NIP-A3: type is in method.type, authority is in method.authority
@@ -428,12 +428,12 @@ export default function Profile({ id }: { id?: string }) {
                       const paytoUri = method.payto || (method.type && authority ? `payto://${method.type}/${authority}` : undefined)
                       
                       return (
-                        <div key={idx} className="text-sm">
+                        <div key={idx} className="text-sm min-w-0">
                           <div className="font-medium">{displayType}</div>
                           {authority && (
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2">
-                              {method.type === 'lightning' && <Zap className="size-3 text-yellow-400" />}
-                              <span className="select-text">{authority}</span>
+                            <div className="text-muted-foreground mt-1 flex items-center gap-2 min-w-0">
+                              {method.type === 'lightning' && <Zap className="size-3 text-yellow-400 shrink-0" />}
+                              <span className="select-text min-w-0 break-all">{authority}</span>
                             </div>
                           )}
                           {paytoUri && (
@@ -441,7 +441,7 @@ export default function Profile({ id }: { id?: string }) {
                               href={paytoUri}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-muted-foreground text-xs mt-1 hover:underline"
+                              className="text-muted-foreground text-xs mt-1 hover:underline block break-all min-w-0"
                               onClick={(e) => e.stopPropagation()}
                             >
                               {paytoUri}
@@ -463,11 +463,11 @@ export default function Profile({ id }: { id?: string }) {
                   ) : (
                     // Display payto from root level if methods array is empty
                     paymentInfo.payto && (
-                      <div className="text-sm">
+                      <div className="text-sm min-w-0">
                         <div className="font-medium">Lightning Network</div>
-                        <div className="text-muted-foreground mt-1 flex items-center gap-2">
-                          <Zap className="size-3 text-yellow-400" />
-                          <span>{paymentInfo.payto}</span>
+                        <div className="text-muted-foreground mt-1 flex items-center gap-2 min-w-0">
+                          <Zap className="size-3 text-yellow-400 shrink-0" />
+                          <span className="select-text min-w-0 break-all">{paymentInfo.payto}</span>
                         </div>
                         {paymentInfo.currency && (
                           <div className="text-muted-foreground text-xs mt-1">({paymentInfo.currency})</div>

@@ -1,4 +1,3 @@
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { formatNpub, userIdToPubkey } from '@/lib/pubkey'
 import { cn } from '@/lib/utils'
 import { SuggestionKeyDownProps } from '@tiptap/suggestion'
@@ -77,8 +76,8 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
   }
 
   return (
-    <ScrollArea
-      className="border rounded-lg bg-background z-50 pointer-events-auto flex flex-col max-h-80 overflow-y-auto"
+    <div
+      className="border rounded-lg bg-background z-[110] pointer-events-auto flex flex-col max-h-80 min-h-0 overflow-y-scroll overflow-x-hidden"
       onWheel={(e: React.WheelEvent) => e.stopPropagation()}
       onTouchMove={(e: React.TouchEvent) => e.stopPropagation()}
     >
@@ -101,7 +100,7 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
           </div>
         </button>
       ))}
-    </ScrollArea>
+    </div>
   )
 })
 MentionList.displayName = 'MentionList'

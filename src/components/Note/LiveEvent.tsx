@@ -23,7 +23,7 @@ export default function LiveEvent({ event, className }: { event: Event; classNam
       <Badge variant="secondary">{metadata.status}</Badge>
     ))
 
-  const titleComponent = <div className="text-xl font-semibold line-clamp-1">{metadata.title}</div>
+  const titleComponent = <div className="text-xl font-semibold break-words min-w-0 sm:line-clamp-1">{metadata.title}</div>
 
   const summaryComponent = metadata.summary && (
     <div className="text-base text-muted-foreground line-clamp-4">{metadata.summary}</div>

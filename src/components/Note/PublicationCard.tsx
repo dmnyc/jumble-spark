@@ -28,7 +28,7 @@ export default function PublicationCard({
     push(toNote(event.id))
   }
 
-  const titleComponent = metadata.title ? <div className="text-xl font-semibold line-clamp-2">{metadata.title}</div> : null
+  const titleComponent = metadata.title ? <div className="text-xl font-semibold break-words min-w-0 sm:line-clamp-2">{metadata.title}</div> : null
 
   const formatBookName = (book: string) => {
     return book

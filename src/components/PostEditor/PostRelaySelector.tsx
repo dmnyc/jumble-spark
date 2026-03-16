@@ -15,7 +15,6 @@ import relaySelectionService, { type RelaySourceType } from '@/services/relay-se
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import logger from '@/lib/logger'
 
 export default function PostRelaySelector({
@@ -390,9 +389,9 @@ export default function PostRelaySelector({
                   <span className="text-sm text-muted-foreground truncate">{description}</span>
                 </div>
               </div>
-              <ScrollArea className="flex-1 p-4">
+              <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden p-4">
                 {content}
-              </ScrollArea>
+              </div>
             </div>
           </SheetContent>
         </Sheet>
@@ -417,14 +416,14 @@ export default function PostRelaySelector({
             <ChevronDown className="w-3 h-3 shrink-0" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[90vw] max-w-md p-0 max-h-[40vh] flex flex-col" align="start" side="bottom" sideOffset={8}>
+        <PopoverContent className="w-[90vw] max-w-md p-0 max-h-[40vh] flex flex-col overflow-hidden" align="start" side="bottom" sideOffset={8}>
           <div className="p-3 border-b flex items-center justify-between shrink-0">
             <span className="text-sm font-medium">{t('Select relays')}</span>
             <span className="text-xs text-muted-foreground truncate ml-2">{description}</span>
           </div>
-          <ScrollArea className="p-3 max-h-[30vh]">
+          <div className="max-h-[35vh] min-h-0 overflow-y-scroll overflow-x-hidden p-3">
             {content}
-          </ScrollArea>
+          </div>
         </PopoverContent>
       </Popover>
     </div>
