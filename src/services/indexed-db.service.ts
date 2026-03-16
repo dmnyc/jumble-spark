@@ -36,6 +36,14 @@ export const StoreNames = {
   PUBLICATION_EVENTS: 'publicationEvents'
 }
 
+/** Convert IDB request.onerror Event to a proper Error for logging and UI */
+function idbEventToError(ev: Parameters<NonNullable<IDBRequest['onerror']>>[0]): Error {
+  const request = ev.target as IDBRequest
+  const domError = request?.error
+  const message = domError?.message ?? 'IndexedDB operation failed'
+  return new Error(message)
+}
+
 class IndexedDbService {
   static instance: IndexedDbService
   static getInstance(): IndexedDbService {
@@ -51,11 +59,14 @@ class IndexedDbService {
 
   init(): Promise<void> {
     if (!this.initPromise) {
-      this.initPromise = new Promise((resolve, reject) => {
+      this.initPromise = new Promise<void>((resolve) => {
         const request = window.indexedDB.open('jumble', 17)
 
         request.onerror = (event) => {
-          reject(event)
+          // Resolve instead of reject so the app can run without IndexedDB (e.g. mobile private mode)
+          logger.warn('IndexedDB unavailable, running without local cache', idbEventToError(event))
+          this.db = null
+          resolve()
         }
 
         request.onsuccess = () => {
@@ -145,7 +156,7 @@ class IndexedDbService {
     await this.initPromise
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve(undefined)
       }
       const transaction = this.db.transaction(storeName, 'readwrite')
       const store = transaction.objectStore(storeName)
@@ -212,8 +223,7 @@ class IndexedDbService {
     
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        logger.error('[IndexedDB] Database not initialized', { storeName, kind: cleanEvent.kind })
-        return reject('database not initialized')
+        return resolve(cleanEvent)
       }
       
       // Check if the store exists before trying to access it
@@ -326,7 +336,7 @@ class IndexedDbService {
     await this.initPromise
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve(undefined)
       }
       // Check if the store exists before trying to access it
       if (!this.db.objectStoreNames.contains(storeName)) {
@@ -359,9 +369,9 @@ class IndexedDbService {
       return Promise.reject('store name not found')
     }
     await this.initPromise
-    return new Promise((resolve, reject) => {
+    return new Promise<(Event | undefined | null)[]>((resolve) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve(new Array(pubkeys.length).fill(undefined))
       }
       const transaction = this.db.transaction(storeName, 'readonly')
       const store = transaction.objectStore(storeName)
@@ -396,7 +406,7 @@ class IndexedDbService {
     await this.initPromise
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve(null)
       }
       const transaction = this.db.transaction(StoreNames.MUTE_DECRYPTED_TAGS, 'readonly')
       const store = transaction.objectStore(StoreNames.MUTE_DECRYPTED_TAGS)
@@ -418,7 +428,7 @@ class IndexedDbService {
     await this.initPromise
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve()
       }
       const transaction = this.db.transaction(StoreNames.MUTE_DECRYPTED_TAGS, 'readwrite')
       const store = transaction.objectStore(StoreNames.MUTE_DECRYPTED_TAGS)
@@ -471,7 +481,7 @@ class IndexedDbService {
     await this.initPromise
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve()
       }
       const transaction = this.db.transaction(StoreNames.FOLLOWING_FAVORITE_RELAYS, 'readwrite')
       const store = transaction.objectStore(StoreNames.FOLLOWING_FAVORITE_RELAYS)
@@ -493,7 +503,7 @@ class IndexedDbService {
     await this.initPromise
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve(null)
       }
       const transaction = this.db.transaction(StoreNames.FOLLOWING_FAVORITE_RELAYS, 'readonly')
       const store = transaction.objectStore(StoreNames.FOLLOWING_FAVORITE_RELAYS)
@@ -515,7 +525,7 @@ class IndexedDbService {
     await this.initPromise
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve()
       }
       const transaction = this.db.transaction(StoreNames.RELAY_INFOS, 'readwrite')
       const store = transaction.objectStore(StoreNames.RELAY_INFOS)
@@ -537,7 +547,7 @@ class IndexedDbService {
     await this.initPromise
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve(null)
       }
       const transaction = this.db.transaction(StoreNames.RELAY_INFOS, 'readonly')
       const store = transaction.objectStore(StoreNames.RELAY_INFOS)
@@ -657,7 +667,7 @@ class IndexedDbService {
     
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve(cleanEvent)
       }
       if (!this.db.objectStoreNames.contains(storeName)) {
         logger.warn(`Store ${storeName} not found in database. Cannot save event.`)
@@ -718,7 +728,7 @@ class IndexedDbService {
     
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve(event)
       }
       if (!this.db.objectStoreNames.contains(storeName)) {
         logger.warn(`Store ${storeName} not found in database. Cannot save event.`)
@@ -766,7 +776,7 @@ class IndexedDbService {
     await this.initPromise
     return new Promise((resolve, reject) => {
       if (!this.db) {
-        return reject('database not initialized')
+        return resolve(undefined)
       }
       if (!this.db.objectStoreNames.contains(StoreNames.PUBLICATION_EVENTS)) {
         return resolve(undefined)
@@ -963,7 +973,7 @@ class IndexedDbService {
             storeInfo[storeName] = request.result
             resolve()
           }
-          request.onerror = (event) => reject(event)
+          request.onerror = (event) => reject(idbEventToError(event))
         })
       })
     )
@@ -997,7 +1007,7 @@ class IndexedDbService {
   async deleteStoreItem(storeName: string, key: string): Promise<void> {
     await this.initPromise
     if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
-      return Promise.reject('Store not found')
+      return
     }
 
     return new Promise((resolve, reject) => {
@@ -1020,7 +1030,7 @@ class IndexedDbService {
   async clearStore(storeName: string): Promise<void> {
     await this.initPromise
     if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
-      return Promise.reject('Store not found')
+      return
     }
 
     return new Promise((resolve, reject) => {
@@ -1043,7 +1053,7 @@ class IndexedDbService {
   async cleanupDuplicateReplaceableEvents(storeName: string): Promise<{ deleted: number; kept: number }> {
     await this.initPromise
     if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
-      return Promise.reject('Store not found')
+      return { deleted: 0, kept: 0 }
     }
 
     // Get the kind for this store - only clean up replaceable event stores

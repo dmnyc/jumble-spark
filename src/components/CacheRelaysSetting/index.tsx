@@ -194,7 +194,8 @@ export default function CacheRelaysSetting() {
       const info = await indexedDb.getStoreInfo()
       setCacheInfo(info)
     } catch (error) {
-      logger.error('Failed to load cache info', { error })
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error('Failed to load cache info', { error: message })
     }
   }
 
