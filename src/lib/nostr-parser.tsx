@@ -9,13 +9,15 @@ import WebPreview from '@/components/WebPreview'
 import { BookstrContent } from '@/components/Bookstr/BookstrContent'
 import { cleanUrl, isImage, isMedia } from '@/lib/url'
 import { getImetaInfosFromEvent } from '@/lib/event'
+import { parsePaytoUri } from '@/lib/payto'
+import PaytoLink from '@/components/PaytoLink'
 import { TImetaInfo } from '@/types'
 import { Event } from 'nostr-tools'
 import logger from '@/lib/logger'
 
 export interface ParsedNostrContent {
   elements: Array<{
-    type: 'text' | 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'gallery' | 'url' | 'jumble-note'
+    type: 'text' | 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'gallery' | 'url' | 'jumble-note' | 'payto'
     content: string
     bech32Id?: string
     nostrType?: 'npub' | 'nprofile' | 'nevent' | 'naddr' | 'note'
@@ -28,6 +30,7 @@ export interface ParsedNostrContent {
     images?: TImetaInfo[]
     url?: string
     noteId?: string
+    paytoUri?: string
   }>
 }
 
@@ -59,7 +62,7 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
   
   // Collect all matches (nostr, URLs, hashtags, wikilinks, jumble notes, and bookstr URLs) and sort by position
   const allMatches: Array<{
-    type: 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'url' | 'jumble-note'
+    type: 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'url' | 'jumble-note' | 'payto'
     match: RegExpExecArray
     start: number
     end: number
@@ -70,6 +73,7 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
     bookstrWikilink?: string
     sourceUrl?: string
     noteId?: string
+    paytoUri?: string
   }> = []
   
   // Find nostr matches
@@ -152,6 +156,27 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
         url: cleanedUrl
       })
     }
+    // payto: URI (RFC-8905 / NIP-A3) – handle as payment link, not external URL
+    else if (cleanedUrl.startsWith('payto://')) {
+      const parsed = parsePaytoUri(cleanedUrl)
+      if (parsed) {
+        allMatches.push({
+          type: 'payto',
+          match: urlMatch,
+          start: urlMatch.index,
+          end: urlMatch.index + urlMatch[0].length,
+          paytoUri: parsed.raw
+        })
+      } else {
+        allMatches.push({
+          type: 'url',
+          match: urlMatch,
+          start: urlMatch.index,
+          end: urlMatch.index + urlMatch[0].length,
+          url: cleanedUrl
+        })
+      }
+    }
     // Regular URL (not media)
     else {
       allMatches.push({
@@ -221,7 +246,7 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
   
   let lastIndex = 0
   
-  for (const { type, match, start, end, url, hashtag, wikilink, displayText, bookstrWikilink, sourceUrl, noteId } of allMatches) {
+  for (const { type, match, start, end, url, hashtag, wikilink, displayText, bookstrWikilink, sourceUrl, noteId, paytoUri } of allMatches) {
     // Add text before the match
     if (start > lastIndex) {
       const textContent = content.slice(lastIndex, start)
@@ -302,6 +327,12 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
         content: match[0],
         url: url,
         noteId: noteId
+      })
+    } else if (type === 'payto' && paytoUri) {
+      elements.push({
+        type: 'payto',
+        content: match[0],
+        paytoUri: paytoUri
       })
     }
     
@@ -582,6 +613,16 @@ export function renderNostrContent(parsedContent: ParsedNostrContent, className?
               key={index}
               noteId={element.noteId}
               className="not-prose inline-block"
+            />
+          )
+        }
+        
+        if (element.type === 'payto' && element.paytoUri) {
+          return (
+            <PaytoLink
+              key={index}
+              paytoUri={element.paytoUri}
+              className="text-primary hover:underline break-words"
             />
           )
         }

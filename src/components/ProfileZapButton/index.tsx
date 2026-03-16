@@ -28,7 +28,7 @@ export default function ProfileZapButton({
       >
         <Zap className="text-yellow-400" />
       </Button>
-      {!setOpenZapDialog && <ZapDialog open={open} setOpen={setOpen} pubkey={pubkey} />}
+      {!setOpenZapDialog && <ZapDialog open={open} setOpen={setInternalOpen} pubkey={pubkey} />}
     </>
   )
 }

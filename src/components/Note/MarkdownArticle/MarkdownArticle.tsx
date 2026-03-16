@@ -19,6 +19,8 @@ import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import { EmbeddedNote, EmbeddedMention } from '@/components/Embedded'
 import EmbeddedCitation from '@/components/EmbeddedCitation'
 import { preprocessMarkdownMediaLinks } from './preprocessMarkup'
+import { PAYTO_URI_REGEX, parsePaytoUri } from '@/lib/payto'
+import PaytoLink from '@/components/PaytoLink'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import logger from '@/lib/logger'
@@ -2865,9 +2867,9 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
   const hashtagMatches = Array.from(text.matchAll(hashtagRegex))
   hashtagMatches.forEach(match => {
     if (match.index !== undefined) {
-      // Skip if already in code, bold, italic, strikethrough, link, relay-url, or nostr
+      // Skip if already in code, bold, italic, strikethrough, link, relay-url, nostr, or payto
       const isInOther = inlinePatterns.some(p => 
-        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr') &&
+        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
         match.index! >= p.index && 
         match.index! < p.end
       )
@@ -2920,7 +2922,7 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
       if (isProfileType) {
         // Skip if already in code, bold, italic, strikethrough, link, hashtag, or relay-url
         const isInOther = inlinePatterns.some(p => 
-          (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr') &&
+          (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
           match.index! >= p.index && 
           match.index! < p.end
         )
@@ -2932,6 +2934,29 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
             data: bech32Id
           })
         }
+      }
+    }
+  })
+
+  // payto: URIs (RFC-8905 / NIP-A3) – process after nostr so we don't match inside other patterns
+  const paytoMatches = Array.from(text.matchAll(PAYTO_URI_REGEX))
+  paytoMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const fullMatch = match[0]
+      const parsed = parsePaytoUri(fullMatch)
+      if (!parsed) return
+      const isInOther = inlinePatterns.some(p =>
+        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
+        match.index! >= p.index &&
+        match.index! < p.end
+      )
+      if (!isInOther) {
+        inlinePatterns.push({
+          index: match.index,
+          end: match.index + match[0].length,
+          type: 'payto',
+          data: parsed
+        })
       }
     }
   })
@@ -2983,21 +3008,27 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
         />
       )
     } else if (pattern.type === 'link') {
-      // Render markdown links as inline links (green to match theme)
-      // Process the link text for inline formatting (bold, italic, etc.)
       const { text, url } = pattern.data
-      const linkContent = parseInlineMarkdown(text, `${keyPrefix}-link-${i}`, _footnotes)
-      parts.push(
-        <a
-          key={`${keyPrefix}-link-${i}`}
-          href={url}
-          className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {linkContent}
-        </a>
-      )
+      if (url.startsWith('payto://')) {
+        parts.push(
+          <PaytoLink key={`${keyPrefix}-payto-link-${i}`} paytoUri={url} className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words">
+            {parseInlineMarkdown(text, `${keyPrefix}-link-${i}`, _footnotes)}
+          </PaytoLink>
+        )
+      } else {
+        const linkContent = parseInlineMarkdown(text, `${keyPrefix}-link-${i}`, _footnotes)
+        parts.push(
+          <a
+            key={`${keyPrefix}-link-${i}`}
+            href={url}
+            className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {linkContent}
+          </a>
+        )
+      }
     } else if (pattern.type === 'hashtag') {
       // Render hashtags as inline links (green to match theme)
       const tag = pattern.data
@@ -3040,6 +3071,15 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
         // Fallback for unexpected types (shouldn't happen, but handle gracefully)
         parts.push(<span key={`${keyPrefix}-nostr-${i}`}>nostr:{bech32Id}</span>)
       }
+    } else if (pattern.type === 'payto') {
+      const payto = pattern.data as { type: string; authority: string; raw: string }
+      parts.push(
+        <PaytoLink
+          key={`${keyPrefix}-payto-${i}`}
+          paytoUri={payto.raw}
+          className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+        />
+      )
     }
     
     lastIndex = pattern.end

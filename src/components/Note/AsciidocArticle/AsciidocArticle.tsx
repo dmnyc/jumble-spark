@@ -15,6 +15,8 @@ import Lightbox from 'yet-another-react-lightbox'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import { EmbeddedNote, EmbeddedMention } from '@/components/Embedded'
 import EmbeddedCitation from '@/components/EmbeddedCitation'
+import { parsePaytoUri } from '@/lib/payto'
+import PaytoLink from '@/components/PaytoLink'
 import { DeletedEventProvider } from '@/providers/DeletedEventProvider'
 import { ReplyProvider } from '@/providers/ReplyProvider'
 import Wikilink from '@/components/UniversalContent/Wikilink'
@@ -753,6 +755,20 @@ export default function AsciidocArticle({
           // Show as plain text if not already in a tag or placeholder
           return `${prefix}nostr:${bech32Id}${emptyBrackets || ''}`
         })
+
+        // payto: URIs (RFC-8905 / NIP-A3) – replace <a href="payto://..."> and plain payto:// with placeholder
+        htmlString = htmlString.replace(/<a[^>]*href=["'](payto:\/\/[^"']+)["'][^>]*>([^<]*)<\/a>/gi, (_match, paytoUri, _linkText) => {
+          const parsed = parsePaytoUri(paytoUri)
+          if (!parsed) return _match
+          const escaped = paytoUri.replace(/"/g, '&quot;').replace(/&/g, '&amp;').replace(/'/g, '&#39;')
+          return `<span data-payto-uri="${escaped}" class="payto-placeholder"></span>`
+        })
+        htmlString = htmlString.replace(/(^|[\s>])(payto:\/\/[a-z0-9-]+\/[^\s<\]\)\"']+)/gi, (_match, prefix, paytoUri) => {
+          const parsed = parsePaytoUri(paytoUri.trim())
+          if (!parsed) return _match
+          const escaped = parsed.raw.replace(/"/g, '&quot;').replace(/&/g, '&amp;').replace(/'/g, '&#39;')
+          return `${prefix}<span data-payto-uri="${escaped}" class="payto-placeholder"></span>`
+        })
         
         // Handle LaTeX math expressions from AsciiDoc stem processor
         // AsciiDoc with stem: latexmath outputs \(...\) for inline and \[...\] for block math
@@ -1028,6 +1044,28 @@ export default function AsciidocArticle({
         logger.error('Failed to render nostr note', { bech32Id, error })
         // Fallback: show as plain text
         const textNode = document.createTextNode(`nostr:${bech32Id}`)
+        parent.replaceChild(textNode, container)
+      }
+    })
+
+    // Process payto: placeholders – replace with PaytoLink
+    const paytoPlaceholders = contentRef.current.querySelectorAll('.payto-placeholder[data-payto-uri]')
+    paytoPlaceholders.forEach((element) => {
+      const paytoUri = element.getAttribute('data-payto-uri')
+      if (!paytoUri) return
+      const decoded = paytoUri.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'")
+      const container = document.createElement('span')
+      container.className = 'inline'
+      const parent = element.parentNode
+      if (!parent) return
+      parent.replaceChild(container, element)
+      try {
+        const root = createRoot(container)
+        root.render(<PaytoLink paytoUri={decoded} className="text-primary hover:underline break-words" />)
+        reactRootsRef.current.set(container, root)
+      } catch (error) {
+        logger.error('Failed to render payto link', { paytoUri: decoded, error })
+        const textNode = document.createTextNode(decoded)
         parent.replaceChild(textNode, container)
       }
     })

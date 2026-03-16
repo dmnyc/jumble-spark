@@ -32,9 +32,10 @@ import { toNoteList } from '@/lib/link'
 import { parseAdvancedSearch } from '@/lib/search-parser'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
-import { FileText, Link, Zap, Film } from 'lucide-react'
+import { FileText, Link, Film, Copy } from 'lucide-react'
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import logger from '@/lib/logger'
 import NotFound from '../NotFound'
 import FollowedBy from './FollowedBy'
@@ -49,6 +50,7 @@ import ProfileInteractions from './ProfileInteractions'
 import ProfileNotes from './ProfileNotes'
 import { toFollowPacks } from '@/lib/link'
 import ZapDialog from '@/components/ZapDialog'
+import PaytoLink from '@/components/PaytoLink'
 import type { TProfile } from '@/types'
 
 type ProfileTabValue = 'posts' | 'pins' | 'bookmarks' | 'interests' | 'articles' | 'media' | 'you' | 'notes'
@@ -129,10 +131,13 @@ export default function Profile({ id }: { id?: string }) {
   const [paymentInfo, setPaymentInfo] = useState<ReturnType<typeof getPaymentInfoFromEvent> | null>(null)
   const [openZapDialog, setOpenZapDialog] = useState(false)
 
-  const mergedPaymentMethods = useMemo(
-    () => mergePaymentMethods(paymentInfo, profile ?? null),
-    [paymentInfo, profile]
-  )
+  const mergedPaymentMethods = useMemo(() => {
+    const list = mergePaymentMethods(paymentInfo, profile ?? null)
+    return [...list].sort((a, b) => {
+      const rank = (type: string) => (type === 'lightning' ? 0 : type === 'bitcoin' ? 1 : 2)
+      return rank(a.type) - rank(b.type)
+    })
+  }, [paymentInfo, profile])
 
   // Fetch payment info (kind 10133) for this profile
   useEffect(() => {
@@ -476,61 +481,53 @@ export default function Profile({ id }: { id?: string }) {
                 ))}
               </div>
             )}
-            {/* Payment methods: merged from kind 10133 + profile lightning, deduplicated */}
+            {/* Payment methods: merged from kind 10133 + profile lightning, deduplicated – use PaytoLink for consistent behavior */}
             {mergedPaymentMethods.length > 0 && (
               <div className="mt-2 p-2 border rounded-lg bg-muted/50 min-w-0 overflow-hidden">
                 <div className="text-xs font-semibold text-muted-foreground mb-2">Payment Methods</div>
                 <div className="space-y-2 min-w-0">
-                  {mergedPaymentMethods.map((method, idx) => {
-                    const authority = method.authority
-                    const paytoUri = method.payto
-                    const isLightning = method.type === 'lightning'
-                    return (
-                      <div key={idx} className="text-sm min-w-0">
-                        <div className="font-medium">{method.displayType}</div>
-                        {authority && (
-                          <div className="text-muted-foreground mt-1 flex items-center gap-2 min-w-0">
-                            {isLightning && <Zap className="size-3 text-yellow-400 shrink-0" />}
-                            {isLightning && pubkey ? (
-                              <button
-                                type="button"
-                                className="text-left hover:underline break-all min-w-0 text-primary"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  setOpenZapDialog(true)
-                                }}
-                              >
-                                {authority}
-                              </button>
-                            ) : paytoUri ? (
-                              <a
-                                href={paytoUri}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="hover:underline break-all min-w-0 text-primary"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {authority}
-                              </a>
-                            ) : (
-                              <span className="select-text min-w-0 break-all">{authority}</span>
-                            )}
-                          </div>
-                        )}
-                        {(method.currency || (method.minAmount !== undefined && method.maxAmount !== undefined)) && (
-                          <div className="text-muted-foreground text-xs mt-1">
-                            {method.currency && <span>({method.currency})</span>}
-                            {method.minAmount !== undefined && method.maxAmount !== undefined && (
-                              <span className="ml-2">
-                                {method.minAmount}-{method.maxAmount}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
+                  {mergedPaymentMethods.map((method, idx) => (
+                    <div key={idx} className="text-sm min-w-0">
+                      <div className="font-medium">{method.displayType}</div>
+                      {method.authority && (
+                        <div className="text-muted-foreground mt-1 flex items-center gap-1 min-w-0">
+                          <PaytoLink
+                            type={method.type}
+                            authority={method.authority}
+                            paytoUri={method.payto}
+                            pubkey={method.type === 'lightning' ? pubkey : undefined}
+                            onOpenZap={method.type === 'lightning' ? () => setOpenZapDialog(true) : undefined}
+                            className="hover:underline break-all min-w-0 text-primary flex-1"
+                          >
+                            {method.authority}
+                          </PaytoLink>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              navigator.clipboard.writeText(method.authority)
+                              toast.success(t('Copied to clipboard'))
+                            }}
+                            className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                            title={t('Copy address')}
+                          >
+                            <Copy className="size-3.5" />
+                          </button>
+                        </div>
+                      )}
+                      {(method.currency || (method.minAmount !== undefined && method.maxAmount !== undefined)) && (
+                        <div className="text-muted-foreground text-xs mt-1">
+                          {method.currency && <span>({method.currency})</span>}
+                          {method.minAmount !== undefined && method.maxAmount !== undefined && (
+                            <span className="ml-2">
+                              {method.minAmount}-{method.maxAmount}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
