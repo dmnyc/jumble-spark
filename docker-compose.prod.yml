@@ -28,9 +28,7 @@ services:
   # NIP-66 relay monitor cron: publishes 30166 (relay discovery) and 10166 (announcement).
   # Starts and stops with the app. Requires NIP66_MONITOR_NSEC to do anything.
   jumble-nip66-monitor:
-    build:
-      context: ./nip66-cron
-      dockerfile: Dockerfile
+    image: silberengel/imwald-jumble-nip66-monitor:latest
     container_name: imwald-jumble-nip66-monitor
     restart: unless-stopped
     environment:

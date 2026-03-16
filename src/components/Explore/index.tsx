@@ -6,8 +6,6 @@ import relayInfoService from '@/services/relay-info.service'
 import { TAwesomeRelayCollection } from '@/types'
 import { useEffect, useState } from 'react'
 import RelaySimpleInfo, { RelaySimpleInfoSkeleton } from '../RelaySimpleInfo'
-import { useDeepBrowsing } from '@/providers/DeepBrowsingProvider'
-import { cn } from '@/lib/utils'
 
 export default function Explore() {
   const [collections, setCollections] = useState<TAwesomeRelayCollection[] | null>(null)
@@ -30,7 +28,7 @@ export default function Explore() {
   }
 
   return (
-    <div className="min-w-0 w-full overflow-x-hidden space-y-6">
+    <div className="min-w-0 w-full overflow-x-hidden space-y-6 pb-8">
       {collections.map((collection) => (
         <RelayCollection key={collection.id} collection={collection} />
       ))}
@@ -39,15 +37,9 @@ export default function Explore() {
 }
 
 function RelayCollection({ collection }: { collection: TAwesomeRelayCollection }) {
-  const { deepBrowsing } = useDeepBrowsing()
   return (
     <div className="min-w-0">
-      <div
-        className={cn(
-          'sticky bg-background z-20 px-4 py-3 text-2xl font-semibold max-md:border-b min-w-0 break-words',
-          deepBrowsing ? 'top-12' : 'top-24'
-        )}
-      >
+      <div className="px-4 pt-3 pb-3.5 text-2xl font-semibold max-md:border-b min-w-0 break-words">
         {collection.name}
       </div>
       <div className="grid min-w-0 md:px-4 md:grid-cols-2 md:gap-3">

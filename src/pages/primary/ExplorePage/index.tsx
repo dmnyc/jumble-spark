@@ -28,23 +28,26 @@ const ExplorePage = forwardRef((_, ref) => {
       ref={ref}
       pageName="explore"
       titlebar={<ExplorePageTitlebar />}
+      subHeader={
+        <Tabs
+          value={tab}
+          tabs={[
+            { value: 'explore', label: 'Explore' },
+            { value: 'following', label: "Following's Favorites" }
+          ]}
+          onTabChange={(tab) => {
+            setTab(tab as TExploreTabs)
+            window.dispatchEvent(new CustomEvent('pageTabChanged', {
+              detail: { page: 'explore', tab: tab }
+            }))
+          }}
+        />
+      }
       displayScrollToTopButton
     >
-      <Tabs
-        value={tab}
-        tabs={[
-          { value: 'explore', label: 'Explore' },
-          { value: 'following', label: "Following's Favorites" }
-        ]}
-        onTabChange={(tab) => {
-          setTab(tab as TExploreTabs)
-          // Dispatch tab change event for PageManager
-          window.dispatchEvent(new CustomEvent('pageTabChanged', { 
-            detail: { page: 'explore', tab: tab } 
-          }))
-        }}
-      />
-      {tab === 'following' ? <FollowingFavoriteRelayList /> : <Explore />}
+      <div className="min-w-0 pt-2">
+        {tab === 'following' ? <FollowingFavoriteRelayList /> : <Explore />}
+      </div>
     </PrimaryPageLayout>
   )
 })

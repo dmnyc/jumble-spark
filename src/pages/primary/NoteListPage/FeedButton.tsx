@@ -7,7 +7,7 @@ import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useFeed } from '@/providers/FeedProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { BookmarkIcon, ChevronDown, Server, UsersRound } from 'lucide-react'
-import { forwardRef, HTMLAttributes, useMemo, useState } from 'react'
+import { forwardRef, ButtonHTMLAttributes, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export default function FeedButton({ className }: { className?: string }) {
@@ -52,7 +52,7 @@ export default function FeedButton({ className }: { className?: string }) {
   )
 }
 
-const FeedSwitcherTrigger = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
+const FeedSwitcherTrigger = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(
   ({ className, ...props }, ref) => {
     const { t } = useTranslation()
     const { feedInfo, relayUrls } = useFeed()
@@ -84,8 +84,9 @@ const FeedSwitcherTrigger = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivEle
     }, [feedInfo, activeRelaySet])
 
     return (
-      <div
-        className={cn('flex items-center gap-2 clickable px-3 h-full rounded-lg', className)}
+      <button
+        type="button"
+        className={cn('flex items-center gap-2 clickable px-3 h-full rounded-lg bg-transparent border-0 text-left', className)}
         ref={ref}
         {...props}
       >
@@ -98,9 +99,9 @@ const FeedSwitcherTrigger = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivEle
         ) : (
           <Server />
         )}
-        <div className="text-lg font-semibold truncate">{title}</div>
+        <span className="text-lg font-semibold truncate">{title}</span>
         <ChevronDown />
-      </div>
+      </button>
     )
   }
 )

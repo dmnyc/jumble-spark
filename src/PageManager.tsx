@@ -473,10 +473,10 @@ function MainContentArea({
     primaryNoteView: !!primaryNoteView
   })
   
-  // Always use single column layout since double-panel is disabled
+  // Always use single column layout since double-panel is disabled. flex + min-h-0 so primary page ScrollArea gets a height and can scroll.
   return (
-    <div className="grid grid-cols-1 gap-2 w-full pr-2 py-2">
-      <div className="rounded-lg shadow-lg bg-background overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 w-full pr-2 py-2">
+      <div className="flex-1 flex flex-col min-h-0 rounded-lg shadow-lg bg-background overflow-hidden">
         {primaryNoteView ? (
           // Show note view with back button
           <div className="flex flex-col h-full w-full">
@@ -519,7 +519,7 @@ function MainContentArea({
             return (
               <div
                 key={name}
-                className="flex flex-col h-full w-full"
+                className="flex flex-col h-full min-h-0 w-full"
                 style={{
                   display: isCurrentPage ? 'block' : 'none'
                 }}
@@ -1579,13 +1579,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                   } else {
                     // Single-pane mode: show feed only, drawer overlay for notes
                     return (
-                      <MainContentArea 
-                        primaryPages={primaryPages}
-                        currentPrimaryPage={currentPrimaryPage}
-                        primaryNoteView={primaryNoteView}
-                        primaryViewType={primaryViewType}
-                        goBack={goBack}
-                      />
+                      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+                        <MainContentArea 
+                          primaryPages={primaryPages}
+                          currentPrimaryPage={currentPrimaryPage}
+                          primaryNoteView={primaryNoteView}
+                          primaryViewType={primaryViewType}
+                          goBack={goBack}
+                        />
+                      </div>
                     )
                   }
                 })()}

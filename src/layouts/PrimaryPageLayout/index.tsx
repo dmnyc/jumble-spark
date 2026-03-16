@@ -1,6 +1,5 @@
 import ScrollToTopButton from '@/components/ScrollToTopButton'
 import { Titlebar } from '@/components/Titlebar'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { TPrimaryPageName, usePrimaryPage } from '@/PageManager'
 import { DeepBrowsingProvider } from '@/providers/DeepBrowsingProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -13,13 +12,16 @@ const PrimaryPageLayout = forwardRef(
       titlebar,
       pageName,
       displayScrollToTopButton = false,
-      hideTitlebarBottomBorder = false
+      hideTitlebarBottomBorder = false,
+      subHeader
     }: {
       children?: React.ReactNode
       titlebar: React.ReactNode
       pageName: TPrimaryPageName
       displayScrollToTopButton?: boolean
       hideTitlebarBottomBorder?: boolean
+      /** Rendered between titlebar and scroll area; not in scroll flow so it never overlaps content */
+      subHeader?: React.ReactNode
     },
     ref
   ) => {
@@ -72,7 +74,7 @@ const PrimaryPageLayout = forwardRef(
         <DeepBrowsingProvider active={current === pageName && display}>
           <div
             ref={smallScreenScrollAreaRef}
-            className="min-w-0 overflow-x-hidden"
+            className="min-w-0 w-full overflow-x-hidden"
             style={{
               paddingBottom: 'calc(env(safe-area-inset-bottom) + 3rem)'
             }}
@@ -80,7 +82,10 @@ const PrimaryPageLayout = forwardRef(
             <PrimaryPageTitlebar hideBottomBorder={hideTitlebarBottomBorder}>
               {titlebar}
             </PrimaryPageTitlebar>
-            {children}
+            {subHeader && <div className="shrink-0 w-full min-w-0 bg-background">{subHeader}</div>}
+            <div className="min-w-0 w-full">
+              {children}
+            </div>
           </div>
           {displayScrollToTopButton && <ScrollToTopButton />}
         </DeepBrowsingProvider>
@@ -89,17 +94,19 @@ const PrimaryPageLayout = forwardRef(
 
     return (
       <DeepBrowsingProvider active={current === pageName && display} scrollAreaRef={scrollAreaRef}>
-        <ScrollArea
-          className="h-full overflow-auto"
-          scrollBarClassName="z-50 pt-12"
-          ref={scrollAreaRef}
-        >
+        <div className="relative h-full min-h-0 flex flex-col">
           <PrimaryPageTitlebar hideBottomBorder={hideTitlebarBottomBorder}>
             {titlebar}
           </PrimaryPageTitlebar>
-          {children}
-          <div className="h-4" />
-        </ScrollArea>
+          {subHeader && <div className="shrink-0 bg-background">{subHeader}</div>}
+          <div
+            ref={scrollAreaRef}
+            className={subHeader ? 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden' : 'absolute top-12 left-0 right-0 bottom-0 overflow-y-auto overflow-x-hidden'}
+          >
+            {children}
+            <div className="h-4" />
+          </div>
+        </div>
         {displayScrollToTopButton && <ScrollToTopButton scrollAreaRef={scrollAreaRef} />}
       </DeepBrowsingProvider>
     )

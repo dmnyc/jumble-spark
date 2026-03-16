@@ -27,7 +27,6 @@ const DEFAULT_RELAYS_TO_MONITOR = [
 ]
 
 const DEFAULT_PUBLISH_RELAYS = [
-  'wss://theforest.nostr1.com',
   'wss://thecitadel.nostr1.com',
   'wss://relay.damus.io',
   'wss://relay.nostr.watch'

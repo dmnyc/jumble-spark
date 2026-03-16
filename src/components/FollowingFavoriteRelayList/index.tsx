@@ -57,7 +57,7 @@ export default function FollowingFavoriteRelayList() {
   }, [showCount, relays])
 
   return (
-    <div>
+    <div className="pb-8">
       {relays.slice(0, showCount).map(([url, users]) => (
         <RelayItem key={url} url={url} users={users} />
       ))}

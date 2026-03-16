@@ -2090,9 +2090,13 @@ export default function AsciidocArticle({
             open={lightboxIndex >= 0}
             close={() => setLightboxIndex(-1)}
             controller={{
-              closeOnBackdropClick: true,
+              closeOnBackdropClick: false,
               closeOnPullUp: true,
               closeOnPullDown: true
+            }}
+            render={{
+              buttonPrev: allImages.length <= 1 ? () => null : undefined,
+              buttonNext: allImages.length <= 1 ? () => null : undefined
             }}
             styles={{
               toolbar: { paddingTop: '2.25rem' }

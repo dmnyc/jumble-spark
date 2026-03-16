@@ -84,9 +84,13 @@ export default function ImageWithLightbox({
               open={index >= 0}
               close={() => setIndex(-1)}
               controller={{
-                closeOnBackdropClick: true,
+                closeOnBackdropClick: false,
                 closeOnPullUp: true,
                 closeOnPullDown: true
+              }}
+              render={{
+                buttonPrev: () => null,
+                buttonNext: () => null
               }}
               styles={{
                 toolbar: { paddingTop: '2.25rem' }

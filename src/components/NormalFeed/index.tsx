@@ -261,22 +261,24 @@ const NormalFeed = forwardRef<TNoteListRef, {
           </>
         }
       />
-      {activeTab === 'rss' ? (
-        <RssFeedList key={rssRefreshKey} />
-      ) : (
-        <NoteList
-          ref={noteListRef}
-          showKinds={temporaryShowKinds}
-          showKind1OPs={showKind1OPs}
-          showKind1Replies={showKind1Replies}
-          showKind1111={showKind1111}
-          subRequests={subRequests}
-          hideReplies={listMode === 'posts'}
-          hideUntrustedNotes={hideUntrustedNotes}
-          areAlgoRelays={areAlgoRelays}
-          showRelayCloseReason={showRelayCloseReason}
-        />
-      )}
+      <div className="pt-2 min-w-0">
+        {activeTab === 'rss' ? (
+          <RssFeedList key={rssRefreshKey} />
+        ) : (
+          <NoteList
+            ref={noteListRef}
+            showKinds={temporaryShowKinds}
+            showKind1OPs={showKind1OPs}
+            showKind1Replies={showKind1Replies}
+            showKind1111={showKind1111}
+            subRequests={subRequests}
+            hideReplies={listMode === 'posts'}
+            hideUntrustedNotes={hideUntrustedNotes}
+            areAlgoRelays={areAlgoRelays}
+            showRelayCloseReason={showRelayCloseReason}
+          />
+        )}
+      </div>
     </>
   )
 })

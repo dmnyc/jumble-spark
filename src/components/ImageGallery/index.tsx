@@ -124,9 +124,13 @@ export default function ImageGallery({
               open={index >= 0}
               close={() => setIndex(-1)}
               controller={{
-                closeOnBackdropClick: true,
+                closeOnBackdropClick: false,
                 closeOnPullUp: true,
                 closeOnPullDown: true
+              }}
+              render={{
+                buttonPrev: images.length <= 1 ? () => null : undefined,
+                buttonNext: images.length <= 1 ? () => null : undefined
               }}
               styles={{
                 toolbar: { paddingTop: '2.25rem' }

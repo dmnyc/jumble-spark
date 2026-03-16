@@ -571,14 +571,13 @@ export async function createPollDraftEvent(
   mentions: string[],
   { isMultipleChoice, relays, options, endsAt }: TPollCreateData,
   {
-    addClientTag,
     isNsfw,
     addExpirationTag,
     expirationMonths,
     addQuietTag,
     quietDays
   }: {
-    addClientTag?: boolean
+    addClientTag?: boolean // accepted for API compat; client tag is added in publish()
     isNsfw?: boolean
     addExpirationTag?: boolean
     expirationMonths?: number
