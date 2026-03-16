@@ -124,7 +124,9 @@ export function suppressExpectedErrors() {
     // Suppress invalid URI / media resource errors (e.g. empty img src resolving to origin)
     if (message.includes('Ungültige URI') ||
         message.includes('Invalid URI') ||
-        message.includes('Laden der Medienressource fehlgeschlagen') ||
+        message.includes('Medienressource') ||
+        (message.includes('fehlgeschlagen') && message.includes('URI')) ||
+        message.includes('Laden der Medienressource') ||
         message.includes('Failed to load media resource') ||
         message.includes('OpaqueResponseBlocking')) {
       return
@@ -148,6 +150,8 @@ export function suppressExpectedErrors() {
     // Suppress invalid URI / failed media resource (e.g. empty img src)
     if (message.includes('Ungültige URI') ||
         message.includes('Invalid URI') ||
+        message.includes('Medienressource') ||
+        (message.includes('fehlgeschlagen') && message.includes('URI')) ||
         message.includes('Laden der Medienressource') ||
         message.includes('Failed to load media resource')) {
       return

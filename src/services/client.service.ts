@@ -2142,6 +2142,32 @@ class ClientService extends EventTarget {
     return await this.fetchReplaceableEvent(pubkey, 10001)
   }
 
+  /** Fetch NIP-A3 payment info (kind 10133) for a user; uses replaceable cache and IndexedDB. */
+  async fetchPaymentInfoEvent(pubkey: string) {
+    return await this.fetchReplaceableEvent(pubkey, ExtendedKind.PAYMENT_INFO)
+  }
+
+  /** Update local cache after publishing a payment info (kind 10133) event. */
+  async updatePaymentInfoCache(evt: NEvent) {
+    await this.updateReplaceableEventCache(evt)
+  }
+
+  /** Fetch profile (kind 0) event; uses replaceable cache and IndexedDB. */
+  async fetchProfileEvent(pubkey: string) {
+    return await this.fetchReplaceableEvent(pubkey, kinds.Metadata)
+  }
+
+  /**
+   * Force-refresh profile (kind 0) and payment info (kind 10133) cache for a pubkey:
+   * clears in-memory cache and IndexedDB so the next fetch loads from relays.
+   */
+  async forceRefreshProfileAndPaymentInfoCache(pubkey: string): Promise<void> {
+    this.replaceableEventDataLoader.clear({ pubkey, kind: kinds.Metadata })
+    this.replaceableEventDataLoader.clear({ pubkey, kind: ExtendedKind.PAYMENT_INFO })
+    await indexedDb.invalidateReplaceableEvent(pubkey, kinds.Metadata)
+    await indexedDb.invalidateReplaceableEvent(pubkey, ExtendedKind.PAYMENT_INFO)
+  }
+
   clearRelayConnectionState(relayUrl: string) {
     // Clear connection state for specified relay
     this.pool.close([relayUrl])

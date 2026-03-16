@@ -154,9 +154,8 @@ function RelaySetOptions({ relaySet }: { relaySet: TRelaySet }) {
   }
 
   const copyShareLink = () => {
-    navigator.clipboard.writeText(
-      `https://jumble.social/?${relaySet.relayUrls.map((url) => 'r=' + url).join('&')}`
-    )
+    const query = relaySet.relayUrls.map((u) => 'r=' + encodeURIComponent(u)).join('&')
+    navigator.clipboard.writeText(`${window.location.origin}/?${query}`)
   }
 
   if (isSmallScreen) {

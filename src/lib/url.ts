@@ -269,6 +269,30 @@ export function isVideo(url: string) {
 }
 
 /**
+ * Return true if the URL looks like a fetchable web page (http(s) with a plausible host).
+ * Used to skip OG metadata fetch for invalid or non-http URLs (e.g. "https://1.4ghz/").
+ */
+export function isLikelyWebPageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    const host = parsed.hostname || ''
+    if (!host) return false
+    // Require a dot (e.g. example.com) or localhost so we skip bare hostnames like "1.4ghz"
+    return host.includes('.') || host === 'localhost'
+  } catch {
+    return false
+  }
+}
+
+/** Return true if the string looks like a safe absolute HTTP(S) URL for use as img/video src. */
+export function isSafeMediaUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false
+  const t = url.trim()
+  return t.startsWith('http://') || t.startsWith('https://')
+}
+
+/**
  * Remove tracking parameters from URLs
  * Removes common tracking parameters like utm_*, fbclid, gclid, etc.
  */

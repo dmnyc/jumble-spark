@@ -1,6 +1,8 @@
 import { kinds } from 'nostr-tools'
 
-export const JUMBLE_API_BASE_URL = 'https://api.jumble.social'
+/** API base URL; override with VITE_JUMBLE_API_BASE_URL for forks (e.g. https://api.jumble.imwald.eu). */
+export const JUMBLE_API_BASE_URL =
+  (import.meta.env.VITE_JUMBLE_API_BASE_URL as string | undefined) ?? 'https://api.jumble.imwald.eu'
 
 export const DEFAULT_FAVORITE_RELAYS = [
   'wss://theforest.nostr1.com',

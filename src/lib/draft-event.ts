@@ -503,6 +503,16 @@ export function createProfileDraftEvent(content: string, tags: string[][] = []):
   }
 }
 
+/** NIP-A3 payment info (kind 10133). */
+export function createPaymentInfoDraftEvent(content: string, tags: string[][] = []): TDraftEvent {
+  return {
+    kind: ExtendedKind.PAYMENT_INFO,
+    content,
+    tags,
+    created_at: dayjs().unix()
+  }
+}
+
 export function createFavoriteRelaysDraftEvent(
   favoriteRelays: string[],
   relaySetEventsOrATags: Event[] | string[][]

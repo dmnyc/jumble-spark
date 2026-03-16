@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ExtendedKind, BIG_RELAY_URLS } from '@/constants'
+import { ExtendedKind } from '@/constants'
 import { useFetchProfile } from '@/hooks'
 import { Event, kinds } from 'nostr-tools'
 import { getPaymentInfoFromEvent } from '@/lib/event-metadata'
@@ -139,21 +139,16 @@ export default function Profile({ id }: { id?: string }) {
     })
   }, [paymentInfo, profile])
 
-  // Fetch payment info (kind 10133) for this profile
+  // Fetch payment info (kind 10133) for this profile; uses cached replaceable events and IndexedDB
   useEffect(() => {
     if (!profile?.pubkey) {
       setPaymentInfo(null)
       return
     }
-    
+
     const fetchPaymentInfo = async () => {
       try {
-        const events = await client.fetchEvents(BIG_RELAY_URLS, [{
-          authors: [profile.pubkey],
-          kinds: [ExtendedKind.PAYMENT_INFO],
-          limit: 1
-        }])
-        const paymentEvent = events[0]
+        const paymentEvent = await client.fetchPaymentInfoEvent(profile.pubkey)
         if (paymentEvent) {
           setPaymentInfo(getPaymentInfoFromEvent(paymentEvent))
         } else {
@@ -164,7 +159,7 @@ export default function Profile({ id }: { id?: string }) {
         setPaymentInfo(null)
       }
     }
-    
+
     fetchPaymentInfo()
   }, [profile?.pubkey])
   const [activeTab, setActiveTab] = useState<ProfileTabValue>('posts')

@@ -12,7 +12,7 @@ import { nip19, kinds } from 'nostr-tools'
 import { useMemo, useEffect, useState } from 'react'
 import Image from '../Image'
 import Username from '../Username'
-import { cleanUrl } from '@/lib/url'
+import { cleanUrl, isSafeMediaUrl } from '@/lib/url'
 import { tagNameEquals } from '@/lib/tag'
 import client from '@/services/client.service'
 import { Event } from 'nostr-tools'
@@ -420,11 +420,11 @@ export default function WebPreview({ url, className }: { url: string; className?
   const [ogImageAspectRatio, setOgImageAspectRatio] = useState<number | null>(null)
   
   useEffect(() => {
-    if (!displayImageForDetection) {
+    if (!displayImageForDetection || !isSafeMediaUrl(displayImageForDetection)) {
       setImageAspectRatio(null)
       return
     }
-    
+
     const img = new window.Image()
     img.onload = () => {
       const aspectRatio = img.width / img.height
@@ -438,11 +438,11 @@ export default function WebPreview({ url, className }: { url: string; className?
 
   // Detect OG image aspect ratio
   useEffect(() => {
-    if (!image) {
+    if (!image || !isSafeMediaUrl(image)) {
       setOgImageAspectRatio(null)
       return
     }
-    
+
     const img = new window.Image()
     img.onload = () => {
       const aspectRatio = img.width / img.height
@@ -506,7 +506,7 @@ export default function WebPreview({ url, className }: { url: string; className?
         <div
           className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 max-w-full', className)}
         >
-          {displayImage && (
+          {displayImage && isSafeMediaUrl(displayImage) && (
             <div className={cn(
               "flex-shrink-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden",
               imageAspectRatio !== null && imageAspectRatio > 1 ? "w-24 sm:w-32 md:w-52 lg:w-[416px] max-w-[120px] sm:max-w-[160px] md:max-w-[208px] lg:max-w-none" : "w-20 sm:w-28 md:w-40 lg:w-52 max-w-[80px] sm:max-w-[112px] md:max-w-[160px] lg:max-w-none"
@@ -705,7 +705,7 @@ export default function WebPreview({ url, className }: { url: string; className?
 
   // All OG images render on left with cropping
 
-  if (isSmallScreen && image) {
+  if (isSmallScreen && image && isSafeMediaUrl(image)) {
     // Small screen: always use horizontal layout with image on left
     return (
       <div className="rounded-lg border mt-2 overflow-hidden flex w-full">
@@ -748,7 +748,7 @@ export default function WebPreview({ url, className }: { url: string; className?
   // Render all OG images on left side, crop wider ones
   return (
     <div className={cn('p-2 flex w-full border rounded-lg overflow-hidden gap-0 max-w-full', className)}>
-      {image && (
+      {image && isSafeMediaUrl(image) && (
         <div className={cn(
           "flex-shrink-0 bg-muted flex items-center justify-center -my-2 -ml-2 -mr-0 rounded-l-lg overflow-hidden",
           ogImageAspectRatio !== null && ogImageAspectRatio > 1 ? "w-32 sm:w-52 md:w-[416px]" : "w-20 sm:w-40 md:w-52"

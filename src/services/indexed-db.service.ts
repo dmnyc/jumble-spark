@@ -38,11 +38,16 @@ export const StoreNames = {
   /** NIP-66: cached list of public lively relay URLs (from 30166 discovery). */
   PUBLIC_LIVELY_RELAYS: 'publicLivelyRelays',
   /** NIP-66: per-relay discovery cache (key = relay URL, value = { discovery, cachedAt }). */
-  NIP66_DISCOVERY: 'nip66Discovery'
+  NIP66_DISCOVERY: 'nip66Discovery',
+  /** NIP-A3 payment targets (kind 10133). */
+  PAYMENT_INFO_EVENTS: 'paymentInfoEvents'
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 19
+const DB_VERSION = 21
+
+/** Max age for profile and payment info cache before we refetch (5 min). */
+const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
 
 /** Convert IDB request.onerror Event to a proper Error for logging and UI */
 function idbEventToError(ev: Parameters<NonNullable<IDBRequest['onerror']>>[0]): Error {
@@ -195,6 +200,9 @@ class IndexedDbService {
             const store = db.createObjectStore(StoreNames.RSS_FEED_ITEMS, { keyPath: 'key' })
             store.createIndex('feedUrl', 'feedUrl', { unique: false })
             store.createIndex('pubDate', 'pubDate', { unique: false })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.PAYMENT_INFO_EVENTS)) {
+            db.createObjectStore(StoreNames.PAYMENT_INFO_EVENTS, { keyPath: 'key' })
           }
         }
       }
@@ -402,8 +410,19 @@ class IndexedDbService {
       const request = store.get(key)
 
       request.onsuccess = () => {
+        const row = request.result as TValue<Event> | undefined
+        if (!row) {
+          transaction.commit()
+          return resolve(undefined)
+        }
+        // Invalidate profile and payment info cache when stale so they refetch regularly
+        const isProfileOrPayment = kind === kinds.Metadata || kind === ExtendedKind.PAYMENT_INFO
+        if (isProfileOrPayment && row.addedAt && Date.now() - row.addedAt > PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS) {
+          transaction.commit()
+          return resolve(undefined)
+        }
         transaction.commit()
-        resolve((request.result as TValue<Event>)?.value)
+        resolve(row.value)
       }
 
       request.onerror = (event) => {
@@ -710,9 +729,9 @@ class IndexedDbService {
 
   private getReplaceableEventKeyFromEvent(event: Event): string {
     // Events that are replaceable by pubkey only (no d-tag)
-    // RSS_FEED_LIST (10895) is in the 10000-20000 range, so it's automatically handled
+    // PAYMENT_INFO (10133), RSS_FEED_LIST (10895), etc. are in the 10000-20000 range
     if (
-      [kinds.Metadata, kinds.Contacts].includes(event.kind) ||
+      [kinds.Metadata, kinds.Contacts, ExtendedKind.PAYMENT_INFO].includes(event.kind) ||
       (event.kind >= 10000 && event.kind < 20000 && event.kind !== ExtendedKind.PUBLICATION && event.kind !== ExtendedKind.PUBLICATION_CONTENT && event.kind !== ExtendedKind.WIKI_ARTICLE && event.kind !== ExtendedKind.WIKI_ARTICLE_MARKDOWN && event.kind !== kinds.LongFormArticle)
     ) {
       return this.getReplaceableEventKey(event.pubkey)
@@ -759,6 +778,8 @@ class IndexedDbService {
         return StoreNames.USER_EMOJI_LIST_EVENTS
       case kinds.Emojisets:
         return StoreNames.EMOJI_SET_EVENTS
+      case ExtendedKind.PAYMENT_INFO:
+        return StoreNames.PAYMENT_INFO_EVENTS
       case ExtendedKind.PUBLICATION:
       case ExtendedKind.PUBLICATION_CONTENT:
       case ExtendedKind.WIKI_ARTICLE:
@@ -1147,6 +1168,14 @@ class IndexedDbService {
     })
   }
 
+  /** Remove a replaceable event from cache so the next fetch will load from relays. */
+  async invalidateReplaceableEvent(pubkey: string, kind: number, d?: string): Promise<void> {
+    const storeName = this.getStoreNameByKind(kind)
+    if (!storeName) return
+    const key = this.getReplaceableEventKey(pubkey, d)
+    await this.deleteStoreItem(storeName, key)
+  }
+
   async deleteStoreItem(storeName: string, key: string): Promise<void> {
     await this.initPromise
     if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
@@ -1324,6 +1353,7 @@ class IndexedDbService {
       if (storeName === StoreNames.RSS_FEED_LIST_EVENTS) return ExtendedKind.RSS_FEED_LIST
       if (storeName === StoreNames.USER_EMOJI_LIST_EVENTS) return kinds.UserEmojiList
       if (storeName === StoreNames.EMOJI_SET_EVENTS) return kinds.Emojisets
+      if (storeName === StoreNames.PAYMENT_INFO_EVENTS) return ExtendedKind.PAYMENT_INFO
       // PUBLICATION_EVENTS is not replaceable, so we don't handle it here
       return undefined
   }
@@ -1405,6 +1435,7 @@ class IndexedDbService {
 
     const stores = [
       { name: StoreNames.PROFILE_EVENTS, expirationTimestamp: Date.now() - 1000 * 60 * 60 * 24 }, // 1 day
+      { name: StoreNames.PAYMENT_INFO_EVENTS, expirationTimestamp: Date.now() - PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS }, // 5 min
       { name: StoreNames.RELAY_LIST_EVENTS, expirationTimestamp: Date.now() - 1000 * 60 * 60 * 24 }, // 1 day
       {
         name: StoreNames.FOLLOW_LIST_EVENTS,
