@@ -44,7 +44,7 @@ const SearchPage = forwardRef((_, ref) => {
       titlebar={null}
       displayScrollToTopButton
     >
-      <div className="px-4 pt-4">
+      <div className="min-w-0 pt-4 px-4 pb-4">
         <div className="text-2xl font-bold mb-4">Search Nostr</div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-4 relative z-40">
           <div className="flex-1 relative order-2 sm:order-1">

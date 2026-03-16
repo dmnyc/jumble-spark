@@ -5,7 +5,7 @@ import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import storage from '@/services/local-storage.service'
 import { TFeedSubRequest, TNoteListMode } from '@/types'
-import { forwardRef, useMemo, useRef, useState, useEffect } from 'react'
+import { forwardRef, useLayoutEffect, useMemo, useRef, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import KindFilter from '../KindFilter'
 import { RefreshButton } from '../RefreshButton'
@@ -21,11 +21,14 @@ const NormalFeed = forwardRef<TNoteListRef, {
   areAlgoRelays?: boolean
   isMainFeed?: boolean
   showRelayCloseReason?: boolean
+  /** When set (e.g. on Home), tabs are rendered in layout subHeader instead of in-feed; avoids overlap */
+  setSubHeader?: (node: React.ReactNode) => void
 }>(function NormalFeed({
   subRequests,
   areAlgoRelays = false,
   isMainFeed = false,
-  showRelayCloseReason = false
+  showRelayCloseReason = false,
+  setSubHeader
 }, ref) {
   logger.debug('NormalFeed component rendering with:', { subRequests, areAlgoRelays, isMainFeed })
   const { t } = useTranslation()
@@ -186,81 +189,83 @@ const NormalFeed = forwardRef<TNoteListRef, {
   // Determine current tab value
   const currentTabValue = activeTab
 
+  const tabsElement = (
+    <Tabs
+      value={currentTabValue}
+      tabs={tabs}
+      onTabChange={(tab) => {
+        handleListModeChange(tab)
+      }}
+      options={
+        <>
+          {activeTab === 'rss' && showRssFeed && (
+            <Button
+              variant="ghost"
+              size="titlebar-icon"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('toggleRssFilters'))
+              }}
+              title={t('Toggle filters')}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+          )}
+          <RefreshButton onClick={() => {
+            if (activeTab === 'rss') {
+              let feedUrls: string[] = []
+              if (pubkey && rssFeedListEvent) {
+                try {
+                  const urls = rssFeedListEvent.tags
+                    .filter(tag => tag[0] === 'u' && tag[1])
+                    .map(tag => tag[1] as string)
+                    .filter((url): url is string => {
+                      if (typeof url !== 'string') return false
+                      const trimmed = url.trim()
+                      return trimmed.length > 0
+                    })
+                  feedUrls = urls
+                } catch (e) {
+                  feedUrls = []
+                }
+              } else {
+                feedUrls = DEFAULT_RSS_FEEDS
+              }
+              logger.info('[NormalFeed] Manual refresh: triggering RSS background refresh', { feedCount: feedUrls.length })
+              rssFeedService.backgroundRefreshFeeds(feedUrls).catch(err => {
+                logger.error('[NormalFeed] Manual refresh: background refresh failed', { error: err })
+              })
+              if (pubkey) {
+                window.dispatchEvent(new CustomEvent('rssFeedListUpdated', {
+                  detail: { pubkey, feedUrls, eventId: 'manual-refresh' }
+                }))
+              }
+              setRssRefreshKey(prev => prev + 1)
+            } else {
+              if (noteListRef && typeof noteListRef !== 'function') {
+                noteListRef.current?.refresh()
+              }
+            }
+          }} />
+          {activeTab !== 'rss' && (
+            <KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />
+          )}
+        </>
+      }
+    />
+  )
+
+  // When used on Home, render tabs in layout subHeader so they don't overlap content
+  useLayoutEffect(() => {
+    if (!isMainFeed || !setSubHeader) return
+    setSubHeader(tabsElement)
+    return () => setSubHeader(null)
+  }, [isMainFeed, setSubHeader, currentTabValue, activeTab, showRssFeed, temporaryShowKinds])
+
+  const renderTabsInFeed = !(isMainFeed && setSubHeader)
+
   return (
     <>
-      <Tabs
-        value={currentTabValue}
-        tabs={tabs}
-        onTabChange={(tab) => {
-          handleListModeChange(tab)
-        }}
-        options={
-          <>
-            {activeTab === 'rss' && showRssFeed && (
-              <Button
-                variant="ghost"
-                size="titlebar-icon"
-                onClick={() => {
-                  window.dispatchEvent(new CustomEvent('toggleRssFilters'))
-                }}
-                title={t('Toggle filters')}
-              >
-                <Search className="h-4 w-4" />
-              </Button>
-            )}
-            <RefreshButton onClick={() => {
-              if (activeTab === 'rss') {
-                // Refresh RSS feeds
-                // Get feed URLs from event or use default
-                let feedUrls: string[] = []
-                if (pubkey && rssFeedListEvent) {
-                  // User has an event - use only feeds from that event (even if empty)
-                  try {
-                    const urls = rssFeedListEvent.tags
-                      .filter(tag => tag[0] === 'u' && tag[1])
-                      .map(tag => tag[1] as string)
-                      .filter((url): url is string => {
-                        if (typeof url !== 'string') return false
-                        const trimmed = url.trim()
-                        return trimmed.length > 0
-                      })
-                    feedUrls = urls // Use even if empty (respect user's choice)
-                  } catch (e) {
-                    // On parse error, treat as empty event
-                    feedUrls = []
-                  }
-                } else {
-                  // No event exists - use default feeds for demo
-                  feedUrls = DEFAULT_RSS_FEEDS
-                }
-                
-                // Trigger background refresh and UI update
-                logger.info('[NormalFeed] Manual refresh: triggering RSS background refresh', { feedCount: feedUrls.length })
-                // Start background refresh (don't wait for it)
-                rssFeedService.backgroundRefreshFeeds(feedUrls).catch(err => {
-                  logger.error('[NormalFeed] Manual refresh: background refresh failed', { error: err })
-                })
-                // Immediately trigger UI update (will show cached items, then update when background refresh completes)
-                if (pubkey) {
-                  window.dispatchEvent(new CustomEvent('rssFeedListUpdated', { 
-                    detail: { pubkey, feedUrls, eventId: 'manual-refresh' } 
-                  }))
-                }
-                // Also force re-render by updating key
-                setRssRefreshKey(prev => prev + 1)
-              } else {
-                // Refresh Notes/Replies
-                if (noteListRef && typeof noteListRef !== 'function') {
-                  noteListRef.current?.refresh()
-                }
-              }
-            }} />
-            {activeTab !== 'rss' && (
-              <KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />
-            )}
-          </>
-        }
-      />
+      {renderTabsInFeed && tabsElement}
       <div className="pt-2 min-w-0">
         {activeTab === 'rss' ? (
           <RssFeedList key={rssRefreshKey} />

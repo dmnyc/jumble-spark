@@ -11,7 +11,11 @@ import { useMediaExtraction } from '@/hooks'
 import { cleanUrl, isImage, isMedia, isVideo, isAudio, isWebsocketUrl } from '@/lib/url'
 import { getImetaInfosFromEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
-import { ExtendedKind, WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
+import Emoji from '@/components/Emoji'
+import { ExtendedKind, EMOJI_SHORT_CODE_REGEX, WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
+import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
+import { TEmoji } from '@/types'
+import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Lightbox from 'yet-another-react-lightbox'
@@ -417,9 +421,10 @@ function parseMarkdownContent(
     videoPosterMap?: Map<string, string>
     imageThumbnailMap?: Map<string, string>
     getImageIdentifier?: (url: string) => string | null
+    emojiInfos?: TEmoji[]
   }
 ): { nodes: React.ReactNode[]; hashtagsInContent: Set<string>; footnotes: Map<string, string>; citations: Array<{ id: string; type: string; citationId: string }> } {
-  const { eventPubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier } = options
+  const { eventPubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier, emojiInfos = [] } = options
   const parts: React.ReactNode[] = []
   const hashtagsInContent = new Set<string>()
   const footnotes = new Map<string, string>()
@@ -1442,17 +1447,22 @@ function parseMarkdownContent(
             // Also update lastIndex immediately to prevent processing of patterns in this range
             lastIndex = textEndIndex
           } else if (hasTextOnSameLine || hasTextBefore || hasTextAfterOnSameLine) {
-            // Hashtag is part of text - merge just this hashtag and text after it (avoids hard break after #hashtag at start of line)
+            // Hashtag is part of text - merge this hashtag and all following hashtags/text on same line (avoids hard break between #hashtag #other)
             const patternMarkdown = content.substring(pattern.index, pattern.end)
             const textAfterPattern = content.substring(pattern.end, lineEndIndex)
             text = text + patternMarkdown + textAfterPattern
             textEndIndex = lineEndIndex === content.length ? content.length : lineEndIndex + 1
             
-            const tag = pattern.data
-            const tagLower = tag.toLowerCase()
-            hashtagsInContent.add(tagLower)
-            // Mark as merged BEFORE processing text to ensure it's skipped
-            mergedPatterns.add(patternIdx)
+            // Mark every hashtag in this merged range so we don't render them as separate blocks
+            const mergeStartIndex = pattern.index
+            const mergeEndIndex = lineEndIndex
+            filteredPatterns.forEach((p, idx) => {
+              if (p.type === 'hashtag' && p.index >= mergeStartIndex && p.index < mergeEndIndex) {
+                const tag = p.data
+                hashtagsInContent.add(tag.toLowerCase())
+                mergedPatterns.add(idx)
+              }
+            })
           }
         } else if ((pattern.type === 'markdown-link' || pattern.type === 'relay-url') && (hasTextOnSameLine || hasTextBefore)) {
           // Get the original pattern syntax from the content
@@ -1523,7 +1533,7 @@ function parseMarkdownContent(
                     normalizedText = normalizedText.replace(/[ \t]{2,}/g, ' ')
                     normalizedText = normalizedText.trim()
                     if (normalizedText) {
-                      const textContent = parseInlineMarkdown(normalizedText, `text-${patternIdx}-para-${paraIdx}-img-${imgIdx}`, footnotes)
+                      const textContent = parseInlineMarkdown(normalizedText, `text-${patternIdx}-para-${paraIdx}-img-${imgIdx}`, footnotes, emojiInfos)
                       parts.push(
                         <p key={`text-${patternIdx}-para-${paraIdx}-img-${imgIdx}`} className="mb-1 last:mb-0">
                           {textContent}
@@ -1586,7 +1596,7 @@ function parseMarkdownContent(
                 normalizedText = normalizedText.replace(/[ \t]{2,}/g, ' ')
                 normalizedText = normalizedText.trim()
                 if (normalizedText) {
-                  const textContent = parseInlineMarkdown(normalizedText, `text-${patternIdx}-para-${paraIdx}-final`, footnotes)
+                  const textContent = parseInlineMarkdown(normalizedText, `text-${patternIdx}-para-${paraIdx}-final`, footnotes, emojiInfos)
                   parts.push(
                     <p key={`text-${patternIdx}-para-${paraIdx}-final`} className="mb-1 last:mb-0">
                       {textContent}
@@ -1606,7 +1616,7 @@ function parseMarkdownContent(
               normalizedPara = normalizedPara.trim()
               if (normalizedPara) {
                 // Process paragraph for inline formatting (which will handle markdown links)
-                const paraContent = parseInlineMarkdown(normalizedPara, `text-${patternIdx}-para-${paraIdx}`, footnotes)
+                const paraContent = parseInlineMarkdown(normalizedPara, `text-${patternIdx}-para-${paraIdx}`, footnotes, emojiInfos)
                 // Wrap in paragraph tag (no whitespace-pre-wrap, let normal text wrapping handle it)
                 parts.push(
                   <p key={`text-${patternIdx}-para-${paraIdx}`} className="mb-1 last:mb-0">
@@ -1813,7 +1823,7 @@ function parseMarkdownContent(
     } else if (pattern.type === 'markdown-link') {
       const { text, url } = pattern.data
       // Process the link text for inline formatting (bold, italic, etc.)
-      const linkContent = parseInlineMarkdown(text, `link-${patternIdx}`, footnotes)
+      const linkContent = parseInlineMarkdown(text, `link-${patternIdx}`, footnotes, emojiInfos)
       // Markdown links should always be rendered as inline links, not block-level components
       // This ensures they don't break up the content flow when used in paragraphs
       if (isWebsocketUrl(url)) {
@@ -1882,7 +1892,7 @@ function parseMarkdownContent(
     } else if (pattern.type === 'header') {
       const { level, text } = pattern.data
       // Parse the header text for inline formatting (but not nested headers)
-      const headerContent = parseInlineMarkdown(text, `header-${patternIdx}`, footnotes)
+      const headerContent = parseInlineMarkdown(text, `header-${patternIdx}`, footnotes, emojiInfos)
       const HeaderTag = `h${Math.min(level, 6)}` as keyof JSX.IntrinsicElements
       parts.push(
         <HeaderTag 
@@ -1905,7 +1915,7 @@ function parseMarkdownContent(
       )
     } else if (pattern.type === 'bullet-list-item') {
       const { text } = pattern.data
-      const listContent = parseInlineMarkdown(text, `bullet-${patternIdx}`, footnotes)
+      const listContent = parseInlineMarkdown(text, `bullet-${patternIdx}`, footnotes, emojiInfos)
       parts.push(
         <li key={`bullet-${patternIdx}`} className="list-disc list-inside my-1">
           {listContent}
@@ -1913,7 +1923,7 @@ function parseMarkdownContent(
       )
     } else if (pattern.type === 'numbered-list-item') {
       const { text, number } = pattern.data
-      const listContent = parseInlineMarkdown(text, `numbered-${patternIdx}`, footnotes)
+      const listContent = parseInlineMarkdown(text, `numbered-${patternIdx}`, footnotes, emojiInfos)
       const itemNumber = number ? parseInt(number, 10) : undefined
       parts.push(
         <li key={`numbered-${patternIdx}`} className="leading-tight" value={itemNumber}>
@@ -1935,7 +1945,7 @@ function parseMarkdownContent(
                       key={`th-${patternIdx}-${cellIdx}`} 
                       className="border border-gray-300 dark:border-gray-700 px-4 py-2 bg-gray-100 dark:bg-gray-800 font-semibold text-left"
                     >
-                      {parseInlineMarkdown(cell, `table-header-${patternIdx}-${cellIdx}`, footnotes)}
+                      {parseInlineMarkdown(cell, `table-header-${patternIdx}-${cellIdx}`, footnotes, emojiInfos)}
                     </th>
                   ))}
                 </tr>
@@ -1948,7 +1958,7 @@ function parseMarkdownContent(
                         key={`td-${patternIdx}-${rowIdx}-${cellIdx}`} 
                         className="border border-gray-300 dark:border-gray-700 px-4 py-2"
                       >
-                        {parseInlineMarkdown(cell, `table-cell-${patternIdx}-${rowIdx}-${cellIdx}`, footnotes)}
+                        {parseInlineMarkdown(cell, `table-cell-${patternIdx}-${rowIdx}-${cellIdx}`, footnotes, emojiInfos)}
                       </td>
                     ))}
                   </tr>
@@ -1987,7 +1997,7 @@ function parseMarkdownContent(
         // Join paragraph lines with newlines to preserve line breaks (especially before em-dashes)
         // This preserves the original formatting of the blockquote
         const paragraphText = paragraphLines.join('\n')
-        const paragraphContent = parseInlineMarkdown(paragraphText, `blockquote-${patternIdx}-para-${paraIdx}`, footnotes)
+        const paragraphContent = parseInlineMarkdown(paragraphText, `blockquote-${patternIdx}-para-${paraIdx}`, footnotes, emojiInfos)
         
         return (
           <p key={`blockquote-${patternIdx}-para-${paraIdx}`} className="mb-1 last:mb-0 whitespace-pre-line">
@@ -2010,7 +2020,7 @@ function parseMarkdownContent(
       // Each line should have the > prefix preserved
       const greentextContent = lines.map((line: string, lineIdx: number) => {
         // Parse inline markdown for each line (for links, hashtags, etc.)
-        const lineContent = parseInlineMarkdown(line, `greentext-${patternIdx}-line-${lineIdx}`, footnotes)
+        const lineContent = parseInlineMarkdown(line, `greentext-${patternIdx}-line-${lineIdx}`, footnotes, emojiInfos)
         return (
           <React.Fragment key={`greentext-${patternIdx}-line-${lineIdx}`}>
             {lineIdx > 0 && <br />}
@@ -2256,7 +2266,7 @@ function parseMarkdownContent(
                   normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
                   normalizedPara = normalizedPara.trim()
                   if (normalizedPara) {
-                    const paraContent = parseInlineMarkdown(normalizedPara, `text-end-para-${imgIdx}-${paraIdx}`, footnotes)
+                    const paraContent = parseInlineMarkdown(normalizedPara, `text-end-para-${imgIdx}-${paraIdx}`, footnotes, emojiInfos)
                     parts.push(
                       <p key={`text-end-para-${imgIdx}-${paraIdx}`} className="mb-1 last:mb-0">
                         {paraContent}
@@ -2323,7 +2333,7 @@ function parseMarkdownContent(
               normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
               normalizedPara = normalizedPara.trim()
               if (normalizedPara) {
-                const paraContent = parseInlineMarkdown(normalizedPara, `text-end-final-para-${paraIdx}`, footnotes)
+                const paraContent = parseInlineMarkdown(normalizedPara, `text-end-final-para-${paraIdx}`, footnotes, emojiInfos)
                 parts.push(
                   <p key={`text-end-final-para-${paraIdx}`} className="mb-1 last:mb-0">
                     {paraContent}
@@ -2342,7 +2352,7 @@ function parseMarkdownContent(
             normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
             normalizedPara = normalizedPara.trim()
             if (normalizedPara) {
-              const paraContent = parseInlineMarkdown(normalizedPara, `text-end-para-${paraIdx}`, footnotes)
+              const paraContent = parseInlineMarkdown(normalizedPara, `text-end-para-${paraIdx}`, footnotes, emojiInfos)
               parts.push(
                 <p key={`text-end-para-${paraIdx}`} className="mb-1 last:mb-0">
                   {paraContent}
@@ -2365,7 +2375,7 @@ function parseMarkdownContent(
       normalizedPara = normalizedPara.replace(/[ \t]{2,}/g, ' ')
       normalizedPara = normalizedPara.trim()
       if (!normalizedPara) return null
-      const paraContent = parseInlineMarkdown(normalizedPara, `text-only-para-${paraIdx}`, footnotes)
+      const paraContent = parseInlineMarkdown(normalizedPara, `text-only-para-${paraIdx}`, footnotes, emojiInfos)
       return (
         <p key={`text-only-para-${paraIdx}`} className="mb-1 last:mb-0">
           {paraContent}
@@ -2485,7 +2495,7 @@ function parseMarkdownContent(
               const originalLine = listItemOriginalLines.get(patternIndex)
               if (originalLine) {
                 // Render the original line with inline markdown processing
-                const lineContent = parseInlineMarkdown(originalLine, `single-list-item-${partIdx}`, footnotes)
+                const lineContent = parseInlineMarkdown(originalLine, `single-list-item-${partIdx}`, footnotes, emojiInfos)
                 wrappedParts.push(
                   <span key={`list-item-content-${partIdx}`}>
                     {lineContent}
@@ -2532,7 +2542,7 @@ function parseMarkdownContent(
               className="text-sm text-gray-700 dark:text-gray-300"
             >
               <span className="font-semibold">[{id}]:</span>{' '}
-              <span>{parseInlineMarkdown(text, `footnote-${id}`, footnotes)}</span>
+              <span>{parseInlineMarkdown(text, `footnote-${id}`, footnotes, emojiInfos)}</span>
               {' '}
               <a 
                 href={`#footnote-ref-${id}`}
@@ -2655,7 +2665,7 @@ function parseMarkdownContent(
  * - Inline code: ``code`` (double backtick) or `code` (single backtick)
  * - Footnote references: [^1] (handled at block level, but parsed here for inline context)
  */
-function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<string, string> = new Map()): React.ReactNode[] {
+function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<string, string> = new Map(), emojiInfos: TEmoji[] = []): React.ReactNode[] {
   // Normalize newlines to spaces at the start (defensive - text should already be normalized, but ensure it)
   // This prevents any hard breaks within inline content
   text = text.replace(/\n/g, ' ')
@@ -2963,6 +2973,26 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
       }
     }
   })
+
+  // Emoji shortcodes :shortcode: or :short code: (custom and native)
+  const emojiMatches = Array.from(text.matchAll(EMOJI_SHORT_CODE_REGEX))
+  emojiMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const isInOther = inlinePatterns.some(p =>
+        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto' || p.type === 'emoji') &&
+        match.index! >= p.index &&
+        match.index! < p.end
+      )
+      if (!isInOther) {
+        inlinePatterns.push({
+          index: match.index,
+          end: match.index + match[0].length,
+          type: 'emoji',
+          data: match[0].slice(1, -1).trim()
+        })
+      }
+    }
+  })
   
   // Sort by index
   inlinePatterns.sort((a, b) => a.index - b.index)
@@ -3015,11 +3045,11 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
       if (url.startsWith('payto://')) {
         parts.push(
           <PaytoLink key={`${keyPrefix}-payto-link-${i}`} paytoUri={url} className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words">
-            {parseInlineMarkdown(text, `${keyPrefix}-link-${i}`, _footnotes)}
+            {parseInlineMarkdown(text, `${keyPrefix}-link-${i}`, _footnotes, emojiInfos)}
           </PaytoLink>
         )
       } else {
-        const linkContent = parseInlineMarkdown(text, `${keyPrefix}-link-${i}`, _footnotes)
+        const linkContent = parseInlineMarkdown(text, `${keyPrefix}-link-${i}`, _footnotes, emojiInfos)
         parts.push(
           <a
             key={`${keyPrefix}-link-${i}`}
@@ -3083,6 +3113,19 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
           className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
         />
       )
+    } else if (pattern.type === 'emoji') {
+      const shortcode = pattern.data as string
+      const custom = emojiInfos.find((e) => e.shortcode === shortcode)
+      if (custom) {
+        parts.push(<Emoji key={`${keyPrefix}-emoji-${i}`} emoji={custom} classNames={{ img: 'size-4 inline-block' }} />)
+      } else {
+        const native = shortcodeToEmoji(shortcode, emojis) ?? shortcodeToEmoji(shortcode.replace(/\s+/g, '_'), emojis)
+        if (native?.emoji) {
+          parts.push(<Emoji key={`${keyPrefix}-emoji-${i}`} emoji={native.emoji} classNames={{ img: 'size-4' }} />)
+        } else {
+          parts.push(<span key={`${keyPrefix}-emoji-${i}`}>{`:${shortcode}:`}</span>)
+        }
+      }
     }
     
     lastIndex = pattern.end
@@ -3457,6 +3500,8 @@ export default function MarkdownArticle({
     return map
   }, [event.id, JSON.stringify(event.tags), getImageIdentifier])
   
+  const emojiInfos = useMemo(() => getEmojiInfosFromEmojiTags(event.tags), [event.tags])
+
   // Parse markdown content with post-processing for nostr: links and hashtags
   const { nodes: parsedContent, hashtagsInContent } = useMemo(() => {
     const result = parseMarkdownContent(preprocessedContent, {
@@ -3467,11 +3512,12 @@ export default function MarkdownArticle({
       navigateToRelay,
       videoPosterMap,
       imageThumbnailMap,
-      getImageIdentifier
+      getImageIdentifier,
+      emojiInfos
     })
     // Return nodes and hashtags (footnotes are already included in nodes)
     return { nodes: result.nodes, hashtagsInContent: result.hashtagsInContent }
-  }, [preprocessedContent, event.pubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier])
+  }, [preprocessedContent, event.pubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier, emojiInfos])
   
   // Filter metadata tags to only show what's not already in content
   const leftoverMetadataTags = useMemo(() => {

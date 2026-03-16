@@ -15,7 +15,9 @@ const ProfilePage = forwardRef((_, ref) => {
       displayScrollToTopButton
       ref={ref}
     >
-      <Profile id={pubkey ?? undefined} />
+      <div className="min-w-0 pt-2">
+        <Profile id={pubkey ?? undefined} />
+      </div>
     </PrimaryPageLayout>
   )
 })

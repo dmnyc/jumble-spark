@@ -3,9 +3,13 @@ import { checkAlgoRelay } from '@/lib/relay'
 import logger from '@/lib/logger'
 import { useFeed } from '@/providers/FeedProvider'
 import relayInfoService from '@/services/relay-info.service'
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 
-export default function RelaysFeed() {
+export default function RelaysFeed({
+  setSubHeader
+}: {
+  setSubHeader?: (node: React.ReactNode) => void
+}) {
   logger.debug('RelaysFeed component rendering')
   const { feedInfo, relayUrls } = useFeed()
   const [isReady, setIsReady] = useState(false)
@@ -55,6 +59,7 @@ export default function RelaysFeed() {
       areAlgoRelays={areAlgoRelays}
       isMainFeed
       showRelayCloseReason
+      setSubHeader={setSubHeader}
     />
   )
 }

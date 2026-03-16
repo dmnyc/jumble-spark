@@ -228,7 +228,8 @@ export const URL_REGEX =
 export const WS_URL_REGEX =
   /wss?:\/\/[\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*]+[^\s.,;:'")\]}!?，。；："'！？】）]/giu
 export const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
-export const EMOJI_SHORT_CODE_REGEX = /:[a-zA-Z0-9_-]+:/g
+/** Matches :shortcode: or :short code: (allows letters, digits, underscore, hyphen, space) */
+export const EMOJI_SHORT_CODE_REGEX = /:[a-zA-Z0-9_\-\s]+:/g
 export const EMBEDDED_EVENT_REGEX = /nostr:(note1[a-z0-9]{58}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)/g
 export const EMBEDDED_MENTION_REGEX = /nostr:(npub1[a-z0-9]{58}|nprofile1[a-z0-9]+)/g
 export const HASHTAG_REGEX = /#[a-zA-Z0-9_\-\u00C0-\u017F\u0100-\u017F\u0180-\u024F\u1E00-\u1EFF]+/g

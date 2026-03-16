@@ -39,7 +39,7 @@ const MePage = forwardRef((_, ref) => {
         titlebar={<MePageTitlebar />}
         hideTitlebarBottomBorder
       >
-        <div className="flex flex-col p-4 gap-4 overflow-auto">
+        <div className="min-w-0 pt-2 flex flex-col p-4 gap-4 overflow-auto">
           <AccountManager />
         </div>
       </PrimaryPageLayout>
@@ -53,6 +53,7 @@ const MePage = forwardRef((_, ref) => {
       titlebar={<MePageTitlebar />}
       hideTitlebarBottomBorder
     >
+      <div className="min-w-0 pt-2">
       <div className="flex gap-4 items-center p-4">
         <SimpleUserAvatar userId={pubkey} size="big" />
         <div className="space-y-1 flex-1 w-0">
@@ -94,6 +95,7 @@ const MePage = forwardRef((_, ref) => {
       </div>
       <LoginDialog open={loginDialogOpen} setOpen={setLoginDialogOpen} />
       <LogoutDialog open={logoutDialogOpen} setOpen={setLogoutDialogOpen} />
+      </div>
     </PrimaryPageLayout>
   )
 })

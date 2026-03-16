@@ -2,7 +2,10 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Clock, Hash, Users } from 'lucide-react'
 import { NostrEvent } from 'nostr-tools'
-import { formatDistanceToNow } from 'date-fns'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+
+dayjs.extend(relativeTime)
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { DISCUSSION_TOPICS } from './discussionTopics'
@@ -54,14 +57,13 @@ export default function ThreadCard({
   // Get all topics from this thread
   const allTopics = extractAllTopics(thread)
 
-  // Format creation time
-  const createdAt = new Date(thread.created_at * 1000)
-  const timeAgo = formatDistanceToNow(createdAt, { addSuffix: true })
-  
+  // Format creation time (fromNow() includes suffix e.g. "3 hours ago")
+  const timeAgo = dayjs.unix(thread.created_at).fromNow()
+
   // Format last activity times
   const formatLastActivity = (timestamp: number) => {
     if (timestamp === 0) return null
-    return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true })
+    return dayjs.unix(timestamp).fromNow()
   }
   
   const lastCommentAgo = formatLastActivity(lastCommentTime)

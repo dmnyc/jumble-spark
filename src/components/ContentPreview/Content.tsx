@@ -5,6 +5,7 @@ import {
   EmbeddedUrlParser,
   parseContent
 } from '@/lib/content-parser'
+import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { cn } from '@/lib/utils'
 import { TEmoji } from '@/types'
 import { useMemo } from 'react'
@@ -47,10 +48,12 @@ export default function Content({
           return <EmbeddedMentionText key={index} userId={node.data.split(':')[1]} />
         }
         if (node.type === 'emoji') {
-          const shortcode = node.data.split(':')[1]
+          const shortcode = node.data.slice(1, -1).trim()
           const emoji = emojiInfos?.find((e) => e.shortcode === shortcode)
-          if (!emoji) return node.data
-          return <Emoji key={index} emoji={emoji} classNames={{ img: 'size-4' }} />
+          if (emoji) return <Emoji key={index} emoji={emoji} classNames={{ img: 'size-4' }} />
+          const native = shortcodeToEmoji(shortcode, emojis) ?? shortcodeToEmoji(shortcode.replace(/\s+/g, '_'), emojis)
+          if (native?.emoji) return <Emoji key={index} emoji={native.emoji} classNames={{ img: 'size-4' }} />
+          return node.data
         }
         return node.data
       })}

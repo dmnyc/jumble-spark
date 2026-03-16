@@ -9,7 +9,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { TPageRef } from '@/types'
 import { Info, Rss } from 'lucide-react'
-import {
+import React, {
   Dispatch,
   forwardRef,
   SetStateAction,
@@ -36,7 +36,15 @@ const NoteListPage = forwardRef((_, ref) => {
   const { pubkey, checkLogin } = useNostr()
   const { feedInfo, relayUrls, isReady } = useFeed()
   const [showRelayDetails, setShowRelayDetails] = useState(false)
+  const [homeSubHeader, setHomeSubHeader] = useState<React.ReactNode>(null)
   useImperativeHandle(ref, () => layoutRef.current)
+
+  // Clear subHeader when switching away from relay/relays/all-favorites feed
+  useEffect(() => {
+    const isRelaysFeed =
+      feedInfo.feedType === 'relay' || feedInfo.feedType === 'relays' || feedInfo.feedType === 'all-favorites'
+    if (!isRelaysFeed) setHomeSubHeader(null)
+  }, [feedInfo.feedType])
 
   // REMOVED: Scroll-to-top logic - feed should NEVER scroll to top when drawer opens/closes
   // The feed stays mounted and maintains scroll position at all times
@@ -89,7 +97,7 @@ const NoteListPage = forwardRef((_, ref) => {
         {showRelayDetails && feedInfo.feedType === 'relay' && !!feedInfo.id && (
           <RelayInfo url={feedInfo.id!} className="mb-2 pt-3" />
         )}
-        <RelaysFeed />
+        <RelaysFeed setSubHeader={setHomeSubHeader} />
       </>
     )
   }
@@ -107,10 +115,13 @@ const NoteListPage = forwardRef((_, ref) => {
           }
         />
       }
+      subHeader={homeSubHeader ?? undefined}
       displayScrollToTopButton
     >
-      <VersionUpdateBanner />
-      {content}
+      <div className="min-w-0 pt-2">
+        <VersionUpdateBanner />
+        {content}
+      </div>
     </PrimaryPageLayout>
   )
 })

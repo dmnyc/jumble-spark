@@ -261,7 +261,9 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
     if (type === 'nostr') {
       const bech32Id = match[1]
       const nostrType = getNostrType(bech32Id)
-      
+      // Store content without leading whitespace/newline (regex may capture \n or space before "nostr:")
+      const nostrContent = `nostr:${bech32Id}`
+
       // Add spacing around handles if they're not at the beginning or end of a line
       const isAtStart = start === 0 || content[start - 1] === '\n'
       const isAtEnd = end === content.length || content[end] === '\n'
@@ -277,7 +279,7 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
       
       elements.push({
         type: 'nostr',
-        content: match[0],
+        content: nostrContent,
         bech32Id,
         nostrType: nostrType || undefined
       })
@@ -288,7 +290,15 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
           content: ' '
         })
       }
-      
+
+      // If nostr is at the start of a line and immediately followed by a single newline, skip it
+      // so we don't render an errant hard-return behind the address
+      if (isAtStart && content[end] === '\n') {
+        lastIndex = end + 1
+      } else {
+        lastIndex = end
+      }
+      continue
     } else if (['image', 'video', 'audio'].includes(type) && url) {
       elements.push({
         type: type as 'image' | 'video' | 'audio',

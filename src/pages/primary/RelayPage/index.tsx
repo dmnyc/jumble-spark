@@ -14,7 +14,9 @@ const RelayPage = forwardRef(({ url }: { url?: string }, ref) => {
       displayScrollToTopButton
       ref={ref}
     >
-      <Relay url={normalizedUrl} />
+      <div className="min-w-0 pt-2">
+        <Relay url={normalizedUrl} />
+      </div>
     </PrimaryPageLayout>
   )
 })

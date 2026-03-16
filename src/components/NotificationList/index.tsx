@@ -22,16 +22,21 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import PullToRefresh from 'react-simple-pull-to-refresh'
-import Tabs from '../Tabs'
 import { NotificationItem } from './NotificationItem'
 import { NotificationSkeleton } from './NotificationItem/Notification'
 import { isTouchDevice } from '@/lib/utils'
-import { RefreshButton } from '../RefreshButton'
-
 const LIMIT = 100
 const SHOW_COUNT = 30
 
-const NotificationList = forwardRef((_, ref) => {
+const NotificationList = forwardRef(
+  (
+    {
+      notificationType
+    }: {
+      notificationType: TNotificationType
+    },
+    ref
+  ) => {
   const { t } = useTranslation()
   const { current, display } = usePrimaryPage()
   const active = useMemo(() => current === 'notifications' && display, [current, display])
@@ -39,7 +44,6 @@ const NotificationList = forwardRef((_, ref) => {
   const { getNotificationsSeenAt } = useNotification()
   const { notificationListStyle } = useUserPreferences()
   const { favoriteRelays } = useFavoriteRelays()
-  const [notificationType, setNotificationType] = useState<TNotificationType>('all')
   const [lastReadTime, setLastReadTime] = useState(0)
   const [refreshCount, setRefreshCount] = useState(0)
   const [timelineKey, setTimelineKey] = useState<string | undefined>(undefined)
@@ -92,17 +96,10 @@ const NotificationList = forwardRef((_, ref) => {
     [loading]
   )
 
-  // Listen for tab restoration from PageManager
+  // Reset visible count when tab changes (parent owns tab state)
   useEffect(() => {
-    const handleRestore = (e: CustomEvent<{ page: string, tab: string }>) => {
-      if (e.detail.page === 'notifications' && e.detail.tab) {
-        setNotificationType(e.detail.tab as TNotificationType)
-        setShowCount(SHOW_COUNT)
-      }
-    }
-    window.addEventListener('restorePageTab', handleRestore as EventListener)
-    return () => window.removeEventListener('restorePageTab', handleRestore as EventListener)
-  }, [])
+    setShowCount(SHOW_COUNT)
+  }, [notificationType])
 
   const handleNewEvent = useCallback(
     (event: NostrEvent) => {
@@ -318,25 +315,7 @@ const NotificationList = forwardRef((_, ref) => {
 
   return (
     <div>
-      <Tabs
-        value={notificationType}
-        tabs={[
-          { value: 'all', label: 'All' },
-          { value: 'mentions', label: 'Mentions' },
-          { value: 'reactions', label: 'Reactions' },
-          { value: 'zaps', label: 'Zaps' }
-        ]}
-        onTabChange={(type) => {
-          setShowCount(SHOW_COUNT)
-          setNotificationType(type as TNotificationType)
-          // Dispatch tab change event for PageManager
-          window.dispatchEvent(new CustomEvent('pageTabChanged', { 
-            detail: { page: 'notifications', tab: type } 
-          }))
-        }}
-        options={!supportTouch ? <RefreshButton onClick={() => refresh()} /> : null}
-      />
-      <div ref={topRef} className="scroll-mt-[calc(6rem+1px)]" />
+      <div ref={topRef} />
       {supportTouch ? (
         <PullToRefresh
           onRefresh={async () => {
@@ -352,6 +331,7 @@ const NotificationList = forwardRef((_, ref) => {
       )}
     </div>
   )
-})
+  }
+)
 NotificationList.displayName = 'NotificationList'
 export default NotificationList

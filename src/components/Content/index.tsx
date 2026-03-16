@@ -10,6 +10,7 @@ import {
   parseContent
 } from '@/lib/content-parser'
 import logger from '@/lib/logger'
+import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { cn } from '@/lib/utils'
 import { cleanUrl, isImage, isMedia, isAudio, isVideo } from '@/lib/url'
@@ -455,10 +456,12 @@ export default function Content({
           return <EmbeddedHashtag hashtag={node.data} key={index} />
         }
         if (node.type === 'emoji') {
-          const shortcode = node.data.split(':')[1]
+          const shortcode = node.data.slice(1, -1).trim()
           const emoji = emojiInfos.find((e) => e.shortcode === shortcode)
-          if (!emoji) return node.data
-          return <Emoji classNames={{ img: 'mb-1' }} emoji={emoji} key={index} />
+          if (emoji) return <Emoji classNames={{ img: 'mb-1' }} emoji={emoji} key={index} />
+          const native = shortcodeToEmoji(shortcode, emojis) ?? shortcodeToEmoji(shortcode.replace(/\s+/g, '_'), emojis)
+          if (native?.emoji) return <Emoji classNames={{ img: 'mb-1' }} emoji={native.emoji} key={index} />
+          return <span key={index}>{node.data}</span>
         }
         if (node.type === 'youtube') {
           return (
