@@ -180,9 +180,9 @@ const NotificationList = forwardRef(
           onEvents: (events, eosed) => {
             if (events.length > 0) {
               setNotifications(events.filter((event) => event.pubkey !== pubkey))
+              setLoading(false)
             }
             if (eosed) {
-              setLoading(false)
               setUntil(events.length > 0 ? events[events.length - 1].created_at - 1 : undefined)
               noteStatsService.updateNoteStatsByEvents(events)
             }

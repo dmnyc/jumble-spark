@@ -676,6 +676,7 @@ class ClientService extends EventTarget {
     let eventIdSet = new Set<string>()
     let events: NEvent[] = []
     let eosedCount = 0
+    let progressiveDelivered = false
 
     const subs = await Promise.all(
       subRequests.map(({ urls, filter }) => {
@@ -698,6 +699,9 @@ class ClientService extends EventTarget {
 
               if (eosedCount >= threshold) {
                 onEvents(events, eosedCount >= requestCount)
+              } else if (!progressiveDelivered && events.length > 0) {
+                progressiveDelivered = true
+                onEvents(events, false)
               }
             },
             onNew: (evt) => {
@@ -964,13 +968,26 @@ class ClientService extends EventTarget {
     const that = this
     let events: NEvent[] = []
     let eosedAt: number | null = null
+    let initialBatchScheduled = false
+    const PROGRESSIVE_DELAY_MS = 150
     const subCloser = this.subscribe(relays, since ? { ...filter, since } : filter, {
       startLogin,
       onevent: (evt: NEvent) => {
         that.addEventToCache(evt)
         // not eosed yet, push to events
         if (!eosedAt) {
-          return events.push(evt)
+          events.push(evt)
+          // Deliver first batch quickly so UI (e.g. notifications) doesn't wait for all relays to EOSE
+          if (needSort && events.length > 0 && !initialBatchScheduled) {
+            initialBatchScheduled = true
+            setTimeout(() => {
+              if (!eosedAt && events.length > 0) {
+                const snap = [...events].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
+                onEvents(snap.concat(cachedEvents).slice(0, filter.limit), false)
+              }
+            }, PROGRESSIVE_DELAY_MS)
+          }
+          return
         }
         // new event
         if (evt.created_at > eosedAt) {
