@@ -5,10 +5,14 @@ import {
   formatCalendarDate,
   isCalendarEventKind
 } from '@/lib/calendar-event'
+import { tagNameEquals } from '@/lib/tag'
 import { useFetchCalendarRsvps } from '@/hooks/useFetchCalendarRsvps'
 import { useNostr } from '@/providers/NostrProvider'
+import { toProfile } from '@/lib/link'
+import { useSecondaryPage } from '@/PageManager'
 import { Event } from 'nostr-tools'
 import { useTranslation } from 'react-i18next'
+import { useMemo } from 'react'
 import { Button } from '../ui/button'
 import { Calendar, Video, CheckCircle, HelpCircle, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -18,6 +22,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
+import UserAvatar from '../UserAvatar'
+import Username from '../Username'
 import { toast } from 'sonner'
 
 type RsvpStatus = 'accepted' | 'tentative' | 'declined'
@@ -32,6 +38,7 @@ export default function CalendarEventContent({
   showRsvp?: boolean
 }) {
   const { t } = useTranslation()
+  const { push } = useSecondaryPage()
   const { pubkey: myPubkey, publish } = useNostr()
   const { rsvps, isFetching, getRsvpStatus: getStatus } = useFetchCalendarRsvps(event)
 
@@ -42,6 +49,26 @@ export default function CalendarEventContent({
   const description = summary || event.content?.trim() || ''
   const myRsvp = myPubkey ? rsvps.find((r) => r.pubkey === myPubkey) : undefined
   const myStatus = myRsvp ? getStatus(myRsvp) : undefined
+
+  // Organizer + invitees (event p tags) + anyone who sent an RSVP. Each shows response: accepted/tentative/declined or no response.
+  const attendeesList = useMemo(() => {
+    const organizerPubkey = event.pubkey
+    const participantPubkeys = event.tags
+      .filter(tagNameEquals('p'))
+      .map((t) => t[1]?.trim())
+      .filter(Boolean) as string[]
+    const allPubkeys = Array.from(
+      new Set([organizerPubkey, ...participantPubkeys, ...rsvps.map((r) => r.pubkey)])
+    )
+    return allPubkeys.map((pubkey) => {
+      const rsvp = rsvps.find((r) => r.pubkey === pubkey)
+      return {
+        pubkey,
+        status: (rsvp ? getStatus(rsvp) : null) as RsvpStatus | null,
+        isOrganizer: pubkey === organizerPubkey
+      }
+    })
+  }, [event.pubkey, event.tags, rsvps])
 
   const handleRsvp = async (status: RsvpStatus) => {
     if (!myPubkey) {
@@ -159,6 +186,60 @@ export default function CalendarEventContent({
           </DropdownMenu>
         )}
       </div>
+      {attendeesList.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-border/60">
+          <div className="text-xs font-medium text-muted-foreground mb-2">{t('Attendees')}</div>
+          <ul className="space-y-1.5">
+            {attendeesList.map(({ pubkey, status, isOrganizer }) => (
+              <li key={pubkey}>
+                <button
+                  type="button"
+                  onClick={() => push(toProfile(pubkey))}
+                  className={cn(
+                    'w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs',
+                    'hover:bg-muted/60 transition-colors min-w-0'
+                  )}
+                >
+                  <UserAvatar userId={pubkey} size="xSmall" className="shrink-0" />
+                  <span className="min-w-0 truncate flex-1">
+                    <Username userId={pubkey} className="text-foreground" skeletonClassName="h-3" />
+                  </span>
+                  <span className="shrink-0 flex items-center gap-1.5 text-muted-foreground">
+                    {isOrganizer && (
+                      <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px]">
+                        {t('Organizer')}
+                      </span>
+                    )}
+                    {status === 'accepted' && (
+                      <span className="flex items-center gap-1 text-green-600" title={t('Accepted')}>
+                        <CheckCircle className="size-3.5" />
+                        <span className="text-[10px]">{t('Accepted')}</span>
+                      </span>
+                    )}
+                    {status === 'tentative' && (
+                      <span className="flex items-center gap-1 text-amber-600" title={t('Tentative')}>
+                        <HelpCircle className="size-3.5" />
+                        <span className="text-[10px]">{t('Tentative')}</span>
+                      </span>
+                    )}
+                    {status === 'declined' && (
+                      <span className="flex items-center gap-1 text-muted-foreground" title={t('Declined')}>
+                        <XCircle className="size-3.5" />
+                        <span className="text-[10px]">{t('Declined')}</span>
+                      </span>
+                    )}
+                    {status == null && (
+                      <span className="text-[10px] italic text-muted-foreground">
+                        {t('No response')}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

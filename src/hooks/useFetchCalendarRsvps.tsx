@@ -15,6 +15,14 @@ function getRsvpStatus(rsvp: Event): 'accepted' | 'tentative' | 'declined' | und
   return undefined
 }
 
+function mergeRsvp(prev: Event[], evt: Event): Event[] {
+  const next = prev.filter((e) => e.id !== evt.id)
+  const samePubkey = next.find((e) => e.pubkey === evt.pubkey)
+  if (samePubkey && samePubkey.created_at >= evt.created_at) return next
+  const withoutSamePubkey = samePubkey ? next.filter((e) => e.pubkey !== evt.pubkey) : next
+  return [...withoutSamePubkey, evt].sort((a, b) => b.created_at - a.created_at)
+}
+
 export function useFetchCalendarRsvps(calendarEvent: Event | undefined) {
   const { relayList } = useNostr()
   const [rsvps, setRsvps] = useState<Event[]>([])
@@ -56,6 +64,23 @@ export function useFetchCalendarRsvps(calendarEvent: Event | undefined) {
       cancelled = true
     }
   }, [calendarEvent?.id, calendarEvent?.kind, relayList?.read])
+
+  // When we publish an RSVP, NostrProvider calls client.emitNewEvent(event). Merge it into rsvps so the UI updates immediately.
+  useEffect(() => {
+    if (!calendarEvent || !isCalendarEventKind(calendarEvent.kind)) return
+
+    const coordinate = getReplaceableCoordinateFromEvent(calendarEvent)
+    const handler = (e: CustomEvent<Event>) => {
+      const evt = e.detail
+      if (evt.kind !== ExtendedKind.CALENDAR_EVENT_RSVP) return
+      const aTag = evt.tags.find(tagNameEquals('a'))
+      if (aTag?.[1] !== coordinate) return
+      setRsvps((prev) => mergeRsvp(prev, evt))
+    }
+
+    client.addEventListener('newEvent', handler as EventListener)
+    return () => client.removeEventListener('newEvent', handler as EventListener)
+  }, [calendarEvent?.id, calendarEvent?.kind])
 
   return {
     rsvps,
