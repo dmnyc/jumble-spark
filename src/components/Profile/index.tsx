@@ -32,7 +32,13 @@ import { toNoteList } from '@/lib/link'
 import { parseAdvancedSearch } from '@/lib/search-parser'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
-import { FileText, Link, Film, Copy } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { FileText, Link, Film, Copy, Ellipsis, Calendar, MapPin, Pencil } from 'lucide-react'
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -52,6 +58,10 @@ import { toFollowPacks } from '@/lib/link'
 import ZapDialog from '@/components/ZapDialog'
 import PaytoLink from '@/components/PaytoLink'
 import PostEditor from '@/components/PostEditor'
+import {
+  ScheduleVideoCallDialog,
+  ScheduleInPersonMeetingDialog
+} from '@/components/ScheduleVideoCallDialog'
 import type { TProfile } from '@/types'
 
 type ProfileTabValue = 'posts' | 'pins' | 'bookmarks' | 'interests' | 'articles' | 'media' | 'you' | 'notes'
@@ -165,6 +175,8 @@ export default function Profile({ id }: { id?: string }) {
   const [openZapDialog, setOpenZapDialog] = useState(false)
   const [openPublicMessageTo, setOpenPublicMessageTo] = useState<string | null>(null)
   const [openCallInviteTo, setOpenCallInviteTo] = useState<{ pubkey: string; url: string } | null>(null)
+  const [openScheduleOwnCall, setOpenScheduleOwnCall] = useState(false)
+  const [openScheduleInPersonMeeting, setOpenScheduleInPersonMeeting] = useState(false)
 
   const mergedPaymentMethods = useMemo(() => {
     const list = mergePaymentMethods(paymentInfo, profile ?? null)
@@ -458,22 +470,31 @@ export default function Profile({ id }: { id?: string }) {
               }
             />
             {isSelf ? (
-              <div className="flex gap-2">
-                <Button
-                  className="rounded-full whitespace-nowrap"
-                  variant="secondary"
-                  onClick={() => push(toFollowPacks())}
-                >
-                  {t('Browse follow packs')}
-                </Button>
-                <Button
-                  className="w-20 min-w-20 rounded-full"
-                  variant="secondary"
-                  onClick={() => push(toProfileEditor())}
-                >
-                  {t('Edit')}
-                </Button>
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="secondary" size="icon" className="rounded-full">
+                    <Ellipsis />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setOpenScheduleOwnCall(true)}>
+                    <Calendar />
+                    {t('Schedule a video call')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setOpenScheduleInPersonMeeting(true)}>
+                    <MapPin />
+                    {t('Schedule in-person meeting')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => push(toFollowPacks())}>
+                    <Link />
+                    {t('Browse follow packs')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => push(toProfileEditor())}>
+                    <Pencil />
+                    {t('Edit')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : (
               <>
                 {mergedPaymentMethods.some((m) => m.type === 'lightning') && (
@@ -640,6 +661,11 @@ export default function Profile({ id }: { id?: string }) {
               const discussionCount = postEvents.filter((event) => event.kind === ExtendedKind.DISCUSSION).length
               const pollCount = postEvents.filter((event) => event.kind === ExtendedKind.POLL).length
               const superzapCount = postEvents.filter((event) => event.kind === ExtendedKind.ZAP_RECEIPT).length
+              const calendarEventCount = postEvents.filter(
+                (event) =>
+                  event.kind === ExtendedKind.CALENDAR_EVENT_TIME ||
+                  event.kind === ExtendedKind.CALENDAR_EVENT_DATE
+              ).length
 
               return (
                 <Select value={postKindFilter} onValueChange={setPostKindFilter}>
@@ -654,6 +680,7 @@ export default function Profile({ id }: { id?: string }) {
                     <SelectItem value={String(ExtendedKind.COMMENT)}>Comments ({commentCount})</SelectItem>
                     <SelectItem value={String(ExtendedKind.DISCUSSION)}>Discussions ({discussionCount})</SelectItem>
                     <SelectItem value={String(ExtendedKind.POLL)}>Polls ({pollCount})</SelectItem>
+                    <SelectItem value={String(ExtendedKind.CALENDAR_EVENT_TIME)}>Calendar Events ({calendarEventCount})</SelectItem>
                     <SelectItem value={String(ExtendedKind.ZAP_RECEIPT)}>Superzaps ({superzapCount})</SelectItem>
                   </SelectContent>
                 </Select>
@@ -811,6 +838,14 @@ export default function Profile({ id }: { id?: string }) {
           defaultContent={`${t('Join the video call')}: ${openCallInviteTo.url}`}
         />
       )}
+      <ScheduleVideoCallDialog
+        open={openScheduleOwnCall}
+        onOpenChange={setOpenScheduleOwnCall}
+      />
+      <ScheduleInPersonMeetingDialog
+        open={openScheduleInPersonMeeting}
+        onOpenChange={setOpenScheduleInPersonMeeting}
+      />
     </>
   )
 }

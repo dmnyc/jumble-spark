@@ -233,6 +233,39 @@ class ClientService extends EventTarget {
       return reportRelays
     }
 
+    // Public messages (kind 24) and calendar RSVPs (kind 31925): only author's outboxes + each recipient's inboxes
+    if (
+      event.kind === ExtendedKind.PUBLIC_MESSAGE ||
+      event.kind === ExtendedKind.CALENDAR_EVENT_RSVP
+    ) {
+      const authorRelayList = await this.fetchRelayList(event.pubkey).catch(() => ({ write: [] as string[], read: [] as string[] }))
+      let authorWrite = (authorRelayList?.write ?? []).map((url) => normalizeUrl(url)).filter(Boolean) as string[]
+      if (authorWrite.length === 0) {
+        authorWrite = [...FAST_WRITE_RELAY_URLS]
+      }
+      const recipientPubkeys = Array.from(
+        new Set(
+          event.tags.filter((t) => t[0] === 'p' && t[1] && isValidPubkey(t[1])).map((t) => t[1] as string)
+        )
+      ).filter((p) => p !== event.pubkey)
+      let recipientRead: string[] = []
+      if (recipientPubkeys.length > 0) {
+        const recipientRelayLists = await this.fetchRelayLists(recipientPubkeys)
+        recipientRead = recipientRelayLists.flatMap((rl) => rl?.read ?? [])
+        recipientRead = recipientRead
+          .map((url) => normalizeUrl(url))
+          .filter((url): url is string => !!url && !isLocalNetworkUrl(url))
+      }
+      const relays = Array.from(new Set([...authorWrite, ...recipientRead]))
+      logger.debug('[DetermineTargetRelays] Public message / calendar RSVP: author outbox + recipient inboxes only', {
+        kind: event.kind,
+        relayCount: relays.length,
+        authorWriteCount: authorWrite.length,
+        recipientReadCount: recipientRead.length
+      })
+      return relays.length > 0 ? relays : [...FAST_WRITE_RELAY_URLS]
+    }
+
     let relays: string[]
     if (specifiedRelayUrls?.length) {
       relays = specifiedRelayUrls

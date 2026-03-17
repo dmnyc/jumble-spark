@@ -421,6 +421,165 @@ export async function createPublicMessageDraftEvent(
   return setDraftEventCache(baseDraft)
 }
 
+const SECONDS_PER_DAY = 86400
+
+/**
+ * NIP-52 time-based calendar event (kind 31923) for scheduled video calls.
+ * Tags: d, title, summary, image, start, end, D, location/r, p, t (topics).
+ * Content = description (optional).
+ */
+export function createCalendarEventDraftEvent(params: {
+  d: string
+  title: string
+  start: number
+  end?: number
+  locationUrl: string
+  summary?: string
+  image?: string
+  topics?: string[]
+  content?: string
+  participants: string[]
+}): TDraftEvent {
+  const dayStart = Math.floor(params.start / SECONDS_PER_DAY)
+  const dayEnd =
+    params.end != null ? Math.floor(params.end / SECONDS_PER_DAY) : dayStart
+  const dTags: string[][] = []
+  for (let day = dayStart; day <= dayEnd; day++) {
+    dTags.push(['D', String(day)])
+  }
+  const tags: string[][] = [
+    ['d', params.d],
+    ['title', params.title],
+    ...(params.summary?.trim() ? [['summary', params.summary.trim()]] : []),
+    ...(params.image?.trim() ? [['image', params.image.trim()]] : []),
+    ['start', String(params.start)],
+    ...(params.end != null ? [['end', String(params.end)]] : []),
+    ...dTags,
+    ['r', params.locationUrl],
+    ...(params.topics ?? []).filter(Boolean).map((topic) => ['t', topic.trim()]),
+    ...params.participants.map((pubkey) => ['p', pubkey])
+  ]
+  return {
+    kind: ExtendedKind.CALENDAR_EVENT_TIME,
+    content: params.content?.trim() ?? '',
+    tags,
+    created_at: dayjs().unix()
+  }
+}
+
+/**
+ * NIP-52 date-based calendar event (kind 31922) for in-person all-day / multi-day.
+ * Tags: d, title, summary, image, start (YYYY-MM-DD), end (YYYY-MM-DD), location, r, p, t.
+ * Content = description (optional).
+ */
+export function createInPersonDateBasedCalendarEventDraftEvent(params: {
+  d: string
+  title: string
+  start: string
+  end?: string
+  location?: string
+  link?: string
+  summary?: string
+  image?: string
+  topics?: string[]
+  content?: string
+  participants: string[]
+}): TDraftEvent {
+  const tags: string[][] = [
+    ['d', params.d],
+    ['title', params.title],
+    ...(params.summary?.trim() ? [['summary', params.summary.trim()]] : []),
+    ...(params.image?.trim() ? [['image', params.image.trim()]] : []),
+    ['start', params.start],
+    ...(params.end?.trim() ? [['end', params.end]] : []),
+    ...(params.location?.trim() ? [['location', params.location.trim()]] : []),
+    ...(params.link?.trim() ? [['r', params.link.trim()]] : []),
+    ...(params.topics ?? []).filter(Boolean).map((topic) => ['t', topic.trim()]),
+    ...params.participants.map((pubkey) => ['p', pubkey])
+  ]
+  return {
+    kind: ExtendedKind.CALENDAR_EVENT_DATE,
+    content: params.content?.trim() ?? '',
+    tags,
+    created_at: dayjs().unix()
+  }
+}
+
+/**
+ * NIP-52 time-based calendar event (kind 31923) for in-person meetings.
+ * Tags: d, title, summary, image, start, end, D, optional location, optional r, p, t (topics).
+ * Content = description (optional).
+ */
+export function createInPersonCalendarEventDraftEvent(params: {
+  d: string
+  title: string
+  start: number
+  end?: number
+  location?: string
+  link?: string
+  summary?: string
+  image?: string
+  topics?: string[]
+  content?: string
+  participants: string[]
+}): TDraftEvent {
+  const dayStart = Math.floor(params.start / SECONDS_PER_DAY)
+  const dayEnd =
+    params.end != null ? Math.floor(params.end / SECONDS_PER_DAY) : dayStart
+  const dTags: string[][] = []
+  for (let day = dayStart; day <= dayEnd; day++) {
+    dTags.push(['D', String(day)])
+  }
+  const tags: string[][] = [
+    ['d', params.d],
+    ['title', params.title],
+    ...(params.summary?.trim() ? [['summary', params.summary.trim()]] : []),
+    ...(params.image?.trim() ? [['image', params.image.trim()]] : []),
+    ['start', String(params.start)],
+    ...(params.end != null ? [['end', String(params.end)]] : []),
+    ...dTags,
+    ...(params.location?.trim() ? [['location', params.location.trim()]] : []),
+    ...(params.link?.trim() ? [['r', params.link.trim()]] : []),
+    ...(params.topics ?? []).filter(Boolean).map((topic) => ['t', topic.trim()]),
+    ...params.participants.map((pubkey) => ['p', pubkey])
+  ]
+  return {
+    kind: ExtendedKind.CALENDAR_EVENT_TIME,
+    content: params.content?.trim() ?? '',
+    tags,
+    created_at: dayjs().unix()
+  }
+}
+
+/**
+ * NIP-52 calendar event RSVP (kind 31925).
+ * Tags: a (required), e (optional), d (required), status (required), p (optional), fb (optional).
+ */
+export function createCalendarRsvpDraftEvent(
+  calendarEvent: Event,
+  status: 'accepted' | 'tentative' | 'declined',
+  options: { content?: string; fb?: 'free' | 'busy' } = {}
+): TDraftEvent {
+  const coordinate = getReplaceableCoordinateFromEvent(calendarEvent)
+  const hint = client.getEventHint(calendarEvent.id)
+  const tags: string[][] = [
+    ['a', coordinate, hint ?? ''],
+    ['e', calendarEvent.id, hint ?? ''],
+    ['d', randomString(12)],
+    ['status', status],
+    ['p', calendarEvent.pubkey]
+  ]
+  if (options.fb && status !== 'declined') {
+    tags.push(['fb', options.fb])
+  }
+  return {
+    kind: ExtendedKind.CALENDAR_EVENT_RSVP,
+    content: options.content ?? '',
+    tags,
+    created_at: dayjs().unix()
+  }
+}
+
 export function createRelayListDraftEvent(mailboxRelays: TMailboxRelay[]): TDraftEvent {
   return {
     kind: kinds.RelayList,

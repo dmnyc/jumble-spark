@@ -42,6 +42,7 @@ import RelayReview from './RelayReview'
 import Zap from './Zap'
 import CitationCard from '@/components/CitationCard'
 import FollowPackPreview from '../ContentPreview/FollowPackPreview'
+import CalendarEventContent from '../CalendarEventContent'
 
 export default function Note({
   event,
@@ -106,6 +107,8 @@ export default function Note({
     event.kind === ExtendedKind.PUBLICATION ||
     event.kind === ExtendedKind.PUBLICATION_CONTENT ||
     event.kind === ExtendedKind.DISCUSSION ||
+    event.kind === ExtendedKind.CALENDAR_EVENT_TIME ||
+    event.kind === ExtendedKind.CALENDAR_EVENT_DATE ||
     event.kind === ExtendedKind.COMMENT
 
   let content: React.ReactNode
@@ -214,6 +217,8 @@ export default function Note({
     content = <VideoNote className="mt-2" event={event} />
   } else if (event.kind === ExtendedKind.RELAY_REVIEW) {
     content = <RelayReview className="mt-2" event={event} />
+  } else if (event.kind === ExtendedKind.CALENDAR_EVENT_TIME || event.kind === ExtendedKind.CALENDAR_EVENT_DATE) {
+    content = <CalendarEventContent event={event} className="mt-2" showRsvp />
   } else if (event.kind === ExtendedKind.PUBLIC_MESSAGE) {
     content = <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
   } else if (event.kind === ExtendedKind.ZAP_REQUEST || event.kind === ExtendedKind.ZAP_RECEIPT) {

@@ -26,6 +26,7 @@ const KIND_FILTER_OPTIONS = [
   { kindGroup: [ExtendedKind.PICTURE], label: 'Photo Posts' },
   { kindGroup: [ExtendedKind.VIDEO, ExtendedKind.SHORT_VIDEO], label: 'Video Posts' },
   { kindGroup: [ExtendedKind.DISCUSSION], label: 'Discussions' },
+  { kindGroup: [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME], label: 'Calendar Events' },
   { kindGroup: [ExtendedKind.ZAP_RECEIPT], label: 'Zaps' }
 ]
 

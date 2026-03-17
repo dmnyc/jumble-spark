@@ -11,6 +11,8 @@ const POST_KIND_LIST = [
   ExtendedKind.COMMENT,
   ExtendedKind.DISCUSSION,
   ExtendedKind.POLL,
+  ExtendedKind.CALENDAR_EVENT_DATE,
+  ExtendedKind.CALENDAR_EVENT_TIME,
   ExtendedKind.ZAP_RECEIPT,
   ExtendedKind.VOICE,
   ExtendedKind.VOICE_COMMENT
@@ -51,6 +53,8 @@ const ProfileFeed = forwardRef<{ refresh: () => void; getEvents?: () => Event[] 
       if (kindNum === ExtendedKind.COMMENT) return 'comments'
       if (kindNum === ExtendedKind.DISCUSSION) return 'discussions'
       if (kindNum === ExtendedKind.POLL) return 'polls'
+      if (kindNum === ExtendedKind.CALENDAR_EVENT_TIME || kindNum === ExtendedKind.CALENDAR_EVENT_DATE)
+        return 'calendar events'
       if (kindNum === ExtendedKind.ZAP_RECEIPT) return 'zaps'
       if (kindNum === ExtendedKind.VOICE) return 'voice posts'
       if (kindNum === ExtendedKind.VOICE_COMMENT) return 'voice comments'

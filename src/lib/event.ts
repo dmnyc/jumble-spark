@@ -1,4 +1,4 @@
-import { EMBEDDED_MENTION_REGEX, ExtendedKind } from '@/constants'
+import { CALENDAR_EVENT_KINDS, EMBEDDED_MENTION_REGEX, ExtendedKind } from '@/constants'
 import client from '@/services/client.service'
 import { TImetaInfo } from '@/types'
 import { LRUCache } from 'lru-cache'
@@ -43,7 +43,11 @@ export function isReplyNoteEvent(event: Event) {
 }
 
 export function isReplaceableEvent(kind: number) {
-  return kinds.isReplaceableKind(kind) || kinds.isAddressableKind(kind)
+  return (
+    kinds.isReplaceableKind(kind) ||
+    kinds.isAddressableKind(kind) ||
+    CALENDAR_EVENT_KINDS.includes(kind)
+  )
 }
 
 export function isPictureEvent(event: Event) {

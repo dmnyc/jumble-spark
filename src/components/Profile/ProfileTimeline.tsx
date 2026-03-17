@@ -1,4 +1,5 @@
 import NoteCard from '@/components/NoteCard'
+import { CALENDAR_EVENT_KINDS } from '@/constants'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Event } from 'nostr-tools'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState, useRef } from 'react'
@@ -85,7 +86,10 @@ const ProfileTimeline = forwardRef<
       if (Number.isNaN(kindNumber)) {
         return timelineEvents
       }
-      return timelineEvents.filter((event) => event.kind === kindNumber)
+      return timelineEvents.filter((event) =>
+        event.kind === kindNumber ||
+        (CALENDAR_EVENT_KINDS.includes(kindNumber) && CALENDAR_EVENT_KINDS.includes(event.kind))
+      )
     }, [timelineEvents, kindFilter])
 
     const filteredEvents = useMemo(() => {

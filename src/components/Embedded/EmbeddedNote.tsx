@@ -10,6 +10,7 @@ import { Event, nip19 } from 'nostr-tools'
 import ClientSelect from '../ClientSelect'
 import MainNoteCard from '../NoteCard/MainNoteCard'
 import { Button } from '../ui/button'
+import { EmbeddedCalendarEvent } from './EmbeddedCalendarEvent'
 import { Search } from 'lucide-react'
 import logger from '@/lib/logger'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
@@ -70,6 +71,15 @@ export function EmbeddedNote({ noteId, className }: { noteId: string; className?
     return (
       <div data-embedded-note data-bookstr onClick={(e) => e.stopPropagation()}>
         <EmbeddedBookstrEvent event={finalEvent} originalNoteId={noteId} className={className} />
+      </div>
+    )
+  }
+
+  // NIP-52 calendar event (scheduled video call) – render as calendar card
+  if (finalEvent.kind === ExtendedKind.CALENDAR_EVENT_TIME || finalEvent.kind === ExtendedKind.CALENDAR_EVENT_DATE) {
+    return (
+      <div data-embedded-note onClick={(e) => e.stopPropagation()}>
+        <EmbeddedCalendarEvent event={finalEvent} className={className} />
       </div>
     )
   }

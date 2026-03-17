@@ -55,6 +55,9 @@ function getEventTypeName(kind: number): string {
       return 'Wiki Article'
     case ExtendedKind.DISCUSSION:
       return 'Discussion'
+    case ExtendedKind.CALENDAR_EVENT_TIME:
+    case ExtendedKind.CALENDAR_EVENT_DATE:
+      return 'Calendar Event'
     default:
       return `Event (kind ${kind})`
   }
@@ -131,6 +134,9 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: string;
         return 'Note: Poll'
       case 31987: // ExtendedKind.RELAY_REVIEW
         return 'Note: Relay Review'
+      case 31922: // ExtendedKind.CALENDAR_EVENT_DATE
+      case 31923: // ExtendedKind.CALENDAR_EVENT_TIME
+        return 'Note: Calendar Event'
       case 9735: // ExtendedKind.ZAP_RECEIPT
         return 'Note: Zap Receipt'
       case 6: // kinds.Repost

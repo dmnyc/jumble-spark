@@ -1,3 +1,4 @@
+export * from './EmbeddedCalendarEvent'
 export * from './EmbeddedHashtag'
 export * from './EmbeddedLNInvoice'
 export * from './EmbeddedMention'

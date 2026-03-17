@@ -136,7 +136,6 @@ export const GIF_RELAY_URLS = [
 ]
 
 export const SEARCHABLE_RELAY_URLS = [
-  'wss://nostr.sovbit.host',
   'wss://freelay.sovbit.host',
   'wss://search.nos.today',
   'wss://nostr.wine', 
@@ -200,8 +199,23 @@ export const ExtendedKind = {
   /** NIP-66 Relay discovery (relay characteristics from NIP-11 or probing) */
   RELAY_DISCOVERY: 30166,
   /** NIP-66 Relay monitor announcement (intent to publish 30166 at a frequency) */
-  RELAY_MONITOR_ANNOUNCEMENT: 10166
+  RELAY_MONITOR_ANNOUNCEMENT: 10166,
+  /** NIP-52 Date-based calendar event (all-day / multi-day) */
+  CALENDAR_EVENT_DATE: 31922,
+  /** NIP-52 Time-based calendar event */
+  CALENDAR_EVENT_TIME: 31923,
+  /** NIP-52 Calendar event RSVP */
+  CALENDAR_EVENT_RSVP: 31925
 }
+
+/** NIP-52 calendar event kinds (addressable by d-tag); use in isReplaceableEvent. */
+export const CALENDAR_EVENT_KINDS = [
+  ExtendedKind.CALENDAR_EVENT_DATE,
+  ExtendedKind.CALENDAR_EVENT_TIME
+]
+
+/** Maximum invitees for calendar event group invites (one kind 24 with all as p-tags). */
+export const MAX_CALENDAR_INVITEES = 10
 
 export const SUPPORTED_KINDS = [
   kinds.ShortTextNote,
@@ -219,6 +233,8 @@ export const SUPPORTED_KINDS = [
   ExtendedKind.RELAY_REVIEW,
   ExtendedKind.DISCUSSION,
   ExtendedKind.ZAP_RECEIPT,
+  ExtendedKind.CALENDAR_EVENT_DATE,
+  ExtendedKind.CALENDAR_EVENT_TIME,
   ExtendedKind.PUBLICATION,
   ExtendedKind.WIKI_ARTICLE,
   ExtendedKind.WIKI_ARTICLE_MARKDOWN,

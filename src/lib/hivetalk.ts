@@ -36,3 +36,8 @@ export function roomIdForPubkeys(pubkeyA: string, pubkeyB: string): string {
   const shortB = b.slice(0, 8)
   return `jumble-${shortA}-${shortB}`
 }
+
+/** Room id for a scheduled call (NIP-52 calendar event); one room per event. */
+export function roomIdForScheduledCall(dTag: string): string {
+  return `jumble-cal-${dTag}`
+}
