@@ -51,6 +51,7 @@ import ProfileNotes from './ProfileNotes'
 import { toFollowPacks } from '@/lib/link'
 import ZapDialog from '@/components/ZapDialog'
 import PaytoLink from '@/components/PaytoLink'
+import PostEditor from '@/components/PostEditor'
 import type { TProfile } from '@/types'
 
 type ProfileTabValue = 'posts' | 'pins' | 'bookmarks' | 'interests' | 'articles' | 'media' | 'you' | 'notes'
@@ -162,6 +163,7 @@ export default function Profile({ id }: { id?: string }) {
   const { pubkey: accountPubkey } = useNostr()
   const [paymentInfo, setPaymentInfo] = useState<ReturnType<typeof getPaymentInfoFromEvent> | null>(null)
   const [openZapDialog, setOpenZapDialog] = useState(false)
+  const [openPublicMessageTo, setOpenPublicMessageTo] = useState<string | null>(null)
 
   const mergedPaymentMethods = useMemo(() => {
     const list = mergePaymentMethods(paymentInfo, profile ?? null)
@@ -426,7 +428,10 @@ export default function Profile({ id }: { id?: string }) {
         </div>
         <div className="px-4">
           <div className="flex justify-end h-8 gap-2 items-center">
-            <ProfileOptions pubkey={pubkey} />
+            <ProfileOptions
+              pubkey={pubkey}
+              onSendPublicMessage={!isSelf ? () => setOpenPublicMessageTo(pubkey) : undefined}
+            />
             {isSelf ? (
               <div className="flex gap-2">
                 <Button
@@ -760,6 +765,13 @@ export default function Profile({ id }: { id?: string }) {
           />
         )}
       </div>
+      {openPublicMessageTo && (
+        <PostEditor
+          open={!!openPublicMessageTo}
+          setOpen={(open) => !open && setOpenPublicMessageTo(null)}
+          initialPublicMessageTo={openPublicMessageTo}
+        />
+      )}
     </>
   )
 }

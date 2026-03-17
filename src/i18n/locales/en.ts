@@ -45,6 +45,7 @@ export default {
     Quote: 'Quote',
     'Copy event ID': 'Copy event ID',
     'Copy user ID': 'Copy user ID',
+    'Send public message': 'Send public message',
     'View raw event': 'View raw event',
     'View full profile': 'View full profile',
     Like: 'Like',

@@ -280,19 +280,6 @@ export default function GifPicker({
         </ScrollArea>
       </div>
       <div className="flex flex-col gap-2 border-t pt-2 shrink-0">
-        {isLoggedIn && (
-          <div className="grid gap-1">
-            <Label className="text-xs text-muted-foreground">
-              {t('Description (optional, for search)')}
-            </Label>
-            <Input
-              placeholder={t('e.g. happy birthday, thumbs up')}
-              value={publishDescription}
-              onChange={(e) => setPublishDescription(e.target.value)}
-              className="min-w-0"
-            />
-          </div>
-        )}
         <div className="flex flex-col gap-1.5">
           <Button
             type="button"
@@ -330,6 +317,19 @@ export default function GifPicker({
             </div>
           </div>
         </div>
+        {isLoggedIn && (
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">
+              {t('Description (optional, for search)')}
+            </Label>
+            <Input
+              placeholder={t('e.g. happy birthday, thumbs up')}
+              value={publishDescription}
+              onChange={(e) => setPublishDescription(e.target.value)}
+              className="min-w-0"
+            />
+          </div>
+        )}
         {isLoggedIn && (
           <>
             <input

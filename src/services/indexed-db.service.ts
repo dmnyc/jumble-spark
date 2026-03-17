@@ -48,7 +48,7 @@ export const StoreNames = {
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 22
+const DB_VERSION = 23
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000

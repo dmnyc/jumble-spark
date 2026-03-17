@@ -8,11 +8,18 @@ import {
 import { pubkeyToNpub } from '@/lib/pubkey'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
-import { Bell, BellOff, Copy, Ellipsis } from 'lucide-react'
+import { Bell, BellOff, Copy, Ellipsis, MessageCircle } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-export default function ProfileOptions({ pubkey }: { pubkey: string }) {
+export default function ProfileOptions({
+  pubkey,
+  onSendPublicMessage
+}: {
+  pubkey: string
+  /** Opens the post editor in public message mode with this profile's pubkey in the mention list. */
+  onSendPublicMessage?: () => void
+}) {
   const { t } = useTranslation()
   const { pubkey: accountPubkey } = useNostr()
   const { mutePubkeySet, mutePubkeyPrivately, mutePubkeyPublicly, unmutePubkey } = useMuteList()
@@ -28,6 +35,12 @@ export default function ProfileOptions({ pubkey }: { pubkey: string }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent>
+        {onSendPublicMessage && (
+          <DropdownMenuItem onClick={onSendPublicMessage}>
+            <MessageCircle />
+            {t('Send public message')}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onClick={() => navigator.clipboard.writeText('nostr:' + pubkeyToNpub(pubkey))}
         >

@@ -73,10 +73,17 @@ export default function Note({
   const [highlightData, setHighlightData] = useState<HighlightData | undefined>(undefined)
   const [highlightDefaultContent, setHighlightDefaultContent] = useState<string>('')
   const [postEditorOpen, setPostEditorOpen] = useState(false)
+  const [publicMessageTo, setPublicMessageTo] = useState<string | null>(null)
 
   const openHighlight = useCallback((data: HighlightData, eventContent?: string) => {
     setHighlightData(data)
     setHighlightDefaultContent(eventContent ?? '')
+    setPublicMessageTo(null)
+    setPostEditorOpen(true)
+  }, [])
+
+  const openPublicMessage = useCallback((pubkey: string) => {
+    setPublicMessageTo(pubkey)
     setPostEditorOpen(true)
   }, [])
 
@@ -276,7 +283,10 @@ export default function Note({
                   setPostEditorOpen(false)
                   setHighlightData(undefined)
                   setHighlightDefaultContent('')
+                  setPublicMessageTo(null)
                 }}
+                onOpenPublicMessage={openPublicMessage}
+                initialPublicMessageTo={publicMessageTo}
               />
             )}
           </div>

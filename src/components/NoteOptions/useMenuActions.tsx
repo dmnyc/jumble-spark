@@ -13,7 +13,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
 import { nip66Service } from '@/services/nip66.service'
-import { Bell, BellOff, Code, Copy, Link, SatelliteDish, Trash2, TriangleAlert, Pin, FileDown, Globe, BookOpen } from 'lucide-react'
+import { Bell, BellOff, Code, Copy, Link, SatelliteDish, Trash2, TriangleAlert, Pin, FileDown, Globe, BookOpen, MessageCircle } from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
 import { useMemo, useState, useEffect, useContext } from 'react'
@@ -46,6 +46,8 @@ interface UseMenuActionsProps {
   setIsRawEventDialogOpen: (open: boolean) => void
   setIsReportDialogOpen: (open: boolean) => void
   isSmallScreen: boolean
+  /** When provided, adds "Send public message" to open composer with this pubkey in the mention list. */
+  onOpenPublicMessage?: (pubkey: string) => void
 }
 
 export function useMenuActions({
@@ -55,6 +57,7 @@ export function useMenuActions({
   setIsRawEventDialogOpen,
   setIsReportDialogOpen,
   isSmallScreen,
+  onOpenPublicMessage,
 }: UseMenuActionsProps) {
   const { t } = useTranslation()
   // Use useContext directly to avoid error if provider is not available
@@ -588,6 +591,18 @@ export function useMenuActions({
           closeDrawer()
         }
       },
+      ...(pubkey && event.pubkey !== pubkey && onOpenPublicMessage
+        ? [
+            {
+              icon: MessageCircle,
+              label: t('Send public message'),
+              onClick: () => {
+                closeDrawer()
+                onOpenPublicMessage(event.pubkey)
+              }
+            } as MenuAction
+          ]
+        : []),
       {
         icon: Link,
         label: t('Share with Jumble'),

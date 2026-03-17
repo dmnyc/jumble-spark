@@ -16,7 +16,9 @@ export default function NoteOptions({
   initialHighlightData,
   highlightDefaultContent,
   isPostEditorOpen,
-  onPostEditorClose
+  onPostEditorClose,
+  onOpenPublicMessage,
+  initialPublicMessageTo
 }: {
   event: Event
   className?: string
@@ -24,6 +26,10 @@ export default function NoteOptions({
   highlightDefaultContent?: string
   isPostEditorOpen?: boolean
   onPostEditorClose?: () => void
+  /** Opens the post editor in public message mode with the given pubkey in the mention list. */
+  onOpenPublicMessage?: (pubkey: string) => void
+  /** When set, the post editor is opened in public message mode with this pubkey pre-filled. */
+  initialPublicMessageTo?: string | null
 }) {
   const { isSmallScreen } = useScreenSize()
   const [isRawEventDialogOpen, setIsRawEventDialogOpen] = useState(false)
@@ -54,7 +60,8 @@ export default function NoteOptions({
     showSubMenuActions,
     setIsRawEventDialogOpen,
     setIsReportDialogOpen,
-    isSmallScreen
+    isSmallScreen,
+    onOpenPublicMessage
   })
 
   const trigger = useMemo(
@@ -105,6 +112,7 @@ export default function NoteOptions({
           }}
           defaultContent={highlightDefaultContent ?? ''}
           initialHighlightData={initialHighlightData}
+          initialPublicMessageTo={initialPublicMessageTo ?? undefined}
         />
       )}
     </div>

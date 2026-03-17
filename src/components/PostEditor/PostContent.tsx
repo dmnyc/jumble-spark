@@ -67,13 +67,16 @@ export default function PostContent({
   parentEvent,
   close,
   openFrom,
-  initialHighlightData
+  initialHighlightData,
+  initialPublicMessageTo
 }: {
   defaultContent?: string
   parentEvent?: Event
   close: () => void
   openFrom?: string[]
   initialHighlightData?: HighlightData
+  /** When set, opens in public message mode with this pubkey in the mention list. */
+  initialPublicMessageTo?: string
 }) {
   const { t } = useTranslation()
   const { pubkey, publish, checkLogin } = useNostr()
@@ -90,8 +93,10 @@ export default function PostContent({
   const [mentions, setMentions] = useState<string[]>([])
   const [isNsfw, setIsNsfw] = useState(false)
   const [isPoll, setIsPoll] = useState(false)
-  const [isPublicMessage, setIsPublicMessage] = useState(false)
-  const [extractedMentions, setExtractedMentions] = useState<string[]>([])
+  const [isPublicMessage, setIsPublicMessage] = useState(!!initialPublicMessageTo)
+  const [extractedMentions, setExtractedMentions] = useState<string[]>(
+    initialPublicMessageTo ? [initialPublicMessageTo] : []
+  )
   const [isProtectedEvent, setIsProtectedEvent] = useState(false)
   const [additionalRelayUrls, setAdditionalRelayUrls] = useState<string[]>([])
   const [isHighlight, setIsHighlight] = useState(!!initialHighlightData)
@@ -283,7 +288,7 @@ export default function PostContent({
 
   useEffect(() => {
     if (!text) {
-      setExtractedMentions([])
+      if (!initialPublicMessageTo) setExtractedMentions([])
       return
     }
 
@@ -295,7 +300,7 @@ export default function PostContent({
     return () => {
       clearTimeout(timeoutId)
     }
-  }, [text, extractMentionsFromContent])
+  }, [text, extractMentionsFromContent, initialPublicMessageTo])
 
   // Check for private relays availability
   useEffect(() => {
@@ -1533,7 +1538,7 @@ export default function PostContent({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 min-w-0">
       {/* Dynamic Title based on mode */}
       <div className="text-lg font-semibold">
         {(() => {
@@ -2237,8 +2242,8 @@ export default function PostContent({
           mentions={extractedMentions}
         />
       )}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2 items-center">
+      <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
+        <div className="flex gap-2 items-center min-w-0 shrink-0">
           {/* Audio button for replies and new PMs - placed before image button */}
           {(parentEvent || isPublicMessage) && (
             <Uploader
@@ -2305,7 +2310,7 @@ export default function PostContent({
             <Settings />
           </Button>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center shrink-0">
           <Mentions
             content={text}
             parentEvent={parentEvent}

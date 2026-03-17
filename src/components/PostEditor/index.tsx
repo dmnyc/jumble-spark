@@ -14,6 +14,7 @@ import {
   SheetTitle
 } from '@/components/ui/sheet'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { pubkeyToNpub } from '@/lib/pubkey'
 import postEditor from '@/services/post-editor.service'
 import { Event } from 'nostr-tools'
 import { Dispatch, useMemo } from 'react'
@@ -25,7 +26,8 @@ export default function PostEditor({
   open,
   setOpen,
   openFrom,
-  initialHighlightData
+  initialHighlightData,
+  initialPublicMessageTo
 }: {
   defaultContent?: string
   parentEvent?: Event
@@ -33,13 +35,18 @@ export default function PostEditor({
   setOpen: Dispatch<boolean>
   openFrom?: string[]
   initialHighlightData?: import('./HighlightEditor').HighlightData
+  /** When set, opens in public message mode with this pubkey in the mention list. */
+  initialPublicMessageTo?: string
 }) {
   const { isSmallScreen } = useScreenSize()
 
-  // If initialHighlightData is provided and we're creating a highlight from an event,
-  // we need to pass the event content as defaultContent for the main editor
-  // Note: This is handled separately - we'll pass the event content when opening from menu
-  const effectiveDefaultContent = defaultContent
+  const effectiveDefaultContent = useMemo(() => {
+    if (initialPublicMessageTo) {
+      const npub = pubkeyToNpub(initialPublicMessageTo)
+      return npub ? `nostr:${npub} ` : defaultContent
+    }
+    return defaultContent
+  }, [initialPublicMessageTo, defaultContent])
 
   const content = useMemo(() => {
     return (
@@ -49,15 +56,16 @@ export default function PostEditor({
         close={() => setOpen(false)}
         openFrom={openFrom}
         initialHighlightData={initialHighlightData}
+        initialPublicMessageTo={initialPublicMessageTo}
       />
     )
-  }, [effectiveDefaultContent, parentEvent, openFrom, setOpen, initialHighlightData])
+  }, [effectiveDefaultContent, parentEvent, openFrom, setOpen, initialHighlightData, initialPublicMessageTo])
 
   if (isSmallScreen) {
     return (
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
-          className="h-full w-full p-0 border-none"
+          className="h-full w-full max-w-full p-0 border-none overflow-hidden"
           side="bottom"
           hideClose
           onEscapeKeyDown={(e) => {
@@ -67,8 +75,8 @@ export default function PostEditor({
             }
           }}
         >
-          <ScrollArea className="px-4 h-full max-h-screen" scrollBarClassName="opacity-100">
-            <div className="space-y-4 px-2 py-6">
+          <ScrollArea className="px-4 h-full max-h-screen min-w-0 overflow-x-auto" scrollBarClassName="opacity-100">
+            <div className="space-y-4 px-2 pr-4 py-6 min-w-0">
               <SheetHeader className="sr-only">
                 <SheetTitle>Post Editor</SheetTitle>
                 <SheetDescription>Create a new post or reply</SheetDescription>
@@ -84,7 +92,7 @@ export default function PostEditor({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
-        className="p-0 max-w-2xl"
+        className="p-0 max-w-2xl w-[calc(100vw-2rem)] sm:w-full overflow-hidden"
         withoutClose
         onEscapeKeyDown={(e) => {
           if (postEditor.isSuggestionPopupOpen) {
@@ -93,8 +101,8 @@ export default function PostEditor({
           }
         }}
       >
-        <ScrollArea className="px-4 h-full max-h-screen" scrollBarClassName="opacity-100">
-          <div className="space-y-4 px-2 py-6">
+        <ScrollArea className="px-4 h-full max-h-screen min-w-0" scrollBarClassName="opacity-100">
+          <div className="space-y-4 px-2 pr-4 py-6 min-w-0">
             <DialogHeader className="sr-only">
               <DialogTitle>Post Editor</DialogTitle>
               <DialogDescription>Create a new post or reply</DialogDescription>
