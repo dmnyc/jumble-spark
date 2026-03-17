@@ -69,8 +69,9 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
       client
         .searchNpubsFromLocal(mentionQuery.trim(), MENTION_LIMIT)
         .then((npubs) => {
-          setMentionItems(npubs)
-          setMentionOpen(npubs.length > 0)
+          const list = npubs ?? []
+          setMentionItems(list)
+          setMentionOpen(list.length > 0)
           setSelectedIndex(0)
         })
         .catch(() => {

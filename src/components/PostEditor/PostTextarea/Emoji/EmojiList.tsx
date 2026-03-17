@@ -14,10 +14,11 @@ export interface EmojiListHandler {
 }
 
 export const EmojiList = forwardRef<EmojiListHandler, EmojiListProps>((props, ref) => {
+  const items = props.items ?? []
   const [selectedIndex, setSelectedIndex] = useState(0)
 
   const selectItem = (index: number): void => {
-    const item = props.items[index]
+    const item = items[index]
 
     if (item) {
       props.command({ name: item })
@@ -27,18 +28,20 @@ export const EmojiList = forwardRef<EmojiListHandler, EmojiListProps>((props, re
   }
 
   const upHandler = (): void => {
-    setSelectedIndex((selectedIndex + props.items.length - 1) % props.items.length)
+    if (!items.length) return
+    setSelectedIndex((selectedIndex + items.length - 1) % items.length)
   }
 
   const downHandler = (): void => {
-    setSelectedIndex((selectedIndex + 1) % props.items.length)
+    if (!items.length) return
+    setSelectedIndex((selectedIndex + 1) % items.length)
   }
 
   const enterHandler = (): void => {
     selectItem(selectedIndex)
   }
 
-  useEffect(() => setSelectedIndex(props.items.length ? 0 : -1), [props.items])
+  useEffect(() => setSelectedIndex(items.length ? 0 : -1), [items])
 
   useImperativeHandle(ref, () => {
     return {
@@ -63,7 +66,7 @@ export const EmojiList = forwardRef<EmojiListHandler, EmojiListProps>((props, re
     }
   }, [upHandler, downHandler, enterHandler])
 
-  if (!props.items?.length) {
+  if (!items.length) {
     return null
   }
 
@@ -74,7 +77,7 @@ export const EmojiList = forwardRef<EmojiListHandler, EmojiListProps>((props, re
       onTouchMove={(e) => e.stopPropagation()}
     >
       <div className="p-1">
-        {props.items.map((item, index) => {
+        {items.map((item, index) => {
           return (
             <EmojiListItem
               key={item}

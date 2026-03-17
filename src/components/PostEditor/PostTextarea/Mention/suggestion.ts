@@ -8,7 +8,8 @@ import MentionList, { MentionListHandle, MentionListProps } from './MentionList'
 
 const suggestion = {
   items: async ({ query }: { query: string }) => {
-    return await client.searchNpubsFromLocal(query, 20)
+    const result = await client.searchNpubsFromLocal(query, 20)
+    return result ?? []
   },
 
   render: () => {

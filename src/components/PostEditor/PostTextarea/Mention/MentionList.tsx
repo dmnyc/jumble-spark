@@ -22,6 +22,7 @@ export interface MentionListHandle {
 }
 
 const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref) => {
+  const items = props.items ?? []
   const inDialog = Boolean(props.editor?.view?.dom?.closest?.('[role="dialog"]'))
   const [internalIndex, setInternalIndex] = useState<number>(0)
   const isControlled = props.selectedIndex !== undefined
@@ -29,7 +30,7 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
   const setSelectedIndex = isControlled ? (n: number) => props.onSelectIndex?.(n) : setInternalIndex
 
   const selectItem = (index: number) => {
-    const item = props.items[index]
+    const item = items[index]
 
     if (item) {
       props.command({ id: item, label: formatNpub(item) })
@@ -37,11 +38,13 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
   }
 
   const upHandler = () => {
-    setSelectedIndex((selectedIndex + props.items.length - 1) % props.items.length)
+    if (!items.length) return
+    setSelectedIndex((selectedIndex + items.length - 1) % items.length)
   }
 
   const downHandler = () => {
-    setSelectedIndex((selectedIndex + 1) % props.items.length)
+    if (!items.length) return
+    setSelectedIndex((selectedIndex + 1) % items.length)
   }
 
   const enterHandler = () => {
@@ -50,9 +53,9 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
 
   useEffect(() => {
     if (!isControlled) {
-      setInternalIndex(props.items.length ? 0 : -1)
+      setInternalIndex(items.length ? 0 : -1)
     }
-  }, [props.items, isControlled])
+  }, [items, isControlled])
 
   useImperativeHandle(ref, () => ({
     onKeyDown: ({ event }: SuggestionKeyDownProps) => {
@@ -75,7 +78,7 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
     }
   }))
 
-  if (!props.items?.length) {
+  if (!items.length) {
     return null
   }
 
@@ -88,7 +91,7 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
       onWheel={(e: React.WheelEvent) => e.stopPropagation()}
       onTouchMove={(e: React.TouchEvent) => e.stopPropagation()}
     >
-      {props.items.map((item, index) => (
+      {items.map((item, index) => (
         <button
           className={cn(
             'cursor-pointer text-start items-center m-1 p-2 outline-none transition-colors [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 rounded-md',
