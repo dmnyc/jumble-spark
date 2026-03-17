@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import { publishMonitorAnnouncementOnce } from './services/nip66-monitor'
+import storage from './services/local-storage.service'
 
 declare global {
   interface Window {
@@ -34,6 +35,7 @@ async function bootstrap() {
   } catch {
     window.__RUNTIME_CONFIG__ = {}
   }
+  await storage.initAsync()
   publishMonitorAnnouncementOnce()
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

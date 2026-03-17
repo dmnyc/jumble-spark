@@ -40,11 +40,15 @@ export const StoreNames = {
   /** NIP-66: per-relay discovery cache (key = relay URL, value = { discovery, cachedAt }). */
   NIP66_DISCOVERY: 'nip66Discovery',
   /** NIP-A3 payment targets (kind 10133). */
-  PAYMENT_INFO_EVENTS: 'paymentInfoEvents'
+  PAYMENT_INFO_EVENTS: 'paymentInfoEvents',
+  /** Cached GIF list (parsed from kind 1063 + 1/1111). Key: 'gifList', value: { gifs, cachedAt }. */
+  GIF_CACHE: 'gifCache',
+  /** App settings (replaces in-memory/localStorage for persisted settings). Key: setting key, value: string. */
+  SETTINGS: 'settings'
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 21
+const DB_VERSION = 22
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -203,6 +207,12 @@ class IndexedDbService {
           }
           if (!db.objectStoreNames.contains(StoreNames.PAYMENT_INFO_EVENTS)) {
             db.createObjectStore(StoreNames.PAYMENT_INFO_EVENTS, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.GIF_CACHE)) {
+            db.createObjectStore(StoreNames.GIF_CACHE, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.SETTINGS)) {
+            db.createObjectStore(StoreNames.SETTINGS, { keyPath: 'key' })
           }
         }
       }
@@ -1596,7 +1606,7 @@ class IndexedDbService {
   async clearRssFeedItems(): Promise<void> {
     await this.initPromise
     const storeName = StoreNames.RSS_FEED_ITEMS
-    
+
     if (!this.db || !this.db.objectStoreNames.contains(storeName)) {
       return
     }
@@ -1605,14 +1615,118 @@ class IndexedDbService {
       const transaction = this.db!.transaction(storeName, 'readwrite')
       const store = transaction.objectStore(storeName)
       const request = store.clear()
-      
+
       request.onsuccess = () => {
         resolve()
       }
-      
+
       request.onerror = () => {
         reject(request.error)
       }
+    })
+  }
+
+  private static readonly GIF_CACHE_KEY = 'gifList'
+
+  /**
+   * Get cached GIF list from IndexedDB. Returns null if missing or store unavailable.
+   */
+  async getGifCache(): Promise<{ gifs: { url: string; fallbackUrl?: string; eventId: string; pubkey: string; createdAt: number }[]; cachedAt: number } | null> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.GIF_CACHE)) {
+      return null
+    }
+    return new Promise((resolve) => {
+      const transaction = this.db!.transaction(StoreNames.GIF_CACHE, 'readonly')
+      const store = transaction.objectStore(StoreNames.GIF_CACHE)
+      const request = store.get(IndexedDbService.GIF_CACHE_KEY)
+      request.onsuccess = () => {
+        const row = request.result as { key: string; value: { gifs: unknown[]; cachedAt: number } } | undefined
+        if (row?.value?.gifs && typeof row.value.cachedAt === 'number') {
+          resolve({ gifs: row.value.gifs as { url: string; fallbackUrl?: string; eventId: string; pubkey: string; createdAt: number }[], cachedAt: row.value.cachedAt })
+        } else {
+          resolve(null)
+        }
+      }
+      request.onerror = () => resolve(null)
+    })
+  }
+
+  /**
+   * Write GIF list cache to IndexedDB.
+   */
+  async setGifCache(gifs: { url: string; fallbackUrl?: string; eventId: string; pubkey: string; createdAt: number }[], cachedAt: number): Promise<void> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.GIF_CACHE)) {
+      return
+    }
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(StoreNames.GIF_CACHE, 'readwrite')
+      const store = transaction.objectStore(StoreNames.GIF_CACHE)
+      store.put({ key: IndexedDbService.GIF_CACHE_KEY, value: { gifs, cachedAt } })
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+  }
+
+  /**
+   * Get a single setting value from IndexedDB. Returns null if missing.
+   */
+  async getSetting(key: string): Promise<string | null> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.SETTINGS)) {
+      return null
+    }
+    return new Promise((resolve) => {
+      const transaction = this.db!.transaction(StoreNames.SETTINGS, 'readonly')
+      const store = transaction.objectStore(StoreNames.SETTINGS)
+      const request = store.get(key)
+      request.onsuccess = () => {
+        const row = request.result as { key: string; value: string } | undefined
+        resolve(row?.value ?? null)
+      }
+      request.onerror = () => resolve(null)
+    })
+  }
+
+  /**
+   * Get all settings from IndexedDB as a key -> value map.
+   */
+  async getAllSettings(): Promise<Record<string, string>> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.SETTINGS)) {
+      return {}
+    }
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(StoreNames.SETTINGS, 'readonly')
+      const store = transaction.objectStore(StoreNames.SETTINGS)
+      const request = store.getAll()
+      request.onsuccess = () => {
+        const rows = (request.result || []) as { key: string; value: string }[]
+        const out: Record<string, string> = {}
+        rows.forEach((r) => {
+          if (r.key != null && r.value != null) out[r.key] = r.value
+        })
+        resolve(out)
+      }
+      request.onerror = () => reject(request.error)
+    })
+  }
+
+  /**
+   * Set a setting in IndexedDB.
+   */
+  async setSetting(key: string, value: string): Promise<void> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.SETTINGS)) {
+      return
+    }
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(StoreNames.SETTINGS, 'readwrite')
+      const store = transaction.objectStore(StoreNames.SETTINGS)
+      store.put({ key, value })
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
     })
   }
 }

@@ -8,6 +8,7 @@ import { normalizeUrl } from '@/lib/url'
 import { kinds } from 'nostr-tools'
 import type { Event as NEvent } from 'nostr-tools'
 import client from './client.service'
+import indexedDb from './indexed-db.service'
 
 export interface GifMetadata {
   url: string
@@ -179,9 +180,7 @@ function parseGifFromEvent(event: NEvent): GifMetadata | null {
   }
 }
 
-const CACHE_MAX_AGE_MS = 5 * 60 * 1000 // 5 minutes in-memory cache
-let cachedGifs: GifMetadata[] = []
-let cacheTime = 0
+const CACHE_MAX_AGE_MS = 5 * 60 * 1000 // 5 minutes; cache lives in IndexedDB
 
 /**
  * Fetch GIFs from Nostr kind 1063 (NIP-94) events on GIF relays.
@@ -197,9 +196,11 @@ export async function fetchGifs(
   extraReadRelayUrls: string[] = [],
   userPubkey: string | null = null
 ): Promise<GifMetadata[]> {
-  const useCache = !forceRefresh && cachedGifs.length > 0 && Date.now() - cacheTime < CACHE_MAX_AGE_MS
-  if (useCache && !searchQuery) {
-    return cachedGifs.slice(0, limit)
+  if (!forceRefresh && !searchQuery) {
+    const cached = await indexedDb.getGifCache()
+    if (cached && cached.gifs.length > 0 && Date.now() - cached.cachedAt < CACHE_MAX_AGE_MS) {
+      return cached.gifs.slice(0, limit) as GifMetadata[]
+    }
   }
 
   const readUrls = [
@@ -263,8 +264,7 @@ export async function fetchGifs(
   const result = gifs.slice(0, limit)
 
   if (result.length > 0 && !searchQuery) {
-    cachedGifs = result
-    cacheTime = Date.now()
+    await indexedDb.setGifCache(result, Date.now())
   }
 
   return result
