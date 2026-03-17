@@ -62,7 +62,7 @@ class LocalStorageService {
   private globalQuietMode: boolean = false
   private showRssFeed: boolean = true
   private panelMode: 'single' | 'double' = 'single'
-  private addRandomRelaysToPublish: boolean = true
+  private addRandomRelaysToPublish: boolean = false
 
   constructor() {
     if (!LocalStorageService.instance) {
@@ -334,7 +334,7 @@ class LocalStorageService {
     this.panelMode = panelModeStr === 'double' ? 'double' : 'single' // Default to 'single'
 
     const addRandomRelaysStr = window.localStorage.getItem(StorageKey.ADD_RANDOM_RELAYS_TO_PUBLISH)
-    this.addRandomRelaysToPublish = addRandomRelaysStr === null ? true : addRandomRelaysStr === 'true'
+    this.addRandomRelaysToPublish = addRandomRelaysStr === null ? false : addRandomRelaysStr === 'true'
 
     // Clean up deprecated data
     window.localStorage.removeItem(StorageKey.ACCOUNT_PROFILE_EVENT_MAP)

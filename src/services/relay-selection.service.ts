@@ -25,6 +25,8 @@ export interface RelaySelectionContext {
   mentions?: string[] // Pre-extracted mentions (for PMs)
   userPubkey?: string
   openFrom?: string[]
+  /** Random relays added to the selectable list; when setting is ON they are selected by default */
+  randomRelayUrls?: string[]
 }
 
 /** Display type for a relay in the publish relay selector */
@@ -66,10 +68,11 @@ class RelaySelectionService {
    */
   async selectRelays(context: RelaySelectionContext): Promise<RelaySelectionResult> {
     // Step 1: Build the list of selectable relays and their source types
-    const { relays: selectableRelays, relayTypes } = await this.buildSelectableRelaysWithTypes(context)
+    const { relays: selectableRelays, relayTypes, randomRelayUrls } = await this.buildSelectableRelaysWithTypes(context)
     
     // Step 2: Determine which relays should be selected (checked)
-    const selectedRelays = await this.determineSelectedRelays(context)
+    const contextWithRandom = { ...context, randomRelayUrls }
+    const selectedRelays = await this.determineSelectedRelays(contextWithRandom)
     
     // Step 3: Generate description
     const description = this.generateDescription(selectedRelays)
@@ -89,7 +92,7 @@ class RelaySelectionService {
    */
   private async buildSelectableRelaysWithTypes(
     context: RelaySelectionContext
-  ): Promise<{ relays: string[]; relayTypes: Record<string, RelaySourceType> }> {
+  ): Promise<{ relays: string[]; relayTypes: Record<string, RelaySourceType>; randomRelayUrls: string[] }> {
     const {
       userWriteRelays,
       favoriteRelays,
@@ -137,8 +140,9 @@ class RelaySelectionService {
       openFrom.forEach((url) => addRelay(url, 'open_from'))
     }
 
-    // Optional random relays: preload list with 3 random public lively relays (unchecked) when setting is on
-    if (typeof window !== 'undefined' && storage.getAddRandomRelaysToPublish()) {
+    // Random relays: always add 3 random public lively relays to the list; selected by default only when setting is ON
+    const randomRelayUrls: string[] = []
+    if (typeof window !== 'undefined') {
       try {
         const publicLively = await nip66Service.getPublicLivelyRelayUrls()
         const existing = new Set(order.map((o) => o.url))
@@ -147,7 +151,11 @@ class RelaySelectionService {
           return !existing.has(n)
         })
         const shuffled = candidates.slice().sort(() => Math.random() - 0.5)
-        shuffled.slice(0, 3).forEach((url) => addRelay(normalizeUrl(url) || url, 'randomly_selected'))
+        shuffled.slice(0, 3).forEach((url) => {
+          const normalized = normalizeUrl(url) || url
+          addRelay(normalized, 'randomly_selected')
+          randomRelayUrls.push(normalized)
+        })
       } catch {
         // ignore
       }
@@ -159,7 +167,7 @@ class RelaySelectionService {
     order.forEach(({ url, type }) => {
       if (filtered.includes(url)) relayTypes[url] = type
     })
-    return { relays: filtered, relayTypes }
+    return { relays: filtered, relayTypes, randomRelayUrls }
   }
 
   /**
@@ -408,6 +416,12 @@ class RelaySelectionService {
     if (cacheRelays.length > 0) {
       selectedRelays = [...selectedRelays, ...cacheRelays]
       // Deduplicate after adding cache relays
+      selectedRelays = Array.from(new Set(selectedRelays))
+    }
+
+    // When "add random relays" setting is ON, include random relays in selected by default; when OFF they are still in the list but unchecked
+    if (context.randomRelayUrls?.length && storage.getAddRandomRelaysToPublish()) {
+      selectedRelays = [...selectedRelays, ...context.randomRelayUrls]
       selectedRelays = Array.from(new Set(selectedRelays))
     }
 
