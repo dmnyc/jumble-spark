@@ -260,9 +260,9 @@ export default {
     Autoplay: 'Automatische Wiedergabe',
     'Enable video autoplay on this device':
       'Aktiviere die automatische Video-Wiedergabe auf diesem Gerät',
-    'Add 3 random relays to every publish': 'Relay-Liste mit 3 zufälligen öffentlichen Relays vorfüllen',
+    'Add 3 random relays to every publish': '3 zufällige Relays bei jedem Publish hinzufügen',
     'Add 3 random relays to every publish description':
-      'Zeigt 3 zufällige öffentliche Relays in der Publish-Relay-Liste (nicht angehakt), damit du sie optional für mehr Zensur-Resilienz auswählen kannst.',
+      'Fügt der Publish-Relay-Liste immer 3 zufällige öffentliche Relays hinzu. Bei AN sind sie standardmäßig ausgewählt; bei AUS erscheinen sie in der Liste, sind aber nicht angehakt, sodass du sie optional einbeziehen kannst.',
     'relayType_local': 'Lokal',
     'relayType_relay_list': 'Relay-Liste',
     'relayType_client_default': 'Client-Standard',

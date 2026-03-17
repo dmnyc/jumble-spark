@@ -322,9 +322,9 @@ export default {
     General: 'General',
     Autoplay: 'Autoplay',
     'Enable video autoplay on this device': 'Enable video autoplay on this device',
-    'Add 3 random relays to every publish': 'Preload relay list with 3 random public relays',
+    'Add 3 random relays to every publish': 'Random relays in publish list',
     'Add 3 random relays to every publish description':
-      'Show 3 random public relays in the publish relay list (unchecked) so you can optionally include them for censorship resilience.',
+      'Always adds 3 random public relays to the publish relay list. When ON, they are selected by default; when OFF, they appear in the list but are unchecked so you can optionally include them.',
     'relayType_local': 'Local',
     'relayType_relay_list': 'Relay list',
     'relayType_client_default': 'Client default',

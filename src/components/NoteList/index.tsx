@@ -272,6 +272,20 @@ const NoteList = forwardRef(
               ) {
                 return
               }
+              // don't toast for routine connection failures (noisy and expected when relays are down/slow)
+              const r = reason.toLowerCase()
+              if (
+                r.includes('connection failed') ||
+                r.includes('econnrefused') ||
+                r.includes('econnreset') ||
+                r.includes('etimedout') ||
+                r.includes('timeout') ||
+                r.includes('network') ||
+                r.includes('enotfound') ||
+                r.includes('connection refused')
+              ) {
+                return
+              }
 
               toast.error(`${url}: ${reason}`)
             }
