@@ -12,14 +12,15 @@ export function Favicon({
 }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-  if (error) return fallback
+  const trimmed = domain?.trim() ?? ''
+  if (error || !trimmed) return fallback
 
   return (
     <div className={cn('relative', className)}>
       {loading && <div className={cn('absolute inset-0', className)}>{fallback}</div>}
       <img
-        src={`https://${domain}/favicon.ico`}
-        alt={domain}
+        src={`https://${trimmed}/favicon.ico`}
+        alt={trimmed}
         className={cn('absolute inset-0', loading && 'opacity-0', className)}
         onError={() => setError(true)}
         onLoad={() => setLoading(false)}

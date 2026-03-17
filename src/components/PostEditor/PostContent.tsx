@@ -324,15 +324,7 @@ export default function PostContent({
     }
     
     // For voice comments in replies, check mediaNoteKind even if mediaUrl is not set yet (for preview)
-    // Debug logging
-    console.log('🔍 getDeterminedKind: checking', { 
-      parentEvent: !!parentEvent, 
-      mediaNoteKind, 
-      VOICE_COMMENT: ExtendedKind.VOICE_COMMENT,
-      match: parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT
-    })
     if (parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT) {
-      console.log('✅ getDeterminedKind: returning VOICE_COMMENT')
       return ExtendedKind.VOICE_COMMENT
     } else if (mediaNoteKind !== null && mediaUrl) {
       return mediaNoteKind
@@ -357,12 +349,6 @@ export default function PostContent({
     } else if (isPoll) {
       return ExtendedKind.POLL
     } else if (parentEvent && parentEvent.kind !== kinds.ShortTextNote) {
-      console.log('⚠️ getDeterminedKind: falling through to COMMENT', {
-        parentEvent: !!parentEvent,
-        parentEventKind: parentEvent?.kind,
-        mediaNoteKind,
-        mediaUrl
-      })
       return ExtendedKind.COMMENT
     } else {
       return kinds.ShortTextNote
@@ -622,9 +608,6 @@ export default function PostContent({
         geohash: citationGeohash.trim() || undefined,
         summary: citationSummary.trim() || undefined
       }
-      
-      // Debug: Log what we're passing to the function
-      console.log('Creating hardcopy citation with options:', hardcopyOptions)
       
       return createCitationHardcopyDraftEvent(cleanedText, hardcopyOptions)
     } else if (isCitationPrompt) {
@@ -962,11 +945,6 @@ export default function PostContent({
   }
 
   const handleUploadStart = (file: File, cancel: () => void) => {
-    console.log('🔍 handleUploadStart called', { 
-      fileName: file.name, 
-      fileType: file.type, 
-      parentEvent: !!parentEvent 
-    })
     setUploadProgresses((prev) => [...prev, { file, progress: 0, cancel }])
     // Track file for media upload
     if (file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/')) {
@@ -993,56 +971,25 @@ export default function PostContent({
         // m4a files are always audio, even if MIME type is wrong
         const isAudio = isAudioMime || isAudioExt || isM4aFile || isMp4Audio || isWebmFile || isOggFile || isMp3File
         
-        console.log('🔍 handleUploadStart: audio detection', {
-          fileType,
-          fileName,
-          isAudioMime,
-          isAudioExt,
-          isMp4Audio,
-          isWebmFile,
-          isOggFile,
-          isMp3File,
-          isAudio
-        })
-        
         if (isAudio) {
           // For PM replies, don't set mediaNoteKind - let PM reply handle it with imeta tags
           if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
-            console.log('✅ handleUploadStart: PM reply with audio - will use imeta tags, not setting mediaNoteKind')
             // Don't set mediaNoteKind - PM replies stay as kind 24 with imeta tags
           } else if (parentEvent) {
-            console.log('✅ handleUploadStart: setting VOICE_COMMENT for reply', { 
-              mediaNoteKind: ExtendedKind.VOICE_COMMENT,
-              fileType,
-              fileName
-            })
             setMediaNoteKind(ExtendedKind.VOICE_COMMENT)
           } else if (isPublicMessage) {
-            console.log('✅ handleUploadStart: setting VOICE for PM', { 
-              mediaNoteKind: ExtendedKind.VOICE,
-              fileType,
-              fileName
-            })
             setMediaNoteKind(ExtendedKind.VOICE)
           }
           // Note: URL will be inserted when upload completes in handleMediaUploadSuccess
-        } else {
-          console.log('❌ handleUploadStart: file is not audio, not setting media note kind')
         }
       } else {
         // For new posts, detect the kind from the file (async)
         getMediaKindFromFile(file, false)
-          .then((kind) => {
-            console.log('✅ handleUploadStart: detected kind for new post', { kind, fileName: file.name })
-            setMediaNoteKind(kind)
-          })
+          .then((kind) => setMediaNoteKind(kind))
           .catch((error) => {
-            console.error('❌ Error detecting media kind in handleUploadStart', { error, file: file.name })
             logger.error('Error detecting media kind in handleUploadStart', { error, file: file.name })
           })
       }
-    } else {
-      console.log('❌ handleUploadStart: file is not media type', { fileType: file.type })
     }
   }
 
@@ -1290,37 +1237,16 @@ export default function PostContent({
         // m4a files are always audio, even if MIME type is wrong
         const isAudio = isAudioMime || isAudioExt || isM4aFile || isMp4Audio || isWebmFile || isOggFile || isMp3File
         
-        console.log('🔍 handleMediaUploadSuccess: audio detection', {
-          fileType,
-          fileName,
-          isAudioMime,
-          isAudioExt,
-          isMp4Audio,
-          isWebmFile,
-          isOggFile,
-          isMp3File,
-          isAudio
-        })
-        
         if (isAudio) {
           // For PM replies, don't set mediaNoteKind - let PM reply handle it with imeta tags
           if (parentEvent && parentEvent.kind === ExtendedKind.PUBLIC_MESSAGE) {
-            console.log('✅ handleMediaUploadSuccess: PM reply with audio - will use imeta tags, not setting mediaNoteKind')
             // Don't set mediaNoteKind - PM replies stay as kind 24 with imeta tags
             // Just set the URL and imeta tags
           } else if (parentEvent) {
             // For regular replies, always create voice comments (kind 1244), regardless of duration
-            console.log('✅ handleMediaUploadSuccess: setting VOICE_COMMENT for reply', { 
-              mediaNoteKind: ExtendedKind.VOICE_COMMENT,
-              url 
-            })
             setMediaNoteKind(ExtendedKind.VOICE_COMMENT)
           } else if (isPublicMessage) {
             // For new PMs, create voice notes (kind 1222)
-            console.log('✅ handleMediaUploadSuccess: setting VOICE for PM', { 
-              mediaNoteKind: ExtendedKind.VOICE,
-              url 
-            })
             setMediaNoteKind(ExtendedKind.VOICE)
           }
           setMediaUrl(url)
@@ -1365,11 +1291,6 @@ export default function PostContent({
         } else {
           // Non-audio media in replies/PMs - don't set mediaNoteKind, will be handled as regular comment/PM
           // Clear any existing media note kind
-          console.log('❌ handleMediaUploadSuccess: file is not audio, clearing mediaNoteKind', {
-            fileType,
-            fileName,
-            isAudio
-          })
           setMediaNoteKind(null)
           setMediaUrl('')
           setMediaImetaTags([])
@@ -2032,11 +1953,7 @@ export default function PostContent({
           onUploadStart={handleUploadStart}
           onUploadProgress={handleUploadProgress}
           onUploadEnd={handleUploadEnd}
-          kind={(() => {
-            const kind = getDeterminedKind
-            console.log('🔍 PostTextarea kind prop:', { kind, mediaNoteKind, parentEvent: !!parentEvent })
-            return kind
-          })()}
+          kind={getDeterminedKind}
           highlightData={isHighlight ? highlightData : undefined}
           pollCreateData={isPoll ? pollCreateData : undefined}
           getDraftEventJson={getDraftEventJson}

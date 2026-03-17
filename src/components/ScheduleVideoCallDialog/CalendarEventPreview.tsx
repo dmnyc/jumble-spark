@@ -36,19 +36,19 @@ export function CalendarEventPreview({
   )
 
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className={cn('w-full', className)}>
       <Tabs defaultValue="rendered" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="rendered">{t('Rendered')}</TabsTrigger>
           <TabsTrigger value="json">{t('JSON')}</TabsTrigger>
         </TabsList>
         <TabsContent value="rendered" className="mt-2">
-          <div className="rounded-md border bg-muted/20 p-2">
+          <div className="max-h-[200px] overflow-auto rounded-md border bg-muted/20 p-2">
             <EmbeddedCalendarEvent event={previewEvent} />
           </div>
         </TabsContent>
         <TabsContent value="json" className="mt-2">
-          <pre className="max-h-[240px] overflow-auto rounded-md border bg-muted/20 p-3 text-xs">
+          <pre className="max-h-[200px] overflow-auto rounded-md border bg-muted/20 p-3 text-xs">
             {jsonString}
           </pre>
         </TabsContent>

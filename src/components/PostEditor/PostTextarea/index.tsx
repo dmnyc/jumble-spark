@@ -87,10 +87,7 @@ const PostTextarea = forwardRef<
     const [draftEventJson, setDraftEventJson] = useState<string>('')
     const [isLoadingJson, setIsLoadingJson] = useState(false)
     
-    const kindDescription = useMemo(() => {
-      console.log('🔍 kindDescription: recalculating', { kind })
-      return getKindDescription(kind)
-    }, [kind])
+    const kindDescription = useMemo(() => getKindDescription(kind), [kind])
     
     useEffect(() => {
       if (activeTab === 'json' && getDraftEventJson) {

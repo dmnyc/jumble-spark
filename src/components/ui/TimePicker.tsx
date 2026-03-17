@@ -6,6 +6,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 
@@ -49,10 +50,6 @@ function to24h(displayHour: number, pm: boolean): number {
   return displayHour === 12 ? 0 : displayHour
 }
 
-const MINUTES = Array.from({ length: 60 }, (_, i) => i)
-const HOURS_24 = Array.from({ length: 24 }, (_, i) => i)
-const HOURS_12 = Array.from({ length: 12 }, (_, i) => i + 1)
-
 /** Default: use 12h for en-US, 24h otherwise */
 function defaultHour12(): boolean {
   try {
@@ -86,73 +83,65 @@ export function TimePicker({
   const { hour: hour24, minute } = parseHHmm(value)
   const { displayHour: hour12Val, pm } = to12h(hour24)
 
-  const handleMinuteChange = React.useCallback(
-    (m: number) => {
-      onChange(toHHmm(hour24, m))
-    },
-    [hour24, onChange]
-  )
+  const displayHour = hour12 ? hour12Val : hour24
+  const hourMin = hour12 ? 1 : 0
+  const hourMax = hour12 ? 12 : 23
 
-  const handleHourChange = React.useCallback(
-    (newHour: number) => {
-      if (hour12) {
-        const new24 = to24h(newHour, pm)
-        onChange(toHHmm(new24, minute))
-      } else {
-        onChange(toHHmm(newHour, minute))
-      }
-    },
-    [hour12, minute, pm, onChange]
-  )
-
-  const handleAmPmChange = React.useCallback(
-    (newPm: boolean) => {
-      const new24 = to24h(hour12Val, newPm)
+  const handleHourChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    if (v === '') return
+    const num = parseInt(v, 10)
+    if (Number.isNaN(num)) return
+    const clamped = Math.min(hourMax, Math.max(hourMin, num))
+    if (hour12) {
+      const new24 = to24h(clamped, pm)
       onChange(toHHmm(new24, minute))
-    },
-    [hour12Val, minute, onChange]
-  )
+    } else {
+      onChange(toHHmm(clamped, minute))
+    }
+  }
+
+  const handleMinuteChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    if (v === '') return
+    const num = parseInt(v, 10)
+    if (Number.isNaN(num)) return
+    const clamped = Math.min(59, Math.max(0, num))
+    onChange(toHHmm(hour24, clamped))
+  }
+
+  const handleAmPmChange = (newPm: boolean) => {
+    const new24 = to24h(hour12Val, newPm)
+    onChange(toHHmm(new24, minute))
+  }
 
   return (
     <div className={cn('flex flex-wrap items-center gap-2', className)}>
       <div className="flex items-center gap-1">
-        <Select
-          value={hour12 ? String(hour12Val) : String(hour24)}
-          onValueChange={(v) => handleHourChange(parseInt(v, 10))}
+        <Input
+          id={id}
+          type="number"
+          min={hourMin}
+          max={hourMax}
+          value={displayHour}
+          onChange={handleHourChange}
           disabled={disabled}
-        >
-          <SelectTrigger id={id} className="w-[72px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(hour12 ? HOURS_12 : HOURS_24).map((h) => (
-              <SelectItem key={h} value={String(h)}>
-                {hour12 ? h : String(h).padStart(2, '0')}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          className="h-9 w-14 px-2 text-center tabular-nums"
+        />
         <span className="text-muted-foreground">:</span>
-        <Select
-          value={String(minute)}
-          onValueChange={(v) => handleMinuteChange(parseInt(v, 10))}
+        <Input
+          type="number"
+          min={0}
+          max={59}
+          value={minute}
+          onChange={handleMinuteChange}
           disabled={disabled}
-        >
-          <SelectTrigger className="w-[72px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {MINUTES.map((m) => (
-              <SelectItem key={m} value={String(m)}>
-                {String(m).padStart(2, '0')}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          className="h-9 w-14 px-2 text-center tabular-nums"
+        />
       </div>
       {hour12 && (
         <Select value={pm ? 'pm' : 'am'} onValueChange={(v) => handleAmPmChange(v === 'pm')} disabled={disabled}>
-          <SelectTrigger className="w-[72px]">
+          <SelectTrigger className="w-[72px] h-9">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

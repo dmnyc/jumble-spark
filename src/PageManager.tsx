@@ -109,6 +109,8 @@ const PrimaryNoteViewContext = createContext<{
   setPrimaryNoteView: (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => void
   primaryViewType: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null
   getNavigationCounter: () => number
+  /** Top URL in the secondary stack (right panel), or undefined if empty. Used so settings sub-pages open in the panel instead of behind it. */
+  getTopSecondaryUrl: () => string | undefined
 } | undefined>(undefined)
 
 const NoteDrawerContext = createContext<{
@@ -398,12 +400,22 @@ export function useSmartOthersRelaySettingsNavigation() {
   return { navigateToOthersRelaySettings }
 }
 
-// Fixed: Settings navigation now uses primary note view since secondary panel is disabled
+// Fixed: Settings navigation uses primary note view when settings is in main area; when settings list is in the right panel (Sheet), push sub-pages so they open in the panel instead of behind it.
 export function useSmartSettingsNavigation() {
-  const { setPrimaryNoteView } = usePrimaryNoteView()
-  
+  const { setPrimaryNoteView, getTopSecondaryUrl } = usePrimaryNoteView()
+  const { push: pushSecondaryPage } = useSecondaryPage()
+
   const navigateToSettings = (url: string) => {
-    // Use primary note view to show settings since secondary panel is disabled
+    const topUrl = getTopSecondaryUrl?.()
+    const settingsInRightPanel = topUrl === '/settings'
+
+    // When the right panel is showing the settings list, push the sub-page so it opens in the panel instead of in the main area (behind the panel).
+    if (settingsInRightPanel && url !== '/settings') {
+      pushSecondaryPage(url)
+      return
+    }
+
+    // Otherwise use primary note view (main content area)
     if (url === '/settings') {
       window.history.pushState(null, '', url)
       setPrimaryNoteView(<SettingsPage key="settings" index={0} hideTitlebar={true} />, 'settings')
@@ -427,7 +439,7 @@ export function useSmartSettingsNavigation() {
       setPrimaryNoteView(<RssFeedSettingsPage key="rss-feed-settings" index={0} hideTitlebar={true} />, 'settings-sub')
     }
   }
-  
+
   return { navigateToSettings }
 }
 
@@ -1374,6 +1386,16 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         }))
         currentTabStateRef.current.set('search', tab)
       }
+    } else if (secondaryStack.length > 1) {
+      // Pop to previous page (e.g. from /settings/general back to /settings) so Back/Close return to the list instead of closing the panel
+      setSecondaryStack((prevStack) => {
+        const newStack = prevStack.slice(0, -1)
+        const topItem = newStack[newStack.length - 1]
+        if (topItem) {
+          window.history.replaceState({ index: topItem.index, url: topItem.url }, '', topItem.url)
+        }
+        return newStack
+      })
     } else {
       window.history.go(-1)
     }
@@ -1410,7 +1432,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         >
         <CurrentRelaysProvider>
           <NotificationProvider>
-            <PrimaryNoteViewContext.Provider value={{ setPrimaryNoteView, primaryViewType, getNavigationCounter: () => navigationCounterRef.current }}>
+            <PrimaryNoteViewContext.Provider value={{ setPrimaryNoteView, primaryViewType, getNavigationCounter: () => navigationCounterRef.current, getTopSecondaryUrl: () => secondaryStack.length > 0 ? secondaryStack[secondaryStack.length - 1].url : undefined }}>
             <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId }}>
             {primaryNoteView ? (
               // Show primary note view with back button on mobile
@@ -1527,7 +1549,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       >
         <CurrentRelaysProvider>
           <NotificationProvider>
-            <PrimaryNoteViewContext.Provider value={{ setPrimaryNoteView, primaryViewType, getNavigationCounter: () => navigationCounterRef.current }}>
+            <PrimaryNoteViewContext.Provider value={{ setPrimaryNoteView, primaryViewType, getNavigationCounter: () => navigationCounterRef.current, getTopSecondaryUrl: () => secondaryStack.length > 0 ? secondaryStack[secondaryStack.length - 1].url : undefined }}>
             <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId }}>
             <div className="flex flex-col items-center bg-surface-background">
               <div
