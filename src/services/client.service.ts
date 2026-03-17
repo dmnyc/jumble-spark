@@ -1272,15 +1272,9 @@ class ClientService extends EventTarget {
                 resolveWithEvents()
               }, 1000) // Wait 1 second for more events
             }
-          } else {
-            // No events and no EOSE - connection closed early
-            // Wait a bit to see if events arrive, but not too long
-            if (!resolveTimeout) {
-              resolveTimeout = setTimeout(() => {
-                resolveWithEvents()
-              }, 2000) // Wait 2 seconds for events
-            }
           }
+          // No events yet and this relay closed (e.g. blocked/failed). Do NOT set a short
+          // timeout: other relays may still deliver. Let EOSE or globalTimeout resolve.
         }
       })
       

@@ -39,22 +39,40 @@ export function useFetchCalendarRsvps(calendarEvent: Event | undefined) {
 
     const coordinate = getReplaceableCoordinateFromEvent(calendarEvent)
     const userRead = relayList?.read ?? []
-    const relayUrls = Array.from(
-      new Set([
-        ...FAST_READ_RELAY_URLS.map((url) => normalizeUrl(url) || url),
-        ...userRead.map((url) => normalizeUrl(url) || url)
-      ])
-    ).filter(Boolean) as string[]
+    const baseUrls = new Set<string>([
+      ...FAST_READ_RELAY_URLS.map((url) => normalizeUrl(url) || url),
+      ...userRead.map((url) => normalizeUrl(url) || url)
+    ].filter(Boolean) as string[])
 
+    // Include organizer's relays so RSVPs are found when viewing an attendee's profile (RSVPs are often on organizer's outbox/inbox)
+    const organizerPubkey = calendarEvent.pubkey
     client
-      .fetchEvents(relayUrls, {
-        kinds: [ExtendedKind.CALENDAR_EVENT_RSVP],
-        '#a': [coordinate],
-        limit: 200
+      .fetchRelayList(organizerPubkey)
+      .then((organizerRelays) => {
+        if (cancelled) return
+        organizerRelays?.read?.forEach((url) => {
+          const u = normalizeUrl(url)
+          if (u) baseUrls.add(u)
+        })
+        organizerRelays?.write?.forEach((url) => {
+          const u = normalizeUrl(url)
+          if (u) baseUrls.add(u)
+        })
+        return Array.from(baseUrls)
+      })
+      .catch(() => Array.from(baseUrls))
+      .then((relayUrls: string[] | undefined) => {
+        if (cancelled) return
+        const urls = relayUrls?.length ? relayUrls : Array.from(baseUrls)
+        return client.fetchEvents(urls, {
+          kinds: [ExtendedKind.CALENDAR_EVENT_RSVP],
+          '#a': [coordinate],
+          limit: 200
+        })
       })
       .then((events) => {
         if (cancelled) return
-        setRsvps(events)
+        setRsvps(events ?? [])
       })
       .finally(() => {
         if (!cancelled) setIsFetching(false)
@@ -63,7 +81,7 @@ export function useFetchCalendarRsvps(calendarEvent: Event | undefined) {
     return () => {
       cancelled = true
     }
-  }, [calendarEvent?.id, calendarEvent?.kind, relayList?.read])
+  }, [calendarEvent?.id, calendarEvent?.kind, calendarEvent?.pubkey, relayList?.read])
 
   // When we publish an RSVP, NostrProvider calls client.emitNewEvent(event). Merge it into rsvps so the UI updates immediately.
   useEffect(() => {

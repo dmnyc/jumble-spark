@@ -1,4 +1,3 @@
-import { ExtendedKind } from '@/constants'
 import {
   getCalendarEventMeta,
   formatCalendarTime,

@@ -1,4 +1,5 @@
 import NoteCard, { NoteCardLoadingSkeleton } from '@/components/NoteCard'
+import { ExtendedKind } from '@/constants'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
@@ -13,6 +14,7 @@ import noteStatsService from '@/services/note-stats.service'
 import { FAST_READ_RELAY_URLS } from '@/constants'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
+import { getCalendarEventMeta } from '@/lib/calendar-event'
 
 const SHOW_COUNT = 25
 const CACHE_DURATION = 30 * 60 * 1000 // 30 minutes
@@ -27,9 +29,44 @@ let cachedCustomEvents: {
 // Flag to prevent concurrent initialization
 let isInitializing = false
 
-type TrendingTab = 'relays' | 'hashtags'
+type TrendingTab = 'relays' | 'hashtags' | 'calendar'
 type SortOrder = 'newest' | 'oldest' | 'most-popular' | 'least-popular'
 type HashtagFilter = 'popular'
+
+/** Sort key for calendar events: time-based use start (unix), date-based use startDate as timestamp. */
+function calendarEventSortKey(evt: NostrEvent): number {
+  const meta = getCalendarEventMeta(evt as any)
+  if (meta.start != null && !isNaN(meta.start)) return meta.start
+  if (meta.startDate) return new Date(meta.startDate + 'T00:00:00').getTime() / 1000
+  return evt.created_at
+}
+
+const CALENDAR_MONTHS_AHEAD = 6
+
+/** YYYY-MM for grouping; derived from calendar event start. */
+function calendarEventMonthKey(evt: NostrEvent): string {
+  const ts = calendarEventSortKey(evt)
+  const d = new Date(ts * 1000)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
+/** Filter calendar events: from start of today (or 1 month ago if in past) through the next CALENDAR_MONTHS_AHEAD months. */
+function filterCalendarEventsToNextMonths(events: NostrEvent[], monthsAhead: number): NostrEvent[] {
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const oneMonthAgo = new Date(startOfToday)
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
+  const minSec = Math.floor(oneMonthAgo.getTime() / 1000)
+  const end = new Date()
+  end.setMonth(end.getMonth() + monthsAhead)
+  const endSec = Math.floor(end.getTime() / 1000)
+  return events.filter((evt) => {
+    const k = calendarEventSortKey(evt)
+    return k >= minSec && k <= endSec
+  })
+}
 
 export default function TrendingNotes() {
   const { t } = useTranslation()
@@ -46,12 +83,14 @@ export default function TrendingNotes() {
   const [popularHashtags, setPopularHashtags] = useState<string[]>([])
   const [cacheEvents, setCacheEvents] = useState<NostrEvent[]>([])
   const [cacheLoading, setCacheLoading] = useState(false)
+  const [calendarEvents, setCalendarEvents] = useState<NostrEvent[]>([])
+  const [calendarLoading, setCalendarLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Listen for tab restoration from PageManager
   useEffect(() => {
     const handleRestore = (e: CustomEvent<{ page: string, tab: string }>) => {
-      if (e.detail.page === 'search' && e.detail.tab && ['relays', 'hashtags'].includes(e.detail.tab)) {
+      if (e.detail.page === 'search' && e.detail.tab && ['relays', 'hashtags', 'calendar'].includes(e.detail.tab)) {
         setActiveTab(e.detail.tab as TrendingTab)
       }
     }
@@ -366,6 +405,66 @@ export default function TrendingNotes() {
      
   }, []) // Only run once on mount to prevent infinite loop
 
+  // Fetch calendar events when calendar tab is active. Use same filters as profile/notifications: by author and by invitee (#p).
+  useEffect(() => {
+    if (activeTab !== 'calendar') return
+    const userRelays = getRelays ?? []
+    const relaySet = new Set<string>([
+      ...userRelays.map((url) => normalizeUrl(url) || url).filter(Boolean),
+      ...FAST_READ_RELAY_URLS.map((url) => normalizeUrl(url) || url).filter(Boolean)
+    ])
+    if (relayList?.write?.length) {
+      relayList.write.forEach((url) => {
+        const u = normalizeUrl(url)
+        if (u) relaySet.add(u)
+      })
+    }
+    const relays = Array.from(relaySet)
+    if (relays.length === 0) {
+      setCalendarLoading(false)
+      return
+    }
+    let cancelled = false
+    setCalendarLoading(true)
+    const run = async () => {
+      try {
+        const calendarKinds = [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME]
+        // Same query pattern as profile timeline: events you created + events you're invited to. Relays respond to these; global kind-only often returns nothing.
+        const filters = pubkey
+          ? [
+              { kinds: calendarKinds, authors: [pubkey], limit: 100 },
+              { kinds: calendarKinds, '#p': [pubkey], limit: 100 }
+            ]
+          : [{ kinds: calendarKinds, limit: 200 }]
+        const events = await client.fetchEvents(relays, filters, {
+          eoseTimeout: 8000,
+          globalTimeout: 20000
+        })
+        if (cancelled) return
+        const seen = new Set<string>()
+        const deduped: NostrEvent[] = []
+        events.forEach((evt) => {
+          const id = isReplaceableEvent((evt as any).kind) ? getReplaceableCoordinateFromEvent(evt as any) : (evt as any).id
+          if (!seen.has(id)) {
+            seen.add(id)
+            deduped.push(evt)
+          }
+        })
+        const inRange = filterCalendarEventsToNextMonths(deduped, CALENDAR_MONTHS_AHEAD)
+        inRange.sort((a, b) => calendarEventSortKey(a) - calendarEventSortKey(b))
+        setCalendarEvents(inRange)
+      } catch (e) {
+        if (!cancelled) setCalendarEvents([])
+      } finally {
+        if (!cancelled) setCalendarLoading(false)
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, getRelays, relayList?.write, pubkey])
+
   // Compute filtered events without slicing (for pagination length check)
   const relaysFilteredEventsAll = useMemo(() => {
     const idSet = new Set<string>()
@@ -467,9 +566,25 @@ export default function TrendingNotes() {
     return relaysFilteredEventsAll.slice(0, showCount)
   }, [relaysFilteredEventsAll, showCount])
 
+  // For calendar tab: group events by month (YYYY-MM), months in order; for others use relays
+  const calendarEventsByMonth = useMemo(() => {
+    const byMonth = new Map<string, NostrEvent[]>()
+    calendarEvents.forEach((evt) => {
+      const key = calendarEventMonthKey(evt)
+      if (!byMonth.has(key)) byMonth.set(key, [])
+      byMonth.get(key)!.push(evt)
+    })
+    byMonth.forEach((list) => list.sort((a, b) => calendarEventSortKey(a) - calendarEventSortKey(b)))
+    const monthKeys = Array.from(byMonth.keys()).sort()
+    return { monthKeys, byMonth }
+  }, [calendarEvents])
+
   const filteredEvents = useMemo(() => {
+    if (activeTab === 'calendar') {
+      return calendarEvents.slice(0, showCount)
+    }
     return relaysFilteredEvents
-  }, [relaysFilteredEvents])
+  }, [activeTab, calendarEvents, relaysFilteredEvents, showCount])
 
 
 
@@ -562,10 +677,25 @@ export default function TrendingNotes() {
             >
               hashtags
             </button>
+            <button
+              onClick={() => {
+                setActiveTab('calendar')
+                window.dispatchEvent(new CustomEvent('pageTabChanged', { 
+                  detail: { page: 'search', tab: 'calendar' } 
+                }))
+              }}
+              className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                activeTab === 'calendar'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+              }`}
+            >
+              {t('calendar entries')}
+            </button>
           </div>
         </div>
         
-        {/* Second row controls for tabs 2-3 */}
+        {/* Second row controls for relays / hashtags (calendar has no sort – ordered by datetime) */}
         {(activeTab === 'relays' || activeTab === 'hashtags') && (
           <div className="flex items-center gap-4 px-4 pb-2">
             {/* Sorting controls - not shown for hashtags tab */}
@@ -652,22 +782,71 @@ export default function TrendingNotes() {
           Loading trending notes from your relays...
         </div>
       )}
+      {/* Show loading message for calendar tab */}
+      {activeTab === 'calendar' && calendarLoading && calendarEvents.length === 0 && (
+        <div className="text-center text-sm text-muted-foreground mt-8">
+          {t('Loading calendar events...')}
+        </div>
+      )}
+      {activeTab === 'calendar' && !calendarLoading && calendarEvents.length === 0 && (
+        <div className="text-center text-sm text-muted-foreground mt-8">
+          {t('No calendar events found')}
+        </div>
+      )}
       
-      {filteredEvents.map((event) => (
-        <NoteCard key={event.id} className="w-full" event={event} />
-      ))}
-      
+      {activeTab === 'calendar'
+        ? calendarEventsByMonth.monthKeys.map((monthKey) => {
+            const eventsInMonth = calendarEventsByMonth.byMonth.get(monthKey) ?? []
+            const [y, m] = monthKey.split('-')
+            const monthLabel = new Date(parseInt(y, 10), parseInt(m, 10) - 1, 1).toLocaleDateString(undefined, {
+              month: 'long',
+              year: 'numeric'
+            })
+            return (
+              <div key={monthKey} className="mt-6 first:mt-0">
+                <h3 className="text-sm font-semibold text-muted-foreground px-4 py-2 border-b bg-muted/30">
+                  {monthLabel}
+                </h3>
+                <div className="space-y-0">
+                  {eventsInMonth.map((event) => (
+                    <NoteCard
+                      key={isReplaceableEvent((event as any).kind) ? getReplaceableCoordinateFromEvent(event as any) : (event as any).id}
+                      className="w-full"
+                      event={event}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          })
+        : filteredEvents.map((event) => (
+            <NoteCard
+              key={isReplaceableEvent((event as any).kind) ? getReplaceableCoordinateFromEvent(event as any) : (event as any).id}
+              className="w-full"
+              event={event}
+            />
+          ))}
+
       {(() => {
-        const actualAvailableLength = relaysFilteredEventsAll.length
+        const actualAvailableLength = activeTab === 'calendar' ? calendarEvents.length : relaysFilteredEventsAll.length
+        const isLoading = activeTab === 'relays' ? cacheLoading : activeTab === 'calendar' ? calendarLoading : false
+        const calendarShowingAll = activeTab === 'calendar' && !calendarLoading
 
         const shouldShowLoading =
-          cacheLoading ||
-          showCount < actualAvailableLength
+          isLoading ||
+          (activeTab !== 'calendar' && showCount < actualAvailableLength)
 
         if (shouldShowLoading) {
           return (
             <div ref={bottomRef}>
               <NoteCardLoadingSkeleton />
+            </div>
+          )
+        }
+        if (calendarShowingAll && calendarEvents.length > 0) {
+          return (
+            <div className="text-center text-sm text-muted-foreground mt-4 pb-4">
+              {t('Calendar events in the next {{count}} months', { count: CALENDAR_MONTHS_AHEAD })}
             </div>
           )
         }

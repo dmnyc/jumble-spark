@@ -51,7 +51,8 @@ export default function Note({
   className,
   hideParentNotePreview = false,
   showFull = false,
-  disableClick = false
+  disableClick = false,
+  fullCalendarInvite
 }: {
   event: Event
   originalNoteId?: string
@@ -60,6 +61,8 @@ export default function Note({
   hideParentNotePreview?: boolean
   showFull?: boolean
   disableClick?: boolean
+  /** When viewing a kind-24 invite, use this to replace the embedded calendar with the full card (RSVP) in content */
+  fullCalendarInvite?: { event: Event; naddr: string }
 }) {
   const { navigateToNote } = useSmartNoteNavigation()
   const { isSmallScreen } = useScreenSize()
@@ -220,7 +223,14 @@ export default function Note({
   } else if (event.kind === ExtendedKind.CALENDAR_EVENT_TIME || event.kind === ExtendedKind.CALENDAR_EVENT_DATE) {
     content = <CalendarEventContent event={event} className="mt-2" showRsvp />
   } else if (event.kind === ExtendedKind.PUBLIC_MESSAGE) {
-    content = <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
+    content = (
+      <MarkdownArticle
+        className="mt-2"
+        event={event}
+        hideMetadata={true}
+        fullCalendarInvite={fullCalendarInvite}
+      />
+    )
   } else if (event.kind === ExtendedKind.ZAP_REQUEST || event.kind === ExtendedKind.ZAP_RECEIPT) {
     content = <Zap className="mt-2" event={event} />
   } else if (event.kind === ExtendedKind.FOLLOW_PACK) {

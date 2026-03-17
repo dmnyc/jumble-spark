@@ -578,7 +578,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   const savedFeedStateRef = useRef<Map<TPrimaryPageName, { 
     tab?: string,
     discussionsState?: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' },
-    trendingTab?: 'relays' | 'hashtags'
+    trendingTab?: 'relays' | 'hashtags' | 'calendar'
   }>>(new Map())
   const currentTabStateRef = useRef<Map<TPrimaryPageName, string>>(new Map()) // Track current tab state for each page
   
@@ -610,7 +610,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       }
       
       // Get trending tab if on search page
-      const trendingTab = currentTabStateRef.current.get('search') as 'relays' | 'hashtags' | undefined
+      const trendingTab = currentTabStateRef.current.get('search') as 'relays' | 'hashtags' | 'calendar' | undefined
       
       // Save state (tab, discussions, trending) if any exists
       if (currentTab || discussionsState || trendingTab) {
@@ -1181,7 +1181,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     
     // Save tab state before navigating
     const currentTab = currentTabStateRef.current.get(currentPrimaryPage)
-    const trendingTab = currentTabStateRef.current.get('search') as 'relays' | 'hashtags' | undefined
+    const trendingTab = currentTabStateRef.current.get('search') as 'relays' | 'hashtags' | 'calendar' | undefined
     
     if (currentPrimaryPage && (currentTab || trendingTab)) {
       logger.info('PageManager: Desktop - Saving page state', { 

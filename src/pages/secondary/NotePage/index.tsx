@@ -17,10 +17,12 @@ import { tagNameEquals } from '@/lib/tag'
 import { cn } from '@/lib/utils'
 import { Ellipsis } from 'lucide-react'
 import type { Event } from 'nostr-tools'
-import { kinds } from 'nostr-tools'
+import { kinds, nip19 } from 'nostr-tools'
 import { forwardRef, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import NotFound from './NotFound'
+
+const NADDR_REGEX = /nostr:(naddr1[a-z0-9]+)/g
 
 // Helper function to get event type name (matching WebPreview)
 function getEventTypeName(kind: number): string {
@@ -102,7 +104,26 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: string;
   )
   const { isFetching: isFetchingRootEvent, event: rootEvent } = useFetchEvent(rootEventId)
   const { isFetching: isFetchingParentEvent, event: parentEvent } = useFetchEvent(parentEventId)
-  
+
+  // When viewing a kind-24 invite (e.g. from notifications), extract calendar event naddr from content and show full calendar card with RSVP
+  const calendarInviteNaddr = useMemo(() => {
+    if (finalEvent?.kind !== ExtendedKind.PUBLIC_MESSAGE || !finalEvent.content?.trim()) return undefined
+    const match = NADDR_REGEX.exec(finalEvent.content)
+    NADDR_REGEX.lastIndex = 0
+    const naddr = match?.[1]
+    if (!naddr) return undefined
+    try {
+      const decoded = nip19.decode(naddr)
+      if (decoded.type === 'naddr' && (decoded.data.kind === ExtendedKind.CALENDAR_EVENT_DATE || decoded.data.kind === ExtendedKind.CALENDAR_EVENT_TIME)) {
+        return naddr
+      }
+    } catch {
+      // ignore decode errors
+    }
+    return undefined
+  }, [finalEvent?.kind, finalEvent?.content])
+  const { event: calendarInviteEvent } = useFetchEvent(calendarInviteNaddr)
+
   // Fetch profile for author (for OpenGraph metadata)
   const { profile: authorProfile } = useFetchProfile(finalEvent?.pubkey)
 
@@ -465,6 +486,11 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: string;
           hideParentNotePreview
           originalNoteId={id}
           showFull
+          fullCalendarInvite={
+            calendarInviteEvent && calendarInviteNaddr
+              ? { event: calendarInviteEvent, naddr: calendarInviteNaddr }
+              : undefined
+          }
         />
         <NoteStats className="mt-3" event={finalEvent} fetchIfNotExisting displayTopZapsAndLikes />
       </div>

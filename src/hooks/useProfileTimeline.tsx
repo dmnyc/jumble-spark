@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Event } from 'nostr-tools'
 import client from '@/services/client.service'
-import { FAST_READ_RELAY_URLS } from '@/constants'
+import { CALENDAR_EVENT_KINDS, ExtendedKind, FAST_READ_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 
 type ProfileTimelineCacheEntry = {
@@ -137,7 +137,8 @@ export function useProfileTimeline({
           return
         }
 
-        const subRequests = relayGroups
+        const hasCalendarKinds = kinds.some((k) => CALENDAR_EVENT_KINDS.includes(k))
+        const authorRequests = relayGroups
           .map((urls) => ({
             urls,
             filter: {
@@ -147,6 +148,20 @@ export function useProfileTimeline({
             } as any
           }))
           .filter((request) => request.urls.length)
+        // When profile includes calendar event kinds, also subscribe to events where this user is an invitee (#p tag)
+        const calendarInviteRequests = hasCalendarKinds
+          ? relayGroups
+              .map((urls) => ({
+                urls,
+                filter: {
+                  kinds: [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME],
+                  '#p': [pubkey],
+                  limit: 100
+                } as any
+              }))
+              .filter((request) => request.urls.length)
+          : []
+        const subRequests = [...authorRequests, ...calendarInviteRequests]
 
         if (!subRequests.length) {
           timelineCache.set(cacheKey, {

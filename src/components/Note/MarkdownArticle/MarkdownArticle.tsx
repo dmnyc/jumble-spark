@@ -20,6 +20,7 @@ import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Lightbox from 'yet-another-react-lightbox'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
+import CalendarEventContent from '@/components/CalendarEventContent'
 import { EmbeddedNote, EmbeddedMention } from '@/components/Embedded'
 import EmbeddedCitation from '@/components/EmbeddedCitation'
 import { preprocessMarkdownMediaLinks } from './preprocessMarkup'
@@ -422,9 +423,11 @@ function parseMarkdownContent(
     imageThumbnailMap?: Map<string, string>
     getImageIdentifier?: (url: string) => string | null
     emojiInfos?: TEmoji[]
+    /** When viewing a kind-24 invite, render full calendar card with RSVP instead of EmbeddedNote for this naddr */
+    fullCalendarInvite?: { naddr: string; event: Event }
   }
 ): { nodes: React.ReactNode[]; hashtagsInContent: Set<string>; footnotes: Map<string, string>; citations: Array<{ id: string; type: string; citationId: string }> } {
-  const { eventPubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier, emojiInfos = [] } = options
+  const { eventPubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier, emojiInfos = [], fullCalendarInvite } = options
   const parts: React.ReactNode[] = []
   const hashtagsInContent = new Set<string>()
   const footnotes = new Map<string, string>()
@@ -2154,12 +2157,21 @@ function parseMarkdownContent(
           </span>
         )
       } else if (bech32Id.startsWith('note') || bech32Id.startsWith('nevent') || bech32Id.startsWith('naddr')) {
-        // Embedded events should be block-level and fill width
-        parts.push(
-          <div key={`nostr-${patternIdx}`} className="w-full my-2">
-            <EmbeddedNote noteId={bech32Id} />
-          </div>
-        )
+        // When this is the calendar invite naddr, show full calendar card with RSVP instead of embedded preview
+        if (fullCalendarInvite && fullCalendarInvite.naddr === bech32Id) {
+          parts.push(
+            <div key={`nostr-${patternIdx}`} className="w-full my-2">
+              <CalendarEventContent event={fullCalendarInvite.event} className="mt-2" showRsvp />
+            </div>
+          )
+        } else {
+          // Embedded events should be block-level and fill width
+          parts.push(
+            <div key={`nostr-${patternIdx}`} className="w-full my-2">
+              <EmbeddedNote noteId={bech32Id} />
+            </div>
+          )
+        }
       } else {
         parts.push(<span key={`nostr-${patternIdx}`}>nostr:{bech32Id}</span>)
       }
@@ -3158,12 +3170,15 @@ export default function MarkdownArticle({
   event,
   className,
   hideMetadata = false,
-  parentImageUrl
+  parentImageUrl,
+  fullCalendarInvite
 }: {
   event: Event
   className?: string
   hideMetadata?: boolean
   parentImageUrl?: string
+  /** When viewing a kind-24 invite, render full calendar card with RSVP in place of the naddr embed */
+  fullCalendarInvite?: { naddr: string; event: Event }
 }) {
   const { push } = useSecondaryPage()
   const { navigateToHashtag } = useSmartHashtagNavigation()
@@ -3513,11 +3528,12 @@ export default function MarkdownArticle({
       videoPosterMap,
       imageThumbnailMap,
       getImageIdentifier,
-      emojiInfos
+      emojiInfos,
+      fullCalendarInvite
     })
     // Return nodes and hashtags (footnotes are already included in nodes)
     return { nodes: result.nodes, hashtagsInContent: result.hashtagsInContent }
-  }, [preprocessedContent, event.pubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier, emojiInfos])
+  }, [preprocessedContent, event.pubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier, emojiInfos, fullCalendarInvite])
   
   // Filter metadata tags to only show what's not already in content
   const leftoverMetadataTags = useMemo(() => {
