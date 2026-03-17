@@ -1104,19 +1104,30 @@ class ClientService extends EventTarget {
       })
     }
     
+    /** Once one relay returns results, give others this long (ms) then resolve with what we have */
+    const FIRST_RESULT_GRACE_MS = 2000
+
     return await new Promise<NEvent[]>((resolve) => {
       const events: NEvent[] = []
       let resolveTimeout: ReturnType<typeof setTimeout> | null = null
+      let firstResultGraceTimeoutId: ReturnType<typeof setTimeout> | null = null
       let allEosed = false
       let eoseTime: number | null = null
       let eventCount = 0
-      
+      let resolved = false
+
       let globalTimeoutId: ReturnType<typeof setTimeout> | null = null
-      
+
       const resolveWithEvents = () => {
+        if (resolved) return
+        resolved = true
         if (resolveTimeout) {
           clearTimeout(resolveTimeout)
           resolveTimeout = null
+        }
+        if (firstResultGraceTimeoutId) {
+          clearTimeout(firstResultGraceTimeoutId)
+          firstResultGraceTimeoutId = null
         }
         if (globalTimeoutId) {
           clearTimeout(globalTimeoutId)
@@ -1134,7 +1145,7 @@ class ClientService extends EventTarget {
         sub.close()
         resolve(events)
       }
-      
+
       const sub = this.subscribe(urls, filter, {
         onevent(evt) {
           eventCount++
@@ -1147,16 +1158,28 @@ class ClientService extends EventTarget {
           }
           onevent?.(evt)
           events.push(evt)
-          
+
+          // As soon as one relay returns results, give others 2s then resolve (keeps reqs fast)
+          if (events.length === 1 && !firstResultGraceTimeoutId) {
+            firstResultGraceTimeoutId = setTimeout(() => {
+              firstResultGraceTimeoutId = null
+              resolveWithEvents()
+            }, FIRST_RESULT_GRACE_MS)
+          }
+
           // Check if we're looking for a specific event ID (limit: 1 with ids filter)
           const filters = Array.isArray(filter) ? filter : [filter]
           const hasIdFilter = filters.some(f => f.ids && f.ids.length > 0)
           const hasLimitOne = filters.some(f => f.limit === 1)
-          
+
           // If we're searching for a specific event and found it, we can resolve early
           // But wait a bit (100ms) in case duplicate events arrive
           if (hasIdFilter && hasLimitOne && events.length > 0 && allEosed) {
             // We've found the event and received EOSE, wait a short moment then resolve
+            if (firstResultGraceTimeoutId) {
+              clearTimeout(firstResultGraceTimeoutId)
+              firstResultGraceTimeoutId = null
+            }
             if (resolveTimeout) {
               clearTimeout(resolveTimeout)
             }
@@ -1176,6 +1199,11 @@ class ClientService extends EventTarget {
                 eventCount,
                 willWait: eoseTimeout
               })
+            }
+            // Clear first-result grace timer; we'll use EOSE timeout instead
+            if (firstResultGraceTimeoutId) {
+              clearTimeout(firstResultGraceTimeoutId)
+              firstResultGraceTimeoutId = null
             }
             // Clear any existing timeout
             if (resolveTimeout) {

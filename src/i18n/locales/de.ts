@@ -120,6 +120,8 @@ export default {
     'Choose a GIF': 'GIF auswählen',
     'Search GifBuddy for more GIFs': 'Bei GifBuddy nach weiteren GIFs suchen',
     'Add your own GIFs': 'Eigene GIFs hinzufügen',
+    'Description (optional, for search)': 'Beschreibung (optional, für Suche)',
+    'e.g. happy birthday, thumbs up': 'z. B. happy birthday, Daumen hoch',
     'Uploading...': 'Wird hochgeladen...',
     'No GIFs found. Try searching or add your own. GIFs come from Nostr kind 1063 (NIP-94) events on GIF relays.': 'Keine GIFs gefunden. Suche oder füge eigene hinzu. GIFs stammen von Nostr-Kind-1063-Events (NIP-94) auf GIF-Relays.',
     '{{name}} is not a GIF file': '{{name}} ist keine GIF-Datei',

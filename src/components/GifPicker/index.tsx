@@ -11,6 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { ExtendedKind, GIF_RELAY_URLS } from '@/constants'
+import { normalizeUrl } from '@/lib/url'
 import { fetchGifs, searchGifs, type GifMetadata } from '@/services/gif.service'
 import mediaUpload from '@/services/media-upload.service'
 import { ExternalLink, Loader2, X } from 'lucide-react'
@@ -34,7 +35,7 @@ export default function GifPicker({
 }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
-  const { publish, pubkey } = useNostr()
+  const { publish, pubkey, relayList } = useNostr()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -45,17 +46,21 @@ export default function GifPicker({
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [pasteUrl, setPasteUrl] = useState('')
   const [publishingPaste, setPublishingPaste] = useState(false)
+  const [publishDescription, setPublishDescription] = useState('')
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const gifbuddyPopupRef = useRef<Window | null>(null)
+
+  const userReadRelays = relayList?.read ?? []
+  const userWriteRelays = relayList?.write ?? []
 
   const loadGifs = useCallback(async (q: string, forceRefresh = false) => {
     setError(null)
     setLoading(true)
     try {
       const results = q.trim()
-        ? await searchGifs(q.trim(), 50, forceRefresh)
-        : await fetchGifs(undefined, 50, forceRefresh)
+        ? await searchGifs(q.trim(), 50, forceRefresh, userReadRelays, pubkey ?? null)
+        : await fetchGifs(undefined, 50, forceRefresh, userReadRelays, pubkey ?? null)
       setGifs(results)
       if (results.length === 0 && !q.trim()) {
         setError(
@@ -70,7 +75,7 @@ export default function GifPicker({
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [t, userReadRelays, pubkey])
 
   useEffect(() => {
     if (!open) return
@@ -95,30 +100,37 @@ export default function GifPicker({
   }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files?.length || !pubkey) return
+    const file = e.target.files?.[0]
+    if (!file || !pubkey) return
     setUploadError(null)
     setUploading(true)
     try {
-      for (const file of Array.from(files)) {
-        if (!file.type.includes('gif') && !file.name.toLowerCase().endsWith('.gif')) {
-          setUploadError(t('{{name}} is not a GIF file', { name: file.name }))
-          continue
-        }
-        const { url } = await mediaUpload.upload(file)
-        const draft = {
-          kind: ExtendedKind.FILE_METADATA,
-          content: '',
-          tags: [
-            ['file', url, file.type || 'image/gif', `size ${file.size}`],
-            ['url', url],
-            ['m', file.type || 'image/gif'],
-            ['t', 'gif']
-          ],
-          created_at: Math.floor(Date.now() / 1000)
-        }
-        await publish(draft, { specifiedRelayUrls: GIF_RELAY_URLS })
+      if (!file.type.includes('gif') && !file.name.toLowerCase().endsWith('.gif')) {
+        setUploadError(t('{{name}} is not a GIF file', { name: file.name }))
+        return
       }
+      const { url } = await mediaUpload.upload(file)
+      const draft = {
+        kind: ExtendedKind.FILE_METADATA,
+        content: publishDescription.trim(),
+        tags: [
+          ['file', url, file.type || 'image/gif', `size ${file.size}`],
+          ['url', url],
+          ['m', file.type || 'image/gif'],
+          ['t', 'gif']
+        ],
+        created_at: Math.floor(Date.now() / 1000)
+      }
+      const writeUrls = [...GIF_RELAY_URLS, ...userWriteRelays]
+      const seen = new Set<string>()
+      const specifiedRelayUrls = writeUrls.filter((u) => {
+        const n = (normalizeUrl(u) ?? u).toLowerCase()
+        if (seen.has(n)) return false
+        seen.add(n)
+        return true
+      })
+      await publish(draft, { specifiedRelayUrls })
+      setPublishDescription('')
       setQuery('')
       await loadGifs('', true)
     } catch (err) {
@@ -160,6 +172,8 @@ export default function GifPicker({
     if (w) w.addEventListener('beforeunload', () => { clearTimeout(t); window.removeEventListener('message', handler) })
   }, [searchInput, onSelect])
 
+  const descriptionForPublish = publishDescription.trim()
+
   /** Insert pasted GIF URL and publish kind 1063 so it's added to Nostr GIF library. */
   const handlePasteUrlInsert = useCallback(async () => {
     const url = pasteUrl.trim()
@@ -172,7 +186,7 @@ export default function GifPicker({
       try {
         const draft = {
           kind: ExtendedKind.FILE_METADATA,
-          content: '',
+          content: descriptionForPublish,
           tags: [
             ['url', url],
             ['m', 'image/gif'],
@@ -180,14 +194,23 @@ export default function GifPicker({
           ],
           created_at: Math.floor(Date.now() / 1000)
         }
-        await publish(draft, { specifiedRelayUrls: GIF_RELAY_URLS })
+        const writeUrls = [...GIF_RELAY_URLS, ...userWriteRelays]
+        const seen = new Set<string>()
+        const specifiedRelayUrls = writeUrls.filter((u) => {
+          const n = (normalizeUrl(u) ?? u).toLowerCase()
+          if (seen.has(n)) return false
+          seen.add(n)
+          return true
+        })
+        await publish(draft, { specifiedRelayUrls })
+        setPublishDescription('')
       } catch {
         // ignore; URL was still inserted
       } finally {
         setPublishingPaste(false)
       }
     }
-  }, [pasteUrl, pubkey, onSelect, publish])
+  }, [pasteUrl, pubkey, onSelect, publish, userWriteRelays, descriptionForPublish])
 
   /** In drawer mode we constrain height and make only the GIF grid scroll so the drawer doesn't "sink" */
   const isDrawer = isSmallScreen
@@ -257,6 +280,19 @@ export default function GifPicker({
         </ScrollArea>
       </div>
       <div className="flex flex-col gap-2 border-t pt-2 shrink-0">
+        {isLoggedIn && (
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">
+              {t('Description (optional, for search)')}
+            </Label>
+            <Input
+              placeholder={t('e.g. happy birthday, thumbs up')}
+              value={publishDescription}
+              onChange={(e) => setPublishDescription(e.target.value)}
+              className="min-w-0"
+            />
+          </div>
+        )}
         <div className="flex flex-col gap-1.5">
           <Button
             type="button"
@@ -300,7 +336,6 @@ export default function GifPicker({
               ref={fileInputRef}
               type="file"
               accept=".gif,image/gif"
-              multiple
               className="hidden"
               onChange={handleUpload}
             />

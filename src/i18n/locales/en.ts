@@ -174,6 +174,8 @@ export default {
     'Choose a GIF': 'Choose a GIF',
     'Search GifBuddy for more GIFs': 'Search GifBuddy for more GIFs',
     'Add your own GIFs': 'Add your own GIFs',
+    'Description (optional, for search)': 'Description (optional, for search)',
+    'e.g. happy birthday, thumbs up': 'e.g. happy birthday, thumbs up',
     'Uploading...': 'Uploading...',
     'No GIFs found. Try searching or add your own. GIFs come from Nostr kind 1063 (NIP-94) events on GIF relays.': 'No GIFs found. Try searching or add your own. GIFs come from Nostr kind 1063 (NIP-94) events on GIF relays.',
     '{{name}} is not a GIF file': '{{name}} is not a GIF file',

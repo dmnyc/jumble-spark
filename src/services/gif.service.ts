@@ -1,9 +1,11 @@
 /**
- * Fetch GIFs from Nostr NIP-94 file metadata events (kind 1063).
- * Same approach as aitherboard: query GIF relays, parse file/imeta/image/url tags.
+ * Fetch GIFs from Nostr: kind 1063 (NIP-94 file metadata) and from kind 1 / 1111 (notes/comments that contain GIF URLs).
+ * Same approach as aitherboard for 1063; for 1/1111 we parse content and tags for .gif URLs.
  */
 
 import { ExtendedKind, GIF_RELAY_URLS } from '@/constants'
+import { normalizeUrl } from '@/lib/url'
+import { kinds } from 'nostr-tools'
 import type { Event as NEvent } from 'nostr-tools'
 import client from './client.service'
 
@@ -18,6 +20,25 @@ export interface GifMetadata {
   pubkey: string
   createdAt: number
 }
+
+/** Normalize a GIF URL for deduplication: strip fragment and query, lowercase. */
+function normalizeGifUrl(url: string): string {
+  try {
+    const withoutFragment = url.split('#')[0].trim()
+    const withoutQuery = withoutFragment.split('?')[0].trim()
+    const lower = withoutQuery.toLowerCase()
+    return lower || url
+  } catch {
+    return url
+  }
+}
+
+/** Priority for deduplication: higher wins. Own event > other's event > non-event. */
+const GIF_PRIORITY = {
+  OWN_EVENT: 2,
+  OTHER_EVENT: 1,
+  NON_EVENT: 0
+} as const
 
 function parseGifFromEvent(event: NEvent): GifMetadata | null {
   let url: string | undefined
@@ -164,37 +185,62 @@ let cacheTime = 0
 
 /**
  * Fetch GIFs from Nostr kind 1063 (NIP-94) events on GIF relays.
- * Optionally filter by search query (content + tags).
+ * Deduplicates by normalized URL; when the same GIF appears from multiple sources,
+ * keeps: 1) user's own events, 2) other users' events, 3) non-event sources.
+ * @param extraReadRelayUrls - Logged-in user's read relays (inboxes) and local relays to include when fetching.
+ * @param userPubkey - Current user's pubkey; entries from this pubkey get highest priority when deduping.
  */
 export async function fetchGifs(
   searchQuery?: string,
   limit: number = 50,
-  forceRefresh: boolean = false
+  forceRefresh: boolean = false,
+  extraReadRelayUrls: string[] = [],
+  userPubkey: string | null = null
 ): Promise<GifMetadata[]> {
   const useCache = !forceRefresh && cachedGifs.length > 0 && Date.now() - cacheTime < CACHE_MAX_AGE_MS
   if (useCache && !searchQuery) {
     return cachedGifs.slice(0, limit)
   }
 
-  const filter = {
-    kinds: [ExtendedKind.FILE_METADATA],
-    limit: Math.max(limit * 10, 200)
-  }
-
-  const events = await client.fetchEvents(GIF_RELAY_URLS, filter, {
-    eoseTimeout: 10000,
-    globalTimeout: 15000
+  const readUrls = [
+    ...GIF_RELAY_URLS,
+    ...extraReadRelayUrls.map((u) => normalizeUrl(u)).filter(Boolean)
+  ]
+  const seen = new Set<string>()
+  const dedupedUrls = readUrls.filter((u) => {
+    const n = u.toLowerCase()
+    if (seen.has(n)) return false
+    seen.add(n)
+    return true
   })
 
-  const seenUrls = new Set<string>()
-  const gifs: GifMetadata[] = []
+  const fetchOpts = { eoseTimeout: 10000, globalTimeout: 15000 }
+
+  // Two separate requests so kind 1063 isn't overwhelmed by the volume of kind 1/1111
+  const [events1063, eventsNotes] = await Promise.all([
+    client.fetchEvents(
+      dedupedUrls,
+      { kinds: [ExtendedKind.FILE_METADATA], limit: Math.max(limit * 10, 200) },
+      fetchOpts
+    ),
+    client.fetchEvents(
+      dedupedUrls,
+      {
+        kinds: [kinds.ShortTextNote, ExtendedKind.COMMENT],
+        limit: Math.max(limit * 10, 300)
+      },
+      fetchOpts
+    )
+  ])
+
+  const events = [...events1063, ...eventsNotes]
+
+  // Map: normalized URL -> { gif, priority }. Higher priority wins when same URL appears multiple times.
+  const byUrl = new Map<string, { gif: GifMetadata; priority: number }>()
 
   for (const event of events) {
     const gif = parseGifFromEvent(event)
     if (!gif) continue
-    const normalizedUrl = gif.url.split('?')[0].split('#')[0]
-    if (seenUrls.has(normalizedUrl)) continue
-    seenUrls.add(normalizedUrl)
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase().trim()
@@ -202,9 +248,17 @@ export async function fetchGifs(
       const tags = event.tags.flat().join(' ').toLowerCase()
       if (!content.includes(q) && !tags.includes(q)) continue
     }
-    gifs.push(gif)
+
+    const key = normalizeGifUrl(gif.url)
+    const priority =
+      userPubkey && event.pubkey === userPubkey ? GIF_PRIORITY.OWN_EVENT : GIF_PRIORITY.OTHER_EVENT
+    const existing = byUrl.get(key)
+    if (!existing || priority > existing.priority) {
+      byUrl.set(key, { gif, priority })
+    }
   }
 
+  const gifs = Array.from(byUrl.values()).map((v) => v.gif)
   gifs.sort((a, b) => b.createdAt - a.createdAt)
   const result = gifs.slice(0, limit)
 
@@ -220,7 +274,9 @@ export async function fetchGifs(
 export async function searchGifs(
   query: string,
   limit: number = 50,
-  forceRefresh: boolean = false
+  forceRefresh: boolean = false,
+  extraReadRelayUrls: string[] = [],
+  userPubkey: string | null = null
 ): Promise<GifMetadata[]> {
-  return fetchGifs(query, limit, forceRefresh)
+  return fetchGifs(query, limit, forceRefresh, extraReadRelayUrls, userPubkey)
 }
