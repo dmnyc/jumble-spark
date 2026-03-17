@@ -164,6 +164,7 @@ export default function Profile({ id }: { id?: string }) {
   const [paymentInfo, setPaymentInfo] = useState<ReturnType<typeof getPaymentInfoFromEvent> | null>(null)
   const [openZapDialog, setOpenZapDialog] = useState(false)
   const [openPublicMessageTo, setOpenPublicMessageTo] = useState<string | null>(null)
+  const [openCallInviteTo, setOpenCallInviteTo] = useState<{ pubkey: string; url: string } | null>(null)
 
   const mergedPaymentMethods = useMemo(() => {
     const list = mergePaymentMethods(paymentInfo, profile ?? null)
@@ -172,6 +173,25 @@ export default function Profile({ id }: { id?: string }) {
       return rank(a.type) - rank(b.type)
     })
   }, [paymentInfo, profile])
+
+  /** Group payment methods by displayType so same-type addresses render under one heading */
+  const paymentMethodsByType = useMemo(() => {
+    const rank = (type: string) => (type === 'lightning' ? 0 : type === 'bitcoin' ? 1 : 2)
+    const groups = new Map<string, MergedPaymentMethod[]>()
+    for (const method of mergedPaymentMethods) {
+      const key = method.displayType || method.type
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(method)
+    }
+    const order = Array.from(groups.keys()).sort((a, b) => {
+      const arrA = groups.get(a)
+      const arrB = groups.get(b)
+      const typeA = arrA?.[0]?.type ?? ''
+      const typeB = arrB?.[0]?.type ?? ''
+      return rank(typeA) - rank(typeB)
+    })
+    return order.map((key) => ({ displayType: key, methods: groups.get(key) ?? [] }))
+  }, [mergedPaymentMethods])
 
   // Fetch payment info (kind 10133) for this profile; uses cached replaceable events and IndexedDB
   useEffect(() => {
@@ -431,6 +451,11 @@ export default function Profile({ id }: { id?: string }) {
             <ProfileOptions
               pubkey={pubkey}
               onSendPublicMessage={!isSelf ? () => setOpenPublicMessageTo(pubkey) : undefined}
+              onSendCallInvite={
+                !isSelf
+                  ? (url) => setOpenCallInviteTo({ pubkey, url })
+                  : undefined
+              }
             />
             {isSelf ? (
               <div className="flex gap-2">
@@ -514,50 +539,56 @@ export default function Profile({ id }: { id?: string }) {
               </div>
             )}
             {/* Payment methods: merged from kind 10133 + profile lightning, deduplicated – use PaytoLink for consistent behavior */}
-            {mergedPaymentMethods.length > 0 && (
+            {paymentMethodsByType.length > 0 && (
               <div className="mt-2 p-2 border rounded-lg bg-muted/50 min-w-0 overflow-hidden">
                 <div className="text-xs font-semibold text-muted-foreground mb-2">Payment Methods</div>
-                <div className="space-y-2 min-w-0">
-                  {mergedPaymentMethods.map((method, idx) => (
-                    <div key={idx} className="text-sm min-w-0">
-                      <div className="font-medium">{method.displayType}</div>
-                      {method.authority && (
-                        <div className="text-muted-foreground mt-1 flex items-center gap-1 min-w-0">
-                          <PaytoLink
-                            type={method.type}
-                            authority={method.authority}
-                            paytoUri={method.payto}
-                            pubkey={method.type === 'lightning' ? pubkey : undefined}
-                            onOpenZap={method.type === 'lightning' ? () => setOpenZapDialog(true) : undefined}
-                            className="hover:underline break-all min-w-0 text-primary flex-1"
-                          >
-                            {method.authority}
-                          </PaytoLink>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              navigator.clipboard.writeText(method.authority)
-                              toast.success(t('Copied to clipboard'))
-                            }}
-                            className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-                            title={t('Copy address')}
-                          >
-                            <Copy className="size-3.5" />
-                          </button>
-                        </div>
-                      )}
-                      {(method.currency || (method.minAmount !== undefined && method.maxAmount !== undefined)) && (
-                        <div className="text-muted-foreground text-xs mt-1">
-                          {method.currency && <span>({method.currency})</span>}
-                          {method.minAmount !== undefined && method.maxAmount !== undefined && (
-                            <span className="ml-2">
-                              {method.minAmount}-{method.maxAmount}
-                            </span>
-                          )}
-                        </div>
-                      )}
+                <div className="space-y-3 min-w-0">
+                  {paymentMethodsByType.map((group, groupIdx) => (
+                    <div key={groupIdx} className="text-sm min-w-0">
+                      <div className="font-medium">{group.displayType}</div>
+                      <div className="space-y-1.5 mt-1">
+                        {group.methods.map((method, idx) => (
+                          <div key={idx} className="min-w-0">
+                            {method.authority && (
+                              <div className="text-muted-foreground flex items-center gap-1 min-w-0">
+                                <PaytoLink
+                                  type={method.type}
+                                  authority={method.authority}
+                                  paytoUri={method.payto}
+                                  pubkey={method.type === 'lightning' ? pubkey : undefined}
+                                  onOpenZap={method.type === 'lightning' ? () => setOpenZapDialog(true) : undefined}
+                                  className="hover:underline break-all min-w-0 text-primary flex-1"
+                                >
+                                  {method.authority}
+                                </PaytoLink>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    navigator.clipboard.writeText(method.authority)
+                                    toast.success(t('Copied to clipboard'))
+                                  }}
+                                  className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                                  title={t('Copy address')}
+                                >
+                                  <Copy className="size-3.5" />
+                                </button>
+                              </div>
+                            )}
+                            {(method.currency || (method.minAmount !== undefined && method.maxAmount !== undefined)) && (
+                              <div className="text-muted-foreground text-xs mt-0.5">
+                                {method.currency && <span>({method.currency})</span>}
+                                {method.minAmount !== undefined && method.maxAmount !== undefined && (
+                                  <span className="ml-2">
+                                    {method.minAmount}-{method.maxAmount}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -770,6 +801,14 @@ export default function Profile({ id }: { id?: string }) {
           open={!!openPublicMessageTo}
           setOpen={(open) => !open && setOpenPublicMessageTo(null)}
           initialPublicMessageTo={openPublicMessageTo}
+        />
+      )}
+      {openCallInviteTo && (
+        <PostEditor
+          open={!!openCallInviteTo}
+          setOpen={(open) => !open && setOpenCallInviteTo(null)}
+          initialPublicMessageTo={openCallInviteTo.pubkey}
+          defaultContent={`${t('Join the video call')}: ${openCallInviteTo.url}`}
         />
       )}
     </>

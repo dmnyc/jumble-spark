@@ -1,9 +1,10 @@
 import { ExtendedKind } from '@/constants'
 import { getNoteBech32Id, isProtectedEvent, getRootEventHexId } from '@/lib/event'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
+import { buildHiveTalkJoinUrl } from '@/lib/hivetalk'
 import { toAlexandria } from '@/lib/link'
 import logger from '@/lib/logger'
-import { pubkeyToNpub } from '@/lib/pubkey'
+import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
 import { generateBech32IdFromATag } from '@/lib/tag'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
@@ -13,7 +14,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
 import { nip66Service } from '@/services/nip66.service'
-import { Bell, BellOff, Code, Copy, Link, SatelliteDish, Trash2, TriangleAlert, Pin, FileDown, Globe, BookOpen, MessageCircle } from 'lucide-react'
+import { Bell, BellOff, Code, Copy, Link, SatelliteDish, Trash2, TriangleAlert, Pin, FileDown, Globe, BookOpen, MessageCircle, Send, Video } from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
 import { useMemo, useState, useEffect, useContext } from 'react'
@@ -48,6 +49,8 @@ interface UseMenuActionsProps {
   isSmallScreen: boolean
   /** When provided, adds "Send public message" to open composer with this pubkey in the mention list. */
   onOpenPublicMessage?: (pubkey: string) => void
+  /** When provided, adds "Send call invite" to open composer with the call URL as content. */
+  onOpenCallInvite?: (url: string) => void
 }
 
 export function useMenuActions({
@@ -58,12 +61,13 @@ export function useMenuActions({
   setIsReportDialogOpen,
   isSmallScreen,
   onOpenPublicMessage,
+  onOpenCallInvite,
 }: UseMenuActionsProps) {
   const { t } = useTranslation()
   // Use useContext directly to avoid error if provider is not available
   const primaryPageContext = useContext(PrimaryPageContext)
   const currentPrimaryPage = primaryPageContext?.current ?? null
-  const { pubkey, attemptDelete, publish } = useNostr()
+  const { pubkey, profile, attemptDelete, publish } = useNostr()
   const { relayUrls: currentBrowsingRelayUrls } = useCurrentRelays()
   const { relaySets, favoriteRelays } = useFavoriteRelays()
   const relayUrls = useMemo(() => {
@@ -624,7 +628,46 @@ export function useMenuActions({
           navigator.clipboard.writeText(toAlexandria(getNoteBech32Id(event)))
           closeDrawer()
         }
-      }
+      },
+      {
+        icon: Video,
+        label: t('Start call about this'),
+        separator: true,
+        onClick: () => {
+          closeDrawer()
+          const roomId = `jumble-note-${event.id}`
+          const displayName = pubkey ? (profile?.username ?? formatPubkey(pubkey)) : 'jumble'
+          const url = buildHiveTalkJoinUrl({ room: roomId, name: displayName })
+          window.open(url, '_blank', 'noopener,noreferrer')
+        }
+      },
+      {
+        icon: Copy,
+        label: t('Copy call invite link'),
+        onClick: () => {
+          closeDrawer()
+          const roomId = `jumble-note-${event.id}`
+          const displayName = pubkey ? (profile?.username ?? formatPubkey(pubkey)) : 'jumble'
+          const url = buildHiveTalkJoinUrl({ room: roomId, name: displayName })
+          navigator.clipboard.writeText(url)
+          toast.success(t('Copied to clipboard'))
+        }
+      },
+      ...(onOpenCallInvite
+        ? [
+            {
+              icon: Send,
+              label: t('Send call invite'),
+              onClick: () => {
+                closeDrawer()
+                const roomId = `jumble-note-${event.id}`
+                const displayName = pubkey ? (profile?.username ?? formatPubkey(pubkey)) : 'jumble'
+                const url = buildHiveTalkJoinUrl({ room: roomId, name: displayName })
+                onOpenCallInvite(`${t('Join the video call')}: ${url}`)
+              }
+            } as MenuAction
+          ]
+        : [])
     ]
 
     // Add "View on Alexandria" menu item for public messages (PMs)
@@ -830,7 +873,10 @@ export function useMenuActions({
     isArticleType,
     articleMetadata,
     dTag,
-    naddr
+    naddr,
+    onOpenPublicMessage,
+    onOpenCallInvite,
+    profile
   ])
 
   return menuActions

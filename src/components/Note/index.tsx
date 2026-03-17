@@ -74,16 +74,27 @@ export default function Note({
   const [highlightDefaultContent, setHighlightDefaultContent] = useState<string>('')
   const [postEditorOpen, setPostEditorOpen] = useState(false)
   const [publicMessageTo, setPublicMessageTo] = useState<string | null>(null)
+  const [callInviteContent, setCallInviteContent] = useState<string | null>(null)
 
   const openHighlight = useCallback((data: HighlightData, eventContent?: string) => {
     setHighlightData(data)
     setHighlightDefaultContent(eventContent ?? '')
     setPublicMessageTo(null)
+    setCallInviteContent(null)
     setPostEditorOpen(true)
   }, [])
 
   const openPublicMessage = useCallback((pubkey: string) => {
     setPublicMessageTo(pubkey)
+    setCallInviteContent(null)
+    setPostEditorOpen(true)
+  }, [])
+
+  const openCallInvite = useCallback((url: string) => {
+    setCallInviteContent(url)
+    setPublicMessageTo(null)
+    setHighlightData(undefined)
+    setHighlightDefaultContent('')
     setPostEditorOpen(true)
   }, [])
 
@@ -284,9 +295,12 @@ export default function Note({
                   setHighlightData(undefined)
                   setHighlightDefaultContent('')
                   setPublicMessageTo(null)
+                  setCallInviteContent(null)
                 }}
                 onOpenPublicMessage={openPublicMessage}
                 initialPublicMessageTo={publicMessageTo}
+                onOpenCallInvite={openCallInvite}
+                initialDefaultContent={callInviteContent}
               />
             )}
           </div>

@@ -18,7 +18,9 @@ export default function NoteOptions({
   isPostEditorOpen,
   onPostEditorClose,
   onOpenPublicMessage,
-  initialPublicMessageTo
+  initialPublicMessageTo,
+  onOpenCallInvite,
+  initialDefaultContent
 }: {
   event: Event
   className?: string
@@ -30,6 +32,10 @@ export default function NoteOptions({
   onOpenPublicMessage?: (pubkey: string) => void
   /** When set, the post editor is opened in public message mode with this pubkey pre-filled. */
   initialPublicMessageTo?: string | null
+  /** Opens the post editor with the given content (e.g. call invite URL). */
+  onOpenCallInvite?: (url: string) => void
+  /** Default content when opening the editor (e.g. call invite URL). */
+  initialDefaultContent?: string | null
 }) {
   const { isSmallScreen } = useScreenSize()
   const [isRawEventDialogOpen, setIsRawEventDialogOpen] = useState(false)
@@ -61,7 +67,8 @@ export default function NoteOptions({
     setIsRawEventDialogOpen,
     setIsReportDialogOpen,
     isSmallScreen,
-    onOpenPublicMessage
+    onOpenPublicMessage,
+    onOpenCallInvite
   })
 
   const trigger = useMemo(
@@ -110,7 +117,7 @@ export default function NoteOptions({
           setOpen={(open) => {
             if (!open) onPostEditorClose()
           }}
-          defaultContent={highlightDefaultContent ?? ''}
+          defaultContent={initialDefaultContent ?? highlightDefaultContent ?? ''}
           initialHighlightData={initialHighlightData}
           initialPublicMessageTo={initialPublicMessageTo ?? undefined}
         />

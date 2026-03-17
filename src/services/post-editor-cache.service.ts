@@ -22,14 +22,24 @@ class PostEditorCacheService {
     return PostEditorCacheService.instance
   }
 
+  /**
+   * Escape ampersands so that when TipTap parses initial content as HTML,
+   * sequences like &notify in URLs are not interpreted as the &not; entity (¬).
+   */
+  private escapeAmpersandsForHtml(text: string): string {
+    return text.replace(/&/g, '&amp;')
+  }
+
   getPostContentCache({
     defaultContent,
     parentEvent
   }: { defaultContent?: string; parentEvent?: Event } = {}) {
-    return (
-      this.postContentCache.get(this.generateCacheKey(defaultContent, parentEvent)) ??
-      defaultContent
-    )
+    const cached = this.postContentCache.get(this.generateCacheKey(defaultContent, parentEvent))
+    if (cached !== undefined) return cached
+    if (defaultContent !== undefined && defaultContent !== '') {
+      return this.escapeAmpersandsForHtml(defaultContent)
+    }
+    return defaultContent
   }
 
   setPostContentCache(

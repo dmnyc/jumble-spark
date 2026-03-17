@@ -43,7 +43,8 @@ export default function PostEditor({
   const effectiveDefaultContent = useMemo(() => {
     if (initialPublicMessageTo) {
       const npub = pubkeyToNpub(initialPublicMessageTo)
-      return npub ? `nostr:${npub} ` : defaultContent
+      const suffix = defaultContent ? ` ${defaultContent}` : ' '
+      return npub ? `nostr:${npub}${suffix}`.trimEnd() : defaultContent
     }
     return defaultContent
   }, [initialPublicMessageTo, defaultContent])

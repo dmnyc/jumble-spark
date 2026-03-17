@@ -4,6 +4,10 @@ import { kinds } from 'nostr-tools'
 export const JUMBLE_API_BASE_URL =
   (import.meta.env.VITE_JUMBLE_API_BASE_URL as string | undefined) ?? 'https://api.jumble.imwald.eu'
 
+/** HiveTalk (WebRTC video call) base URL; override with VITE_HIVETALK_BASE_URL for self-hosted instances. */
+export const HIVETALK_BASE_URL =
+  (import.meta.env.VITE_HIVETALK_BASE_URL as string | undefined) ?? 'https://vanilla.hivetalk.org'
+
 export const DEFAULT_FAVORITE_RELAYS = [
   'wss://theforest.nostr1.com',
   'wss://orly-relay.imwald.eu',
