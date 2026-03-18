@@ -231,14 +231,27 @@ export default function CreateSpellDialog({
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="close-on-eose"
-              checked={form.closeOnEose}
-              onChange={(e) => setForm((f) => ({ ...f, closeOnEose: e.target.checked }))}
-            />
-            <Label htmlFor="close-on-eose">{t('Close subscription after EOSE')}</Label>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('Mode')}</Label>
+            <div className="flex rounded-lg border border-input bg-muted p-0.5">
+              <button
+                type="button"
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${!form.closeOnEose ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
+                onClick={() => setForm((f) => ({ ...f, closeOnEose: false }))}
+              >
+                {t('Feed')}
+              </button>
+              <button
+                type="button"
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${form.closeOnEose ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
+                onClick={() => setForm((f) => ({ ...f, closeOnEose: true }))}
+              >
+                {t('Fetch')}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {form.closeOnEose ? t('Fetch once, then stop.') : t('Live feed; keeps updating.')}
+            </p>
           </div>
         </div>
 

@@ -1813,6 +1813,24 @@ class IndexedDbService {
   }
 
   /**
+   * Delete a spell event from IndexedDB by event id.
+   */
+  async deleteSpellEvent(eventId: string): Promise<void> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.SPELL_EVENTS)) {
+      logger.warn('[IndexedDB] Spell events store not found')
+      return
+    }
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(StoreNames.SPELL_EVENTS, 'readwrite')
+      const store = transaction.objectStore(StoreNames.SPELL_EVENTS)
+      store.delete(eventId)
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+  }
+
+  /**
    * Get all spell events from IndexedDB.
    */
   async getSpellEvents(): Promise<Event[]> {

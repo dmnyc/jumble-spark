@@ -1,5 +1,17 @@
 import NoteList from '@/components/NoteList'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useNostr } from '@/providers/NostrProvider'
@@ -13,7 +25,7 @@ import {
   spellIsCount
 } from '@/services/spell.service'
 import { TFeedSubRequest } from '@/types'
-import { ChevronLeft, Plus, Wand2 } from 'lucide-react'
+import { ChevronLeft, FileText, MoreVertical, Plus, Trash2, Wand2 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -28,6 +40,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set())
   const [selectedSpell, setSelectedSpell] = useState<Event | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [definitionSpell, setDefinitionSpell] = useState<Event | null>(null)
   const [subRequests, setSubRequests] = useState<TFeedSubRequest[]>([])
   const [contacts, setContacts] = useState<string[]>([])
 
@@ -90,6 +103,17 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
     setFavoriteIds(set)
   }, [])
 
+  const handleDeleteSpell = useCallback(
+    async (spell: Event) => {
+      await indexedDb.deleteSpellEvent(spell.id)
+      const ids = await indexedDb.getSpellFavoriteIds()
+      await indexedDb.setSpellFavoriteIds(ids.filter((id) => id !== spell.id))
+      if (selectedSpell?.id === spell.id) setSelectedSpell(null)
+      loadSpells()
+    },
+    [loadSpells, selectedSpell?.id]
+  )
+
   const orderedSpells = [...spells].sort((a, b) => {
     const aFav = favoriteIds.has(a.id)
     const bFav = favoriteIds.has(b.id)
@@ -146,9 +170,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
             <Wand2 className="size-4" />
             {t('Create a Spell')}
           </Button>
-          <div className="text-sm text-muted-foreground mt-1">
-            {t('Select a spell to run its filter and see the feed.')}
-          </div>
           <ul className="space-y-1 overflow-y-auto min-h-0">
             {orderedSpells.length === 0 && (
               <li className="text-sm text-muted-foreground py-2">{t('No spells yet. Create one above.')}</li>
@@ -157,11 +178,36 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
               <li key={spell.id} className="flex items-center gap-1">
                 <button
                   type="button"
-                  className={`flex-1 text-left text-sm px-2 py-1.5 rounded truncate ${selectedSpell?.id === spell.id ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'}`}
+                  className={`flex-1 text-left text-sm px-2 py-1.5 rounded truncate min-w-0 ${selectedSpell?.id === spell.id ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'}`}
                   onClick={() => setSelectedSpell(spell)}
                 >
                   {getSpellName(spell)}
                 </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreVertical className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setDefinitionSpell(spell)}>
+                      <FileText className="size-4" />
+                      {t('View definition')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => handleDeleteSpell(spell)}
+                    >
+                      <Trash2 className="size-4" />
+                      {t('Delete')}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <button
                   type="button"
                   className="shrink-0 p-1 text-muted-foreground hover:text-foreground"
@@ -204,6 +250,41 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
         onOpenChange={setCreateOpen}
         onSaved={loadSpells}
       />
+
+      <Dialog open={!!definitionSpell} onOpenChange={(open) => !open && setDefinitionSpell(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{definitionSpell ? getSpellName(definitionSpell) : t('Spell definition')}</DialogTitle>
+          </DialogHeader>
+          {definitionSpell && (
+            <div className="space-y-4 text-sm">
+              {definitionSpell.content?.trim() && (
+                <div>
+                  <div className="font-medium text-muted-foreground mb-1">{t('Description')}</div>
+                  <p className="whitespace-pre-wrap break-words">{definitionSpell.content.trim()}</p>
+                </div>
+              )}
+              <div>
+                <div className="font-medium text-muted-foreground mb-2">{t('Tags')}</div>
+                <dl className="space-y-1.5 font-mono text-xs">
+                  {definitionSpell.tags.map((tag, i) => (
+                    <div key={i} className="flex flex-wrap gap-x-2 gap-y-0.5">
+                      <dt className="text-muted-foreground shrink-0">{tag[0]}:</dt>
+                      <dd className="break-all min-w-0">
+                        {tag.length > 1 ? tag.slice(1).join(', ') : '—'}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+              <div className="text-muted-foreground text-xs break-words overflow-wrap-anywhere">
+                <span className="font-medium">id:</span>{' '}
+                <span className="break-all">{definitionSpell.id}</span>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </PrimaryPageLayout>
   )
 })
