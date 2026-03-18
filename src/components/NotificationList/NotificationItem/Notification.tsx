@@ -6,6 +6,7 @@ import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import { NOTIFICATION_LIST_STYLE } from '@/constants'
 import { toNote, toProfile } from '@/lib/link'
+import client from '@/services/client.service'
 import { cn } from '@/lib/utils'
 import { useSmartNoteNavigation, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
@@ -72,6 +73,7 @@ export default function Notification({
     
     markNotificationAsRead(notificationId)
     if (targetEvent) {
+      client.addEventToCache(targetEvent)
       navigateToNote(toNote(targetEvent.id))
     } else if (pubkey) {
       push(toProfile(pubkey))

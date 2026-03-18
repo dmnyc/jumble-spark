@@ -1,6 +1,7 @@
 import SearchInput from '@/components/SearchInput'
 import { useSearchProfiles } from '@/hooks'
 import { toNote, toNoteList } from '@/lib/link'
+import client from '@/services/client.service'
 import { randomString } from '@/lib/random'
 import { normalizeUrl } from '@/lib/url'
 import { normalizeToDTag } from '@/lib/search-parser'
@@ -90,12 +91,18 @@ const SearchBar = forwardRef<
     blur()
 
     if (params.type === 'note') {
+      // Prime event cache so note page finds it without re-fetch
+      client.fetchEvent(params.search).then((ev) => { if (ev) client.addEventToCache(ev) }).catch(() => {})
       navigateToNote(toNote(params.search))
     } else if (params.type === 'hashtag') {
       navigateToHashtag(toNoteList({ hashtag: params.search }))
     } else if (params.type === 'dtag') {
       // Navigate to d-tag search using same pattern as hashtag
       navigateToHashtag(toNoteList({ domain: params.search }))
+    } else if (params.type === 'profile') {
+      // Prime profile cache so profile page finds it without re-fetch
+      client.fetchProfileEvent(params.search).catch(() => {})
+      onSearch(params)
     } else {
       onSearch(params)
     }

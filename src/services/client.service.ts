@@ -1808,6 +1808,75 @@ class ClientService extends EventTarget {
     return result.map((pubkey) => pubkeyToNpub(pubkey as string)).filter(Boolean) as string[]
   }
 
+  /**
+   * Npubs for @-mention dropdown: (1) follow-list profiles matching the query,
+   * (2) local index, (3) relay search on SEARCHABLE_RELAY_URLS (same as search page).
+   */
+  async searchNpubsForMention(query: string, limit: number = 100): Promise<string[]> {
+    const q = query.trim()
+    const qLower = q.toLowerCase()
+    const addedNpubs = new Set<string>()
+    const out: string[] = []
+
+    if (this.pubkey && qLower.length >= 1) {
+      try {
+        const followListEvent = await this.fetchFollowListEvent(this.pubkey)
+        const followPubkeys = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
+        const toCheck = followPubkeys.slice(0, 80)
+        const profiles = await Promise.all(
+          toCheck.map((pubkey) => {
+            const npub = pubkeyToNpub(pubkey)
+            return npub ? this.fetchProfile(npub) : Promise.resolve(undefined)
+          })
+        )
+        const matchText = (p: TProfile) =>
+          ((p.username ?? '') + ' ' + (p.original_username ?? '') + ' ' + (p.nip05 ?? '')).toLowerCase()
+        for (const p of profiles) {
+          if (!p) continue
+          const npub = p.npub || pubkeyToNpub(p.pubkey)
+          if (!npub || addedNpubs.has(npub)) continue
+          if (!matchText(p).includes(qLower)) continue
+          addedNpubs.add(npub)
+          out.push(npub)
+          if (out.length >= limit) return out
+        }
+      } catch {
+        // ignore follow-list errors; fall back to local + relay
+      }
+    }
+
+    const local = await this.searchNpubsFromLocal(q, limit)
+    for (const npub of local) {
+      if (addedNpubs.has(npub)) continue
+      addedNpubs.add(npub)
+      out.push(npub)
+      if (out.length >= limit) return out
+    }
+
+    if (out.length < limit && q.length >= 1) {
+      try {
+        const relayProfiles = await this.searchProfiles(SEARCHABLE_RELAY_URLS, {
+          search: q,
+          limit: limit - out.length
+        })
+        for (const p of relayProfiles) {
+          const npub = pubkeyToNpub(p.pubkey)
+          if (!npub || addedNpubs.has(npub)) continue
+          addedNpubs.add(npub)
+          out.push(npub)
+          if (out.length >= limit) break
+        }
+      } catch {
+        // relay search is best-effort
+      }
+    }
+    // Prime profile cache so we can find everyone again that we have already found once
+    out.forEach((npub) => {
+      this.fetchProfileEvent(npub).catch(() => {})
+    })
+    return out
+  }
+
   async searchProfilesFromLocal(query: string, limit: number = 100) {
     const npubs = await this.searchNpubsFromLocal(query, limit)
     const profiles = await Promise.all(npubs.map((npub) => this.fetchProfile(npub)))

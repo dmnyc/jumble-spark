@@ -1,6 +1,7 @@
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
 import { toNote, toNoteList } from '@/lib/link'
 import { useSecondaryPage } from '@/PageManager'
+import client from '@/services/client.service'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { Event, kinds } from 'nostr-tools'
@@ -21,6 +22,7 @@ export default function LongFormArticlePreview({
 
   const handleCardClick = (e: React.MouseEvent) => {
     e.stopPropagation()
+    client.addEventToCache(event)
     push(toNote(event.id))
   }
 

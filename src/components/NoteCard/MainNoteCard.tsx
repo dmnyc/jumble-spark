@@ -1,6 +1,7 @@
 import { Separator } from '@/components/ui/separator'
 import { toNote } from '@/lib/link'
 import { useSmartNoteNavigation } from '@/PageManager'
+import client from '@/services/client.service'
 import { Event } from 'nostr-tools'
 import Collapsible from '../Collapsible'
 import Note from '../Note'
@@ -41,7 +42,7 @@ export default function MainNoteCard({
           return
         }
         e.stopPropagation()
-        // Ensure navigation happens immediately
+        client.addEventToCache(event)
         const noteUrl = toNote(originalNoteId ?? event)
         navigateToNote(noteUrl)
       }}

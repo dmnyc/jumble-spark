@@ -3,9 +3,11 @@ import { formatNpub, userIdToPubkey } from '@/lib/pubkey'
 import { cn } from '@/lib/utils'
 import { SuggestionKeyDownProps } from '@tiptap/suggestion'
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import Nip05 from '../../../Nip05'
 import { SimpleUserAvatar } from '../../../UserAvatar'
 import { SimpleUsername } from '../../../Username'
+import { NEVENT_NADDR_PICKER_ID } from './constants'
 
 export interface MentionListProps {
   items: string[]
@@ -22,6 +24,7 @@ export interface MentionListHandle {
 }
 
 const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref) => {
+  const { t } = useTranslation()
   const items = props.items ?? []
   const inDialog = Boolean(props.editor?.view?.dom?.closest?.('[role="dialog"]'))
   const [internalIndex, setInternalIndex] = useState<number>(0)
@@ -33,7 +36,11 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
     const item = items[index]
 
     if (item) {
-      props.command({ id: item, label: formatNpub(item) })
+      const label =
+        item === NEVENT_NADDR_PICKER_ID
+          ? t('Search for event or address…')
+          : formatNpub(item)
+      props.command({ id: item, label })
     }
   }
 
@@ -102,11 +109,19 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
           onMouseEnter={() => setSelectedIndex(index)}
         >
           <div className="flex gap-2 w-80 items-center truncate pointer-events-none">
-            <SimpleUserAvatar userId={item} />
-            <div className="flex-1 w-0">
-              <SimpleUsername userId={item} className="font-semibold truncate" />
-              <Nip05 pubkey={userIdToPubkey(item)} />
-            </div>
+            {item === NEVENT_NADDR_PICKER_ID ? (
+              <span className="text-muted-foreground text-sm">
+                {t('Search for event or address…')}
+              </span>
+            ) : (
+              <>
+                <SimpleUserAvatar userId={item} />
+                <div className="flex-1 w-0">
+                  <SimpleUsername userId={item} className="font-semibold truncate" />
+                  <Nip05 pubkey={userIdToPubkey(item)} />
+                </div>
+              </>
+            )}
           </div>
         </button>
       ))}

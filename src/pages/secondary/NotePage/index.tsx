@@ -1,6 +1,7 @@
 import { useSecondaryPage, useSmartNoteNavigation } from '@/PageManager'
 import { ExtendedKind } from '@/constants'
 import ContentPreview from '@/components/ContentPreview'
+import client from '@/services/client.service'
 import Note from '@/components/Note'
 import NoteInteractions from '@/components/NoteInteractions'
 import NoteStats from '@/components/NoteStats'
@@ -559,6 +560,7 @@ function ParentNote({
         )}
         onClick={(e) => {
           e.stopPropagation()
+          if (event) client.addEventToCache(event)
           navigateToNote(toNote(event ?? eventBech32Id))
         }}
       >
@@ -567,6 +569,7 @@ function ParentNote({
           className="truncate flex-1"
           onClick={(e) => {
             e.stopPropagation()
+            if (event) client.addEventToCache(event)
             navigateToNote(toNote(event ?? eventBech32Id))
           }}
         >

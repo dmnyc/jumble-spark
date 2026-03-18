@@ -1,5 +1,8 @@
+import { useSecondaryPage } from '@/PageManager'
 import { SEARCHABLE_RELAY_URLS } from '@/constants'
+import { toProfile } from '@/lib/link'
 import client from '@/services/client.service'
+import { cn } from '@/lib/utils'
 import dayjs from 'dayjs'
 import { useEffect, useRef, useState } from 'react'
 import UserItem, { UserItemSkeleton } from '../UserItem'
@@ -7,6 +10,7 @@ import UserItem, { UserItemSkeleton } from '../UserItem'
 const LIMIT = 50
 
 export function ProfileListBySearch({ search }: { search: string }) {
+  const { push } = useSecondaryPage()
   const [until, setUntil] = useState<number>(() => dayjs().unix())
   const [hasMore, setHasMore] = useState<boolean>(true)
   const [pubkeySet, setPubkeySet] = useState(new Set<string>())
@@ -67,7 +71,25 @@ export function ProfileListBySearch({ search }: { search: string }) {
   return (
     <div className="px-4">
       {Array.from(pubkeySet).map((pubkey, index) => (
-        <UserItem key={`${index}-${pubkey}`} pubkey={pubkey} />
+        <div
+          key={`${index}-${pubkey}`}
+          role="button"
+          tabIndex={0}
+          className={cn('rounded-lg clickable')}
+          onClick={() => {
+            client.fetchProfileEvent(pubkey).catch(() => {})
+            push(toProfile(pubkey))
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              client.fetchProfileEvent(pubkey).catch(() => {})
+              push(toProfile(pubkey))
+            }
+          }}
+        >
+          <UserItem pubkey={pubkey} />
+        </div>
       ))}
       {hasMore && <UserItemSkeleton />}
       {hasMore && <div ref={bottomRef} />}

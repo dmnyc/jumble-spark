@@ -5,15 +5,44 @@ import { ReactRenderer } from '@tiptap/react'
 import { SuggestionKeyDownProps } from '@tiptap/suggestion'
 import tippy, { GetReferenceClientRect, Instance, Props } from 'tippy.js'
 import MentionList, { MentionListHandle, MentionListProps } from './MentionList'
+import { NEVENT_NADDR_PICKER_ID } from './constants'
+
+export { NEVENT_NADDR_PICKER_ID } from './constants'
+
+const MENTION_EXTENSION_NAME = 'mention'
+const MENTION_CHAR = '@'
+
+export const OPEN_NEVENT_PICKER_EVENT = 'open-nevent-picker'
 
 const suggestion = {
+  command: ({ editor, range, props }: { editor: Editor; range: { from: number; to: number }; props: { id: string; label?: string } }) => {
+    if (props.id === NEVENT_NADDR_PICKER_ID) {
+      postEditor.closeSuggestionPopup()
+      window.dispatchEvent(
+        new CustomEvent(OPEN_NEVENT_PICKER_EVENT, { detail: { editor, range } })
+      )
+      return
+    }
+    const nodeAfter = editor.view.state.selection.$to.nodeAfter
+    const overrideSpace = nodeAfter?.text?.startsWith(' ')
+    const to = overrideSpace ? range.to + 1 : range.to
+    editor
+      .chain()
+      .focus()
+      .insertContentAt({ from: range.from, to }, [
+        { type: MENTION_EXTENSION_NAME, attrs: { ...props, mentionSuggestionChar: MENTION_CHAR } },
+        { type: 'text', text: ' ' }
+      ])
+      .run()
+    editor.view.dom.ownerDocument.defaultView?.getSelection()?.collapseToEnd()
+  },
+
   items: async ({ query }: { query: string }) => {
     const q = query.trim().toLowerCase()
-    // Reserved for future nevent/naddr picker; don't treat as npub handle
     if (q === 'nevent' || q === 'naddr' || q.startsWith('nevent') || q.startsWith('naddr')) {
-      return []
+      return [NEVENT_NADDR_PICKER_ID]
     }
-    const result = await client.searchNpubsFromLocal(query, 20)
+    const result = await client.searchNpubsForMention(query, 20)
     return result ?? []
   },
 

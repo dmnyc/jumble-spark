@@ -60,6 +60,7 @@ import PollEditor from './PollEditor'
 import PostOptions from './PostOptions'
 import PostRelaySelector from './PostRelaySelector'
 import PostTextarea, { TPostTextareaHandle } from './PostTextarea'
+import { NeventPickerProvider } from './PostTextarea/Mention/NeventNaddrPickerDialog'
 import Uploader from './Uploader'
 import HighlightEditor, { HighlightData } from './HighlightEditor'
 
@@ -1959,6 +1960,7 @@ export default function PostContent({
         </div>
       )}
       
+      <NeventPickerProvider>
       <PostTextarea
           ref={textareaRef}
           text={text}
@@ -2101,6 +2103,7 @@ export default function PostContent({
             </>
           }
         />
+      </NeventPickerProvider>
       {isPoll && (
         <PollEditor
           pollCreateData={pollCreateData}

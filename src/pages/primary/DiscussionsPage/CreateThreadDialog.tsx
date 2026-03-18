@@ -29,6 +29,7 @@ import RelayIcon from '@/components/RelayIcon'
 import GifPicker from '@/components/GifPicker'
 import EmojiPickerDialog from '@/components/EmojiPickerDialog'
 import Uploader from '@/components/PostEditor/Uploader'
+import { NeventPickerProvider } from '@/components/PostEditor/PostTextarea/Mention/NeventNaddrPickerDialog'
 import logger from '@/lib/logger'
 
 // Utility functions for thread creation
@@ -516,6 +517,7 @@ export default function CreateThreadDialog({
         className="absolute inset-0 pointer-events-none"
         aria-hidden
       />
+      <NeventPickerProvider>
       <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto relative bg-background">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="text-xl font-semibold">{t('Create New Thread')}</CardTitle>
@@ -1035,6 +1037,7 @@ export default function CreateThreadDialog({
           </form>
         </CardContent>
       </Card>
+      </NeventPickerProvider>
     </div>
   )
 }

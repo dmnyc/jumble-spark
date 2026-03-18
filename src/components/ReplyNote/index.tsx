@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { isMentioningMutedUsers } from '@/lib/event'
 import { toNote } from '@/lib/link'
+import client from '@/services/client.service'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -65,6 +66,7 @@ export default function ReplyNote({
         if (onClickReply) {
           onClickReply(event)
         } else {
+          client.addEventToCache(event)
           navigateToNote(toNote(event))
         }
       }}

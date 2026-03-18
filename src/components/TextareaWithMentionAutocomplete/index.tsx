@@ -1,5 +1,7 @@
 import { Textarea } from '@/components/ui/textarea'
 import MentionList from '@/components/PostEditor/PostTextarea/Mention/MentionList'
+import { NEVENT_NADDR_PICKER_ID } from '@/components/PostEditor/PostTextarea/Mention/constants'
+import { useNeventPicker } from '@/components/PostEditor/PostTextarea/Mention/NeventNaddrPickerDialog'
 import client from '@/services/client.service'
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 
@@ -31,6 +33,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
   const [selectedIndex, setSelectedIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const neventPicker = useNeventPicker()
 
   const closeMention = useCallback(() => {
     setMentionOpen(false)
@@ -39,14 +42,29 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
   }, [])
 
   const insertMention = useCallback(
-    (npub: string) => {
+    (id: string) => {
       const ta = textareaRef.current
       if (!ta) return
       const start = mentionStart
       const end = start + 1 + mentionQuery.length
       const before = value.slice(0, start)
       const after = value.slice(end)
-      const insert = MENTION_INSERT_PREFIX + npub
+
+      if (id === NEVENT_NADDR_PICKER_ID && neventPicker) {
+        closeMention()
+        neventPicker.openNeventPicker((link: string) => {
+          const insert = link + ' '
+          onChange(before + insert + after)
+          setTimeout(() => {
+            ta.focus()
+            const newPos = start + insert.length
+            ta.setSelectionRange(newPos, newPos)
+          }, 0)
+        })
+        return
+      }
+
+      const insert = MENTION_INSERT_PREFIX + id
       onChange(before + insert + after)
       closeMention()
       setTimeout(() => {
@@ -55,7 +73,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
         ta.setSelectionRange(newPos, newPos)
       }, 0)
     },
-    [value, mentionStart, mentionQuery.length, onChange, closeMention]
+    [value, mentionStart, mentionQuery.length, onChange, closeMention, neventPicker]
   )
 
   useEffect(() => {
@@ -66,14 +84,15 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
     }
     const q = mentionQuery.trim().toLowerCase()
     if (q === 'nevent' || q === 'naddr' || q.startsWith('nevent') || q.startsWith('naddr')) {
-      setMentionItems([])
-      setMentionOpen(false)
+      setMentionItems([NEVENT_NADDR_PICKER_ID])
+      setMentionOpen(true)
+      setSelectedIndex(0)
       return
     }
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
       client
-        .searchNpubsFromLocal(mentionQuery.trim(), MENTION_LIMIT)
+        .searchNpubsForMention(mentionQuery.trim(), MENTION_LIMIT)
         .then((npubs) => {
           const list = npubs ?? []
           setMentionItems(list)
@@ -158,7 +177,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
         <div className="absolute left-0 right-0 top-full z-50 mt-1" role="listbox">
           <MentionList
             items={mentionItems}
-            command={({ id }) => insertMention(id)}
+            command={({ id }) => insertMention(id as string)}
             selectedIndex={selectedIndex}
             onSelectIndex={setSelectedIndex}
           />

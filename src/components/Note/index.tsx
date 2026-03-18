@@ -3,6 +3,7 @@ import { ExtendedKind, SUPPORTED_KINDS } from '@/constants'
 import { getParentBech32Id, isNsfwEvent } from '@/lib/event'
 import { toNote } from '@/lib/link'
 import logger from '@/lib/logger'
+import client from '@/services/client.service'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -260,6 +261,7 @@ export default function Note({
             return
           }
           e.stopPropagation()
+          client.addEventToCache(event)
           navigateToNote(toNote(event))
         }}
       >
@@ -291,6 +293,7 @@ export default function Note({
                 className="p-1 hover:bg-muted rounded transition-colors"
                 onClick={(e) => {
                   e.stopPropagation()
+                  client.addEventToCache(event)
                   navigateToNote(toNote(event))
                 }}
                 title="View in Discussions"

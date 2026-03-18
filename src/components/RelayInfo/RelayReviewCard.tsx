@@ -2,6 +2,7 @@ import { useSmartNoteNavigation } from '@/PageManager'
 import { getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
 import { toNote } from '@/lib/link'
 import { cn } from '@/lib/utils'
+import client from '@/services/client.service'
 import { NostrEvent } from 'nostr-tools'
 import { useMemo } from 'react'
 import ClientTag from '../ClientTag'
@@ -31,6 +32,7 @@ export default function RelayReviewCard({
         if (target.closest('button') || target.closest('[role="button"]') || target.closest('a') || target.closest('[data-embedded-note]') || target.closest('[data-parent-note-preview]')) {
           return
         }
+        client.addEventToCache(event)
         navigateToNote(toNote(event))
       }}
     >
