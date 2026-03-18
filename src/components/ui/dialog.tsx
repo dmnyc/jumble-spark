@@ -72,10 +72,12 @@ const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     withoutClose?: boolean
+    /** Optional overlay className (e.g. z-[10001] so this dialog appears above other modals). */
+    overlayClassName?: string
   }
->(({ className, children, withoutClose, ...props }, ref) => (
+>(({ className, children, withoutClose, overlayClassName, ...props }, ref) => (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogOverlay className={overlayClassName} />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(

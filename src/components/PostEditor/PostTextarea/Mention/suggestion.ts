@@ -14,6 +14,24 @@ const MENTION_CHAR = '@'
 
 export const OPEN_NEVENT_PICKER_EVENT = 'open-nevent-picker'
 
+/** Extend range.to to include any trailing word chars (handle, NIP-05) so the full @handle is replaced. Exported for nevent picker. */
+export function extendMentionRangeToEndOfWord(editor: Editor, range: { from: number; to: number }): number {
+  const { doc } = editor.state
+  let pos = range.to
+  while (pos < doc.content.size) {
+    const $pos = doc.resolve(pos)
+    const node = $pos.nodeAfter
+    if (!node || !node.isText) break
+    const text = node.text ?? ''
+    const offset = pos - $pos.start()
+    let i = offset
+    while (i < text.length && /[\w.-]/.test(text[i]!)) i++
+    if (i === offset) break
+    pos += i - offset
+  }
+  return pos
+}
+
 const suggestion = {
   command: ({ editor, range, props }: { editor: Editor; range: { from: number; to: number }; props: { id: string; label?: string } }) => {
     if (props.id === NEVENT_NADDR_PICKER_ID) {
@@ -23,13 +41,14 @@ const suggestion = {
       )
       return
     }
+    const to = extendMentionRangeToEndOfWord(editor, range)
     const nodeAfter = editor.view.state.selection.$to.nodeAfter
     const overrideSpace = nodeAfter?.text?.startsWith(' ')
-    const to = overrideSpace ? range.to + 1 : range.to
+    const toWithSpace = overrideSpace ? to + 1 : to
     editor
       .chain()
       .focus()
-      .insertContentAt({ from: range.from, to }, [
+      .insertContentAt({ from: range.from, to: toWithSpace }, [
         { type: MENTION_EXTENSION_NAME, attrs: { ...props, mentionSuggestionChar: MENTION_CHAR } },
         { type: 'text', text: ' ' }
       ])

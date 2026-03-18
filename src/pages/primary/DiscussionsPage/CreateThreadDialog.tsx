@@ -207,6 +207,7 @@ export default function CreateThreadDialog({
   const favoriteKey = favoriteRelays.join(',')
   const blockedKey = blockedRelays.join(',')
   const relaySetsKey = relaySets.map(s => `${s.id}:${s.relayUrls.join(',')}`).join(';')
+  const availableRelaysKey = availableRelays.join(',')
 
   // Initialize selected relays using the centralized relay selection service (once per meaningful change)
   useEffect(() => {
@@ -249,7 +250,7 @@ export default function CreateThreadDialog({
     }
 
     initializeRelays()
-  }, [initialRelay, availableRelays, writeKey, readKey, favoriteKey, blockedKey, relaySetsKey, pubkey])
+  }, [initialRelay, availableRelaysKey, writeKey, readKey, favoriteKey, blockedKey, relaySetsKey, pubkey])
 
   // Load cached thread draft when dialog opens
   useEffect(() => {

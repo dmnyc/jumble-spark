@@ -4,10 +4,10 @@ import { JSONContent } from '@tiptap/react'
 import { nip19 } from 'nostr-tools'
 
 export function parseEditorJsonToText(node?: JSONContent) {
-  const text = _parseEditorJsonToText(node).trim()
+  let text = _parseEditorJsonToText(node).trim()
   const regex = /(?:^|\s)(nevent|naddr|nprofile|npub)1[a-zA-Z0-9]+/g
 
-  return text.replace(regex, (match) => {
+  text = text.replace(regex, (match) => {
     const trimmed = match.trim()
     const leadingSpace = match.startsWith(' ') ? ' ' : ''
 
@@ -18,6 +18,10 @@ export function parseEditorJsonToText(node?: JSONContent) {
       return match
     }
   })
+
+  // Ensure space before nostr: when not already preceded by space (fixes "Like:nostr:npub" and "Like:\nnostr:npub")
+  text = text.replace(/(.)(?=nostr:)/g, (_, prev) => (prev === ' ' ? prev : prev + ' '))
+  return text
 }
 
 function _parseEditorJsonToText(node?: JSONContent): string {

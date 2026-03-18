@@ -44,7 +44,9 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const emojiSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mentionQueryRef = useRef(mentionQuery)
   const neventPicker = useNeventPicker()
+  mentionQueryRef.current = mentionQuery
   const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null)
 
   const closeMention = useCallback(() => {
@@ -59,27 +61,38 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
     setEmojiItems([])
   }, [])
 
-  // When value is cleared or changed from outside (e.g. Clear button), close dropdowns if they're no longer valid
+  // When value is cleared or changed from outside, or @/: segment is gone, close dropdowns so they don't linger
   useEffect(() => {
     if (!value) {
       closeMention()
       closeEmoji()
       return
     }
-    if (mentionOpen && (value.length <= mentionStart || value[mentionStart] !== '@')) {
-      closeMention()
+    if (mentionOpen) {
+      if (value.length <= mentionStart || value[mentionStart] !== '@' || !value.includes('@')) {
+        closeMention()
+      }
     }
-    if (emojiOpen && (value.length <= emojiStart || value[emojiStart] !== ':')) {
-      closeEmoji()
+    if (emojiOpen) {
+      if (value.length <= emojiStart || value[emojiStart] !== ':') {
+        closeEmoji()
+      }
     }
   }, [value, mentionOpen, emojiOpen, mentionStart, emojiStart, closeMention, closeEmoji])
+
+  /** Find end of @-mention segment in value (from start, after the @): alphanumeric, underscore, hyphen, dot (NIP-05). */
+  const findMentionSegmentEnd = useCallback((val: string, from: number) => {
+    let i = from + 1
+    while (i < val.length && /[\w.-]/.test(val[i]!)) i++
+    return i
+  }, [])
 
   const insertMention = useCallback(
     (id: string) => {
       const ta = textareaRef.current
       if (!ta) return
       const start = mentionStart
-      const end = start + 1 + mentionQuery.length
+      const end = findMentionSegmentEnd(value, start)
       const before = value.slice(0, start)
       const after = value.slice(end)
 
@@ -106,7 +119,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
         ta.setSelectionRange(newPos, newPos)
       }, 0)
     },
-    [value, mentionStart, mentionQuery.length, onChange, closeMention, neventPicker]
+    [value, mentionStart, onChange, closeMention, neventPicker, findMentionSegmentEnd]
   )
 
   const insertEmoji = useCallback(
@@ -146,12 +159,20 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
       client
         .searchNpubsForMention(mentionQuery.trim(), MENTION_LIMIT)
         .then((npubs) => {
+          const q = mentionQueryRef.current.trim().toLowerCase()
+          if (q === 'nevent' || q === 'naddr' || q.startsWith('nevent') || q.startsWith('naddr')) {
+            return
+          }
           const list = npubs ?? []
           setMentionItems(list)
           setMentionOpen(list.length > 0)
           setSelectedIndex(0)
         })
         .catch(() => {
+          const q = mentionQueryRef.current.trim().toLowerCase()
+          if (q === 'nevent' || q === 'naddr' || q.startsWith('nevent') || q.startsWith('naddr')) {
+            return
+          }
           setMentionItems([])
           setMentionOpen(false)
         })

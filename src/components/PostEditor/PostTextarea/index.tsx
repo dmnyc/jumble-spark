@@ -247,11 +247,11 @@ const PostTextarea = forwardRef<
           </div>
         </TabsContent>
         <TabsContent value="json">
-          <div className="border rounded-lg p-3 bg-muted/40 max-h-96 overflow-auto">
+          <div className="border rounded-lg p-3 bg-muted/40 max-h-96 overflow-auto select-text">
             {isLoadingJson ? (
               <div className="text-muted-foreground text-sm">{t('Loading...')}</div>
             ) : (
-              <pre className="text-xs whitespace-pre-wrap break-words font-mono">
+              <pre className="text-xs whitespace-pre-wrap break-words font-mono select-text">
                 {draftEventJson || t('No JSON available')}
               </pre>
             )}

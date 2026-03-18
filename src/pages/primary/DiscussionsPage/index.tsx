@@ -1042,7 +1042,7 @@ const DiscussionsPage = forwardRef((_, ref) => {
       titlebar={<DiscussionsPageTitlebar />}
       displayScrollToTopButton
     >
-      <div className="min-w-0 pt-2 flex flex-col gap-4 p-4">
+      <div className="min-w-0 pt-14 sm:pt-4 flex flex-col gap-4 p-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <button
             onClick={() => setShowCreateDialog(true)}

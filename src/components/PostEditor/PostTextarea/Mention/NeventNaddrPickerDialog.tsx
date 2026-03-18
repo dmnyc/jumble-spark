@@ -17,7 +17,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Search } from 'lucide-react'
 import type { Editor } from '@tiptap/core'
-import { OPEN_NEVENT_PICKER_EVENT } from './suggestion'
+import { OPEN_NEVENT_PICKER_EVENT, extendMentionRangeToEndOfWord } from './suggestion'
 
 type NeventNaddrPickerDialogProps = {
   open: boolean
@@ -88,7 +88,10 @@ export function NeventNaddrPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[80vh] flex flex-col gap-4">
+      <DialogContent
+        className="max-w-lg max-h-[80vh] flex flex-col gap-4 z-[10001]"
+        overlayClassName="z-[10001]"
+      >
         <DialogHeader>
           <DialogTitle>{t('Search for event or address…')}</DialogTitle>
         </DialogHeader>
@@ -150,8 +153,9 @@ export function NeventPickerProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     const handler = (e: Event) => {
       const { editor, range } = (e as CustomEvent<{ editor: Editor; range: { from: number; to: number } }>).detail
+      const to = extendMentionRangeToEndOfWord(editor, range)
       setOnSelectedRef(() => (link: string) => {
-        editor.chain().focus().insertContentAt(range, link + ' ').run()
+        editor.chain().focus().insertContentAt({ from: range.from, to }, link + ' ').run()
       })
       setOpen(true)
     }

@@ -165,14 +165,12 @@ export default function Preview({
     })
   }, [processedContent, allTags, kind, mediaUrl])
   
+  const selectableClass = 'select-text'
   // For polls, use ContentPreview to show poll properly
   if (kind === ExtendedKind.POLL) {
     return (
-      <Card className={cn('p-3', className)}>
-        <ContentPreview
-          event={fakeEvent}
-          className="pointer-events-none"
-        />
+      <Card className={cn('p-3', className, selectableClass)}>
+        <ContentPreview event={fakeEvent} />
       </Card>
     )
   }
@@ -180,11 +178,8 @@ export default function Preview({
   // For highlights, use the Highlight component for proper formatting
   if (kind === kinds.Highlights) {
     return (
-      <Card className={cn('p-3', className)}>
-        <Highlight
-          event={fakeEvent}
-          className="pointer-events-none"
-        />
+      <Card className={cn('p-3', className, selectableClass)}>
+        <Highlight event={fakeEvent} />
       </Card>
     )
   }
@@ -193,12 +188,8 @@ export default function Preview({
   // This ensures preview matches the final result (no Links section, correct image placement, proper line breaks)
   if (kind === kinds.ShortTextNote || kind === ExtendedKind.COMMENT || kind === ExtendedKind.VOICE_COMMENT) {
     return (
-      <Card className={cn('p-3', className)}>
-        <MarkdownArticle
-          event={fakeEvent}
-          className="pointer-events-none"
-          hideMetadata={true}
-        />
+      <Card className={cn('p-3', className, selectableClass)}>
+        <MarkdownArticle event={fakeEvent} hideMetadata={true} />
       </Card>
     )
   }
@@ -206,12 +197,8 @@ export default function Preview({
   // For LongFormArticle, use MarkdownArticle
   if (kind === kinds.LongFormArticle) {
     return (
-      <Card className={cn('p-3', className)}>
-        <MarkdownArticle
-          event={fakeEvent}
-          className="pointer-events-none"
-          hideMetadata={true}
-        />
+      <Card className={cn('p-3', className, selectableClass)}>
+        <MarkdownArticle event={fakeEvent} hideMetadata={true} />
       </Card>
     )
   }
@@ -219,12 +206,8 @@ export default function Preview({
   // For WikiArticle (AsciiDoc), use AsciidocArticle
   if (kind === ExtendedKind.WIKI_ARTICLE) {
     return (
-      <Card className={cn('p-3', className)}>
-        <AsciidocArticle
-          event={fakeEvent}
-          className="pointer-events-none"
-          hideImagesAndInfo={false}
-        />
+      <Card className={cn('p-3', className, selectableClass)}>
+        <AsciidocArticle event={fakeEvent} hideImagesAndInfo={false} />
       </Card>
     )
   }
@@ -232,12 +215,8 @@ export default function Preview({
   // For WikiArticleMarkdown, use MarkdownArticle
   if (kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN) {
     return (
-      <Card className={cn('p-3', className)}>
-        <MarkdownArticle
-          event={fakeEvent}
-          className="pointer-events-none"
-          hideMetadata={true}
-        />
+      <Card className={cn('p-3', className, selectableClass)}>
+        <MarkdownArticle event={fakeEvent} hideMetadata={true} />
       </Card>
     )
   }
@@ -245,23 +224,15 @@ export default function Preview({
   // For PublicationContent, use AsciidocArticle
   if (kind === ExtendedKind.PUBLICATION_CONTENT) {
     return (
-      <Card className={cn('p-3', className)}>
-        <AsciidocArticle
-          event={fakeEvent}
-          className="pointer-events-none"
-          hideImagesAndInfo={false}
-        />
+      <Card className={cn('p-3', className, selectableClass)}>
+        <AsciidocArticle event={fakeEvent} hideImagesAndInfo={false} />
       </Card>
     )
   }
 
   return (
-    <Card className={cn('p-3', className)}>
-      <Content
-        event={fakeEvent}
-        className="pointer-events-none h-full"
-        mustLoadMedia
-      />
+    <Card className={cn('p-3', className, selectableClass)}>
+      <Content event={fakeEvent} className="h-full" mustLoadMedia />
     </Card>
   )
 }
