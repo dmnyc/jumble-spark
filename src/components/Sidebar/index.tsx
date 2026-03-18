@@ -9,6 +9,7 @@ import NotificationsButton from './NotificationButton'
 import PostButton from './PostButton'
 import ProfileButton from './ProfileButton'
 import RssButton from './RssButton'
+import SpellsButton from './SpellsButton'
 import SearchButton from './SearchButton'
 import SettingsButton from './SettingsButton'
 import PaneModeToggle from './PaneModeToggle'
@@ -38,6 +39,7 @@ export default function PrimaryPageSidebar() {
         <SearchButton />
         <ProfileButton />
         {showRssFeed && <RssButton />}
+        <SpellsButton />
         <SettingsButton />
         <PostButton />
       </div>

@@ -52,7 +52,8 @@ const NoteList = forwardRef(
       hideUntrustedNotes = false,
       areAlgoRelays = false,
       showRelayCloseReason = false,
-      pinnedEventIds = []
+      pinnedEventIds = [],
+      useFilterAsIs = false
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -65,6 +66,8 @@ const NoteList = forwardRef(
       areAlgoRelays?: boolean
       showRelayCloseReason?: boolean
       pinnedEventIds?: string[]
+      /** When true, use filter from subRequests as-is (kinds, limit) instead of showKinds. For spell feeds. */
+      useFilterAsIs?: boolean
     },
     ref
   ) => {
@@ -219,11 +222,13 @@ const NoteList = forwardRef(
         const { closer, timelineKey } = await client.subscribeTimeline(
           subRequests.map(({ urls, filter }) => ({
             urls,
-            filter: {
-              ...filter,
-              kinds: showKinds,
-              limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
-            }
+            filter: useFilterAsIs
+              ? { ...filter, limit: filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT) }
+              : {
+                  ...filter,
+                  kinds: showKinds,
+                  limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
+                }
           })),
           {
             onEvents: (events, eosed) => {
@@ -239,7 +244,7 @@ const NoteList = forwardRef(
               }
             },
             onNew: (event) => {
-              if (!showKinds.includes(event.kind)) return
+              if (!useFilterAsIs && !showKinds.includes(event.kind)) return
               if (event.kind === kinds.ShortTextNote) {
                 const isReply = isReplyNoteEvent(event)
                 if (isReply && !showKind1Replies) return
@@ -303,7 +308,7 @@ const NoteList = forwardRef(
       return () => {
         promise.then((closer) => closer())
       }
-    }, [subRequestsKey, refreshCount, showKinds, showKind1OPs, showKind1Replies, showKind1111])
+    }, [subRequestsKey, refreshCount, showKinds, showKind1OPs, showKind1Replies, showKind1111, useFilterAsIs])
 
     useEffect(() => {
       const options = {

@@ -49,6 +49,7 @@ import ProfilePage from './pages/primary/ProfilePage'
 import RelayPage from './pages/primary/RelayPage'
 import SearchPage from './pages/primary/SearchPage'
 import DiscussionsPage from './pages/primary/DiscussionsPage'
+import SpellsPage from './pages/primary/SpellsPage'
 import { useScreenSize } from './providers/ScreenSizeProvider'
 import { routes } from './routes'
 import modalManager from './services/modal-manager.service'
@@ -83,7 +84,8 @@ const PRIMARY_PAGE_REF_MAP = {
   profile: createRef<TPageRef>(),
   relay: createRef<TPageRef>(),
   search: createRef<TPageRef>(),
-  discussions: createRef<TPageRef>()
+  discussions: createRef<TPageRef>(),
+  spells: createRef<TPageRef>()
 }
 
 // Lazy function to create PRIMARY_PAGE_MAP to avoid circular dependency
@@ -96,7 +98,8 @@ const getPrimaryPageMap = () => ({
   profile: <ProfilePage ref={PRIMARY_PAGE_REF_MAP.profile} />,
   relay: <RelayPage ref={PRIMARY_PAGE_REF_MAP.relay} />,
   search: <SearchPage ref={PRIMARY_PAGE_REF_MAP.search} />,
-  discussions: <DiscussionsPage ref={PRIMARY_PAGE_REF_MAP.discussions} />
+  discussions: <DiscussionsPage ref={PRIMARY_PAGE_REF_MAP.discussions} />,
+  spells: <SpellsPage ref={PRIMARY_PAGE_REF_MAP.spells} />
 })
 
 // Type for primary page names - use the return type of getPrimaryPageMap

@@ -44,11 +44,13 @@ export const StoreNames = {
   /** Cached GIF list (parsed from kind 1063 + 1/1111). Key: 'gifList', value: { gifs, cachedAt }. */
   GIF_CACHE: 'gifCache',
   /** App settings (replaces in-memory/localStorage for persisted settings). Key: setting key, value: string. */
-  SETTINGS: 'settings'
+  SETTINGS: 'settings',
+  /** NIP-A7 spell events (kind 777). Key: event id. */
+  SPELL_EVENTS: 'spellEvents'
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 23
+const DB_VERSION = 24
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -213,6 +215,9 @@ class IndexedDbService {
           }
           if (!db.objectStoreNames.contains(StoreNames.SETTINGS)) {
             db.createObjectStore(StoreNames.SETTINGS, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.SPELL_EVENTS)) {
+            db.createObjectStore(StoreNames.SPELL_EVENTS, { keyPath: 'key' })
           }
         }
       }
@@ -1776,6 +1781,79 @@ class IndexedDbService {
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error)
     })
+  }
+
+  /** Settings key for favorite spell event ids (JSON array of strings). */
+  static readonly SPELL_FAVORITE_IDS_KEY = 'spellFavoriteIds'
+
+  /**
+   * Store a NIP-A7 spell event (kind 777) in IndexedDB by event id.
+   */
+  async putSpellEvent(event: Event): Promise<void> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.SPELL_EVENTS)) {
+      logger.warn('[IndexedDB] Spell events store not found')
+      return
+    }
+    const cleanEvent = { ...event }
+    delete (cleanEvent as any).relayStatuses
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(StoreNames.SPELL_EVENTS, 'readwrite')
+      const store = transaction.objectStore(StoreNames.SPELL_EVENTS)
+      const key = cleanEvent.id
+      const value: TValue<Event> = {
+        key,
+        value: cleanEvent,
+        addedAt: Date.now()
+      }
+      store.put(value)
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+  }
+
+  /**
+   * Get all spell events from IndexedDB.
+   */
+  async getSpellEvents(): Promise<Event[]> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.SPELL_EVENTS)) {
+      return []
+    }
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(StoreNames.SPELL_EVENTS, 'readonly')
+      const store = transaction.objectStore(StoreNames.SPELL_EVENTS)
+      const request = store.getAll()
+      request.onsuccess = () => {
+        const rows = (request.result || []) as TValue<Event>[]
+        const events = rows
+          .filter((r) => r?.value != null)
+          .map((r) => r.value as Event)
+        resolve(events)
+      }
+      request.onerror = () => reject(request.error)
+    })
+  }
+
+  /**
+   * Get favorite spell ids from settings (JSON array of event ids).
+   */
+  async getSpellFavoriteIds(): Promise<string[]> {
+    const raw = await this.getSetting(IndexedDbService.SPELL_FAVORITE_IDS_KEY)
+    if (!raw) return []
+    try {
+      const arr = JSON.parse(raw) as unknown
+      return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : []
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Set favorite spell ids in settings.
+   */
+  async setSpellFavoriteIds(ids: string[]): Promise<void> {
+    await this.setSetting(IndexedDbService.SPELL_FAVORITE_IDS_KEY, JSON.stringify(ids))
   }
 }
 

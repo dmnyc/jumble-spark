@@ -213,7 +213,9 @@ export const ExtendedKind = {
   /** NIP-52 Time-based calendar event */
   CALENDAR_EVENT_TIME: 31923,
   /** NIP-52 Calendar event RSVP */
-  CALENDAR_EVENT_RSVP: 31925
+  CALENDAR_EVENT_RSVP: 31925,
+  /** NIP-A7 Spells: portable relay query filters (kind 777) */
+  SPELL: 777
 }
 
 /** NIP-52 calendar event kinds (addressable by d-tag); use in isReplaceableEvent. */

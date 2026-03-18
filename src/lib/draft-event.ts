@@ -589,6 +589,55 @@ export function createRelayListDraftEvent(mailboxRelays: TMailboxRelay[]): TDraf
   }
 }
 
+/** NIP-A7 spell (kind 777) draft params from Create Spell form. */
+export type TSpellDraftParams = {
+  cmd: 'REQ' | 'COUNT'
+  content: string
+  name?: string
+  alt?: string
+  kinds: string[] // e.g. ['1', '6']
+  authors: string[]
+  ids: string[]
+  tagFilters: { letter: string; values: string[] }[] // e.g. { letter: 't', values: ['bitcoin'] }
+  limit: string
+  since: string
+  until: string
+  search: string
+  relays: string[]
+  topics: string[] // t tags for spell categorization
+  closeOnEose: boolean
+}
+
+export function createSpellDraftEvent(params: TSpellDraftParams): TDraftEvent {
+  const tags: string[][] = [['cmd', params.cmd]]
+  if (params.name?.trim()) tags.push(['name', params.name.trim()])
+  if (params.alt?.trim()) tags.push(['alt', params.alt.trim()])
+  params.kinds.filter((k) => k.trim()).forEach((k) => tags.push(['k', k.trim()]))
+  if (params.authors.length) tags.push(['authors', ...params.authors])
+  if (params.ids.length) tags.push(['ids', ...params.ids])
+  params.tagFilters.forEach(({ letter, values }) => {
+    if (letter?.trim() && values.some((v) => v?.trim())) {
+      tags.push(['tag', letter.trim(), ...values.map((v) => v.trim()).filter(Boolean)])
+    }
+  })
+  if (params.limit.trim()) {
+    const n = parseInt(params.limit, 10)
+    if (!Number.isNaN(n)) tags.push(['limit', String(n)])
+  }
+  if (params.since.trim()) tags.push(['since', params.since.trim()])
+  if (params.until.trim()) tags.push(['until', params.until.trim()])
+  if (params.search.trim()) tags.push(['search', params.search.trim()])
+  if (params.relays.length) tags.push(['relays', ...params.relays])
+  params.topics.filter((t) => t?.trim()).forEach((t) => tags.push(['t', t.trim()]))
+  if (params.closeOnEose) tags.push(['close-on-eose'])
+  return {
+    kind: ExtendedKind.SPELL,
+    content: params.content?.trim() ?? '',
+    tags,
+    created_at: dayjs().unix()
+  }
+}
+
 export function createRssFeedListDraftEvent(feedUrls: string[]): TDraftEvent {
   // Validate and sanitize feed URLs
   const validUrls = feedUrls

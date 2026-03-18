@@ -3,6 +3,7 @@ import HomeButton from './HomeButton'
 import NotificationsButton from './NotificationsButton'
 import DiscussionsButton from './DiscussionsButton'
 import SearchButton from './SearchButton'
+import SpellsButton from './SpellsButton'
 import WriteButton from './WriteButton'
 
 export default function BottomNavigationBar() {
@@ -19,6 +20,7 @@ export default function BottomNavigationBar() {
       <WriteButton />
       <DiscussionsButton />
       <HomeButton />
+      <SpellsButton />
       <SearchButton />
       <NotificationsButton />
     </div>

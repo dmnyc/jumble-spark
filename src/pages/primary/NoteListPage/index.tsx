@@ -8,7 +8,7 @@ import { useFeed } from '@/providers/FeedProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { TPageRef } from '@/types'
-import { Info, Rss } from 'lucide-react'
+import { Info } from 'lucide-react'
 import React, {
   Dispatch,
   forwardRef,
@@ -26,8 +26,7 @@ import AccountButton from '@/components/Titlebar/AccountButton'
 import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
 import logger from '@/lib/logger'
-import { usePrimaryPage, usePrimaryNoteView } from '@/PageManager'
-import storage from '@/services/local-storage.service'
+import { usePrimaryNoteView } from '@/PageManager'
 
 const NoteListPage = forwardRef((_, ref) => {
   logger.debug('NoteListPage component rendering')
@@ -147,25 +146,6 @@ function NoteListPageTitlebar({
 }) {
   const { isSmallScreen } = useScreenSize()
   const { setPrimaryNoteView } = usePrimaryNoteView()
-  const { navigate, current } = usePrimaryPage()
-  const { primaryViewType } = usePrimaryNoteView()
-  const showRssFeed = storage.getShowRssFeed()
-
-  const handleRssClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    // Navigate to home if not already there
-    if (current !== 'home' || primaryViewType !== null) {
-      navigate('home')
-      // Wait a bit for navigation to complete, then switch to RSS
-      setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('switchToRssFeed'))
-      }, 100)
-    } else {
-      // Already on home, just switch to RSS tab
-      window.dispatchEvent(new CustomEvent('switchToRssFeed'))
-    }
-  }
-
   return (
     <div className="relative flex gap-1 items-center h-full justify-between">
       <div className="flex gap-1 items-center">
@@ -188,16 +168,6 @@ function NoteListPageTitlebar({
         </div>
       )}
       <div className="shrink-0 flex gap-1 items-center">
-        {isSmallScreen && showRssFeed && (
-          <Button
-            variant="ghost"
-            size="titlebar-icon"
-            onClick={handleRssClick}
-            title="RSS Feed"
-          >
-            <Rss />
-          </Button>
-        )}
         {setShowRelayDetails && (
           <Button
             variant="ghost"

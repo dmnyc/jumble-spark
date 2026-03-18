@@ -1113,7 +1113,14 @@ class ClientService extends EventTarget {
     let events: NEvent[] = []
     let eosedAt: number | null = null
     let initialBatchScheduled = false
-    const PROGRESSIVE_DELAY_MS = 150
+    const PROGRESSIVE_DELAY_MS = 0
+    const PROGRESSIVE_INTERVAL_MS = 200
+    let progressiveIntervalId: ReturnType<typeof setInterval> | null = null
+    const deliverProgressive = () => {
+      if (eosedAt || events.length === 0) return
+      const snap = [...events].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
+      onEvents(needSort ? snap.concat(cachedEvents).slice(0, filter.limit) : snap, false)
+    }
     const subCloser = this.subscribe(relays, since ? { ...filter, since } : filter, {
       startLogin,
       onevent: (evt: NEvent) => {
@@ -1121,13 +1128,13 @@ class ClientService extends EventTarget {
         // not eosed yet, push to events
         if (!eosedAt) {
           events.push(evt)
-          // Deliver first batch quickly so UI (e.g. notifications) doesn't wait for all relays to EOSE
+          // Deliver first batch quickly so UI doesn't wait for all relays to EOSE
           if (needSort && events.length > 0 && !initialBatchScheduled) {
             initialBatchScheduled = true
             setTimeout(() => {
-              if (!eosedAt && events.length > 0) {
-                const snap = [...events].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
-                onEvents(snap.concat(cachedEvents).slice(0, filter.limit), false)
+              deliverProgressive()
+              if (!progressiveIntervalId) {
+                progressiveIntervalId = setInterval(deliverProgressive, PROGRESSIVE_INTERVAL_MS)
               }
             }, PROGRESSIVE_DELAY_MS)
           }
@@ -1164,6 +1171,10 @@ class ClientService extends EventTarget {
       oneose: (eosed) => {
         if (eosed && !eosedAt) {
           eosedAt = dayjs().unix()
+          if (progressiveIntervalId) {
+            clearInterval(progressiveIntervalId)
+            progressiveIntervalId = null
+          }
         }
         // (algo feeds) no need to sort and cache
         if (!needSort) {
@@ -1208,6 +1219,10 @@ class ClientService extends EventTarget {
     return {
       timelineKey: key,
       closer: () => {
+        if (progressiveIntervalId) {
+          clearInterval(progressiveIntervalId)
+          progressiveIntervalId = null
+        }
         onEvents = () => {}
         onNew = () => {}
         subCloser.close()
