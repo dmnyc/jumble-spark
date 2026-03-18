@@ -140,7 +140,7 @@ class RelaySelectionService {
       openFrom.forEach((url) => addRelay(url, 'open_from'))
     }
 
-    // Random relays: always add 3 random public lively relays to the list; selected by default only when setting is ON
+    // Random relays: prefer session-proven fast relays, then fill with random from rest (selection only random between sessions)
     const randomRelayUrls: string[] = []
     if (typeof window !== 'undefined') {
       try {
@@ -150,8 +150,8 @@ class RelaySelectionService {
           const n = normalizeUrl(u) || u
           return !existing.has(n)
         })
-        const shuffled = candidates.slice().sort(() => Math.random() - 0.5)
-        shuffled.slice(0, 3).forEach((url) => {
+        const preferred = client.getPreferredRelaysForRandom(candidates, 3)
+        preferred.forEach((url) => {
           const normalized = normalizeUrl(url) || url
           addRelay(normalized, 'randomly_selected')
           randomRelayUrls.push(normalized)

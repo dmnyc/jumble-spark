@@ -13,6 +13,7 @@ import WalletPage from '@/pages/secondary/WalletPage'
 import PostSettingsPage from '@/pages/secondary/PostSettingsPage'
 import GeneralSettingsPage from '@/pages/secondary/GeneralSettingsPage'
 import TranslationPage from '@/pages/secondary/TranslationPage'
+import CacheSettingsPage from '@/pages/secondary/CacheSettingsPage'
 import RssFeedSettingsPage from '@/pages/secondary/RssFeedSettingsPage'
 import NoteDrawer from '@/components/NoteDrawer'
 import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
@@ -422,6 +423,9 @@ export function useSmartSettingsNavigation() {
     } else if (url.startsWith('/settings/relays')) {
       window.history.pushState(null, '', url)
       setPrimaryNoteView(<RelaySettingsPage key="relay-settings" index={0} hideTitlebar={true} />, 'settings-sub')
+    } else if (url === '/settings/cache') {
+      window.history.pushState(null, '', url)
+      setPrimaryNoteView(<CacheSettingsPage key="cache-settings" index={0} hideTitlebar={true} />, 'settings-sub')
     } else if (url === '/settings/wallet') {
       window.history.pushState(null, '', url)
       setPrimaryNoteView(<WalletPage key="wallet" index={0} hideTitlebar={true} />, 'settings-sub')

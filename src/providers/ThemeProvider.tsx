@@ -21,9 +21,9 @@ const ThemeProviderContext = createContext<ThemeProviderState | undefined>(undef
 
 export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
   const [themeSetting, setThemeSetting] = useState<TThemeSetting>(
-    (localStorage.getItem('themeSetting') as TThemeSetting | null) ?? 'system'
+    () => storage.getThemeSetting()
   )
-  const [theme, setTheme] = useState<TTheme>('light')
+  const [theme, setTheme] = useState<TTheme>(() => storage.getTheme())
 
   useEffect(() => {
     const init = async () => {
@@ -54,13 +54,10 @@ export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
   }, [themeSetting])
 
   useEffect(() => {
-    const updateTheme = async () => {
-      const root = window.document.documentElement
-      root.classList.remove('light', 'dark')
-      root.classList.add(theme)
-      localStorage.setItem('theme', theme)
-    }
-    updateTheme()
+    const root = window.document.documentElement
+    root.classList.remove('light', 'dark')
+    root.classList.add(theme)
+    storage.setTheme(theme)
   }, [theme])
 
   return (

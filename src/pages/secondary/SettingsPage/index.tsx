@@ -4,6 +4,7 @@ import {
   toGeneralSettings,
   toPostSettings,
   toRelaySettings,
+  toCacheSettings,
   toTranslation,
   toWallet,
   toRssFeedSettings
@@ -15,6 +16,7 @@ import {
   Check,
   ChevronRight,
   Copy,
+  Database,
   Info,
   KeyRound,
   Languages,
@@ -47,6 +49,13 @@ const SettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: numb
         <div className="flex items-center gap-4">
           <Server />
           <div>{t('Relays and Storage Settings')}</div>
+        </div>
+        <ChevronRight />
+      </SettingItem>
+      <SettingItem className="clickable" onClick={() => navigateToSettings(toCacheSettings())}>
+        <div className="flex items-center gap-4">
+          <Database />
+          <div>{t('Cache & offline storage')}</div>
         </div>
         <ChevronRight />
       </SettingItem>

@@ -46,7 +46,8 @@ import { getMediaKindFromFile } from '@/lib/media-kind-detection'
 import { hasPrivateRelays, getPrivateRelayUrls } from '@/lib/private-relays'
 import mediaUpload from '@/services/media-upload.service'
 import client from '@/services/client.service'
-import { isProtectedEvent as isEventProtected, isReplyNoteEvent } from '@/lib/event'
+import discussionFeedCache from '@/services/discussion-feed-cache.service'
+import { getReplaceableCoordinateFromEvent, isProtectedEvent as isEventProtected, isReplaceableEvent, isReplyNoteEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -89,7 +90,7 @@ export default function PostContent({
     { file: File; progress: number; cancel: () => void }[]
   >([])
   const [showMoreOptions, setShowMoreOptions] = useState(false)
-  const [addClientTag, setAddClientTag] = useState(true) // Default to true to always add client tag
+  const [addClientTag, setAddClientTag] = useState(() => storage.getAddClientTag())
   const [mentions, setMentions] = useState<string[]>([])
   const [isNsfw, setIsNsfw] = useState(false)
   const [isPoll, setIsPoll] = useState(false)
@@ -256,7 +257,7 @@ export default function PostContent({
             relays: []
           }
         )
-        setAddClientTag(cachedSettings.addClientTag ?? true) // Default to true
+        setAddClientTag(cachedSettings.addClientTag ?? storage.getAddClientTag())
       }
       return
     }
@@ -845,17 +846,19 @@ export default function PostContent({
         // Remove relayStatuses before storing the event (it's only for UI feedback)
         const cleanEvent = { ...newEvent }
         delete (cleanEvent as any).relayStatuses
-        
-        // Add reply immediately so it appears in the thread
+
+        // Reply: add to UI and cache immediately so it shows without tabbing away (publish already emitted via NostrProvider)
         if (parentEvent) {
           addReplies([cleanEvent])
-          // Also dispatch the newEvent to ensure ReplyNoteList picks it up
-          // The event is already dispatched by publish(), but we do it again to ensure it's caught
-          setTimeout(() => {
-            client.emitNewEvent(cleanEvent)
-          }, 100)
+          const rootInfo = !isReplaceableEvent(parentEvent.kind)
+            ? { type: 'E' as const, id: parentEvent.id, pubkey: parentEvent.pubkey }
+            : { type: 'A' as const, id: getReplaceableCoordinateFromEvent(parentEvent), eventId: parentEvent.id, pubkey: parentEvent.pubkey, relay: client.getEventHint(parentEvent.id) }
+          const cached = discussionFeedCache.getCachedReplies(rootInfo) ?? []
+          if (!cached.some((r) => r.id === cleanEvent.id)) {
+            discussionFeedCache.setCachedReplies(rootInfo, [...cached, cleanEvent])
+          }
         }
-        
+
         close()
       } catch (error) {
         // AggregateError = "Failed to publish to any relay" is already logged in NostrProvider with relayStatuses; avoid duplicate noise
@@ -887,12 +890,23 @@ export default function PostContent({
             duration: 6000
           })
           
-          // Handle partial success
+          // Handle partial success: show reply immediately (event already emitted by NostrProvider)
           if (successCount > 0) {
-            // Clean up and close on partial success
+            const partialEvent = (error as any).event ?? newEvent
+            if (parentEvent && partialEvent) {
+              const clean = { ...partialEvent }
+              delete (clean as any).relayStatuses
+              addReplies([clean])
+              const rootInfo = !isReplaceableEvent(parentEvent.kind)
+                ? { type: 'E' as const, id: parentEvent.id, pubkey: parentEvent.pubkey }
+                : { type: 'A' as const, id: getReplaceableCoordinateFromEvent(parentEvent), eventId: parentEvent.id, pubkey: parentEvent.pubkey, relay: client.getEventHint(parentEvent.id) }
+              const cached = discussionFeedCache.getCachedReplies(rootInfo) ?? []
+              if (!cached.some((r) => r.id === clean.id)) {
+                discussionFeedCache.setCachedReplies(rootInfo, [...cached, clean])
+              }
+            }
             postEditorCache.clearPostCache({ defaultContent, parentEvent })
             if (draftEvent) deleteDraftEventCache(draftEvent)
-            if (newEvent) addReplies([newEvent])
             close()
           }
         } else {

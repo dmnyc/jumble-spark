@@ -220,6 +220,7 @@ export class NavigationService {
     if (viewType === 'settings-sub') {
       if (pathname.includes('/general')) return 'General Settings'
       if (pathname.includes('/relays')) return 'Relays and Storage Settings'
+      if (pathname.includes('/cache')) return 'Cache & offline storage'
       if (pathname.includes('/wallet')) return 'Wallet Settings'
       if (pathname.includes('/posts')) return 'Post Settings'
       if (pathname.includes('/translation')) return 'Translation Settings'

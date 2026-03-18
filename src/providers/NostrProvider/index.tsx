@@ -1,5 +1,5 @@
 import LoginDialog from '@/components/LoginDialog'
-import { ApplicationDataKey, BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, StorageKey } from '@/constants'
+import { ApplicationDataKey, BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS } from '@/constants'
 import {
   buildAltTag,
   buildClientTag,
@@ -875,7 +875,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     const addClientTag =
       typeof options.addClientTag === 'boolean'
         ? options.addClientTag
-        : (typeof window !== 'undefined' && window.localStorage.getItem(StorageKey.ADD_CLIENT_TAG) !== 'false')
+        : (typeof window !== 'undefined' && storage.getAddClientTag())
     if (addClientTag) {
       draft.tags = draft.tags ?? []
       draft.tags.push(buildClientTag(), buildAltTag())
@@ -919,6 +919,12 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       // This metadata is only for logging/feedback, not part of the actual event
       const relayStatuses = publishResult.relayStatuses.length > 0 ? publishResult.relayStatuses : undefined
       
+      // If at least one relay accepted, cache and emit immediately so UI shows the event without waiting
+      if (publishResult.successCount >= 1) {
+        client.addEventToCache(event)
+        client.emitNewEvent(event)
+      }
+
       // If publishing failed completely, throw an error so the form doesn't close
       if (!publishResult.success) {
         logger.error('[Publish] Publishing failed to all relays!', {
@@ -934,26 +940,19 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
           'Failed to publish to any relay'
         )
         ;(error as any).relayStatuses = publishResult.relayStatuses
+        if (publishResult.successCount >= 1) (error as any).event = event
         throw error
       }
-      
+
       logger.debug('[Publish] Publishing successful, attaching relayStatuses to event')
       // Attach relayStatuses only temporarily for UI feedback, then remove it
-      // This prevents it from being included in the event when serialized
-      // Use a longer delay to ensure UI components can read it before deletion
       if (relayStatuses) {
         (event as any).relayStatuses = relayStatuses
-        // Remove it after a delay to allow UI components to read it
-        // Components should read it immediately after publish() returns
         setTimeout(() => {
           delete (event as any).relayStatuses
         }, 100)
       }
-      
-      // Emit newEvent immediately after publishing so UI components can react
-      // This ensures replies appear immediately in the note view
-      client.emitNewEvent(event)
-      
+      // Cache and emit already done above when successCount >= 1
       logger.debug('[Publish] Returning event', { eventId: event.id?.substring(0, 8), hasRelayStatuses: !!relayStatuses })
       return event
     } catch (error) {

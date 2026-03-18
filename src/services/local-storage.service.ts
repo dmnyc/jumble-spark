@@ -19,6 +19,7 @@ import {
   TNoteListMode,
   TNotificationStyle,
   TRelaySet,
+  TTheme,
   TThemeSetting,
 } from '@/types'
 import indexedDb from './indexed-db.service'
@@ -27,6 +28,8 @@ import indexedDb from './indexed-db.service'
 const SETTINGS_KEYS = [
   StorageKey.RELAY_SETS,
   StorageKey.THEME_SETTING,
+  StorageKey.THEME,
+  StorageKey.ADD_CLIENT_TAG,
   StorageKey.FONT_SIZE,
   StorageKey.NOTE_LIST_MODE,
   StorageKey.ACCOUNTS,
@@ -70,6 +73,8 @@ class LocalStorageService {
 
   private relaySets: TRelaySet[] = []
   private themeSetting: TThemeSetting = 'system'
+  private theme: TTheme = 'light'
+  private addClientTag: boolean = true
   private fontSize: TFontSize = 'medium'
   private accounts: TAccount[] = []
   private currentAccount: TAccount | null = null
@@ -118,6 +123,10 @@ class LocalStorageService {
   init() {
     this.themeSetting =
       (window.localStorage.getItem(StorageKey.THEME_SETTING) as TThemeSetting) ?? 'system'
+    const themeStr = window.localStorage.getItem(StorageKey.THEME) as TTheme | null
+    this.theme = themeStr === 'dark' || themeStr === 'light' ? themeStr : 'light'
+    const addClientTagStr = window.localStorage.getItem(StorageKey.ADD_CLIENT_TAG)
+    this.addClientTag = addClientTagStr === null ? true : addClientTagStr === 'true'
     this.fontSize =
       (window.localStorage.getItem(StorageKey.FONT_SIZE) as TFontSize) ?? 'medium'
     const accountsStr = window.localStorage.getItem(StorageKey.ACCOUNTS)
@@ -389,10 +398,13 @@ class LocalStorageService {
     window.localStorage.removeItem(StorageKey.FEED_TYPE)
   }
 
-  /** Persist a setting to both localStorage and IndexedDB (source of truth is IndexedDB). */
+  /** Persist a setting. Keys in SETTINGS_KEYS go only to IndexedDB; others use localStorage. */
   private persistSetting(key: string, value: string): void {
+    if ((SETTINGS_KEYS as readonly string[]).includes(key)) {
+      indexedDb.setSetting(key, value).catch(() => {})
+      return
+    }
     window.localStorage.setItem(key, value)
-    indexedDb.setSetting(key, value).catch(() => {})
   }
 
   private initPromise: Promise<void> | null = null
@@ -411,8 +423,16 @@ class LocalStorageService {
       } else {
         await this.migrateToIdb()
       }
+      this.clearSettingsFromLocalStorage()
     })()
     return this.initPromise
+  }
+
+  /** Remove SETTINGS_KEYS from localStorage so we don't duplicate; source of truth is IndexedDB. */
+  private clearSettingsFromLocalStorage(): void {
+    for (const key of SETTINGS_KEYS) {
+      window.localStorage.removeItem(key)
+    }
   }
 
   private async migrateToIdb(): Promise<void> {
@@ -427,6 +447,10 @@ class LocalStorageService {
     if (get(StorageKey.THEME_SETTING) != null) {
       this.themeSetting = (get(StorageKey.THEME_SETTING) as TThemeSetting) ?? this.themeSetting
     }
+    const themeStr = get(StorageKey.THEME)
+    if (themeStr === 'dark' || themeStr === 'light') this.theme = themeStr
+    const addClientTagStr = get(StorageKey.ADD_CLIENT_TAG)
+    if (addClientTagStr != null) this.addClientTag = addClientTagStr === 'true'
     if (get(StorageKey.FONT_SIZE) != null) {
       this.fontSize = (get(StorageKey.FONT_SIZE) as TFontSize) ?? this.fontSize
     }
@@ -525,6 +549,24 @@ class LocalStorageService {
   setThemeSetting(themeSetting: TThemeSetting) {
     this.persistSetting(StorageKey.THEME_SETTING, themeSetting)
     this.themeSetting = themeSetting
+  }
+
+  getTheme(): TTheme {
+    return this.theme
+  }
+
+  setTheme(theme: TTheme) {
+    this.theme = theme
+    this.persistSetting(StorageKey.THEME, theme)
+  }
+
+  getAddClientTag(): boolean {
+    return this.addClientTag
+  }
+
+  setAddClientTag(value: boolean) {
+    this.addClientTag = value
+    this.persistSetting(StorageKey.ADD_CLIENT_TAG, value.toString())
   }
 
   getFontSize() {

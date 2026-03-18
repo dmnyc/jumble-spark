@@ -25,6 +25,8 @@ export const RECOMMENDED_BLOSSOM_SERVERS = [
 export const StorageKey = {
   VERSION: 'version',
   THEME_SETTING: 'themeSetting',
+  /** Resolved theme (light/dark) written by ThemeProvider; stored in IndexedDB. */
+  THEME: 'theme',
   FONT_SIZE: 'fontSize',
   RELAY_SETS: 'relaySets',
   ACCOUNTS: 'accounts',
@@ -105,6 +107,12 @@ export const NIP66_DISCOVERY_RELAY_URLS = [
 export const BOOKSTR_RELAY_URLS = [
   'wss://orly-relay.imwald.eu'
 ]
+
+/** Relays that must never be used for publishing (read-only aggregators, etc.). */
+export const READ_ONLY_RELAY_URLS = ['wss://aggr.nostr.land']
+
+/** Relays that block kind 1 (microblogging); skip for kind 1 read and write. */
+export const KIND_1_BLOCKED_RELAY_URLS = ['wss://thecitadel.nostr1.com']
 
 // Optimized relay list for read operations (includes aggregator)
 export const FAST_READ_RELAY_URLS = [

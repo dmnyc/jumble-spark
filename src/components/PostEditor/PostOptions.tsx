@@ -1,7 +1,7 @@
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
-import { StorageKey } from '@/constants'
+import storage from '@/services/local-storage.service'
 import { Dispatch, SetStateAction, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -27,15 +27,14 @@ export default function PostOptions({
   const { t } = useTranslation()
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(StorageKey.ADD_CLIENT_TAG)
-    setAddClientTag(stored === null ? true : stored === 'true') // Default to true if not set
+    setAddClientTag(storage.getAddClientTag())
   }, [])
 
   if (!show) return null
 
   const onAddClientTagChange = (checked: boolean) => {
+    storage.setAddClientTag(checked)
     setAddClientTag(checked)
-    window.localStorage.setItem(StorageKey.ADD_CLIENT_TAG, checked.toString())
   }
 
   const onNsfwChange = (checked: boolean) => {

@@ -25,6 +25,8 @@ window.addEventListener('resize', setVh)
 window.addEventListener('orientationchange', setVh)
 setVh()
 
+const SESSION_STORAGE_KEY = 'jumble:session'
+
 async function bootstrap() {
   try {
     const r = await fetch('/config.json')
@@ -34,6 +36,12 @@ async function bootstrap() {
     }
   } catch {
     window.__RUNTIME_CONFIG__ = {}
+  }
+  // Mark session storage as used so it's visible in DevTools; VersionUpdateBanner and NotePage also use it.
+  try {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, String(Date.now()))
+  } catch {
+    // ignore quota or private browsing
   }
   await storage.initAsync()
   publishMonitorAnnouncementOnce()

@@ -340,6 +340,22 @@ export default {
     'relayType_relay_set': 'Relay-Set',
     'relayType_contextual': 'Antwort/PN',
     'relayType_randomly_selected': 'Zufällig (optional)',
+    'Session relays': 'Session-Relays',
+    'Session relays tab description':
+      'Relay-Logik für diese Session: funktionierende und gestrichene Preset-Relays sowie bewertete Zufallsrelays (bevorzugt schnellere, bewährte Relays beim Hinzufügen von Zufallsrelays).',
+    'Session relays preset working': 'Funktionierende Preset-Relays',
+    'Session relays preset working hint':
+      'Preset-Relays (App-Standard), die in dieser Session keine 3 Publish-Fehler erreicht haben.',
+    'Session relays preset striked': 'Gestrichene Preset-Relays',
+    'Session relays preset striked hint':
+      'Preset-Relays mit 3 Publish-Fehlern in dieser Session; werden für den Rest der Session übersprungen.',
+    'Session relays scored random': 'Bewertete Zufallsrelays',
+    'Session relays scored random hint':
+      'Relays, die in dieser Session mindestens ein Publish angenommen haben; werden beim Auswählen von Zufallsrelays bevorzugt. Sortiert nach durchschnittlicher Latenz.',
+    'Session relays all striked': 'Alle gestrichenen Relays (alle Quellen)',
+    successes: 'Erfolge',
+    None: 'Keine',
+    'Cache & offline storage': 'Cache & Offline-Speicher',
     'Paste or drop media files to upload':
       'Füge Medien-Dateien ein oder ziehe sie hierher, um sie hochzuladen',
     Preview: 'Vorschau',

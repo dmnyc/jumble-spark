@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS, BOOKSTR_RELAY_URLS, ExtendedKind, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, NIP66_DISCOVERY_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { BIG_RELAY_URLS, BOOKSTR_RELAY_URLS, ExtendedKind, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, KIND_1_BLOCKED_RELAY_URLS, NIP66_DISCOVERY_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, READ_ONLY_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 
 /** NIP-01 filter keys only; NIP-50 adds `search` which non-searchable relays reject. */
 function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
@@ -54,6 +54,8 @@ class ClientService extends EventTarget {
     | undefined
   > = {}
   private eventCacheMap = new Map<string, Promise<NEvent | undefined>>()
+  /** Session-only: recently seen events (e.g. from feed) so back-navigation doesn't re-query. Bounded size, keyed by hex id. */
+  private sessionEventCache = new LRUCache<string, NEvent>({ max: 500, ttl: 1000 * 60 * 30 })
   private relayListRequestCache = new Map<string, Promise<TRelayList>>() // Cache in-flight relay list requests
   private eventDataLoader = new DataLoader<string, NEvent | undefined>(
     (ids) => Promise.all(ids.map((id) => this._fetchEvent(id))),
@@ -71,6 +73,13 @@ class ClientService extends EventTarget {
   private static readonly MAX_CONCURRENT_SUBS_PER_RELAY = 8
   private activeSubCountByRelay = new Map<string, number>()
   private subSlotWaitQueueByRelay = new Map<string, Array<() => void>>()
+
+  /** Session-only: relay URL -> publish failure count; after 3 strikes we skip that relay for the rest of the session. */
+  private publishStrikeCount = new Map<string, number>()
+  private static readonly PUBLISH_STRIKES_THRESHOLD = 3
+
+  /** Session-only: relay URL -> { successCount, sumLatencyMs } for preferring faster, proven relays when picking "random" relays. */
+  private sessionRelayPublishStats = new Map<string, { successCount: number; sumLatencyMs: number }>()
 
   constructor() {
     super()
@@ -359,17 +368,131 @@ class ClientService extends EventTarget {
       })
     }
 
+    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    relays = relays.filter((url) => {
+      const n = normalizeUrl(url) || url
+      if (readOnlySet.has(n)) return false
+      if (event.kind === kinds.ShortTextNote && kind1BlockedSet.has(n)) return false
+      return true
+    })
+
     return relays
   }
 
+  /** Record publish failures for 3-strikes session policy (skip relay for rest of session after 3 rejections). */
+  private recordPublishFailures(relayStatuses: { url: string; success: boolean; error?: string }[]) {
+    relayStatuses.filter((s) => !s.success).forEach((s) => {
+      const n = normalizeUrl(s.url) || s.url
+      const count = (this.publishStrikeCount.get(n) ?? 0) + 1
+      this.publishStrikeCount.set(n, count)
+      if (count >= ClientService.PUBLISH_STRIKES_THRESHOLD) {
+        logger.debug('[PublishEvent] Relay reached 3 strikes, skipping for session', { url: n })
+      }
+    })
+  }
+
+  /** Record a successful publish and its latency for session-based preference when selecting random relays. */
+  recordPublishSuccess(url: string, latencyMs: number) {
+    const n = normalizeUrl(url) || url
+    const cur = this.sessionRelayPublishStats.get(n)
+    if (cur) {
+      cur.successCount += 1
+      cur.sumLatencyMs += latencyMs
+    } else {
+      this.sessionRelayPublishStats.set(n, { successCount: 1, sumLatencyMs: latencyMs })
+    }
+  }
+
+  /**
+   * Session-only debug info for the Session Relays settings tab: working/striked preset relays and scored random relays.
+   */
+  getSessionRelayDebug(): {
+    strikedUrls: string[]
+    scoredRelays: { url: string; successCount: number; avgLatencyMs: number }[]
+    presetWorking: string[]
+    presetStriked: string[]
+  } {
+    const presetSet = new Set<string>()
+    for (const u of [...FAST_WRITE_RELAY_URLS, ...BIG_RELAY_URLS]) {
+      const n = normalizeUrl(u) || u
+      if (n) presetSet.add(n)
+    }
+    const preset = Array.from(presetSet)
+    const strikedUrls = Array.from(this.publishStrikeCount.entries())
+      .filter(([, count]) => count >= ClientService.PUBLISH_STRIKES_THRESHOLD)
+      .map(([url]) => url)
+    const presetStriked = preset.filter((url) => (this.publishStrikeCount.get(url) ?? 0) >= ClientService.PUBLISH_STRIKES_THRESHOLD)
+    const presetWorking = preset.filter((url) => (this.publishStrikeCount.get(url) ?? 0) < ClientService.PUBLISH_STRIKES_THRESHOLD)
+    const scoredRelays = Array.from(this.sessionRelayPublishStats.entries()).map(([url, s]) => ({
+      url,
+      successCount: s.successCount,
+      avgLatencyMs: Math.round(s.sumLatencyMs / s.successCount)
+    }))
+    scoredRelays.sort((a, b) => a.avgLatencyMs - b.avgLatencyMs)
+    return { strikedUrls, scoredRelays, presetWorking, presetStriked }
+  }
+
+  /**
+   * From a list of candidate relay URLs (e.g. public lively), return up to `count` relays,
+   * preferring those that have succeeded and been fast this session. Excludes 3-strike and read-only relays.
+   */
+  getPreferredRelaysForRandom(candidateUrls: string[], count: number): string[] {
+    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const normalizedCandidates = candidateUrls
+      .map((u) => normalizeUrl(u) || u)
+      .filter((n) => n && !readOnlySet.has(n))
+    const unique = Array.from(new Set(normalizedCandidates))
+    const notStruckOut = unique.filter((n) => (this.publishStrikeCount.get(n) ?? 0) < ClientService.PUBLISH_STRIKES_THRESHOLD)
+    const preferred: string[] = []
+    const rest: string[] = []
+    for (const url of notStruckOut) {
+      const stats = this.sessionRelayPublishStats.get(url)
+      if (stats && stats.successCount >= 1) preferred.push(url)
+      else rest.push(url)
+    }
+    preferred.sort((a, b) => {
+      const sa = this.sessionRelayPublishStats.get(a)!
+      const sb = this.sessionRelayPublishStats.get(b)!
+      const avgA = sa.sumLatencyMs / sa.successCount
+      const avgB = sb.sumLatencyMs / sb.successCount
+      return avgA - avgB
+    })
+    const result: string[] = []
+    let pi = 0
+    let ri = 0
+    const shuffledRest = rest.slice().sort(() => Math.random() - 0.5)
+    while (result.length < count && (pi < preferred.length || ri < shuffledRest.length)) {
+      if (pi < preferred.length) {
+        result.push(preferred[pi++])
+      } else if (ri < shuffledRest.length) {
+        result.push(shuffledRest[ri++])
+      }
+    }
+    return result.slice(0, count)
+  }
+
   async publishEvent(relayUrls: string[], event: NEvent) {
+    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    let filtered = relayUrls.filter((url) => {
+      const n = normalizeUrl(url) || url
+      if (readOnlySet.has(n)) return false
+      if (event.kind === kinds.ShortTextNote && kind1BlockedSet.has(n)) return false
+      const strikes = this.publishStrikeCount.get(n) ?? 0
+      if (strikes >= ClientService.PUBLISH_STRIKES_THRESHOLD) return false
+      return true
+    })
+    filtered = Array.from(new Set(filtered))
+
     logger.debug('[PublishEvent] Starting publishEvent', {
       eventId: event.id?.substring(0, 8),
       kind: event.kind,
-      relayCount: relayUrls.length
+      relayCount: filtered.length,
+      skippedStrikes: relayUrls.length - filtered.length
     })
-    
-    const uniqueRelayUrls = Array.from(new Set(relayUrls))
+
+    const uniqueRelayUrls = filtered
     if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
       logger.info('[PublishEvent] Publishing event to relays', {
         eventId: event.id?.substring(0, 8),
@@ -383,6 +506,8 @@ class ClientService extends EventTarget {
     
     const relayStatuses: { url: string; success: boolean; error?: string }[] = []
     
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const client = this
     return new Promise<{ success: boolean; relayStatuses: typeof relayStatuses; successCount: number; totalCount: number }>((resolve) => {
       let successCount = 0
       let finishedCount = 0
@@ -418,6 +543,7 @@ class ClientService extends EventTarget {
         // Ensure we resolve even if not all relays finished
         if (!hasResolved) {
           hasResolved = true
+          client.recordPublishFailures(relayStatuses)
           logger.debug('[PublishEvent] Resolving due to timeout', {
             success: successCount >= uniqueRelayUrls.length / 3,
             successCount,
@@ -436,6 +562,7 @@ class ClientService extends EventTarget {
       logger.debug('[PublishEvent] Starting Promise.allSettled for all relays')
       Promise.allSettled(
         uniqueRelayUrls.map(async (url, index) => {
+          const startMs = Date.now()
           logger.debug(`[PublishEvent] Starting relay ${index + 1}/${uniqueRelayUrls.length}`, { url })
           // eslint-disable-next-line @typescript-eslint/no-this-alias
           const that = this
@@ -480,6 +607,7 @@ class ClientService extends EventTarget {
               .publish(event)
               .then(() => {
                 logger.debug(`[PublishEvent] Successfully published to relay`, { url })
+                that.recordPublishSuccess(url, Date.now() - startMs)
                 this.trackEventSeenOn(event.id, relay)
                 successCount++
                 relayStatuses.push({ url, success: true })
@@ -500,6 +628,7 @@ class ClientService extends EventTarget {
                     })
                     .then(() => {
                       logger.debug(`[PublishEvent] Successfully published after auth`, { url })
+                      that.recordPublishSuccess(url, Date.now() - startMs)
                       this.trackEventSeenOn(event.id, relay)
                       successCount++
                       relayStatuses.push({ url, success: true })
@@ -548,6 +677,7 @@ class ClientService extends EventTarget {
             }
             if (currentFinished >= uniqueRelayUrls.length && !hasResolved) {
               hasResolved = true
+              client.recordPublishFailures(relayStatuses)
               logger.debug('[PublishEvent] All relays finished, resolving', {
                 success: successCount >= uniqueRelayUrls.length / 3,
                 successCount,
@@ -570,6 +700,7 @@ class ClientService extends EventTarget {
               setTimeout(() => {
                 if (!hasResolved) {
                   hasResolved = true
+                  client.recordPublishFailures(relayStatuses)
                   logger.debug('[PublishEvent] Resolving early with enough successes', {
                     success: true,
                     successCount,
@@ -765,8 +896,14 @@ class ClientService extends EventTarget {
       onAllClose?: (reasons: string[]) => void
     }
   ) {
-    const relays = Array.from(new Set(urls))
+    let relays = Array.from(new Set(urls))
     const filters = Array.isArray(filter) ? filter : [filter]
+
+    const hasKind1 = filters.some((f) => f.kinds && (Array.isArray(f.kinds) ? f.kinds.includes(1) : f.kinds === 1))
+    if (hasKind1 && KIND_1_BLOCKED_RELAY_URLS.length > 0) {
+      const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+      relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const that = this
@@ -1318,9 +1455,16 @@ class ClientService extends EventTarget {
       globalTimeout?: number
     } = {}
   ) {
-    const relays = Array.from(new Set(urls))
+    let relays = Array.from(new Set(urls))
+    if (relays.length === 0) relays = [...BIG_RELAY_URLS]
+    const filters = Array.isArray(filter) ? filter : [filter]
+    const hasKind1 = filters.some((f) => f.kinds && (Array.isArray(f.kinds) ? f.kinds.includes(1) : f.kinds === 1))
+    if (hasKind1 && KIND_1_BLOCKED_RELAY_URLS.length > 0) {
+      const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+      relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
+    }
     const events = await this.query(
-      relays.length > 0 ? relays : BIG_RELAY_URLS, 
+      relays, 
       filter, 
       onevent,
       { eoseTimeout, globalTimeout }
@@ -1334,27 +1478,29 @@ class ClientService extends EventTarget {
   }
 
   async fetchEvent(id: string): Promise<NEvent | undefined> {
-    if (!/^[0-9a-f]{64}$/.test(id)) {
-      let eventId: string | undefined
+    let hexId: string | undefined
+    if (/^[0-9a-f]{64}$/.test(id)) {
+      hexId = id
+    } else {
       const { type, data } = nip19.decode(id)
       switch (type) {
         case 'note':
-          eventId = data
+          hexId = data
           break
         case 'nevent':
-          eventId = data.id
+          hexId = data.id
           break
         case 'naddr':
           break
       }
-      if (eventId) {
-        const cache = this.eventCacheMap.get(eventId)
-        if (cache) {
-          return cache
-        }
-      }
     }
-    return this.eventDataLoader.load(id)
+    if (hexId) {
+      const fromSession = this.sessionEventCache.get(hexId)
+      if (fromSession) return fromSession
+      const cachedPromise = this.eventCacheMap.get(hexId)
+      if (cachedPromise) return cachedPromise
+    }
+    return this.eventDataLoader.load(hexId ?? id)
   }
 
   addEventToCache(event: NEvent) {
@@ -1362,6 +1508,7 @@ class ClientService extends EventTarget {
     const cleanEvent = { ...event } as NEvent
     delete (cleanEvent as any).relayStatuses
 
+    this.sessionEventCache.set(cleanEvent.id, cleanEvent)
     this.eventDataLoader.prime(cleanEvent.id, Promise.resolve(cleanEvent))
     // Replaceable events are not stored in memory; they go to IndexedDB via putReplaceableEvent elsewhere
   }
@@ -1815,6 +1962,7 @@ class ClientService extends EventTarget {
   clearInMemoryCaches(): void {
     this.relayListRequestCache.clear()
     this.eventDataLoader.clearAll()
+    this.sessionEventCache.clear()
     this.replaceableEventFromBigRelaysDataloader.clearAll()
     this.followingFavoriteRelaysCache?.clear()
     logger.info('[ClientService] In-memory caches cleared')
@@ -2057,7 +2205,26 @@ class ClientService extends EventTarget {
     const eventsMap = new Map<string, NEvent>()
     await Promise.allSettled(
       Array.from(groups.entries()).map(async ([kind, pubkeys]) => {
-        const events = await this.query(BIG_RELAY_URLS, {
+        // Profiles (kind 0) and relay lists (10002): use broader relay set + current user's inboxes if logged in
+        let relayUrls: string[]
+        if (kind === kinds.Metadata || kind === kinds.RelayList) {
+          const base = Array.from(new Set([...BIG_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS]))
+          if (this.pubkey) {
+            const userRelayEvent = await indexedDb.getReplaceableEvent(this.pubkey, kinds.RelayList)
+            if (userRelayEvent) {
+              const list = getRelayListFromEvent(userRelayEvent)
+              const read = (list?.read ?? []).map((u) => normalizeUrl(u)).filter(Boolean) as string[]
+              relayUrls = Array.from(new Set([...base, ...read]))
+            } else {
+              relayUrls = base
+            }
+          } else {
+            relayUrls = base
+          }
+        } else {
+          relayUrls = BIG_RELAY_URLS
+        }
+        const events = await this.query(relayUrls, {
           authors: pubkeys,
           kinds: [kind]
         })
