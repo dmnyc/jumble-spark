@@ -21,7 +21,6 @@ class PostEditorCacheService {
 
   private postContentCache: Map<string, Content> = new Map()
   private postSettingsCache: Map<string, TPostSettings> = new Map()
-  private static THREAD_DRAFT_KEY = 'create-thread'
   private threadDraftCache: TThreadDraft | null = null
 
   constructor() {

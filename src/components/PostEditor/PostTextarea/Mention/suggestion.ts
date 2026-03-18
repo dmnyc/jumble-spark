@@ -45,7 +45,7 @@ const suggestion = {
   }: {
     editor: Editor
     range: { from: number; to: number }
-    props: { id: string; label?: string; mode?: PickerSearchMode }
+    props: { id: string | null; label?: string | null; mode?: PickerSearchMode }
   }) => {
     if (props.id === NEVENT_NADDR_PICKER_ID) {
       postEditor.closeSuggestionPopup()
@@ -56,6 +56,7 @@ const suggestion = {
       )
       return
     }
+    if (props.id == null) return
     const to = extendMentionRangeToEndOfWord(editor, range)
     const nodeAfter = editor.view.state.selection.$to.nodeAfter
     const overrideSpace = nodeAfter?.text?.startsWith(' ')
