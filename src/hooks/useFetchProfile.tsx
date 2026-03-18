@@ -12,31 +12,40 @@ export function useFetchProfile(id?: string, skipCache = false) {
   const [pubkey, setPubkey] = useState<string | null>(null)
 
   useEffect(() => {
-    setProfile(null)
-    setPubkey(null)
-    const fetchProfile = async () => {
+    if (!id) {
+      setProfile(null)
+      setPubkey(null)
+      setIsFetching(false)
+      setError(new Error('No id provided'))
+      return
+    }
+
+    let cancelled = false
+    const pubkey = userIdToPubkey(id)
+    setPubkey(pubkey)
+
+    const run = async () => {
       setIsFetching(true)
       try {
-        if (!id) {
-          setIsFetching(false)
-          setError(new Error('No id provided'))
-          return
-        }
-
-        const pubkey = userIdToPubkey(id)
-        setPubkey(pubkey)
-        const profile = await client.fetchProfile(id, skipCache)
-        if (profile) {
-          setProfile(profile)
-        }
-      } catch (err) {
-        setError(err as Error)
+        const [cachedResult, fetchResult] = await Promise.allSettled([
+          client.getProfileFromIndexedDB(id),
+          client.fetchProfile(id, skipCache)
+        ])
+        if (cancelled) return
+        const cached = cachedResult.status === 'fulfilled' ? cachedResult.value : undefined
+        const profile = fetchResult.status === 'fulfilled' ? fetchResult.value : undefined
+        if (cached) setProfile(cached)
+        if (profile) setProfile(profile)
+        if (fetchResult.status === 'rejected' && !cancelled) setError(fetchResult.reason as Error)
       } finally {
-        setIsFetching(false)
+        if (!cancelled) setIsFetching(false)
       }
     }
 
-    fetchProfile()
+    run()
+    return () => {
+      cancelled = true
+    }
   }, [id])
 
   useEffect(() => {

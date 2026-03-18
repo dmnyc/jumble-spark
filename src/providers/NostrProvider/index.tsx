@@ -922,7 +922,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       // If publishing failed completely, throw an error so the form doesn't close
       if (!publishResult.success) {
         logger.error('[Publish] Publishing failed to all relays!', {
-          relayStatuses: publishResult.relayStatuses
+          eventKind: event.kind,
+          eventId: event.id?.substring(0, 8),
+          relayStatuses: publishResult.relayStatuses,
+          failedUrls: publishResult.relayStatuses.filter((s) => !s.success).map((s) => s.url)
         })
         const error = new AggregateError(
           publishResult.relayStatuses

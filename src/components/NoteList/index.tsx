@@ -355,6 +355,20 @@ const NoteList = forwardRef(
       }
     }, [loading, hasMore, events, showCount, timelineKey])
 
+    // Prefetch profiles for visible authors in one batched request (IndexedDB + one relay request)
+    const visiblePubkeysRef = useRef<Set<string>>(new Set())
+    useEffect(() => {
+      const pubkeys = Array.from(
+        new Set(filteredEvents.slice(0, 80).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
+      )
+      if (pubkeys.length === 0) return
+      const prev = visiblePubkeysRef.current
+      const same = pubkeys.length === prev.size && pubkeys.every((p) => prev.has(p))
+      if (same) return
+      visiblePubkeysRef.current = new Set(pubkeys)
+      client.fetchProfilesForPubkeys(pubkeys).catch(() => {})
+    }, [filteredEvents])
+
     const showNewEvents = () => {
       setEvents((oldEvents) => [...newEvents, ...oldEvents])
       setNewEvents([])

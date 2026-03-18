@@ -16,6 +16,7 @@ const suggestion = {
     let popup: Instance[] = []
     let touchListener: (e: TouchEvent) => void
     let closePopup: () => void
+    let exited = false
 
     return {
       onBeforeStart: () => {
@@ -86,9 +87,17 @@ const suggestion = {
       },
 
       onExit() {
+        if (exited) return
+        exited = true
         postEditor.isSuggestionPopupOpen = false
-        popup[0]?.destroy()
-        component?.destroy()
+        if (popup[0]) {
+          popup[0].destroy()
+          popup = []
+        }
+        if (component) {
+          component.destroy()
+          component = undefined
+        }
 
         document.removeEventListener('touchstart', touchListener)
         postEditor.removeEventListener('closeSuggestionPopup', closePopup)

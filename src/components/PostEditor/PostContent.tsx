@@ -858,13 +858,16 @@ export default function PostContent({
         
         close()
       } catch (error) {
-        logger.error('Publishing error', { error })
-        logger.error('Publishing error details', {
-          name: error instanceof Error ? error.name : 'Unknown',
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined
-        })
-        
+        // AggregateError = "Failed to publish to any relay" is already logged in NostrProvider with relayStatuses; avoid duplicate noise
+        if (!(error instanceof AggregateError && error.message === 'Failed to publish to any relay')) {
+          logger.error('Publishing error', { error })
+          logger.error('Publishing error details', {
+            name: error instanceof Error ? error.name : 'Unknown',
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+          })
+        }
+
         // Check if we have relay statuses to display (even if publishing failed)
         if (error instanceof AggregateError && (error as any).relayStatuses) {
           const relayStatuses = (error as any).relayStatuses

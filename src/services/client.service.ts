@@ -6,12 +6,7 @@ function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
   const { search: _search, ...rest } = f
   return rest as Filter
 }
-import {
-  compareEvents,
-  getReplaceableCoordinate,
-  getReplaceableCoordinateFromEvent,
-  isReplaceableEvent
-} from '@/lib/event'
+import { getReplaceableCoordinateFromEvent } from '@/lib/event'
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { formatPubkey, isValidPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib/pubkey'
@@ -58,7 +53,6 @@ class ClientService extends EventTarget {
     | string[]
     | undefined
   > = {}
-  private replaceableEventCacheMap = new Map<string, NEvent>()
   private eventCacheMap = new Map<string, Promise<NEvent | undefined>>()
   private relayListRequestCache = new Map<string, Promise<TRelayList>>() // Cache in-flight relay list requests
   private eventDataLoader = new DataLoader<string, NEvent | undefined>(
@@ -1342,7 +1336,6 @@ class ClientService extends EventTarget {
   async fetchEvent(id: string): Promise<NEvent | undefined> {
     if (!/^[0-9a-f]{64}$/.test(id)) {
       let eventId: string | undefined
-      let coordinate: string | undefined
       const { type, data } = nip19.decode(id)
       switch (type) {
         case 'note':
@@ -1352,15 +1345,9 @@ class ClientService extends EventTarget {
           eventId = data.id
           break
         case 'naddr':
-          coordinate = getReplaceableCoordinate(data.kind, data.pubkey, data.identifier)
           break
       }
-      if (coordinate) {
-        const cache = this.replaceableEventCacheMap.get(coordinate)
-        if (cache) {
-          return cache
-        }
-      } else if (eventId) {
+      if (eventId) {
         const cache = this.eventCacheMap.get(eventId)
         if (cache) {
           return cache
@@ -1374,15 +1361,9 @@ class ClientService extends EventTarget {
     // Remove relayStatuses before caching (it's metadata for logging, not part of the event)
     const cleanEvent = { ...event } as NEvent
     delete (cleanEvent as any).relayStatuses
-    
+
     this.eventDataLoader.prime(cleanEvent.id, Promise.resolve(cleanEvent))
-    if (isReplaceableEvent(cleanEvent.kind)) {
-      const coordinate = getReplaceableCoordinateFromEvent(cleanEvent)
-      const cachedEvent = this.replaceableEventCacheMap.get(coordinate)
-      if (!cachedEvent || compareEvents(cleanEvent, cachedEvent) > 0) {
-        this.replaceableEventCacheMap.set(coordinate, cleanEvent)
-      }
-    }
+    // Replaceable events are not stored in memory; they go to IndexedDB via putReplaceableEvent elsewhere
   }
 
   private async fetchEventById(relayUrls: string[], id: string): Promise<NEvent | undefined> {
@@ -1764,6 +1745,53 @@ class ClientService extends EventTarget {
     }
   }
 
+  /**
+   * Fetch profiles for many pubkeys in one go: one IndexedDB batch read, one relay request for
+   * any missing. Deduplicates the input. Use when you have a list of visible pubkeys (e.g. from
+   * a feed) to avoid N separate profile fetches.
+   */
+  async fetchProfilesForPubkeys(pubkeys: string[]): Promise<TProfile[]> {
+    const deduped = Array.from(new Set(pubkeys.filter((p) => p && p.length === 64)))
+    if (deduped.length === 0) return []
+    const events = await this.fetchReplaceableEventsFromBigRelays(deduped, kinds.Metadata)
+    const profiles: TProfile[] = []
+    for (let i = 0; i < deduped.length; i++) {
+      const ev = events[i]
+      if (ev) {
+        this.addUsernameToIndex(ev)
+        profiles.push(getProfileFromEvent(ev))
+      } else {
+        const pubkey = deduped[i]!
+        profiles.push({
+          pubkey,
+          npub: pubkeyToNpub(pubkey) ?? '',
+          username: formatPubkey(pubkey)
+        })
+      }
+    }
+    return profiles
+  }
+
+  /** Read profile from IndexedDB only (no network). Use for fast avatar/profile display from cache. */
+  async getProfileFromIndexedDB(id: string): Promise<TProfile | undefined> {
+    let pubkey: string | undefined
+    try {
+      if (/^[0-9a-f]{64}$/.test(id)) {
+        pubkey = id
+      } else {
+        const { data, type } = nip19.decode(id)
+        if (type === 'npub') pubkey = data
+        else if (type === 'nprofile') pubkey = data.pubkey
+      }
+    } catch {
+      return undefined
+    }
+    if (!pubkey) return undefined
+    const event = await indexedDb.getReplaceableEvent(pubkey, kinds.Metadata)
+    if (!event || event === null) return undefined
+    return getProfileFromEvent(event)
+  }
+
   async updateProfileEventCache(event: NEvent) {
     await this.updateReplaceableEventFromBigRelaysCache(event)
   }
@@ -1785,7 +1813,6 @@ class ClientService extends EventTarget {
    * Fixes missing profile pics and broken reactions after "Clear cache" on mobile.
    */
   clearInMemoryCaches(): void {
-    this.replaceableEventCacheMap.clear()
     this.relayListRequestCache.clear()
     this.eventDataLoader.clearAll()
     this.replaceableEventFromBigRelaysDataloader.clearAll()
@@ -1822,7 +1849,6 @@ class ClientService extends EventTarget {
         })
         throw error
       } finally {
-        // Remove from cache after completion (cache result in replaceableEventCacheMap)
         this.relayListRequestCache.delete(pubkey)
       }
     })()
