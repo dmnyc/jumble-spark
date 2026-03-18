@@ -3,9 +3,14 @@ import { useFeed } from '@/providers/FeedProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
 import { TFeedSubRequest } from '@/types'
+import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 
-export default function FollowingFeed() {
+export default function FollowingFeed({
+  setSubHeader
+}: {
+  setSubHeader?: (node: ReactNode) => void
+}) {
   const { pubkey } = useNostr()
   const { feedInfo } = useFeed()
   const [subRequests, setSubRequests] = useState<TFeedSubRequest[]>([])
@@ -24,5 +29,5 @@ export default function FollowingFeed() {
     init()
   }, [feedInfo.feedType, pubkey])
 
-  return <NormalFeed subRequests={subRequests} isMainFeed />
+  return <NormalFeed subRequests={subRequests} isMainFeed setSubHeader={setSubHeader} />
 }

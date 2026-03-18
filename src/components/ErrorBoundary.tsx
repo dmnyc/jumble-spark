@@ -1,10 +1,11 @@
 import { Button } from '@/components/ui/button'
-import PostContent from '@/components/PostEditor/PostContent'
-import { SILBERENGEL_PUBKEY } from '@/constants'
 import { MessageCircle, RotateCw } from 'lucide-react'
 import React, { Component, ReactNode } from 'react'
 import { toast } from 'sonner'
 import logger from '@/lib/logger'
+
+const ISSUES_URL =
+  'https://gitrepublic.imwald.eu/repos/npub1l5sga6xg72phsz5422ykujprejwud075ggrr3z2hwyrfgr7eylqstegx9z/jumble-imwald-edition?tab=issues'
 
 interface ErrorBoundaryProps {
   children: ReactNode
@@ -13,17 +14,16 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean
   error?: Error
-  showErrorReportDialog: boolean
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props)
-    this.state = { hasError: false, showErrorReportDialog: false }
+    this.state = { hasError: false }
   }
 
   static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error, showErrorReportDialog: false }
+    return { hasError: true, error }
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
@@ -36,19 +36,21 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         <div className="w-screen h-screen flex flex-col items-center justify-center p-4 gap-4">
           <h1 className="text-2xl font-bold">Oops, something went wrong.</h1>
           <p className="text-lg text-center max-w-md">
-            Sorry for the inconvenience. You can help by sending me a public message with the error details.
+            Sorry for the inconvenience. You can help by logging an issue with the error details.
           </p>
           {this.state.error?.message && (
             <>
               <div className="flex gap-2">
-                <Button
-                  onClick={() => {
-                    this.setState({ showErrorReportDialog: true })
-                  }}
-                  className="bg-primary text-primary-foreground"
-                >
-                  <MessageCircle className="w-4 h-4 mr-2" />
-                  Send Error Report
+                <Button asChild className="bg-primary text-primary-foreground">
+                  <a
+                    href={ISSUES_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center"
+                  >
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    Report issue
+                  </a>
                 </Button>
                 <Button
                   onClick={() => {
@@ -69,19 +71,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <RotateCw className="w-4 h-4 mr-2" />
             Reload Page
           </Button>
-          
-          {this.state.showErrorReportDialog && (
-            <PostContent
-              defaultContent={`@${SILBERENGEL_PUBKEY} Jumble Error Report:
-
-${this.state.error?.message || 'Unknown error'}
-
-Please help investigate this issue. Thank you!`}
-              close={() => {
-                this.setState({ showErrorReportDialog: false })
-              }}
-            />
-          )}
         </div>
       )
     }

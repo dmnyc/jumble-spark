@@ -13,6 +13,7 @@ import React, {
   Dispatch,
   forwardRef,
   SetStateAction,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -39,11 +40,18 @@ const NoteListPage = forwardRef((_, ref) => {
   const [homeSubHeader, setHomeSubHeader] = useState<React.ReactNode>(null)
   useImperativeHandle(ref, () => layoutRef.current)
 
-  // Clear subHeader when switching away from relay/relays/all-favorites feed
+  const setHomeSubHeaderStable = useCallback((node: React.ReactNode) => {
+    setHomeSubHeader(node)
+  }, [])
+
+  // Clear subHeader when switching to a feed that doesn't use it (e.g. bookmarks)
   useEffect(() => {
-    const isRelaysFeed =
-      feedInfo.feedType === 'relay' || feedInfo.feedType === 'relays' || feedInfo.feedType === 'all-favorites'
-    if (!isRelaysFeed) setHomeSubHeader(null)
+    const usesSubHeader =
+      feedInfo.feedType === 'relay' ||
+      feedInfo.feedType === 'relays' ||
+      feedInfo.feedType === 'all-favorites' ||
+      feedInfo.feedType === 'following'
+    if (!usesSubHeader) setHomeSubHeader(null)
   }, [feedInfo.feedType])
 
   // REMOVED: Scroll-to-top logic - feed should NEVER scroll to top when drawer opens/closes
@@ -90,14 +98,14 @@ const NoteListPage = forwardRef((_, ref) => {
       content = <BookmarkList />
     }
   } else if (feedInfo.feedType === 'following') {
-    content = <FollowingFeed />
+    content = <FollowingFeed setSubHeader={setHomeSubHeaderStable} />
   } else {
     content = (
       <>
         {showRelayDetails && feedInfo.feedType === 'relay' && !!feedInfo.id && (
           <RelayInfo url={feedInfo.id!} className="mb-2 pt-3" />
         )}
-        <RelaysFeed setSubHeader={setHomeSubHeader} />
+        <RelaysFeed setSubHeader={setHomeSubHeaderStable} />
       </>
     )
   }
