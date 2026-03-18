@@ -4,11 +4,42 @@ import type { Editor } from '@tiptap/core'
 import { ReactRenderer } from '@tiptap/react'
 import { SuggestionKeyDownProps } from '@tiptap/suggestion'
 import tippy, { GetReferenceClientRect, Instance, Props } from 'tippy.js'
+import { emojis } from '@tiptap/extension-emoji'
 import { EmojiList, EmojiListHandler, EmojiListProps } from './EmojiList'
+
+const STANDARD_EMOJI_LIMIT = 20
+
+function searchStandardEmojiShortcodes(query: string): string[] {
+  const q = query.toLowerCase().trim()
+  if (!q) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const item of emojis) {
+    const shortcodes = item.shortcodes ?? []
+    const tags = item.tags ?? []
+    const name = item.name ?? ''
+    const match =
+      shortcodes.some((s) => String(s).toLowerCase().includes(q)) ||
+      tags.some((t) => String(t).toLowerCase().includes(q)) ||
+      name.toLowerCase().includes(q)
+    if (match) {
+      const shortcode = shortcodes[0] ?? name
+      if (shortcode && !seen.has(shortcode)) {
+        seen.add(shortcode)
+        out.push(shortcode)
+        if (out.length >= STANDARD_EMOJI_LIMIT) break
+      }
+    }
+  }
+  return out
+}
 
 const suggestion = {
   items: async ({ query }: { query: string }) => {
-    return await customEmojiService.searchEmojis(query)
+    const custom = await customEmojiService.searchEmojis(query)
+    const customSet = new Set(custom)
+    const standard = searchStandardEmojiShortcodes(query).filter((s) => !customSet.has(s))
+    return [...custom, ...standard].slice(0, 50)
   },
 
   render: () => {

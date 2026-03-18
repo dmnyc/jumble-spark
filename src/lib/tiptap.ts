@@ -54,8 +54,9 @@ function _parseEditorJsonToText(node?: JSONContent): string {
 function parseEmojiNodeName(name?: string): string {
   if (!name) return ''
   if (customEmojiService.isCustomEmojiId(name)) {
-    return `:${name}:`
+    const custom = customEmojiService.getEmojiById(name)
+    return custom ? `:${custom.shortcode}:` : `:${name}:`
   }
-  const emoji = shortcodeToEmoji(name, emojis)
-  return emoji ? (emoji.emoji ?? '') : ''
+  const native = shortcodeToEmoji(name, emojis) ?? shortcodeToEmoji(name.replace(/\s+/g, '_'), emojis)
+  return native?.emoji ?? `:${name}:`
 }

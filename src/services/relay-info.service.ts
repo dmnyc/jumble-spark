@@ -194,20 +194,20 @@ class RelayInfoService {
    */
   private maybePublishNip66Discovery(relayInfo: TRelayInfo): void {
     if (!isNip66MonitorEnabled()) {
-      logger.info('NIP-66: skip 30166 (publishing is handled by server cron)', { url: relayInfo.url })
+      logger.debug('NIP-66: skip 30166 (publishing is handled by server cron)', { url: relayInfo.url })
       return
     }
     const key = relayInfo.url
     const now = Date.now()
     const last = this.lastNip66PublishByUrl.get(key) ?? 0
     if (now - last < RelayInfoService.NIP66_PUBLISH_INTERVAL_MS) {
-      logger.info('NIP-66: skip 30166 (throttled, 1h per relay)', { url: relayInfo.url, nextInMin: Math.ceil((RelayInfoService.NIP66_PUBLISH_INTERVAL_MS - (now - last)) / 60000) })
+      logger.debug('NIP-66: skip 30166 (throttled, 1h per relay)', { url: relayInfo.url, nextInMin: Math.ceil((RelayInfoService.NIP66_PUBLISH_INTERVAL_MS - (now - last)) / 60000) })
       return
     }
 
     const event = buildAndSignDiscoveryEvent(relayInfo)
     if (!event) {
-      logger.info('NIP-66: skip 30166 (build/sign failed)', { url: relayInfo.url })
+      logger.debug('NIP-66: skip 30166 (build/sign failed)', { url: relayInfo.url })
       return
     }
 

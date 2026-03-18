@@ -1353,8 +1353,12 @@ class ClientService extends EventTarget {
           onevent?.(evt)
           events.push(evt)
 
-          // As soon as one relay returns results, give others 2s then resolve (keeps reqs fast)
-          if (events.length === 1 && !firstResultGraceTimeoutId) {
+          const filters = Array.isArray(filter) ? filter : [filter]
+          const maxLimit = Math.max(...filters.map((f) => (f.limit ?? 0) as number), 0)
+          const isSingleEventFetch = maxLimit === 1
+          // Only use "first result grace" for single-event fetches (e.g. by id). For multi-result
+          // (e.g. GIF list, feed) wait for EOSE so we aggregate from all relays.
+          if (isSingleEventFetch && events.length === 1 && !firstResultGraceTimeoutId) {
             firstResultGraceTimeoutId = setTimeout(() => {
               firstResultGraceTimeoutId = null
               resolveWithEvents()
@@ -1362,7 +1366,6 @@ class ClientService extends EventTarget {
           }
 
           // Check if we're looking for a specific event ID (limit: 1 with ids filter)
-          const filters = Array.isArray(filter) ? filter : [filter]
           const hasIdFilter = filters.some(f => f.ids && f.ids.length > 0)
           const hasLimitOne = filters.some(f => f.limit === 1)
 
@@ -1490,6 +1493,13 @@ class ClientService extends EventTarget {
     return events
   }
 
+  /**
+   * Fetch a single event by id (hex, note1, nevent1, naddr1).
+   * Relay order: (1) session/DataLoader cache (2) buildInitialRelayList (user's FAST_READ + favorite + read) or BIG_RELAY_URLS
+   * (3) for nevent/naddr: bech32 relay hints + author's read (inbox) + author's write (outbox) from kind 10002
+   * (4) if still missing and filter has authors: author's read+write again in tryHarderToFetchEvent
+   * (5) SEARCHABLE_RELAY_URLS as final fallback. Author relays are used so embedded notes load from the author's relays.
+   */
   async fetchEvent(id: string): Promise<NEvent | undefined> {
     let hexId: string | undefined
     if (/^[0-9a-f]{64}$/.test(id)) {
@@ -1549,7 +1559,7 @@ class ClientService extends EventTarget {
           break
         case 'nevent':
           filter = { ids: [data.id] }
-          if (data.relays) relays = data.relays
+          if (data.relays) relays = [...data.relays]
           if (data.author) author = data.author
           break
         case 'naddr':
@@ -1562,21 +1572,42 @@ class ClientService extends EventTarget {
           if (data.identifier) {
             filter['#d'] = [data.identifier]
           }
-          if (data.relays) relays = data.relays
+          if (data.relays) relays = [...data.relays]
       }
     }
     if (!filter) {
       throw new Error('Invalid id')
     }
 
+    // For nevent/naddr with author: include author's read (inbox) + write (outbox) relays so we try them in the same round as bech32 hints
+    const emptyRelayList: TRelayList = { read: [], write: [], originalRelays: [] }
+    let authorRelayList: TRelayList | undefined
+    if (author) {
+      authorRelayList = await this.fetchRelayList(author).catch(() => emptyRelayList)
+      const r = authorRelayList.read ?? []
+      const w = authorRelayList.write ?? []
+      relays = [...relays, ...r.slice(0, 4), ...w.slice(0, 4)]
+      relays = Array.from(
+        new Set(relays.map((url) => normalizeUrl(url)).filter(Boolean))
+      ) as string[]
+    }
+
     let event: NEvent | undefined
     if (filter.ids?.length) {
       event = await this.fetchEventById(relays, filter.ids[0])
+    } else if (filter.authors?.length) {
+      event = await this.tryHarderToFetchEvent(relays, filter, false)
     }
 
-    if (!event && author) {
-      const relayList = await this.fetchRelayList(author)
-      event = await this.tryHarderToFetchEvent(relayList.write.slice(0, 5), filter)
+    if (!event && author && authorRelayList) {
+      const r = authorRelayList.read ?? []
+      const w = authorRelayList.write ?? []
+      const authorRelays = [...r.slice(0, 3), ...w.slice(0, 3)]
+        .map((url) => normalizeUrl(url))
+        .filter(Boolean)
+      if (authorRelays.length) {
+        event = await this.tryHarderToFetchEvent(authorRelays, filter)
+      }
     }
 
     if (event && event.id !== id) {
@@ -1592,10 +1623,13 @@ class ClientService extends EventTarget {
     alreadyFetchedFromBigRelays = false
   ) {
     if (!relayUrls.length && filter.authors?.length) {
-      const relayList = await this.fetchRelayList(filter.authors[0])
+      const relayList = await this.fetchRelayList(filter.authors[0]).catch(() => ({ read: [] as string[], write: [] as string[] }))
+      const read = (relayList.read ?? []).slice(0, 3)
+      const write = (relayList.write ?? []).slice(0, 3)
       relayUrls = alreadyFetchedFromBigRelays
-        ? relayList.write.filter((url) => !BIG_RELAY_URLS.includes(url)).slice(0, 4)
-        : relayList.write.slice(0, 4)
+        ? [...read, ...write.filter((url) => !BIG_RELAY_URLS.includes(url))]
+        : [...read, ...write]
+      relayUrls = Array.from(new Set(relayUrls.map((url) => normalizeUrl(url)).filter(Boolean))) as string[]
     } else if (!relayUrls.length && !alreadyFetchedFromBigRelays) {
       relayUrls = BIG_RELAY_URLS
     }

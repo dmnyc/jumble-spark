@@ -9,11 +9,20 @@ type TPostSettings = {
   addClientTag?: boolean
 }
 
+/** Cached draft for the Discussions "Create Thread" dialog (kind 11). */
+export type TThreadDraft = {
+  title: string
+  content: string
+  topic: string
+}
+
 class PostEditorCacheService {
   static instance: PostEditorCacheService
 
   private postContentCache: Map<string, Content> = new Map()
   private postSettingsCache: Map<string, TPostSettings> = new Map()
+  private static THREAD_DRAFT_KEY = 'create-thread'
+  private threadDraftCache: TThreadDraft | null = null
 
   constructor() {
     if (!PostEditorCacheService.instance) {
@@ -77,6 +86,18 @@ class PostEditorCacheService {
 
   generateCacheKey(defaultContent: string = '', parentEvent?: Event): string {
     return parentEvent ? parentEvent.id : defaultContent
+  }
+
+  getThreadDraft(): TThreadDraft | null {
+    return this.threadDraftCache
+  }
+
+  setThreadDraft(draft: TThreadDraft): void {
+    this.threadDraftCache = draft
+  }
+
+  clearThreadDraft(): void {
+    this.threadDraftCache = null
   }
 }
 

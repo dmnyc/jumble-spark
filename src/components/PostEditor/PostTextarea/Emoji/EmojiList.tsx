@@ -2,11 +2,15 @@ import Emoji from '@/components/Emoji'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import customEmojiService from '@/services/custom-emoji.service'
+import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 export interface EmojiListProps {
   items: string[]
   command: (params: { name?: string }) => void
+  /** When provided, selection is controlled by parent (e.g. for plain textarea :emoji:). */
+  selectedIndex?: number
+  onSelectIndex?: (index: number) => void
 }
 
 export interface EmojiListHandler {
@@ -15,7 +19,10 @@ export interface EmojiListHandler {
 
 export const EmojiList = forwardRef<EmojiListHandler, EmojiListProps>((props, ref) => {
   const items = props.items ?? []
-  const [selectedIndex, setSelectedIndex] = useState(0)
+  const isControlled = props.selectedIndex !== undefined
+  const [internalIndex, setInternalIndex] = useState(0)
+  const selectedIndex = isControlled ? props.selectedIndex! : internalIndex
+  const setSelectedIndex = isControlled ? (n: number) => props.onSelectIndex?.(n) : setInternalIndex
 
   const selectItem = (index: number): void => {
     const item = items[index]
@@ -24,7 +31,9 @@ export const EmojiList = forwardRef<EmojiListHandler, EmojiListProps>((props, re
       props.command({ name: item })
     }
 
-    customEmojiService.updateSuggested(item)
+    if (customEmojiService.getEmojiById(item)) {
+      customEmojiService.updateSuggested(item)
+    }
   }
 
   const upHandler = (): void => {
@@ -41,7 +50,9 @@ export const EmojiList = forwardRef<EmojiListHandler, EmojiListProps>((props, re
     selectItem(selectedIndex)
   }
 
-  useEffect(() => setSelectedIndex(items.length ? 0 : -1), [items])
+  useEffect(() => {
+    if (!isControlled) setInternalIndex(items.length ? 0 : -1)
+  }, [items, isControlled])
 
   useImperativeHandle(ref, () => {
     return {
@@ -107,8 +118,12 @@ function EmojiListItem({
   selectItem: (index: number) => void
   setSelectedIndex: (index: number) => void
 }) {
-  const emoji = useMemo(() => customEmojiService.getEmojiById(id), [id])
-  if (!emoji) return null
+  const { emoji, label } = useMemo(() => {
+    const custom = customEmojiService.getEmojiById(id)
+    if (custom) return { emoji: custom as import('@/types').TEmoji, label: `:${custom.shortcode}:` }
+    const native = shortcodeToEmoji(id, emojis) ?? shortcodeToEmoji(id.replace(/\s+/g, '_'), emojis)
+    return { emoji: native?.emoji as string | undefined, label: `:${id}:` }
+  }, [id])
 
   return (
     <button
@@ -120,14 +135,18 @@ function EmojiListItem({
       onMouseEnter={() => setSelectedIndex(index)}
     >
       <div className="flex gap-2 items-center truncate pointer-events-none">
-        <Emoji
-          emoji={emoji}
-          classNames={{
-            img: 'size-8 shrink-0 rounded-md',
-            text: 'w-8 text-center shrink-0'
-          }}
-        />
-        <span className="truncate">:{emoji.shortcode}:</span>
+        {emoji ? (
+          <Emoji
+            emoji={emoji}
+            classNames={{
+              img: 'size-8 shrink-0 rounded-md',
+              text: 'w-8 text-center shrink-0'
+            }}
+          />
+        ) : (
+          <span className="size-8 shrink-0 flex items-center justify-center text-muted-foreground text-xs font-mono" aria-hidden>{id.slice(0, 2)}</span>
+        )}
+        <span className="truncate">{label}</span>
       </div>
     </button>
   )

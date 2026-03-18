@@ -6,6 +6,7 @@ import {
   EmbeddedUrlParser,
   parseContent
 } from '@/lib/content-parser'
+import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
 import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { cn } from '@/lib/utils'
 import { TEmoji } from '@/types'
@@ -26,14 +27,16 @@ export default function Content({
 }) {
   const { t } = useTranslation()
   const nodes = useMemo(() => {
-    return parseContent(content, [
+    const customShortcodes = emojiInfos?.map((e) => e.shortcode) ?? []
+    const normalized = replaceStandardEmojiShortcodesInContent(content, customShortcodes)
+    return parseContent(normalized, [
       EmbeddedUrlParser,
       EmbeddedPaytoParser,
       EmbeddedEventParser,
       EmbeddedMentionParser,
       EmbeddedEmojiParser
     ])
-  }, [content])
+  }, [content, emojiInfos])
 
   return (
     <span className={cn(className)}>

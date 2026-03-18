@@ -13,6 +13,7 @@ import { getImetaInfosFromEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import Emoji from '@/components/Emoji'
 import { ExtendedKind, EMOJI_SHORT_CODE_REGEX, WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
+import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { TEmoji } from '@/types'
 import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
@@ -3475,9 +3476,12 @@ export default function MarkdownArticle({
     processed = normalizeSetextHeaders(processed)
     // Normalize backticks (inline code and code blocks)
     processed = normalizeBackticks(processed)
+    // Replace standard :shortcode: with Unicode (custom emojis stay as shortcode for tag lookup)
+    const customShortcodes = event.tags.filter((t) => t[0] === 'emoji').map((t) => t[1]).filter(Boolean)
+    processed = replaceStandardEmojiShortcodesInContent(processed, customShortcodes)
     // Then preprocess media links
     return preprocessMarkdownMediaLinks(processed)
-  }, [event.content])
+  }, [event.content, event.tags])
   
   // Create video poster map from imeta tags
   const videoPosterMap = useMemo(() => {

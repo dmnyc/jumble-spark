@@ -6,6 +6,7 @@ import {
   EmbeddedWebsocketUrlParser,
   parseContent
 } from '@/lib/content-parser'
+import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
 import PaytoLink from '@/components/PaytoLink'
 import {
   EmbeddedHashtag,
@@ -15,7 +16,8 @@ import {
 } from '../Embedded'
 
 export default function ProfileAbout({ about, className }: { about?: string; className?: string }) {
-  const aboutNodes = parseContent(about ?? '', [
+  const normalized = replaceStandardEmojiShortcodesInContent(about ?? '', [])
+  const aboutNodes = parseContent(normalized, [
     EmbeddedWebsocketUrlParser,
     EmbeddedUrlParser,
     EmbeddedPaytoParser,

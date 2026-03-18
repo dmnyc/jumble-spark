@@ -8,6 +8,7 @@ import { cleanUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import { TPollCreateData } from '@/types'
 import { kinds, nip19 } from 'nostr-tools'
+import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
 import { useMemo } from 'react'
 import ContentPreview from '../../ContentPreview'
 import Content from '../../Content'
@@ -55,6 +56,8 @@ export default function Preview({
         }
       )
       const { content: processed, emojiTags: tags } = transformCustomEmojisInContent(cleanedContent)
+      const customShortcodes = tags.map((t) => t[1]).filter(Boolean)
+      const withNativeEmojis = replaceStandardEmojiShortcodesInContent(processed, customShortcodes)
       
       // Build highlight tags if this is a highlight
       let highlightTags: string[][] = []
@@ -108,7 +111,7 @@ export default function Preview({
       }
       
       return {
-        content: processed,
+        content: withNativeEmojis,
         emojiTags: tags,
         highlightTags,
         pollTags

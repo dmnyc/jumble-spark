@@ -10,6 +10,7 @@ import {
   EmbeddedWebsocketUrlParser,
   parseContent
 } from '@/lib/content-parser'
+import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
 import logger from '@/lib/logger'
 import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
@@ -89,7 +90,11 @@ export default function Content({
   const { nodes, emojiInfos } = useMemo(() => {
     if (!_content) return {}
 
-    const nodes = parseContent(_content, [
+    const emojiInfos = getEmojiInfosFromEmojiTags(event?.tags)
+    const customShortcodes = emojiInfos.map((e) => e.shortcode)
+    const normalized = replaceStandardEmojiShortcodesInContent(_content, customShortcodes)
+
+    const nodes = parseContent(normalized, [
       EmbeddedUrlParser,
       EmbeddedLNInvoiceParser,
       EmbeddedPaytoParser,
@@ -99,8 +104,6 @@ export default function Content({
       EmbeddedHashtagParser,
       EmbeddedEmojiParser
     ])
-
-    const emojiInfos = getEmojiInfosFromEmojiTags(event?.tags)
 
     return { nodes, emojiInfos }
   }, [_content, event])

@@ -47,13 +47,13 @@ export default function NotFound({
             extractedHexEventId = data.id
             if (data.relays) hintRelays.push(...data.relays)
             if (data.author) {
-              const authorRelayList = await client.fetchRelayList(data.author)
-              hintRelays.push(...authorRelayList.write.slice(0, 6))
+              const authorRelayList = await client.fetchRelayList(data.author).catch(() => ({ read: [] as string[], write: [] as string[] }))
+              hintRelays.push(...(authorRelayList.read ?? []).slice(0, 4), ...(authorRelayList.write ?? []).slice(0, 4))
             }
           } else if (type === 'naddr') {
             if (data.relays) hintRelays.push(...data.relays)
-            const authorRelayList = await client.fetchRelayList(data.pubkey)
-            hintRelays.push(...authorRelayList.write.slice(0, 6))
+            const authorRelayList = await client.fetchRelayList(data.pubkey).catch(() => ({ read: [] as string[], write: [] as string[] }))
+            hintRelays.push(...(authorRelayList.read ?? []).slice(0, 4), ...(authorRelayList.write ?? []).slice(0, 4))
           } else if (type === 'note') {
             extractedHexEventId = data
           }

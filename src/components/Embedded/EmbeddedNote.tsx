@@ -131,36 +131,35 @@ function EmbeddedNoteNotFound({
   const [externalRelays, setExternalRelays] = useState<string[]>([])
   const [hexEventId, setHexEventId] = useState<string | null>(null)
 
-  // Calculate which external relays would be tried
+  // Calculate which external relays would be tried when user clicks "Try external relays".
+  // The client's initial fetch now uses: (1) user's relays or BIG, (2) bech32 hints + author read+write, (3) SEARCHABLE.
+  // We treat BIG + FAST_READ as "already tried"; external = (hints + author read+write + seenOn + SEARCHABLE) minus those.
   useEffect(() => {
     const getExternalRelays = async () => {
-      // Get all relays that have already been tried (BIG_RELAY_URLS + FAST_READ_RELAY_URLS)
-      // These are the relays used in the initial fetch
       const alreadyTriedRelaysSet = new Set<string>()
       ;[...BIG_RELAY_URLS, ...FAST_READ_RELAY_URLS].forEach(url => {
         const normalized = normalizeUrl(url)
         if (normalized) alreadyTriedRelaysSet.add(normalized)
       })
-      
+
       let hintRelays: string[] = []
       let extractedHexEventId: string | null = null
-      
-      // Parse relay hints and author from bech32 ID
+
       if (!/^[0-9a-f]{64}$/.test(noteId)) {
         try {
           const { type, data } = nip19.decode(noteId)
-          
+
           if (type === 'nevent') {
             extractedHexEventId = data.id
             if (data.relays) hintRelays.push(...data.relays)
             if (data.author) {
-              const authorRelayList = await client.fetchRelayList(data.author)
-              hintRelays.push(...authorRelayList.write.slice(0, 6))
+              const authorRelayList = await client.fetchRelayList(data.author).catch(() => ({ read: [] as string[], write: [] as string[] }))
+              hintRelays.push(...(authorRelayList.read ?? []).slice(0, 4), ...(authorRelayList.write ?? []).slice(0, 4))
             }
           } else if (type === 'naddr') {
             if (data.relays) hintRelays.push(...data.relays)
-            const authorRelayList = await client.fetchRelayList(data.pubkey)
-            hintRelays.push(...authorRelayList.write.slice(0, 6))
+            const authorRelayList = await client.fetchRelayList(data.pubkey).catch(() => ({ read: [] as string[], write: [] as string[] }))
+            hintRelays.push(...(authorRelayList.read ?? []).slice(0, 4), ...(authorRelayList.write ?? []).slice(0, 4))
           } else if (type === 'note') {
             extractedHexEventId = data
           }

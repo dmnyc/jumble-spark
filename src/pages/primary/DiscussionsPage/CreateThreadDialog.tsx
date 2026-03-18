@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Hash, X, Users, Film, Image, Zap, Settings, Book, Eye, Edit3, ChevronDown, Check, ImageUp, Smile } from 'lucide-react'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -31,6 +31,7 @@ import EmojiPickerDialog from '@/components/EmojiPickerDialog'
 import Uploader from '@/components/PostEditor/Uploader'
 import { NeventPickerProvider } from '@/components/PostEditor/PostTextarea/Mention/NeventNaddrPickerDialog'
 import logger from '@/lib/logger'
+import postEditorCache from '@/services/post-editor-cache.service'
 
 // Utility functions for thread creation
 function extractImagesFromContent(content: string): string[] {
@@ -198,7 +199,16 @@ export default function CreateThreadDialog({
     return combined
   }, [dynamicTopics])
 
-  // Initialize selected relays using the centralized relay selection service
+  // Stable refs for relay lists so we don't re-run init when parent context identity changes
+  const writeRelays = relayList?.write ?? []
+  const readRelays = relayList?.read ?? []
+  const writeKey = writeRelays.join(',')
+  const readKey = readRelays.join(',')
+  const favoriteKey = favoriteRelays.join(',')
+  const blockedKey = blockedRelays.join(',')
+  const relaySetsKey = relaySets.map(s => `${s.id}:${s.relayUrls.join(',')}`).join(';')
+
+  // Initialize selected relays using the centralized relay selection service (once per meaningful change)
   useEffect(() => {
     const initializeRelays = async () => {
       setIsLoadingRelays(true)
@@ -215,8 +225,8 @@ export default function CreateThreadDialog({
         }
 
         const result = await relaySelectionService.selectRelays({
-          userWriteRelays: relayList?.write || [],
-          userReadRelays: relayList?.read || [],
+          userWriteRelays: writeRelays,
+          userReadRelays: readRelays,
           favoriteRelays,
           blockedRelays,
           relaySets,
@@ -239,7 +249,34 @@ export default function CreateThreadDialog({
     }
 
     initializeRelays()
-  }, [initialRelay, availableRelays, relaySets, favoriteRelays, blockedRelays, relayList, pubkey])
+  }, [initialRelay, availableRelays, writeKey, readKey, favoriteKey, blockedKey, relaySetsKey, pubkey])
+
+  // Load cached thread draft when dialog opens
+  useEffect(() => {
+    const draft = postEditorCache.getThreadDraft()
+    if (draft) {
+      setTitle(draft.title)
+      setContent(draft.content)
+      setSelectedTopic(draft.topic)
+    }
+  }, [])
+
+  // Persist draft when title, content, or topic change (debounced)
+  useEffect(() => {
+    if (!title && !content.trim()) return
+    const t = setTimeout(() => {
+      postEditorCache.setThreadDraft({ title, content, topic: selectedTopic })
+    }, 500)
+    return () => clearTimeout(t)
+  }, [title, content, selectedTopic])
+
+  const handleClearDraft = useCallback(() => {
+    setTitle('')
+    setContent('')
+    setSelectedTopic(initialTopic)
+    setErrors({})
+    postEditorCache.clearThreadDraft()
+  }, [initialTopic])
 
   const handleRelayCheckedChange = (checked: boolean, url: string) => {
     if (checked) {
@@ -467,6 +504,7 @@ export default function CreateThreadDialog({
           showSimplePublishSuccess(t('Thread published'))
         }
         
+        postEditorCache.clearThreadDraft()
         onThreadCreated(publishedEvent)
         onClose()
       } else {
@@ -1025,6 +1063,14 @@ export default function CreateThreadDialog({
                 className="flex-1"
               >
                 {t('Cancel')}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleClearDraft}
+                disabled={isSubmitting}
+              >
+                {t('Clear')}
               </Button>
               <Button
                 type="submit"

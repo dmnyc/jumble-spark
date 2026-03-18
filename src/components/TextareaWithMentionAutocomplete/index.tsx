@@ -2,11 +2,16 @@ import { Textarea } from '@/components/ui/textarea'
 import MentionList from '@/components/PostEditor/PostTextarea/Mention/MentionList'
 import { NEVENT_NADDR_PICKER_ID } from '@/components/PostEditor/PostTextarea/Mention/constants'
 import { useNeventPicker } from '@/components/PostEditor/PostTextarea/Mention/NeventNaddrPickerDialog'
+import { EmojiList } from '@/components/PostEditor/PostTextarea/Emoji/EmojiList'
 import client from '@/services/client.service'
+import customEmojiService from '@/services/custom-emoji.service'
+import { searchStandardEmojiShortcodes } from '@/lib/emoji-content'
+import { createPortal } from 'react-dom'
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 
 const MENTION_LIMIT = 20
 const MENTION_INSERT_PREFIX = 'nostr:'
+const EMOJI_LIMIT = 25
 
 export type TextareaWithMentionAutocompleteProps = Omit<
   React.ComponentProps<typeof Textarea>,
@@ -31,15 +36,43 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
   const [mentionItems, setMentionItems] = useState<string[]>([])
   const [mentionStart, setMentionStart] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const [emojiQuery, setEmojiQuery] = useState('')
+  const [emojiItems, setEmojiItems] = useState<string[]>([])
+  const [emojiStart, setEmojiStart] = useState(0)
+  const [selectedEmojiIndex, setSelectedEmojiIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const emojiSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const neventPicker = useNeventPicker()
+  const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null)
 
   const closeMention = useCallback(() => {
     setMentionOpen(false)
     setMentionQuery('')
     setMentionItems([])
   }, [])
+
+  const closeEmoji = useCallback(() => {
+    setEmojiOpen(false)
+    setEmojiQuery('')
+    setEmojiItems([])
+  }, [])
+
+  // When value is cleared or changed from outside (e.g. Clear button), close dropdowns if they're no longer valid
+  useEffect(() => {
+    if (!value) {
+      closeMention()
+      closeEmoji()
+      return
+    }
+    if (mentionOpen && (value.length <= mentionStart || value[mentionStart] !== '@')) {
+      closeMention()
+    }
+    if (emojiOpen && (value.length <= emojiStart || value[emojiStart] !== ':')) {
+      closeEmoji()
+    }
+  }, [value, mentionOpen, emojiOpen, mentionStart, emojiStart, closeMention, closeEmoji])
 
   const insertMention = useCallback(
     (id: string) => {
@@ -76,6 +109,25 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
     [value, mentionStart, mentionQuery.length, onChange, closeMention, neventPicker]
   )
 
+  const insertEmoji = useCallback(
+    (shortcode: string) => {
+      const ta = textareaRef.current
+      if (!ta) return
+      const end = emojiStart + 1 + emojiQuery.length
+      const before = value.slice(0, emojiStart)
+      const after = value.slice(end)
+      const insert = `:${shortcode}:`
+      onChange(before + insert + after)
+      closeEmoji()
+      setTimeout(() => {
+        ta.focus()
+        const newPos = emojiStart + insert.length
+        ta.setSelectionRange(newPos, newPos)
+      }, 0)
+    },
+    [value, emojiStart, emojiQuery.length, onChange, closeEmoji]
+  )
+
   useEffect(() => {
     if (!mentionQuery.trim()) {
       setMentionItems([])
@@ -109,6 +161,48 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
     }
   }, [mentionQuery])
 
+  useEffect(() => {
+    if (!emojiQuery.trim()) {
+      setEmojiItems([])
+      setEmojiOpen(false)
+      return
+    }
+    const q = emojiQuery.trim().toLowerCase()
+    if (emojiSearchTimeoutRef.current) clearTimeout(emojiSearchTimeoutRef.current)
+    emojiSearchTimeoutRef.current = setTimeout(() => {
+      Promise.all([
+        customEmojiService.searchEmojis(q),
+        Promise.resolve(searchStandardEmojiShortcodes(q, EMOJI_LIMIT))
+      ]).then(([custom, standard]) => {
+        const customSet = new Set(custom)
+        const merged = [...custom, ...standard.filter((s) => !customSet.has(s))].slice(0, 50)
+        setEmojiItems(merged)
+        setEmojiOpen(merged.length > 0)
+        setSelectedEmojiIndex(0)
+      })
+    }, 150)
+    return () => {
+      if (emojiSearchTimeoutRef.current) clearTimeout(emojiSearchTimeoutRef.current)
+    }
+  }, [emojiQuery])
+
+  const open = (emojiOpen && emojiItems.length > 0) || (mentionOpen && mentionItems.length > 0)
+  useEffect(() => {
+    if (!open) {
+      setDropdownRect(null)
+      return
+    }
+    const el = textareaRef.current
+    if (!el) return
+    const update = () => {
+      const r = el.getBoundingClientRect()
+      setDropdownRect({ top: r.bottom + 4, left: r.left, width: r.width })
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [open])
+
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const v = e.target.value
     const cursor = e.target.selectionStart ?? v.length
@@ -116,20 +210,52 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
 
     const textBeforeCursor = v.slice(0, cursor)
     const lastAt = textBeforeCursor.lastIndexOf('@')
-    if (lastAt === -1) {
+    const lastColon = textBeforeCursor.lastIndexOf(':')
+    const segmentAfterColon = lastColon >= 0 ? textBeforeCursor.slice(lastColon + 1) : ''
+    const segmentAfterAt = lastAt >= 0 ? textBeforeCursor.slice(lastAt + 1) : ''
+
+    const inEmoji = lastColon >= 0 && !/\s/.test(segmentAfterColon) && (lastColon > lastAt || lastAt === -1)
+    const inMention = lastAt >= 0 && !/\s/.test(segmentAfterAt)
+
+    if (inEmoji) {
       closeMention()
+      setEmojiStart(lastColon)
+      setEmojiQuery(segmentAfterColon)
       return
     }
-    const afterAt = textBeforeCursor.slice(lastAt + 1)
-    if (/\s/.test(afterAt)) {
-      closeMention()
+    if (inMention) {
+      closeEmoji()
+      setMentionStart(lastAt)
+      setMentionQuery(segmentAfterAt)
       return
     }
-    setMentionStart(lastAt)
-    setMentionQuery(afterAt)
+    closeMention()
+    closeEmoji()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (emojiOpen && emojiItems.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedEmojiIndex((i) => (i + 1) % emojiItems.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedEmojiIndex((i) => (i + emojiItems.length - 1) % emojiItems.length)
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        insertEmoji(emojiItems[selectedEmojiIndex]!)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        closeEmoji()
+        return
+      }
+    }
     if (mentionOpen && mentionItems.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -164,6 +290,42 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
     }
   }
 
+  const dropdownContent =
+    dropdownRect && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className="border rounded-lg bg-background shadow-lg overflow-hidden"
+            role="listbox"
+            style={{
+              position: 'fixed',
+              top: dropdownRect.top,
+              left: dropdownRect.left,
+              width: dropdownRect.width,
+              maxWidth: 'min(400px, 95vw)',
+              zIndex: 10000
+            }}
+          >
+            {emojiOpen && emojiItems.length > 0 && (
+              <EmojiList
+                items={emojiItems}
+                command={({ name }) => name != null && insertEmoji(name)}
+                selectedIndex={selectedEmojiIndex}
+                onSelectIndex={setSelectedEmojiIndex}
+              />
+            )}
+            {mentionOpen && mentionItems.length > 0 && !emojiOpen && (
+              <MentionList
+                items={mentionItems}
+                command={({ id }) => insertMention(id as string)}
+                selectedIndex={selectedIndex}
+                onSelectIndex={setSelectedIndex}
+              />
+            )}
+          </div>,
+          document.body
+        )
+      : null
+
   return (
     <div className="relative">
       <Textarea
@@ -173,16 +335,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
         onChange={handleChange}
         onKeyDown={handleKeyDown}
       />
-      {mentionOpen && mentionItems.length > 0 && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1" role="listbox">
-          <MentionList
-            items={mentionItems}
-            command={({ id }) => insertMention(id as string)}
-            selectedIndex={selectedIndex}
-            onSelectIndex={setSelectedIndex}
-          />
-        </div>
-      )}
+      {dropdownContent}
     </div>
   )
 })
