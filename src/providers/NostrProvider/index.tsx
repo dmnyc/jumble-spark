@@ -1123,6 +1123,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     setRssFeedListEvent(newRssFeedListEvent)
   }
 
+  /** Updates local “last read” time and optionally publishes kind 30078 (notification seen-at) for cross-device sync.
+   *  Relay list: user’s write relays (first 5) or FAST_WRITE_RELAY_URLS; read-only relays are excluded (see client.determineTargetRelays for kind 30078). */
   const updateNotificationsSeenAt = async (skipPublish = false) => {
     if (!account) return
 
@@ -1140,8 +1142,15 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       (lastPublishedSeenNotificationsAtEventAt < 0 ||
         now - lastPublishedSeenNotificationsAtEventAt > 10 * 60) // 10 minutes
     ) {
-      await publish(createSeenNotificationsAtDraftEvent())
-      lastPublishedSeenNotificationsAtEventAtMap.set(account.pubkey, now)
+      try {
+        await publish(createSeenNotificationsAtDraftEvent())
+        lastPublishedSeenNotificationsAtEventAtMap.set(account.pubkey, now)
+      } catch (err) {
+        // Notification seen-at sync is best-effort; local state already updated above
+        logger.warn('[updateNotificationsSeenAt] Publish failed (sync across devices may be delayed)', {
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
     }
   }
 

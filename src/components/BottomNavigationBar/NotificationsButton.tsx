@@ -1,6 +1,6 @@
 import { usePrimaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
-import { useNotification } from '@/providers/NotificationProvider'
+import { useNotification } from '@/providers/NotificationContext'
 import { Bell } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'
 

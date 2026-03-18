@@ -8,6 +8,11 @@ import MentionList, { MentionListHandle, MentionListProps } from './MentionList'
 
 const suggestion = {
   items: async ({ query }: { query: string }) => {
+    const q = query.trim().toLowerCase()
+    // Reserved for future nevent/naddr picker; don't treat as npub handle
+    if (q === 'nevent' || q === 'naddr' || q.startsWith('nevent') || q.startsWith('naddr')) {
+      return []
+    }
     const result = await client.searchNpubsFromLocal(query, 20)
     return result ?? []
   },

@@ -8,29 +8,12 @@ import client from '@/services/client.service'
 import storage from '@/services/local-storage.service'
 import { kinds, NostrEvent } from 'nostr-tools'
 import { SubCloser } from 'nostr-tools/abstract-pool'
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useContentPolicy } from './ContentPolicyProvider'
 import { useMuteList } from './MuteListProvider'
 import { useNostr } from './NostrProvider'
 import { useUserTrust } from './UserTrustProvider'
-// import { useInterestList } from './InterestListProvider' // No longer needed
-
-type TNotificationContext = {
-  hasNewNotification: boolean
-  getNotificationsSeenAt: () => number
-  isNotificationRead: (id: string) => boolean
-  markNotificationAsRead: (id: string) => void
-}
-
-const NotificationContext = createContext<TNotificationContext | undefined>(undefined)
-
-export const useNotification = () => {
-  const context = useContext(NotificationContext)
-  if (!context) {
-    throw new Error('useNotification must be used within a NotificationProvider')
-  }
-  return context
-}
+import { NotificationContext } from './NotificationContext'
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const { current } = usePrimaryPage()
@@ -76,16 +59,28 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     active
   ])
 
+  // Defer so we don't trigger state updates during the same commit as consumer renders (avoids "Cannot update NotificationList while rendering NotificationProvider")
   useEffect(() => {
-    setNewNotifications([])
-    updateNotificationsSeenAt(!active)
-  }, [active])
+    let t2: ReturnType<typeof setTimeout> | null = null
+    const t = setTimeout(() => {
+      setNewNotifications([])
+      t2 = setTimeout(() => {
+        updateNotificationsSeenAt(!active)
+      }, 0)
+    }, 0)
+    return () => {
+      clearTimeout(t)
+      if (t2 !== null) clearTimeout(t2)
+    }
+  }, [active, updateNotificationsSeenAt])
 
   useEffect(() => {
     if (!pubkey) return
 
-    setNewNotifications([])
-    setReadNotificationIdSet(new Set())
+    const deferredReset = setTimeout(() => {
+      setNewNotifications([])
+      setReadNotificationIdSet(new Set())
+    }, 0)
 
     // Track if component is mounted
     const isMountedRef = { current: true }
@@ -262,6 +257,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     // Cleanup function
     return () => {
+      clearTimeout(deferredReset)
       isMountedRef.current = false
       if (subCloserRef.current) {
         subCloserRef.current.close()
@@ -322,7 +318,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
   }, [filteredNewNotifications])
 
-  const getNotificationsSeenAt = () => {
+  const getNotificationsSeenAt = useCallback(() => {
     if (notificationsSeenAt >= 0) {
       return notificationsSeenAt
     }
@@ -330,25 +326,34 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       return storage.getLastReadNotificationTime(pubkey)
     }
     return 0
-  }
+  }, [notificationsSeenAt, pubkey])
 
-  const isNotificationRead = (notificationId: string): boolean => {
-    return readNotificationIdSet.has(notificationId)
-  }
+  const isNotificationRead = useCallback(
+    (notificationId: string): boolean => readNotificationIdSet.has(notificationId),
+    [readNotificationIdSet]
+  )
 
-  const markNotificationAsRead = (notificationId: string): void => {
+  const markNotificationAsRead = useCallback((notificationId: string) => {
     setReadNotificationIdSet((prev) => new Set([...prev, notificationId]))
-  }
+  }, [])
+
+  const value = useMemo(
+    () => ({
+      hasNewNotification: filteredNewNotifications.length > 0,
+      getNotificationsSeenAt,
+      isNotificationRead,
+      markNotificationAsRead
+    }),
+    [
+      filteredNewNotifications.length,
+      getNotificationsSeenAt,
+      isNotificationRead,
+      markNotificationAsRead
+    ]
+  )
 
   return (
-    <NotificationContext.Provider
-      value={{
-        hasNewNotification: filteredNewNotifications.length > 0,
-        getNotificationsSeenAt,
-        isNotificationRead,
-        markNotificationAsRead
-      }}
-    >
+    <NotificationContext.Provider value={value}>
       {children}
     </NotificationContext.Provider>
   )

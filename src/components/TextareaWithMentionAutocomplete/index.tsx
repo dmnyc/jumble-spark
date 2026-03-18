@@ -64,6 +64,12 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
       setMentionOpen(false)
       return
     }
+    const q = mentionQuery.trim().toLowerCase()
+    if (q === 'nevent' || q === 'naddr' || q.startsWith('nevent') || q.startsWith('naddr')) {
+      setMentionItems([])
+      setMentionOpen(false)
+      return
+    }
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
       client

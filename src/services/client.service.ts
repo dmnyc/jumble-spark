@@ -269,6 +269,19 @@ class ClientService extends EventTarget {
       return relays.length > 0 ? relays : [...FAST_WRITE_RELAY_URLS]
     }
 
+    // Notification seen-at (kind 30078): use only user write relays to avoid paid/slow relays
+    if (event.kind === kinds.Application) {
+      const dTag = event.tags.find((t) => t[0] === 'd')?.[1]
+      if (dTag === 'seen_notifications_at') {
+        const relayList = await this.fetchRelayList(event.pubkey).catch(() => ({ write: [] as string[], read: [] as string[] }))
+        const userWrite = (relayList?.write ?? []).slice(0, 5).map((url) => normalizeUrl(url)).filter(Boolean) as string[]
+        const list = userWrite.length > 0 ? userWrite : [...FAST_WRITE_RELAY_URLS]
+        const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+        const filtered = list.filter((url) => !readOnlySet.has(normalizeUrl(url) || url))
+        return filtered.length > 0 ? filtered : [...FAST_WRITE_RELAY_URLS]
+      }
+    }
+
     let relays: string[]
     if (specifiedRelayUrls?.length) {
       relays = specifiedRelayUrls
