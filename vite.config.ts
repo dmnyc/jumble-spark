@@ -26,6 +26,7 @@ const getAppVersion = () => {
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/',
   define: {
     'import.meta.env.GIT_COMMIT': getGitHash(),
     'import.meta.env.APP_VERSION': getAppVersion()
@@ -57,6 +58,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Use public/manifest.webmanifest and index.html <link> only; avoid duplicate manifest link in build
+      manifest: false,
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,jpg,svg,ico,webmanifest}'],
         globDirectory: 'dist/',
@@ -133,42 +136,6 @@ export default defineConfig({
         // Disable in dev to avoid registerSW.js 404 → index.html returned → SyntaxError (expected expression, got '<')
         enabled: false,
         type: 'module'
-      },
-      manifest: {
-        name: 'Jumble',
-        short_name: 'Jumble',
-        icons: [
-          {
-            src: '/pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any'
-          },
-          {
-            src: '/pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any'
-          },
-          {
-            src: '/pwa-maskable-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'maskable'
-          },
-          {
-            src: '/pwa-maskable-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable'
-          }
-        ],
-        start_url: '/',
-        display: 'standalone',
-        background_color: '#FFFFFF',
-        theme_color: '#FFFFFF',
-        description:
-          'A user-friendly Nostr client focused on relay feed browsing and relay discovery'
       }
     })
   ]
