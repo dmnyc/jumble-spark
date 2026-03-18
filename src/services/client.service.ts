@@ -1536,6 +1536,27 @@ class ClientService extends EventTarget {
     // Replaceable events are not stored in memory; they go to IndexedDB via putReplaceableEvent elsewhere
   }
 
+  /**
+   * Return events from session cache whose kind is in the allowed set and content/tags match the query (case-insensitive).
+   * Used by mention-event-search.service for cache-first event search (nevent/naddr picker).
+   */
+  getSessionEventsMatchingSearch(query: string, limit: number, allowedKinds: number[]): NEvent[] {
+    const q = query.trim().toLowerCase()
+    if (!q || allowedKinds.length === 0) return []
+    const kindSet = new Set(allowedKinds)
+    const out: NEvent[] = []
+    const values = [...this.sessionEventCache.values()]
+    for (const evt of values) {
+      if (out.length >= limit) break
+      if (!kindSet.has(evt.kind)) continue
+      const content = (evt.content ?? '').toLowerCase()
+      const tagsStr = (evt.tags ?? []).flat().join(' ').toLowerCase()
+      if (!content.includes(q) && !tagsStr.includes(q)) continue
+      out.push(evt)
+    }
+    return out
+  }
+
   private async fetchEventById(relayUrls: string[], id: string): Promise<NEvent | undefined> {
     const event = await this.fetchEventFromBigRelaysDataloader.load(id)
     if (event) {

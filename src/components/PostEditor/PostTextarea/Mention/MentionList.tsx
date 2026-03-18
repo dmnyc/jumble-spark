@@ -7,11 +7,14 @@ import { useTranslation } from 'react-i18next'
 import Nip05 from '../../../Nip05'
 import { SimpleUserAvatar } from '../../../UserAvatar'
 import { SimpleUsername } from '../../../Username'
+import type { PickerSearchMode } from '@/services/mention-event-search.service'
 import { NEVENT_NADDR_PICKER_ID } from './constants'
 
+export type MentionListItem = string | { id: string; mode?: PickerSearchMode }
+
 export interface MentionListProps {
-  items: string[]
-  command: (payload: { id: string; label?: string }) => void
+  items: MentionListItem[]
+  command: (payload: { id: string; label?: string; mode?: PickerSearchMode }) => void
   /** When provided, selection is controlled by parent (e.g. for plain textarea @-mentions). */
   selectedIndex?: number
   onSelectIndex?: (index: number) => void
@@ -32,15 +35,22 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
   const selectedIndex = isControlled ? props.selectedIndex! : internalIndex
   const setSelectedIndex = isControlled ? (n: number) => props.onSelectIndex?.(n) : setInternalIndex
 
+  const getItemId = (item: MentionListItem): string =>
+    typeof item === 'string' ? item : item.id
+
+  const getItemMode = (item: MentionListItem): PickerSearchMode | undefined =>
+    typeof item === 'object' && item && 'mode' in item ? item.mode : undefined
+
   const selectItem = (index: number) => {
     const item = items[index]
 
     if (item) {
+      const id = getItemId(item)
       const label =
-        item === NEVENT_NADDR_PICKER_ID
+        id === NEVENT_NADDR_PICKER_ID
           ? t('Search for event or address…')
-          : formatNpub(item)
-      props.command({ id: item, label })
+          : formatNpub(id)
+      props.command({ id, label, mode: getItemMode(item) })
     }
   }
 
@@ -104,21 +114,21 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>((props, ref)
             'cursor-pointer text-start items-center m-1 p-2 outline-none transition-colors [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 rounded-md',
             selectedIndex === index && 'bg-accent text-accent-foreground'
           )}
-          key={item}
+          key={getItemId(item)}
           onClick={() => selectItem(index)}
           onMouseEnter={() => setSelectedIndex(index)}
         >
           <div className="flex gap-2 w-80 items-center truncate pointer-events-none">
-            {item === NEVENT_NADDR_PICKER_ID ? (
+            {getItemId(item) === NEVENT_NADDR_PICKER_ID ? (
               <span className="text-muted-foreground text-sm">
                 {t('Search for event or address…')}
               </span>
             ) : (
               <>
-                <SimpleUserAvatar userId={item} />
+                <SimpleUserAvatar userId={getItemId(item)} />
                 <div className="flex-1 w-0">
-                  <SimpleUsername userId={item} className="font-semibold truncate" />
-                  <Nip05 pubkey={userIdToPubkey(item)} />
+                  <SimpleUsername userId={getItemId(item)} className="font-semibold truncate" />
+                  <Nip05 pubkey={userIdToPubkey(getItemId(item))} />
                 </div>
               </>
             )}

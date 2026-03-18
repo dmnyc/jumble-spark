@@ -226,7 +226,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
               if (isMountedRef.current) {
                 setTimeout(() => {
                   if (isMountedRef.current) {
-                    logger.info('[NotificationProvider] Reconnecting after close...')
+                    logger.debug('[NotificationProvider] Reconnecting after close...')
                     subscribe()
                   }
                 }, 15_000) // Increased from 5s to 15s

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { NodeViewRendererProps, NodeViewWrapper } from '@tiptap/react'
 import { useCallback } from 'react'
 import { NEVENT_NADDR_PICKER_ID } from './constants'
-import { useNeventPicker } from './NeventNaddrPickerDialog'
+import { useNeventPicker } from './useNeventPicker'
 
 export default function MentionNode(props: NodeViewRendererProps & { selected: boolean }) {
   const id = props.node.attrs.id as string

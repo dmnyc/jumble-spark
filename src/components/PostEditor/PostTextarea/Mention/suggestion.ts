@@ -1,4 +1,7 @@
-import client from '@/services/client.service'
+import {
+  searchNpubsForMention,
+  type PickerSearchMode
+} from '@/services/mention-event-search.service'
 import postEditor from '@/services/post-editor.service'
 import type { Editor } from '@tiptap/core'
 import { ReactRenderer } from '@tiptap/react'
@@ -8,6 +11,8 @@ import MentionList, { MentionListHandle, MentionListProps } from './MentionList'
 import { NEVENT_NADDR_PICKER_ID } from './constants'
 
 export { NEVENT_NADDR_PICKER_ID } from './constants'
+
+export type { PickerSearchMode }
 
 const MENTION_EXTENSION_NAME = 'mention'
 const MENTION_CHAR = '@'
@@ -33,11 +38,21 @@ export function extendMentionRangeToEndOfWord(editor: Editor, range: { from: num
 }
 
 const suggestion = {
-  command: ({ editor, range, props }: { editor: Editor; range: { from: number; to: number }; props: { id: string; label?: string } }) => {
+  command: ({
+    editor,
+    range,
+    props
+  }: {
+    editor: Editor
+    range: { from: number; to: number }
+    props: { id: string; label?: string; mode?: PickerSearchMode }
+  }) => {
     if (props.id === NEVENT_NADDR_PICKER_ID) {
       postEditor.closeSuggestionPopup()
       window.dispatchEvent(
-        new CustomEvent(OPEN_NEVENT_PICKER_EVENT, { detail: { editor, range } })
+        new CustomEvent(OPEN_NEVENT_PICKER_EVENT, {
+          detail: { editor, range, initialMode: props.mode ?? 'nevent' }
+        })
       )
       return
     }
@@ -59,9 +74,10 @@ const suggestion = {
   items: async ({ query }: { query: string }) => {
     const q = query.trim().toLowerCase()
     if (q === 'nevent' || q === 'naddr' || q.startsWith('nevent') || q.startsWith('naddr')) {
-      return [NEVENT_NADDR_PICKER_ID]
+      const mode: PickerSearchMode = q === 'naddr' || q.startsWith('naddr') ? 'naddr' : 'nevent'
+      return [{ id: NEVENT_NADDR_PICKER_ID, mode }]
     }
-    const result = await client.searchNpubsForMention(query, 20)
+    const result = await searchNpubsForMention(query, 20)
     return result ?? []
   },
 

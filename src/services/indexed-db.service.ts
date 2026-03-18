@@ -972,6 +972,54 @@ class IndexedDbService {
     })
   }
 
+  /**
+   * Iterate PUBLICATION_EVENTS and return events whose kind is in allowedKinds and content or tags
+   * match the search query (case-insensitive). Used by nevent/naddr picker to show cached events first.
+   */
+  async getCachedEventsForSearch(query: string, limit: number, allowedKinds: number[]): Promise<Event[]> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.PUBLICATION_EVENTS)) {
+      return []
+    }
+    const q = query.trim().toLowerCase()
+    if (!q || allowedKinds.length === 0) return []
+
+    const kindSet = new Set(allowedKinds)
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(StoreNames.PUBLICATION_EVENTS, 'readonly')
+      const store = transaction.objectStore(StoreNames.PUBLICATION_EVENTS)
+      const request = store.openCursor()
+      const results: Event[] = []
+
+      request.onsuccess = () => {
+        const cursor = (request as IDBRequest<IDBCursorWithValue>).result
+        if (!cursor || results.length >= limit) {
+          transaction.commit()
+          resolve(results)
+          return
+        }
+        const item = cursor.value as TValue<Event> | undefined
+        if (item?.value) {
+          const event = item.value as Event
+          if (kindSet.has(event.kind)) {
+            const content = (event.content ?? '').toLowerCase()
+            const tagsStr = (event.tags ?? []).flat().join(' ').toLowerCase()
+            if (content.includes(q) || tagsStr.includes(q)) {
+              results.push(event)
+            }
+          }
+        }
+        cursor.continue()
+      }
+
+      request.onerror = (event) => {
+        transaction.commit()
+        reject(event)
+      }
+    })
+  }
+
   async getPublicationStoreItems(storeName: string): Promise<Array<{ key: string; value: any; addedAt: number; nestedCount?: number }>> {
     // For publication stores, only return master events with nested counts
     await this.initPromise

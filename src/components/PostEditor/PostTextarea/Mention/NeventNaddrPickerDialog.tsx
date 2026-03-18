@@ -1,7 +1,10 @@
 import * as React from 'react'
-import { SEARCHABLE_RELAY_URLS } from '@/constants'
 import { getNoteBech32Id } from '@/lib/event'
 import client from '@/services/client.service'
+import {
+  searchEventsForPicker,
+  type PickerSearchMode
+} from '@/services/mention-event-search.service'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -10,9 +13,8 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { SimpleUsername } from '@/components/Username'
-import { kinds, nip19, type Event as NEvent } from 'nostr-tools'
+import { nip19, type Event as NEvent } from 'nostr-tools'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Search } from 'lucide-react'
@@ -23,14 +25,18 @@ type NeventNaddrPickerDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelect: (nostrLink: string) => void
+  /** When provided, the dialog opens with this tab selected (e.g. from @naddr vs @nevent). */
+  initialMode?: PickerSearchMode
 }
 
 export function NeventNaddrPickerDialog({
   open,
   onOpenChange,
-  onSelect
+  onSelect,
+  initialMode
 }: NeventNaddrPickerDialogProps) {
   const { t } = useTranslation()
+  const [mode, setMode] = useState<PickerSearchMode>(initialMode ?? 'nevent')
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [events, setEvents] = useState<NEvent[]>([])
@@ -41,7 +47,8 @@ export function NeventNaddrPickerDialog({
     setQuery('')
     setDebouncedQuery('')
     setEvents([])
-  }, [open])
+    if (initialMode !== undefined) setMode(initialMode)
+  }, [open, initialMode])
 
   useEffect(() => {
     if (!open) return
@@ -57,8 +64,7 @@ export function NeventNaddrPickerDialog({
     }
     let cancelled = false
     setLoading(true)
-    client
-      .fetchEvents(SEARCHABLE_RELAY_URLS, { kinds: [kinds.ShortTextNote], search: debouncedQuery, limit: 20 }, { eoseTimeout: 5000, globalTimeout: 8000 })
+    searchEventsForPicker(debouncedQuery, 20, mode)
       .then((list) => {
         if (cancelled) return
         setEvents(list.slice(0, 15) as NEvent[])
@@ -69,7 +75,7 @@ export function NeventNaddrPickerDialog({
     return () => {
       cancelled = true
     }
-  }, [open, debouncedQuery])
+  }, [open, debouncedQuery, mode])
 
   const handleSelect = useCallback(
     (event: NEvent) => {
@@ -89,23 +95,45 @@ export function NeventNaddrPickerDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-lg max-h-[80vh] flex flex-col gap-4 z-[10001]"
-        overlayClassName="z-[10001]"
+        className="max-w-lg max-h-[80vh] flex flex-col gap-4 z-[99999]"
+        overlayClassName="z-[99999]"
       >
         <DialogHeader>
           <DialogTitle>{t('Search for event or address…')}</DialogTitle>
         </DialogHeader>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant={mode === 'nevent' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setMode('nevent')}
+          >
+            {t('nevent')}
+          </Button>
+          <Button
+            type="button"
+            variant={mode === 'naddr' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setMode('naddr')}
+          >
+            {t('naddr')}
+          </Button>
+        </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder={t('Search notes…')}
+            placeholder={
+              mode === 'nevent'
+                ? t('Search notes, threads, long-form…')
+                : t('Search calendar, publications, wiki…')
+            }
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="pl-9"
             autoFocus
           />
         </div>
-        <ScrollArea className="flex-1 min-h-[200px] max-h-[40vh] border rounded-md">
+        <div className="min-h-[200px] max-h-[50vh] border rounded-md overflow-y-auto overflow-x-hidden">
           <div className="p-2 space-y-1">
             {loading && (
               <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -113,7 +141,9 @@ export function NeventNaddrPickerDialog({
               </div>
             )}
             {!loading && debouncedQuery && events.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-6">{t('No notes found')}</p>
+              <p className="text-sm text-muted-foreground text-center py-6">
+                {t('No events found')}
+              </p>
             )}
             {!loading &&
               events.map((ev: NEvent) => (
@@ -130,41 +160,44 @@ export function NeventNaddrPickerDialog({
                 </Button>
               ))}
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   )
 }
 
 type NeventPickerContextValue = {
-  openNeventPicker: (onSelected: (nostrLink: string) => void) => void
+  openNeventPicker: (onSelected: (nostrLink: string) => void, initialMode?: PickerSearchMode) => void
 }
 
-const NeventPickerContext = React.createContext<NeventPickerContextValue | null>(null)
-
-export function useNeventPicker(): NeventPickerContextValue | null {
-  return React.useContext(NeventPickerContext)
-}
+export const NeventPickerContext = React.createContext<NeventPickerContextValue | null>(null)
 
 export function NeventPickerProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const [onSelectedRef, setOnSelectedRef] = useState<((link: string) => void) | null>(null)
+  const [initialMode, setInitialMode] = useState<PickerSearchMode>('nevent')
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const { editor, range } = (e as CustomEvent<{ editor: Editor; range: { from: number; to: number } }>).detail
+      const { editor, range, initialMode: detailMode } = (e as CustomEvent<{
+        editor: Editor
+        range: { from: number; to: number }
+        initialMode?: PickerSearchMode
+      }>).detail
       const to = extendMentionRangeToEndOfWord(editor, range)
       setOnSelectedRef(() => (link: string) => {
         editor.chain().focus().insertContentAt({ from: range.from, to }, link + ' ').run()
       })
+      setInitialMode(detailMode ?? 'nevent')
       setOpen(true)
     }
     window.addEventListener(OPEN_NEVENT_PICKER_EVENT, handler)
     return () => window.removeEventListener(OPEN_NEVENT_PICKER_EVENT, handler)
   }, [])
 
-  const openNeventPicker = useCallback((onSelected: (nostrLink: string) => void) => {
+  const openNeventPicker = useCallback((onSelected: (nostrLink: string) => void, mode?: PickerSearchMode) => {
     setOnSelectedRef(() => onSelected)
+    setInitialMode(mode ?? 'nevent')
     setOpen(true)
   }, [])
 
@@ -177,7 +210,10 @@ export function NeventPickerProvider({ children }: { children: React.ReactNode }
   )
 
   const handleOpenChange = useCallback((next: boolean) => {
-    if (!next) setOnSelectedRef(null)
+    if (!next) {
+      setOnSelectedRef(null)
+      setInitialMode('nevent')
+    }
     setOpen(next)
   }, [])
 
@@ -186,7 +222,12 @@ export function NeventPickerProvider({ children }: { children: React.ReactNode }
   return (
     <NeventPickerContext.Provider value={value}>
       {children}
-      <NeventNaddrPickerDialog open={open} onOpenChange={handleOpenChange} onSelect={handleSelect} />
+      <NeventNaddrPickerDialog
+        open={open}
+        onOpenChange={handleOpenChange}
+        onSelect={handleSelect}
+        initialMode={initialMode}
+      />
     </NeventPickerContext.Provider>
   )
 }

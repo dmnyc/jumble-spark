@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Hash, X, Users, Film, Image, Zap, Settings, Book, Eye, Edit3, ChevronDown, Check, ImageUp, Smile } from 'lucide-react'
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { forwardRef, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -30,8 +30,24 @@ import GifPicker from '@/components/GifPicker'
 import EmojiPickerDialog from '@/components/EmojiPickerDialog'
 import Uploader from '@/components/PostEditor/Uploader'
 import { NeventPickerProvider } from '@/components/PostEditor/PostTextarea/Mention/NeventNaddrPickerDialog'
+import { useNeventPicker } from '@/components/PostEditor/PostTextarea/Mention/useNeventPicker'
 import logger from '@/lib/logger'
 import postEditorCache from '@/services/post-editor-cache.service'
+import { MentionAndEventToolbarButtons } from '@/components/PostEditor/PostTextarea/Mention/MentionAndEventToolbarButtons'
+
+/** Wraps the textarea so it receives the nevent/naddr picker from context (must be rendered inside NeventPickerProvider). */
+const ThreadContentTextarea = forwardRef<HTMLTextAreaElement, React.ComponentProps<typeof TextareaWithMentionAutocomplete>>(
+  function ThreadContentTextarea(props, ref) {
+    const neventPicker = useNeventPicker()
+    return (
+      <TextareaWithMentionAutocomplete
+        ref={ref}
+        {...props}
+        onOpenNeventPicker={neventPicker?.openNeventPicker}
+      />
+    )
+  }
+)
 
 // Utility functions for thread creation
 function extractImagesFromContent(content: string): string[] {
@@ -745,8 +761,9 @@ export default function CreateThreadDialog({
                         {t('Insert emoji')}
                       </Button>
                     </EmojiPickerDialog>
+                    <MentionAndEventToolbarButtons insertAtCursor={insertAtCursor} />
                   </div>
-                  <TextareaWithMentionAutocomplete
+                  <ThreadContentTextarea
                     ref={contentTextareaRef}
                     id="content"
                     value={content}

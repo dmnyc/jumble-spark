@@ -61,6 +61,7 @@ import PostOptions from './PostOptions'
 import PostRelaySelector from './PostRelaySelector'
 import PostTextarea, { TPostTextareaHandle } from './PostTextarea'
 import { NeventPickerProvider } from './PostTextarea/Mention/NeventNaddrPickerDialog'
+import { MentionAndEventToolbarButtons } from './PostTextarea/Mention/MentionAndEventToolbarButtons'
 import Uploader from './Uploader'
 import HighlightEditor, { HighlightData } from './HighlightEditor'
 
@@ -2103,7 +2104,6 @@ export default function PostContent({
             </>
           }
         />
-      </NeventPickerProvider>
       {isPoll && (
         <PollEditor
           pollCreateData={pollCreateData}
@@ -2238,6 +2238,10 @@ export default function PostContent({
               </Button>
             </EmojiPickerDialog>
           )}
+          <MentionAndEventToolbarButtons
+            insertAtCursor={(text) => textareaRef.current?.insertText(text)}
+            variant="ghost"
+          />
           <Button
             variant="ghost"
             size="icon"
@@ -2398,6 +2402,7 @@ export default function PostContent({
           </div>
         </DialogContent>
       </Dialog>
+      </NeventPickerProvider>
     </div>
   )
 }

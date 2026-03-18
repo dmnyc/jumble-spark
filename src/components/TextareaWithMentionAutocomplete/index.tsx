@@ -1,9 +1,12 @@
 import { Textarea } from '@/components/ui/textarea'
 import MentionList from '@/components/PostEditor/PostTextarea/Mention/MentionList'
 import { NEVENT_NADDR_PICKER_ID } from '@/components/PostEditor/PostTextarea/Mention/constants'
-import { useNeventPicker } from '@/components/PostEditor/PostTextarea/Mention/NeventNaddrPickerDialog'
+import { useNeventPicker } from '@/components/PostEditor/PostTextarea/Mention/useNeventPicker'
 import { EmojiList } from '@/components/PostEditor/PostTextarea/Emoji/EmojiList'
-import client from '@/services/client.service'
+import {
+  searchNpubsForMention,
+  type PickerSearchMode
+} from '@/services/mention-event-search.service'
 import customEmojiService from '@/services/custom-emoji.service'
 import { searchStandardEmojiShortcodes } from '@/lib/emoji-content'
 import { createPortal } from 'react-dom'
@@ -19,6 +22,8 @@ export type TextareaWithMentionAutocompleteProps = Omit<
 > & {
   value: string
   onChange: (value: string) => void
+  /** When provided, used to open the nevent/naddr picker when user selects that option. Use when context may be unavailable (e.g. modal). */
+  onOpenNeventPicker?: (onSelected: (link: string) => void, initialMode?: PickerSearchMode) => void
 }
 
 /**
@@ -29,6 +34,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
   value,
   onChange,
   onKeyDown,
+  onOpenNeventPicker,
   ...textareaProps
 }, refProp) {
   const [mentionOpen, setMentionOpen] = useState(false)
@@ -96,9 +102,12 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
       const before = value.slice(0, start)
       const after = value.slice(end)
 
-      if (id === NEVENT_NADDR_PICKER_ID && neventPicker) {
+      const openPicker = onOpenNeventPicker ?? neventPicker?.openNeventPicker
+      if (id === NEVENT_NADDR_PICKER_ID && openPicker) {
         closeMention()
-        neventPicker.openNeventPicker((link: string) => {
+        const initialMode: PickerSearchMode =
+          mentionQuery.trim().toLowerCase().startsWith('naddr') ? 'naddr' : 'nevent'
+        openPicker((link: string) => {
           const insert = link + ' '
           onChange(before + insert + after)
           setTimeout(() => {
@@ -106,7 +115,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
             const newPos = start + insert.length
             ta.setSelectionRange(newPos, newPos)
           }, 0)
-        })
+        }, initialMode)
         return
       }
 
@@ -119,7 +128,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
         ta.setSelectionRange(newPos, newPos)
       }, 0)
     },
-    [value, mentionStart, onChange, closeMention, neventPicker, findMentionSegmentEnd]
+    [value, mentionStart, onChange, closeMention, onOpenNeventPicker, neventPicker, findMentionSegmentEnd]
   )
 
   const insertEmoji = useCallback(
@@ -156,8 +165,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
     }
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     searchTimeoutRef.current = setTimeout(() => {
-      client
-        .searchNpubsForMention(mentionQuery.trim(), MENTION_LIMIT)
+      searchNpubsForMention(mentionQuery.trim(), MENTION_LIMIT)
         .then((npubs) => {
           const q = mentionQueryRef.current.trim().toLowerCase()
           if (q === 'nevent' || q === 'naddr' || q.startsWith('nevent') || q.startsWith('naddr')) {
