@@ -747,6 +747,29 @@ export default {
     'REQ returns a feed; COUNT returns a number.':
       'REQ: scrollable feed (choose live Feed or one-shot Fetch below). COUNT: a single number, no feed.',
 
+    listImportManualLabel: 'Pre-fill from event',
+    listImportFromEventHint:
+      'Supported tags are merged into the form (e, p, t, relay, r, a where possible). Non-empty content is skipped; encrypted private items are not read. You may see notices for unmapped tags.',
+    listImportManualPlaceholder: '64-char hex, nevent1…, or naddr1…',
+    listImportLoadManual: 'Apply',
+    listImportContentSkipped:
+      'This event has non-empty content (may include encrypted private items). Only public tags were merged.',
+    listImportUnsupportedEmoji:
+      'This list includes emoji tags (NIP-30); those are not added to the spell filter.',
+    listImportUnsupportedTag:
+      'Tags of type “{{tag}}” ({{count}}) are not mapped to spell filters yet.',
+    listImportBadATag: 'Could not parse address tag: {{preview}}…',
+    listImportATagNotFound: 'Could not resolve address tag: {{preview}}…',
+    listImportATagFailed: 'Failed to resolve address tag: {{preview}}…',
+    listImportEventNotFound: 'No event found for that reference.',
+    'REQ tag filters': 'REQ tag filters',
+    spellTagFiltersHint:
+      'Optional filters on subscribed events (NIP-01 single-letter tags). Example: letter “t”, values “bitcoin”.',
+    spellTagFiltersEmpty: 'No tag filters yet. Add rows below or apply an event reference above.',
+    'Tag filter letter': 'Tag letter',
+    'Filter value': 'Value',
+    'Add tag filter': 'Add tag filter',
+
     Spells: 'Spells',
 
     'doublePane.secondaryEmpty': 'Open a note, profile, or settings item to show it here.',

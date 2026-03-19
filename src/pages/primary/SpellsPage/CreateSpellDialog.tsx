@@ -13,9 +13,16 @@ import {
   spellEventToDraftParams,
   type TSpellDraftParams
 } from '@/lib/draft-event'
+import {
+  applyListEventToSpellDraft,
+  dedupeAppendIds,
+  resolveSpellListATags
+} from '@/lib/spell-list-import'
 import { useNostr } from '@/providers/NostrProvider'
 import { showPublishingError, showSimplePublishSuccess } from '@/lib/publishing-feedback'
+import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
+import { getRelaysForSpellCatalogSync } from '@/services/spell.service'
 import { Minus, Plus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Event as NostrEvent } from 'nostr-tools'
@@ -61,7 +68,8 @@ function DynamicStringListField({
   values,
   onChange,
   placeholder,
-  inputType = 'text'
+  inputType = 'text',
+  showLabel = true
 }: {
   label: string
   hint?: string
@@ -69,6 +77,8 @@ function DynamicStringListField({
   onChange: (next: string[]) => void
   placeholder?: string
   inputType?: 'text' | 'number'
+  /** When false, only the inputs and add/remove controls are rendered (for nested editors). */
+  showLabel?: boolean
 }) {
   const { t } = useTranslation()
   const rows = values.length > 0 ? values : ['']
@@ -96,7 +106,7 @@ function DynamicStringListField({
 
   return (
     <div className="grid gap-2">
-      <Label>{label}</Label>
+      {showLabel && label ? <Label>{label}</Label> : null}
       <div className="flex flex-col gap-2">
         {rows.map((v, i) => (
           <div key={i} className="flex gap-2">
@@ -130,6 +140,99 @@ function DynamicStringListField({
   )
 }
 
+function TagFiltersEditor({
+  tagFilters,
+  onChange
+}: {
+  tagFilters: { letter: string; values: string[] }[]
+  onChange: (next: { letter: string; values: string[] }[]) => void
+}) {
+  const { t } = useTranslation()
+  const addRow = () => onChange([...tagFilters, { letter: '', values: [''] }])
+  const removeRow = (i: number) => {
+    const next = [...tagFilters]
+    next.splice(i, 1)
+    onChange(next)
+  }
+  return (
+    <div className="grid gap-2">
+      <Label>{t('REQ tag filters')}</Label>
+      <p className="text-xs text-muted-foreground">{t('spellTagFiltersHint')}</p>
+      {tagFilters.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{t('spellTagFiltersEmpty')}</p>
+      ) : null}
+      {tagFilters.map((row, i) => (
+        <div key={i} className="flex flex-col gap-2 rounded-md border border-border p-3">
+          <div className="flex items-center gap-2">
+            <Input
+              className="h-9 w-16 font-mono text-sm uppercase"
+              placeholder="t"
+              value={row.letter}
+              maxLength={8}
+              onChange={(e) => {
+                const next = [...tagFilters]
+                next[i] = { ...next[i]!, letter: e.target.value }
+                onChange(next)
+              }}
+              aria-label={t('Tag filter letter')}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              onClick={() => removeRow(i)}
+              title={t('Remove this row')}
+              aria-label={t('Remove this row')}
+            >
+              <Minus className="size-4" />
+            </Button>
+          </div>
+          <DynamicStringListField
+            label=""
+            showLabel={false}
+            values={row.values.length > 0 ? row.values : ['']}
+            onChange={(values) => {
+              const next = [...tagFilters]
+              next[i] = { ...next[i]!, values }
+              onChange(next)
+            }}
+            placeholder={t('Filter value')}
+          />
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="h-9 w-fit gap-1" onClick={addRow}>
+        <Plus className="size-4" />
+        {t('Add tag filter')}
+      </Button>
+    </div>
+  )
+}
+
+function formatListImportNotice(raw: string, t: (k: string, o?: Record<string, unknown>) => string) {
+  if (raw === 'listImportContentSkipped') return t('listImportContentSkipped')
+  if (raw === 'listImportUnsupportedEmoji') return t('listImportUnsupportedEmoji')
+  if (raw.startsWith('listImportUnsupportedTag:')) {
+    const parts = raw.split(':')
+    const tag = parts[1] ?? '?'
+    const count = parts[2] ?? '1'
+    return t('listImportUnsupportedTag', { tag, count })
+  }
+  if (raw.startsWith('listImportBadATag:')) {
+    const preview = raw.slice('listImportBadATag:'.length)
+    return t('listImportBadATag', { preview })
+  }
+  if (raw.startsWith('listImportATagNotFound:')) {
+    const preview = raw.slice('listImportATagNotFound:'.length)
+    return t('listImportATagNotFound', { preview })
+  }
+  if (raw.startsWith('listImportATagFailed:')) {
+    const preview = raw.slice('listImportATagFailed:'.length)
+    return t('listImportATagFailed', { preview })
+  }
+  return raw
+}
+
 export default function CreateSpellDialog({
   open,
   onOpenChange,
@@ -147,10 +250,18 @@ export default function CreateSpellDialog({
   spellToClone?: NostrEvent | null
 }) {
   const { t } = useTranslation()
-  const { pubkey, publish, checkLogin } = useNostr()
+  const { pubkey, publish, checkLogin, relayList } = useNostr()
   const [form, setForm] = useState<TSpellDraftParams>(DEFAULT_PARAMS)
   const [saving, setSaving] = useState(false)
   const scrollBodyRef = useRef<HTMLDivElement>(null)
+  const formRef = useRef<TSpellDraftParams>(DEFAULT_PARAMS)
+  const [listImportNotices, setListImportNotices] = useState<string[]>([])
+  const [manualListRef, setManualListRef] = useState('')
+  const [manualListLoading, setManualListLoading] = useState(false)
+
+  useEffect(() => {
+    formRef.current = form
+  }, [form])
 
   useEffect(() => {
     if (!open) return
@@ -160,7 +271,46 @@ export default function CreateSpellDialog({
     } else {
       setForm({ ...DEFAULT_PARAMS })
     }
+    setListImportNotices([])
+    setManualListRef('')
   }, [open, spellToEdit, spellToClone])
+
+  const applyListSource = useCallback(
+    (ev: NostrEvent) => {
+      const base = formRef.current
+      const { draft, notices, pendingATags } = applyListEventToSpellDraft(base, ev)
+      setForm(draft)
+      setListImportNotices(notices)
+      const urls = getRelaysForSpellCatalogSync(relayList ?? undefined)
+      if (pendingATags.length === 0) return
+      void resolveSpellListATags(pendingATags, urls).then(({ ids, notices: extra }) => {
+        if (ids.length) {
+          setForm((f) => ({ ...f, ids: dedupeAppendIds(f.ids, ids) }))
+        }
+        if (extra.length) setListImportNotices((n) => [...n, ...extra])
+      })
+    },
+    [relayList]
+  )
+
+  const handleLoadManualList = useCallback(async () => {
+    const q = manualListRef.trim()
+    if (!q) return
+    setManualListLoading(true)
+    try {
+      const ev = await client.fetchEvent(q)
+      if (!ev) {
+        setListImportNotices([t('listImportEventNotFound')])
+        return
+      }
+      applyListSource(ev)
+    } catch (e) {
+      logger.warn('[CreateSpellDialog] List import fetch failed', e)
+      setListImportNotices([t('listImportEventNotFound')])
+    } finally {
+      setManualListLoading(false)
+    }
+  }, [manualListRef, applyListSource, t])
 
   const handleScrollBodyKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     const el = scrollBodyRef.current
@@ -186,7 +336,11 @@ export default function CreateSpellDialog({
     }
   }, [])
 
-  const handleClear = () => setForm({ ...DEFAULT_PARAMS })
+  const handleClear = () => {
+    setForm({ ...DEFAULT_PARAMS })
+    setListImportNotices([])
+    setManualListRef('')
+  }
   const handleCancel = () => {
     handleClear()
     onOpenChange(false)
@@ -250,9 +404,7 @@ export default function CreateSpellDialog({
           </DialogHeader>
           <p className="mt-2 text-sm text-muted-foreground">
             {spellToClone
-              ? t(
-                  'This spell is preloaded from someone else’s definition. Adjust anything you like, then save to publish a new spell signed by you.'
-                )
+              ? t('Clone spell intro')
               : t(
                   'Spells are saved relay filters (NIP-A7). Fill in the filter fields below. Use $me for your pubkey and $contacts for your follow list when executing.'
                 )}
@@ -268,6 +420,44 @@ export default function CreateSpellDialog({
           onKeyDown={handleScrollBodyKeyDown}
         >
           <div className="grid gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="spell-list-ref" className="text-sm">
+                {t('listImportManualLabel')}
+              </Label>
+              <p className="text-xs text-muted-foreground">{t('listImportFromEventHint')}</p>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  id="spell-list-ref"
+                  className="min-w-[12rem] flex-1 font-mono text-sm"
+                  placeholder={t('listImportManualPlaceholder')}
+                  value={manualListRef}
+                  onChange={(e) => setManualListRef(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void handleLoadManualList()
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="shrink-0"
+                  disabled={manualListLoading || !manualListRef.trim()}
+                  onClick={() => void handleLoadManualList()}
+                >
+                  {manualListLoading ? t('Loading...') : t('listImportLoadManual')}
+                </Button>
+              </div>
+              {listImportNotices.length > 0 ? (
+                <ul className="list-inside list-disc space-y-1 text-xs text-amber-800 dark:text-amber-200">
+                  {listImportNotices.map((n, i) => (
+                    <li key={`${n}-${i}`}>{formatListImportNotice(n, t)}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+
             <div className="grid gap-2">
               <Label>{t('Command')}</Label>
               <select
@@ -384,6 +574,11 @@ export default function CreateSpellDialog({
               placeholder={t('topic')}
               values={form.topics}
               onChange={(topics) => setForm((f) => ({ ...f, topics }))}
+            />
+
+            <TagFiltersEditor
+              tagFilters={form.tagFilters}
+              onChange={(tagFilters) => setForm((f) => ({ ...f, tagFilters }))}
             />
 
             {form.cmd === 'REQ' ? (

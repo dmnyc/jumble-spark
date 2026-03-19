@@ -712,6 +712,30 @@ export default {
     'Saving…': 'Speichern…',
     Clear: 'Leeren',
 
+    listImportManualLabel: 'Aus Event vorausfüllen',
+    listImportFromEventHint:
+      'Unterstützte Tags werden ins Formular übernommen (e, p, t, relay, r, a wo möglich). Nicht leerer Inhalt wird übersprungen; verschlüsselte private Einträge werden nicht gelesen. Es können Hinweise zu nicht abgebildeten Tags erscheinen.',
+    listImportManualPlaceholder: '64 Zeichen Hex, nevent1… oder naddr1…',
+    listImportLoadManual: 'Anwenden',
+    listImportContentSkipped:
+      'Dieses Event hat nicht leeren Inhalt (evtl. verschlüsselte private Einträge). Es wurden nur öffentliche Tags übernommen.',
+    listImportUnsupportedEmoji:
+      'Diese Liste enthält Emoji-Tags (NIP-30); die werden nicht in den Zauber-Filter übernommen.',
+    listImportUnsupportedTag:
+      'Tags vom Typ „{{tag}}“ ({{count}}) werden noch nicht auf Zauber-Filter abgebildet.',
+    listImportBadATag: 'Adress-Tag nicht lesbar: {{preview}}…',
+    listImportATagNotFound: 'Adress-Tag nicht gefunden: {{preview}}…',
+    listImportATagFailed: 'Adress-Tag konnte nicht aufgelöst werden: {{preview}}…',
+    listImportEventNotFound: 'Kein Event zu dieser Referenz gefunden.',
+    'REQ tag filters': 'REQ-Tag-Filter',
+    spellTagFiltersHint:
+      'Optionale Filter auf abonnierte Events (NIP-01 Ein-Buchstaben-Tags). Beispiel: Buchstabe „t“, Werte „bitcoin“.',
+    spellTagFiltersEmpty:
+      'Noch keine Tag-Filter. Zeilen unten hinzufügen oder oben eine Event-Referenz anwenden.',
+    'Tag filter letter': 'Tag-Buchstabe',
+    'Filter value': 'Wert',
+    'Add tag filter': 'Tag-Filter hinzufügen',
+
     'doublePane.secondaryEmpty':
       'Öffne eine Notiz, ein Profil oder Einstellungen, um sie hier anzuzeigen.',
     'doublePane.secondaryEmptyHint': 'Feed und Hauptseiten bleiben links.'

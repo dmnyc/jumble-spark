@@ -185,7 +185,7 @@ export function getReplaceableCoordinate(kind: number, pubkey: string, d: string
 }
 
 export function getReplaceableCoordinateFromEvent(event: Event) {
-  const d = event.tags.find(tagNameEquals('d'))?.[1]
+  const d = event.tags.find(tagNameEquals('d'))?.[1] ?? ''
   return getReplaceableCoordinate(event.kind, event.pubkey, d)
 }
 
@@ -345,4 +345,27 @@ export function getRetainedEvent(a: Event, b: Event): Event {
     return a
   }
   return b
+}
+
+/**
+ * Collapse replaceable/addressable events to one per NIP-01 coordinate (`kind:pubkey` or `kind:pubkey:d`),
+ * keeping the newest (`created_at`, then lexicographically smallest `id` on ties).
+ * Non-replaceable events are keyed by `id` only.
+ */
+export function dedupeToLatestPerReplaceableCoordinate(events: Event[]): Event[] {
+  const byKey = new Map<string, Event>()
+  for (const e of events) {
+    if (!isReplaceableEvent(e.kind)) {
+      byKey.set(e.id, e)
+      continue
+    }
+    const coord = getReplaceableCoordinateFromEvent(e)
+    const existing = byKey.get(coord)
+    if (!existing) {
+      byKey.set(coord, e)
+      continue
+    }
+    byKey.set(coord, getRetainedEvent(e, existing))
+  }
+  return [...byKey.values()]
 }

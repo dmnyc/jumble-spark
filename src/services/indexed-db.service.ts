@@ -50,7 +50,7 @@ export const StoreNames = {
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 24
+const DB_VERSION = 26
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -136,6 +136,12 @@ class IndexedDbService {
 
       request.onupgradeneeded = (event) => {
           const db = (event.target as IDBOpenDBRequest).result
+          if (
+            event.oldVersion < 26 &&
+            db.objectStoreNames.contains('spellListSourceEvents')
+          ) {
+            db.deleteObjectStore('spellListSourceEvents')
+          }
           if (!db.objectStoreNames.contains(StoreNames.PROFILE_EVENTS)) {
             db.createObjectStore(StoreNames.PROFILE_EVENTS, { keyPath: 'key' })
           }
