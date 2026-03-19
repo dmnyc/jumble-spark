@@ -620,6 +620,8 @@ export default {
     'shortcuts.scrollWhenFocused': 'Den fokussierten scrollbaren Bereich scrollen',
     'shortcuts.browserBack': 'Zurück im Browser (Verlauf)',
 
+    spellPickerSectionYours: 'Deine Zaubersprüche',
+
     Spells: 'Zaubersprüche',
     Tags: 'Tags',
     Close: 'Schließen',

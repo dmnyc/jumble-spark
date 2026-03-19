@@ -783,6 +783,8 @@ export default {
     'Filter value': 'Value',
     'Add tag filter': 'Add tag filter',
 
+    spellPickerSectionYours: 'Your spells',
+
     Spells: 'Spells',
 
     'doublePane.secondaryEmpty': 'Open a note, profile, or settings item to show it here.',

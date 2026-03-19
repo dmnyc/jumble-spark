@@ -12,17 +12,25 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { Separator } from '@/components/ui/separator'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle
+} from '@/components/ui/sheet'
+import UserAvatar from '@/components/UserAvatar'
+import Username from '@/components/Username'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import logger from '@/lib/logger'
+import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import { ExtendedKind } from '@/constants'
+import { formatPubkey } from '@/lib/pubkey'
 import {
   buildSpellCatalogAuthors,
   getRelaysForSpell,
@@ -39,10 +47,103 @@ import { TFeedSubRequest } from '@/types'
 import { Check, ChevronDown, Copy, FileText, MoreVertical, Pencil, Plus, Star, Trash2, Wand2 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { verifyEvent } from 'nostr-tools'
-import { Fragment, forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
 import type { TPageRef } from '@/types'
+
+/** Primary + optional subtitle (npub and/or short id). When grouped under an author header, omit npub. */
+function spellPickerPrimaryAndSecondary(
+  spell: Event,
+  accountPubkey: string | undefined,
+  labelFor: (e: Event) => string,
+  options?: { omitAuthorNpub?: boolean }
+) {
+  const primary = labelFor(spell)
+  const isOwn = !!(accountPubkey && spell.pubkey === accountPubkey)
+  const shortTitle = primary.trim().length < 4
+  const secondaryParts: string[] = []
+  if (!isOwn && !options?.omitAuthorNpub) secondaryParts.push(formatPubkey(spell.pubkey))
+  if (shortTitle) secondaryParts.push(`${spell.id.slice(0, 8)}…`)
+  return {
+    primary,
+    secondary: secondaryParts.length > 0 ? secondaryParts.join(' · ') : null
+  }
+}
+
+function groupSpellsByPubkeySorted(spells: Event[]): { pubkey: string; spells: Event[] }[] {
+  const map = new Map<string, Event[]>()
+  for (const s of spells) {
+    const list = map.get(s.pubkey)
+    if (list) list.push(s)
+    else map.set(s.pubkey, [s])
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) =>
+      getSpellName(a).localeCompare(getSpellName(b), undefined, { sensitivity: 'base' })
+    )
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([pubkey, list]) => ({ pubkey, spells: list }))
+}
+
+function SpellSheetAuthorHeader({ userId }: { userId: string }) {
+  return (
+    <div className="flex items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-2">
+      <UserAvatar userId={userId} size="small" className="shrink-0" />
+      <Username
+        userId={userId}
+        className="min-w-0 text-sm font-semibold"
+        skeletonClassName="h-4 w-28"
+      />
+    </div>
+  )
+}
+
+function SpellSheetOptionRow({
+  spell,
+  selected,
+  accountPubkey,
+  labelFor,
+  onPick,
+  groupedUnderAuthor = false
+}: {
+  spell: Event
+  selected: boolean
+  accountPubkey: string | undefined
+  labelFor: (e: Event) => string
+  onPick: (e: Event) => void
+  /** Author shown in a header above this block — hide npub under each row */
+  groupedUnderAuthor?: boolean
+}) {
+  const { primary, secondary } = spellPickerPrimaryAndSecondary(spell, accountPubkey, labelFor, {
+    omitAuthorNpub: groupedUnderAuthor
+  })
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      className={cn(
+        'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
+        'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        selected && 'bg-accent/50'
+      )}
+      onClick={() => onPick(spell)}
+    >
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        {selected ? <Check className="size-4" aria-hidden /> : null}
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col items-stretch gap-0.5">
+        <span className="truncate text-left text-sm font-medium leading-tight">{primary}</span>
+        {secondary ? (
+          <span className="truncate text-left text-xs text-muted-foreground">{secondary}</span>
+        ) : null}
+      </div>
+    </button>
+  )
+}
 
 const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   const { t } = useTranslation()
@@ -59,6 +160,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   /** True while fetching kind 777 authored by the user from write relays into IndexedDB */
   const [spellsCatalogSyncing, setSpellsCatalogSyncing] = useState(false)
   const spellCatalogCloserRef = useRef<(() => void) | null>(null)
+  const [spellPickerOpen, setSpellPickerOpen] = useState(false)
   /** COUNT spells: per-relay breakdown + distinct total */
   const [spellCount, setSpellCount] = useState<{
     loading: boolean
@@ -383,22 +485,18 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
     }
   }, [spells, pubkey, contacts])
 
+  const followSpellGroups = useMemo(() => groupSpellsByPubkeySorted(followSpells), [followSpells])
+  const otherSpellGroups = useMemo(() => groupSpellsByPubkeySorted(otherSpells), [otherSpells])
+
   const spellMenuLabel = useCallback(
     (spell: Event) => (favoriteIds.has(spell.id) ? `★ ${getSpellName(spell)}` : getSpellName(spell)),
     [favoriteIds]
   )
 
-  const renderSpellMenuItem = useCallback(
-    (spell: Event) => (
-      <DropdownMenuItem onSelect={() => setSelectedSpell(spell)} className="gap-2">
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          {selectedSpell?.id === spell.id ? <Check className="size-4" aria-hidden /> : null}
-        </span>
-        <span className="min-w-0 truncate">{spellMenuLabel(spell)}</span>
-      </DropdownMenuItem>
-    ),
-    [selectedSpell?.id, spellMenuLabel]
-  )
+  const pickSpell = useCallback((spell: Event | null) => {
+    setSelectedSpell(spell)
+    setSpellPickerOpen(false)
+  }, [])
 
   const selectedSpellIsOwn = !!(pubkey && selectedSpell && selectedSpell.pubkey === pubkey)
 
@@ -428,74 +526,132 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
         {/* Spell picker + actions above the feed */}
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                disabled={spellsForSelect.length === 0}
-                className="min-w-0 flex-1 justify-between font-normal sm:max-w-md"
-                title={selectedSpell ? spellMenuLabel(selectedSpell) : undefined}
-              >
-                <span className="truncate">
-                  {selectedSpell ? spellMenuLabel(selectedSpell) : t('Select a spell…')}
-                </span>
-                <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="max-h-[min(24rem,70vh)] w-[var(--radix-dropdown-menu-trigger-width)] min-w-[12rem] overflow-y-auto sm:max-w-md"
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={spellsForSelect.length === 0}
+              className="min-w-0 flex-1 justify-between font-normal sm:max-w-md"
+              title={selectedSpell ? spellMenuLabel(selectedSpell) : undefined}
+              aria-haspopup="dialog"
+              aria-expanded={spellPickerOpen}
+              onClick={() => setSpellPickerOpen(true)}
             >
-              <DropdownMenuItem onSelect={() => setSelectedSpell(null)} className="gap-2">
-                <span className="flex size-4 shrink-0 items-center justify-center">
-                  {!selectedSpell ? <Check className="size-4" aria-hidden /> : null}
-                </span>
-                <span className="truncate">{t('Select a spell…')}</span>
-              </DropdownMenuItem>
-              {(ownSpells.length > 0 || followSpells.length > 0 || otherSpells.length > 0) && (
-                <DropdownMenuSeparator />
-              )}
-              {ownSpells.map((spell) => (
-                <Fragment key={spell.id}>{renderSpellMenuItem(spell)}</Fragment>
-              ))}
-              {ownSpells.length > 0 && (followSpells.length > 0 || otherSpells.length > 0) && (
-                <DropdownMenuSeparator />
-              )}
-              {followSpells.length > 0 ? (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="cursor-default">
-                    {t('Spells from follows', { count: followSpells.length })}
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent
-                    className="max-h-[50vh] min-w-[12rem] overflow-y-auto sm:min-w-[16rem]"
-                    showScrollButtons
+              <span className="truncate">
+                {selectedSpell ? spellMenuLabel(selectedSpell) : t('Select a spell…')}
+              </span>
+              <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
+            </Button>
+
+            <Sheet open={spellPickerOpen} onOpenChange={setSpellPickerOpen}>
+              <SheetContent
+                side="bottom"
+                className="flex max-h-[min(92dvh,40rem)] flex-col gap-0 rounded-t-2xl p-0 sm:max-h-[75vh]"
+              >
+                <SheetHeader className="shrink-0 space-y-0 border-b px-4 py-3 text-left">
+                  <SheetTitle className="text-base">{t('Select a spell…')}</SheetTitle>
+                </SheetHeader>
+
+                <div
+                  className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2"
+                  role="listbox"
+                  aria-label={t('Select a spell…')}
+                >
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={!selectedSpell}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+                      'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      !selectedSpell && 'bg-accent/50'
+                    )}
+                    onClick={() => pickSpell(null)}
                   >
-                    {followSpells.map((spell) => (
-                      <Fragment key={spell.id}>{renderSpellMenuItem(spell)}</Fragment>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              ) : null}
-              {otherSpells.length > 0 && (ownSpells.length > 0 || followSpells.length > 0) ? (
-                <DropdownMenuSeparator />
-              ) : null}
-              {otherSpells.length > 0 ? (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="cursor-default">
-                    {t('Other spells', { count: otherSpells.length })}
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent
-                    className="max-h-[50vh] min-w-[12rem] overflow-y-auto sm:min-w-[16rem]"
-                    showScrollButtons
-                  >
-                    {otherSpells.map((spell) => (
-                      <Fragment key={spell.id}>{renderSpellMenuItem(spell)}</Fragment>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                    <span className="flex size-4 shrink-0 items-center justify-center">
+                      {!selectedSpell ? <Check className="size-4" aria-hidden /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-left font-normal text-muted-foreground">
+                      {t('Select a spell…')}
+                    </span>
+                  </button>
+
+                  {ownSpells.length > 0 ? (
+                    <>
+                      <Separator className="my-2" />
+                      <p className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {t('spellPickerSectionYours')}
+                      </p>
+                      {ownSpells.map((spell) => (
+                        <SpellSheetOptionRow
+                          key={spell.id}
+                          spell={spell}
+                          selected={selectedSpell?.id === spell.id}
+                          accountPubkey={pubkey ?? undefined}
+                          labelFor={spellMenuLabel}
+                          onPick={pickSpell}
+                        />
+                      ))}
+                    </>
+                  ) : null}
+
+                  {followSpells.length > 0 ? (
+                    <>
+                      <Separator className="my-2" />
+                      <p className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {t('Spells from follows', { count: followSpells.length })}
+                      </p>
+                      {followSpellGroups.map(({ pubkey: authorPk, spells: groupSpells }) => (
+                        <div key={authorPk} className="mt-2 overflow-hidden rounded-lg border border-border/60">
+                          <SpellSheetAuthorHeader userId={authorPk} />
+                          <div className="px-0.5 py-0.5">
+                            {groupSpells.map((spell) => (
+                              <SpellSheetOptionRow
+                                key={spell.id}
+                                spell={spell}
+                                selected={selectedSpell?.id === spell.id}
+                                accountPubkey={pubkey ?? undefined}
+                                labelFor={spellMenuLabel}
+                                onPick={pickSpell}
+                                groupedUnderAuthor
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  ) : null}
+
+                  {otherSpells.length > 0 ? (
+                    <>
+                      <Separator className="my-2" />
+                      <p className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {t('Other spells', { count: otherSpells.length })}
+                      </p>
+                      {otherSpellGroups.map(({ pubkey: authorPk, spells: groupSpells }) => (
+                        <div key={authorPk} className="mt-2 overflow-hidden rounded-lg border border-border/60">
+                          <SpellSheetAuthorHeader userId={authorPk} />
+                          <div className="px-0.5 py-0.5">
+                            {groupSpells.map((spell) => (
+                              <SpellSheetOptionRow
+                                key={spell.id}
+                                spell={spell}
+                                selected={selectedSpell?.id === spell.id}
+                                accountPubkey={pubkey ?? undefined}
+                                labelFor={spellMenuLabel}
+                                onPick={pickSpell}
+                                groupedUnderAuthor
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  ) : null}
+                </div>
+              </SheetContent>
+            </Sheet>
+          </>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Button
