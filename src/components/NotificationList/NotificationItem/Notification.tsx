@@ -10,68 +10,48 @@ import client from '@/services/client.service'
 import { cn } from '@/lib/utils'
 import { useSmartNoteNavigation, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
-import { useNotification } from '@/providers/NotificationContext'
 import { useUserPreferences } from '@/providers/UserPreferencesProvider'
 import { NostrEvent } from 'nostr-tools'
-import { useMemo } from 'react'
-import { useTranslation } from 'react-i18next'
 
 export default function Notification({
   icon,
-  notificationId,
   sender,
   sentAt,
   description,
   middle = null,
   targetEvent,
-  isNew = false,
   showStats = false,
   rightAction = null
 }: {
   icon: React.ReactNode
-  notificationId: string
   sender: string
   sentAt: number
   description: string
   middle?: React.ReactNode
   targetEvent?: NostrEvent
-  isNew?: boolean
   showStats?: boolean
   rightAction?: React.ReactNode
 }) {
-  const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigation()
   const { push } = useSecondaryPage()
   const { pubkey } = useNostr()
-  const { isNotificationRead, markNotificationAsRead } = useNotification()
   const { notificationListStyle } = useUserPreferences()
-  const unread = useMemo(
-    () => isNew && !isNotificationRead(notificationId),
-    [isNew, isNotificationRead, notificationId]
-  )
 
   const handleClick = (e: React.MouseEvent) => {
-    // Don't navigate if clicking on interactive elements (buttons, links, etc.)
     const target = e.target as HTMLElement
     if (target.closest('button') || target.closest('[role="button"]') || target.closest('a')) {
       return
     }
-    
-    // Don't navigate if clicking within NoteStats (which contains the ReplyButton)
-    // NoteStats is rendered inside the notification, so we need to check for it
+
     if (target.closest('[data-note-stats]')) {
       return
     }
-    
-    // Don't navigate if a modal/dialog/sheet is currently open
-    // Check for Radix UI dialog/sheet elements in the DOM
-    // Radix UI uses data-radix-dialog-content for the dialog content
+
     const hasOpenModal = document.querySelector('[data-radix-dialog-content][data-state="open"]')
     if (hasOpenModal) {
       return
     }
-    
-    markNotificationAsRead(notificationId)
+
     if (targetEvent) {
       client.addEventToCache(targetEvent)
       navigateToNote(toNote(targetEvent.id))
@@ -91,13 +71,7 @@ export default function Notification({
           {icon}
           {middle}
           {targetEvent && (
-            <ContentPreview
-              className={cn(
-                'truncate flex-1 w-0',
-                unread ? 'font-semibold' : 'text-muted-foreground'
-              )}
-              event={targetEvent}
-            />
+            <ContentPreview className="truncate flex-1 w-0 text-muted-foreground" event={targetEvent} />
           )}
         </div>
         <div className="text-muted-foreground shrink-0">
@@ -126,26 +100,11 @@ export default function Notification({
             />
             <div className="shrink-0 text-muted-foreground text-sm">{description}</div>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
-            {rightAction}
-            {unread && (
-              <button
-                className="m-0.5 size-3 bg-primary rounded-full shrink-0 transition-all hover:ring-4 hover:ring-primary/20"
-                title={t('Mark as read')}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  markNotificationAsRead(notificationId)
-                }}
-              />
-            )}
-          </div>
+          <div className="flex items-center gap-1 shrink-0">{rightAction}</div>
         </div>
         {middle}
         {targetEvent && (
-          <ContentPreview
-            className={cn('line-clamp-2', !unread && 'text-muted-foreground')}
-            event={targetEvent}
-          />
+          <ContentPreview className={cn('line-clamp-2 text-muted-foreground')} event={targetEvent} />
         )}
         <FormattedTimestamp timestamp={sentAt} className="shrink-0 text-muted-foreground text-sm" />
         {showStats && targetEvent && <NoteStats event={targetEvent} className="mt-1" />}

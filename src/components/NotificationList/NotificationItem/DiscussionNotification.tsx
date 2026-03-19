@@ -3,13 +3,7 @@ import { Event } from 'nostr-tools'
 import { useTranslation } from 'react-i18next'
 import Notification from './Notification'
 
-export function DiscussionNotification({
-  notification,
-  isNew = false
-}: {
-  notification: Event
-  isNew?: boolean
-}) {
+export function DiscussionNotification({ notification }: { notification: Event }) {
   const { t } = useTranslation()
 
   // Get the topic from t-tags
@@ -19,13 +13,11 @@ export function DiscussionNotification({
 
   return (
     <Notification
-      notificationId={notification.id}
       sender={notification.pubkey}
       sentAt={notification.created_at}
       description={t('started a discussion in {{topic}}', { topic: topicString })}
       icon={<MessageCircle className="w-4 h-4 text-primary" />}
       targetEvent={notification}
-      isNew={isNew}
       showStats={false}
     />
   )

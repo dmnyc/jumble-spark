@@ -5,13 +5,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import Notification from './Notification'
 
-export function RepostNotification({
-  notification,
-  isNew = false
-}: {
-  notification: Event
-  isNew?: boolean
-}) {
+export function RepostNotification({ notification }: { notification: Event }) {
   const { t } = useTranslation()
   const event = useMemo(() => {
     try {
@@ -28,13 +22,11 @@ export function RepostNotification({
 
   return (
     <Notification
-      notificationId={notification.id}
       icon={<Repeat size={24} className="text-green-400" />}
       sender={notification.pubkey}
       sentAt={notification.created_at}
       targetEvent={event}
       description={t('reposted your note')}
-      isNew={isNew}
     />
   )
 }

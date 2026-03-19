@@ -1,4 +1,4 @@
-import { ApplicationDataKey, EMBEDDED_EVENT_REGEX, ExtendedKind, POLL_TYPE } from '@/constants'
+import { EMBEDDED_EVENT_REGEX, ExtendedKind, POLL_TYPE } from '@/constants'
 import client from '@/services/client.service'
 import customEmojiService from '@/services/custom-emoji.service'
 import mediaUpload from '@/services/media-upload.service'
@@ -733,15 +733,6 @@ export function createBlockedRelaysDraftEvent(blockedRelays: string[]): TDraftEv
     kind: ExtendedKind.BLOCKED_RELAYS,
     content: '',
     tags,
-    created_at: dayjs().unix()
-  }
-}
-
-export function createSeenNotificationsAtDraftEvent(): TDraftEvent {
-  return {
-    kind: kinds.Application,
-    content: 'Records read time to sync notification status across devices.',
-    tags: [buildDTag(ApplicationDataKey.NOTIFICATIONS_SEEN_AT)],
     created_at: dayjs().unix()
   }
 }

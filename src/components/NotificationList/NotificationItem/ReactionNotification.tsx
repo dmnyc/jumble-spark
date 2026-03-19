@@ -8,13 +8,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import Notification from './Notification'
 
-export function ReactionNotification({
-  notification,
-  isNew = false
-}: {
-  notification: Event
-  isNew?: boolean
-}) {
+export function ReactionNotification({ notification }: { notification: Event }) {
   const { t } = useTranslation()
   const { pubkey } = useNostr()
   const eventId = useMemo(() => {
@@ -56,13 +50,11 @@ export function ReactionNotification({
 
   return (
     <Notification
-      notificationId={notification.id}
       icon={<div className="text-xl min-w-6 text-center">{reaction}</div>}
       sender={notification.pubkey}
       sentAt={notification.created_at}
       targetEvent={event}
       description={t('reacted to your note')}
-      isNew={isNew}
     />
   )
 }

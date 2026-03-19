@@ -7,13 +7,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import Notification from './Notification'
 
-export function ZapNotification({
-  notification,
-  isNew = false
-}: {
-  notification: Event
-  isNew?: boolean
-}) {
+export function ZapNotification({ notification }: { notification: Event }) {
   const { t } = useTranslation()
   const { senderPubkey, eventId, amount, comment } = useMemo(
     () => getZapInfoFromEvent(notification) ?? ({} as any),
@@ -25,7 +19,6 @@ export function ZapNotification({
 
   return (
     <Notification
-      notificationId={notification.id}
       icon={<Zap size={24} className="text-yellow-400 shrink-0" />}
       sender={senderPubkey}
       sentAt={notification.created_at}
@@ -36,7 +29,6 @@ export function ZapNotification({
         </div>
       }
       description={event ? t('zapped your note') : t('zapped you')}
-      isNew={isNew}
     />
   )
 }

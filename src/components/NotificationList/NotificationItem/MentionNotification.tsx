@@ -11,13 +11,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import Notification from './Notification'
 
-export function MentionNotification({
-  notification,
-  isNew = false
-}: {
-  notification: Event
-  isNew?: boolean
-}) {
+export function MentionNotification({ notification }: { notification: Event }) {
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigation()
   const { pubkey } = useNostr()
@@ -31,7 +25,6 @@ export function MentionNotification({
 
   return (
     <Notification
-      notificationId={notification.id}
       icon={
         isMention ? (
           <AtSign size={24} className="text-pink-400" />
@@ -60,7 +53,6 @@ export function MentionNotification({
       description={
         isMention ? t('mentioned you in a note') : parentEventId ? '' : t('quoted your note')
       }
-      isNew={isNew}
       showStats
     />
   )

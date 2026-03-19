@@ -6,13 +6,7 @@ import { useMemo } from 'react'
 import Notification from './Notification'
 import { useTranslation } from 'react-i18next'
 
-export function PollResponseNotification({
-  notification,
-  isNew = false
-}: {
-  notification: Event
-  isNew?: boolean
-}) {
+export function PollResponseNotification({ notification }: { notification: Event }) {
   const { t } = useTranslation()
   const eventId = useMemo(() => {
     const eTag = notification.tags.find(tagNameEquals('e'))
@@ -26,13 +20,11 @@ export function PollResponseNotification({
 
   return (
     <Notification
-      notificationId={notification.id}
       icon={<Vote size={24} className="text-violet-400" />}
       sender={notification.pubkey}
       sentAt={notification.created_at}
       targetEvent={pollEvent}
       description={t('voted in your poll')}
-      isNew={isNew}
     />
   )
 }

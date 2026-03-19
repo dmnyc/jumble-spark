@@ -28,11 +28,12 @@ setVh()
 const SESSION_STORAGE_KEY = 'jumble:session'
 
 async function bootstrap() {
+  // Always defined: fetch does not throw on 4xx/5xx, so non-OK responses must not leave this unset.
+  window.__RUNTIME_CONFIG__ = {}
   try {
     const r = await fetch('/config.json')
     if (r.ok) {
-      const config = (await r.json()) as { NIP66_MONITOR_NPUB?: string }
-      window.__RUNTIME_CONFIG__ = config
+      window.__RUNTIME_CONFIG__ = (await r.json()) as { NIP66_MONITOR_NPUB?: string }
     }
   } catch {
     window.__RUNTIME_CONFIG__ = {}

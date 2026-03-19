@@ -14,13 +14,7 @@ import { ReactionNotification } from './ReactionNotification'
 import { RepostNotification } from './RepostNotification'
 import { ZapNotification } from './ZapNotification'
 
-export function NotificationItem({
-  notification,
-  isNew = false
-}: {
-  notification: Event
-  isNew?: boolean
-}) {
+export function NotificationItem({ notification }: { notification: Event }) {
   const { pubkey } = useNostr()
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
@@ -33,8 +27,7 @@ export function NotificationItem({
       hideUntrustedNotifications,
       isUserTrusted
     })
-    
-    
+
     return result
   }, [
     notification,
@@ -46,13 +39,13 @@ export function NotificationItem({
   if (!canShow) return null
 
   if (notification.kind === 11) {
-    return <DiscussionNotification notification={notification} isNew={isNew} />
+    return <DiscussionNotification notification={notification} />
   }
   if (notification.kind === kinds.Reaction) {
-    return <ReactionNotification notification={notification} isNew={isNew} />
+    return <ReactionNotification notification={notification} />
   }
   if (notification.kind === ExtendedKind.PUBLIC_MESSAGE) {
-    return <PublicMessageNotification notification={notification} isNew={isNew} />
+    return <PublicMessageNotification notification={notification} />
   }
   if (
     notification.kind === kinds.ShortTextNote ||
@@ -60,16 +53,16 @@ export function NotificationItem({
     notification.kind === ExtendedKind.VOICE_COMMENT ||
     notification.kind === ExtendedKind.POLL
   ) {
-    return <MentionNotification notification={notification} isNew={isNew} />
+    return <MentionNotification notification={notification} />
   }
   if (notification.kind === kinds.Repost) {
-    return <RepostNotification notification={notification} isNew={isNew} />
+    return <RepostNotification notification={notification} />
   }
   if (notification.kind === kinds.Zap) {
-    return <ZapNotification notification={notification} isNew={isNew} />
+    return <ZapNotification notification={notification} />
   }
   if (notification.kind === ExtendedKind.POLL_RESPONSE) {
-    return <PollResponseNotification notification={notification} isNew={isNew} />
+    return <PollResponseNotification notification={notification} />
   }
   return null
 }

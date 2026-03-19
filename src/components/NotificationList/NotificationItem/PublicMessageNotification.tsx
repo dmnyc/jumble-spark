@@ -5,13 +5,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import Notification from './Notification'
 
-export function PublicMessageNotification({
-  notification,
-  isNew = false
-}: {
-  notification: Event
-  isNew?: boolean
-}) {
+export function PublicMessageNotification({ notification }: { notification: Event }) {
   const { t } = useTranslation()
   const { pubkey } = useNostr()
   
@@ -43,13 +37,11 @@ export function PublicMessageNotification({
 
   return (
     <Notification
-      notificationId={notification.id}
       icon={<MessageCircle size={24} className="text-purple-400" />}
       sender={notification.pubkey}
       sentAt={notification.created_at}
       targetEvent={notification}
       description={description}
-      isNew={isNew}
       showStats
     />
   )

@@ -38,7 +38,6 @@ export const StorageKey = {
   DEFAULT_ZAP_COMMENT: 'defaultZapComment',
   QUICK_ZAP: 'quickZap',
   ZAP_REPLY_THRESHOLD: 'zapReplyThreshold',
-  LAST_READ_NOTIFICATION_TIME_MAP: 'lastReadNotificationTimeMap',
   ACCOUNT_FEED_INFO_MAP: 'accountFeedInfoMap',
   AUTOPLAY: 'autoplay',
   HIDE_UNTRUSTED_INTERACTIONS: 'hideUntrustedInteractions',
@@ -84,10 +83,6 @@ export const FONT_SIZE = {
   MEDIUM: 'medium',
   LARGE: 'large'
 } as const
-
-export const ApplicationDataKey = {
-  NOTIFICATIONS_SEEN_AT: 'seen_notifications_at'
-}
 
 export const BIG_RELAY_URLS = [
   'wss://theforest.nostr1.com',

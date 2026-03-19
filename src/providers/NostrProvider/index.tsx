@@ -1,19 +1,14 @@
 import LoginDialog from '@/components/LoginDialog'
-import { ApplicationDataKey, BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS } from '@/constants'
+import { BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS } from '@/constants'
 import {
   buildAltTag,
   buildClientTag,
   createDeletionRequestDraftEvent,
   createFollowListDraftEvent,
   createMuteListDraftEvent,
-  createRelayListDraftEvent,
-  createSeenNotificationsAtDraftEvent
+  createRelayListDraftEvent
 } from '@/lib/draft-event'
-import {
-  getLatestEvent,
-  getReplaceableEventIdentifier,
-  minePow
-} from '@/lib/event'
+import { getLatestEvent, minePow } from '@/lib/event'
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
@@ -63,7 +58,6 @@ type TNostrContext = {
   blockedRelaysEvent: Event | null
   userEmojiListEvent: Event | null
   rssFeedListEvent: Event | null
-  notificationsSeenAt: number
   account: TAccountPointer | null
   accounts: TAccountPointer[]
   nsec: string | null
@@ -97,12 +91,9 @@ type TNostrContext = {
   updateFavoriteRelaysEvent: (favoriteRelaysEvent: Event) => Promise<void>
   updateBlockedRelaysEvent: (blockedRelaysEvent: Event) => Promise<void>
   updateRssFeedListEvent: (rssFeedListEvent: Event) => Promise<void>
-  updateNotificationsSeenAt: (skipPublish?: boolean) => Promise<void>
 }
 
 const NostrContext = createContext<TNostrContext | undefined>(undefined)
-
-const lastPublishedSeenNotificationsAtEventAtMap = new Map<string, number>()
 
 export const useNostr = () => {
   const context = useContext(NostrContext)
@@ -172,7 +163,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   const [blockedRelaysEvent, setBlockedRelaysEvent] = useState<Event | null>(null)
   const [userEmojiListEvent, setUserEmojiListEvent] = useState<Event | null>(null)
   const [rssFeedListEvent, setRssFeedListEvent] = useState<Event | null>(null)
-  const [notificationsSeenAt, setNotificationsSeenAt] = useState(-1)
   const [isInitialized, setIsInitialized] = useState(false)
 
   useEffect(() => {
@@ -215,7 +205,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       setMuteListEvent(null)
       setBookmarkListEvent(null)
       setRssFeedListEvent(null)
-      setNotificationsSeenAt(-1)
       if (!account) {
         return
       }
@@ -233,8 +222,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       } else {
         setNcryptsec(null)
       }
-
-      const storedNotificationsSeenAt = storage.getLastReadNotificationTime(account.pubkey)
 
       const [
         storedRelayListEvent,
@@ -434,11 +421,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
             kinds.UserEmojiList
           ],
           authors: [account.pubkey]
-        },
-        {
-          kinds: [kinds.Application],
-          authors: [account.pubkey],
-          '#d': [ApplicationDataKey.NOTIFICATIONS_SEEN_AT]
         }
       ])
       const sortedEvents = events.sort((a, b) => b.created_at - a.created_at)
@@ -453,11 +435,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         (e) => e.kind === ExtendedKind.BLOSSOM_SERVER_LIST
       )
       const userEmojiListEvent = sortedEvents.find((e) => e.kind === kinds.UserEmojiList)
-      const notificationsSeenAtEvent = sortedEvents.find(
-        (e) =>
-          e.kind === kinds.Application &&
-          getReplaceableEventIdentifier(e) === ApplicationDataKey.NOTIFICATIONS_SEEN_AT
-      )
       if (profileEvent) {
         const updatedProfileEvent = await indexedDb.putReplaceableEvent(profileEvent)
         if (updatedProfileEvent.id === profileEvent.id) {
@@ -533,13 +510,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
           setUserEmojiListEvent(updatedUserEmojiListEvent)
         }
       }
-
-      const notificationsSeenAt = Math.max(
-        notificationsSeenAtEvent?.created_at ?? 0,
-        storedNotificationsSeenAt
-      )
-      setNotificationsSeenAt(notificationsSeenAt)
-      storage.setLastReadNotificationTime(account.pubkey, notificationsSeenAt)
 
       client.initUserIndexFromFollowings(account.pubkey, controller.signal)
       return controller
@@ -1123,37 +1093,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     setRssFeedListEvent(newRssFeedListEvent)
   }
 
-  /** Updates local “last read” time and optionally publishes kind 30078 (notification seen-at) for cross-device sync.
-   *  Relay list: user’s write relays (first 5) or FAST_WRITE_RELAY_URLS; read-only relays are excluded (see client.determineTargetRelays for kind 30078). */
-  const updateNotificationsSeenAt = async (skipPublish = false) => {
-    if (!account) return
-
-    const now = dayjs().unix()
-    storage.setLastReadNotificationTime(account.pubkey, now)
-    setTimeout(() => {
-      setNotificationsSeenAt(now)
-    }, 5_000)
-
-    // Prevent too frequent requests for signing seen notifications events
-    const lastPublishedSeenNotificationsAtEventAt =
-      lastPublishedSeenNotificationsAtEventAtMap.get(account.pubkey) ?? -1
-    if (
-      !skipPublish &&
-      (lastPublishedSeenNotificationsAtEventAt < 0 ||
-        now - lastPublishedSeenNotificationsAtEventAt > 10 * 60) // 10 minutes
-    ) {
-      try {
-        await publish(createSeenNotificationsAtDraftEvent())
-        lastPublishedSeenNotificationsAtEventAtMap.set(account.pubkey, now)
-      } catch (err) {
-        // Notification seen-at sync is best-effort; local state already updated above
-        logger.warn('[updateNotificationsSeenAt] Publish failed (sync across devices may be delayed)', {
-          error: err instanceof Error ? err.message : String(err)
-        })
-      }
-    }
-  }
-
   return (
     <NostrContext.Provider
       value={{
@@ -1171,7 +1110,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         blockedRelaysEvent,
         userEmojiListEvent,
         rssFeedListEvent,
-        notificationsSeenAt,
         account,
         accounts,
         nsec,
@@ -1201,8 +1139,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         updateInterestListEvent,
         updateFavoriteRelaysEvent,
         updateBlockedRelaysEvent,
-        updateRssFeedListEvent,
-        updateNotificationsSeenAt
+        updateRssFeedListEvent
       }}
     >
       {children}

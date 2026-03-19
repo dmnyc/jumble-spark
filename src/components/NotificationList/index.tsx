@@ -3,7 +3,6 @@ import { compareEvents } from '@/lib/event'
 import logger from '@/lib/logger'
 import { usePrimaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
-import { useNotification } from '@/providers/NotificationContext'
 import { useUserPreferences } from '@/providers/UserPreferencesProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import client from '@/services/client.service'
@@ -41,10 +40,8 @@ const NotificationList = forwardRef(
   const { current, display } = usePrimaryPage()
   const active = useMemo(() => current === 'notifications' && display, [current, display])
   const { pubkey, relayList } = useNostr()
-  const { getNotificationsSeenAt } = useNotification()
   const { notificationListStyle } = useUserPreferences()
   const { favoriteRelays } = useFavoriteRelays()
-  const [lastReadTime, setLastReadTime] = useState(0)
   const [refreshCount, setRefreshCount] = useState(0)
   const [timelineKey, setTimelineKey] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(true)
@@ -132,7 +129,6 @@ const NotificationList = forwardRef(
       setLoading(true)
       setNotifications([])
       setShowCount(SHOW_COUNT)
-      setLastReadTime(getNotificationsSeenAt())
       // Use proper fallback hierarchy: user's read/inbox relays → favorite relays → fast read relays
       const userRelayList = relayList || { read: [], write: [] }
       const userReadRelays = userRelayList.read || []
@@ -295,11 +291,7 @@ const NotificationList = forwardRef(
   const list = (
     <div className={notificationListStyle === NOTIFICATION_LIST_STYLE.COMPACT ? 'pt-2' : ''}>
       {visibleNotifications.map((notification) => (
-        <NotificationItem
-          key={notification.id}
-          notification={notification}
-          isNew={notification.created_at > lastReadTime}
-        />
+        <NotificationItem key={notification.id} notification={notification} />
       ))}
       <div className="text-center text-sm text-muted-foreground">
         {until || loading ? (

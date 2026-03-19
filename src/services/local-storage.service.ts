@@ -38,7 +38,6 @@ const SETTINGS_KEYS = [
   StorageKey.DEFAULT_ZAP_COMMENT,
   StorageKey.QUICK_ZAP,
   StorageKey.ZAP_REPLY_THRESHOLD,
-  StorageKey.LAST_READ_NOTIFICATION_TIME_MAP,
   StorageKey.ACCOUNT_FEED_INFO_MAP,
   StorageKey.AUTOPLAY,
   StorageKey.HIDE_UNTRUSTED_INTERACTIONS,
@@ -79,7 +78,6 @@ class LocalStorageService {
   private accounts: TAccount[] = []
   private currentAccount: TAccount | null = null
   private noteListMode: TNoteListMode = 'posts'
-  private lastReadNotificationTimeMap: Record<string, number> = {}
   private defaultZapSats: number = 21
   private defaultZapComment: string = 'Zap!'
   private quickZap: boolean = false
@@ -138,10 +136,6 @@ class LocalStorageService {
       noteListModeStr && ['posts', 'postsAndReplies', 'pictures'].includes(noteListModeStr)
         ? (noteListModeStr as TNoteListMode)
         : 'posts'
-    const lastReadNotificationTimeMapStr =
-      window.localStorage.getItem(StorageKey.LAST_READ_NOTIFICATION_TIME_MAP) ?? '{}'
-    this.lastReadNotificationTimeMap = JSON.parse(lastReadNotificationTimeMapStr)
-
     const relaySetsStr = window.localStorage.getItem(StorageKey.RELAY_SETS)
     if (!relaySetsStr) {
       let relaySets: TRelaySet[] = []
@@ -462,8 +456,6 @@ class LocalStorageService {
     if (accountsStr != null) this.accounts = JSON.parse(accountsStr) as TAccount[]
     const currentAccountStr = get(StorageKey.CURRENT_ACCOUNT)
     if (currentAccountStr != null) this.currentAccount = JSON.parse(currentAccountStr) as TAccount | null
-    const lastReadStr = get(StorageKey.LAST_READ_NOTIFICATION_TIME_MAP)
-    if (lastReadStr != null) this.lastReadNotificationTimeMap = JSON.parse(lastReadStr) as Record<string, number>
     const relaySetsStr = get(StorageKey.RELAY_SETS)
     if (relaySetsStr != null) this.relaySets = JSON.parse(relaySetsStr) as TRelaySet[]
     const defaultZapSatsStr = get(StorageKey.DEFAULT_ZAP_SATS)
@@ -674,18 +666,6 @@ class LocalStorageService {
   setZapReplyThreshold(sats: number) {
     this.zapReplyThreshold = sats
     this.persistSetting(StorageKey.ZAP_REPLY_THRESHOLD, sats.toString())
-  }
-
-  getLastReadNotificationTime(pubkey: string) {
-    return this.lastReadNotificationTimeMap[pubkey] ?? 0
-  }
-
-  setLastReadNotificationTime(pubkey: string, time: number) {
-    this.lastReadNotificationTimeMap[pubkey] = time
-    this.persistSetting(
-      StorageKey.LAST_READ_NOTIFICATION_TIME_MAP,
-      JSON.stringify(this.lastReadNotificationTimeMap)
-    )
   }
 
   getFeedInfo(pubkey: string) {
