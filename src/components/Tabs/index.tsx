@@ -24,7 +24,7 @@ export default function Tabs({
 }) {
   const { t } = useTranslation()
   const { deepBrowsing, lastScrollTop } = useDeepBrowsing()
-  const tabRefs = useRef<(HTMLDivElement | null)[]>([])
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
   const containerRef = useRef<HTMLDivElement | null>(null)
   const tabsContainerRef = useRef<HTMLDivElement | null>(null)
   const [indicatorStyle, setIndicatorStyle] = useState({ width: 0, left: 0, top: 0 })
@@ -129,13 +129,24 @@ export default function Tabs({
       )}
     >
       <div className="flex-1 w-0 min-w-0">
-        <div ref={tabsContainerRef} className="flex relative gap-1 overflow-x-auto scrollbar-hide">
+        <div
+          ref={tabsContainerRef}
+          role="tablist"
+          className="flex relative gap-1 overflow-x-auto scrollbar-hide"
+        >
           {tabs.map((tab, index) => (
-            <div
+            <button
               key={tab.value}
-              ref={(el) => (tabRefs.current[index] = el)}
+              type="button"
+              role="tab"
+              aria-selected={value === tab.value}
+              ref={(el) => {
+                tabRefs.current[index] = el
+              }}
               className={cn(
-                `text-center py-2 px-2 sm:px-4 md:px-6 font-semibold whitespace-nowrap clickable cursor-pointer rounded-lg text-xs sm:text-sm md:text-base shrink-0 flex items-center gap-2 justify-center`,
+                'text-center py-2 px-2 sm:px-4 md:px-6 font-semibold whitespace-nowrap rounded-lg text-xs sm:text-sm md:text-base shrink-0 flex items-center gap-2 justify-center',
+                'bg-transparent border-0 shadow-none cursor-pointer transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                 value === tab.value ? '' : 'text-muted-foreground'
               )}
               onClick={() => {
@@ -144,7 +155,7 @@ export default function Tabs({
             >
               {tab.icon && <span className="shrink-0">{tab.icon}</span>}
               {t(tab.label)}
-            </div>
+            </button>
           ))}
           <div
             className="absolute h-1 bg-primary rounded-full transition-all duration-500"

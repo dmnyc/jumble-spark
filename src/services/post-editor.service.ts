@@ -17,6 +17,11 @@ class PostEditorService extends EventTarget {
       this.dispatchEvent(new CustomEvent('closeSuggestionPopup'))
     }
   }
+
+  /** Opens the main “new note” composer (same as sidebar / write button). Listeners run login check. */
+  requestOpenNewPost() {
+    this.dispatchEvent(new CustomEvent('requestOpenNewPost'))
+  }
 }
 
 const instance = new PostEditorService()

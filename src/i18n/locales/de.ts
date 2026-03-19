@@ -596,6 +596,28 @@ export default {
     Connect: 'Verbinden',
     'Set up your wallet to send and receive sats!':
       'Richte deine Wallet ein, um Sats zu senden und zu empfangen!',
-    'Set up': 'Einrichten'
+    'Set up': 'Einrichten',
+
+    'shortcuts.title': 'Tastenkürzel',
+    'shortcuts.intro':
+      'Kürzel für diese App und übliche Bedienung. Kombinationen: Umschalt+Alt+Taste (unter macOS: Umschalt+Wahltaste); die Reihenfolge der Modifier beim Drücken ist egal.',
+    'shortcuts.sectionApp': 'Diese App',
+    'shortcuts.sectionSearch': 'Suchleiste',
+    'shortcuts.sectionStandard': 'Standard',
+    'shortcuts.openHelp': 'Diese Hilfe anzeigen',
+    'shortcuts.or': 'oder',
+    'shortcuts.then': 'dann',
+    'shortcuts.focusPrimary':
+      'Hauptspalte zum Scrollen fokussieren (Desktop; danach Pfeiltasten, Bild auf/ab, Pos1/Ende)',
+    'shortcuts.focusSecondary':
+      'Seitenleiste/Panel zum Scrollen fokussieren, wenn geöffnet (Desktop; gleiche Tasten)',
+    'shortcuts.newNote': 'Neue Notiz / Beitrag (ggf. zuerst anmelden)',
+    'shortcuts.searchSuggest': 'In den Vorschlägen bewegen',
+    'shortcuts.searchDismiss': 'Such-Dropdown schließen',
+    'shortcuts.tabNavigate': 'Fokus zum nächsten oder vorherigen Steuerelement',
+    'shortcuts.activate': 'Schaltflächen und viele Steuerelemente auslösen',
+    'shortcuts.closeOverlays': 'Dialoge, Menüs und Such-Dropdown schließen',
+    'shortcuts.scrollWhenFocused': 'Den fokussierten scrollbaren Bereich scrollen',
+    'shortcuts.browserBack': 'Zurück im Browser (Verlauf)'
   }
 }

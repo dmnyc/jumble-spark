@@ -1,6 +1,11 @@
 import ScrollToTopButton from '@/components/ScrollToTopButton'
 import { Titlebar } from '@/components/Titlebar'
 import { Button } from '@/components/ui/button'
+import {
+  FOCUS_SECONDARY_SCROLL_SHORTCUT_KEY,
+  isRadixDialogOpen,
+  shouldIgnoreKeyboardShortcutEvent
+} from '@/lib/keyboard-shortcuts'
 import { useSecondaryPage } from '@/PageManager'
 import { DeepBrowsingProvider } from '@/providers/DeepBrowsingProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -57,6 +62,24 @@ const SecondaryPageLayout = forwardRef(
       }
     }, [])
 
+    useEffect(() => {
+      if (isSmallScreen) return
+      if (currentIndex !== index) return
+
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (!e.altKey || !e.shiftKey || e.key.toLowerCase() !== FOCUS_SECONDARY_SCROLL_SHORTCUT_KEY) return
+        if (e.metaKey || e.ctrlKey) return
+        if (shouldIgnoreKeyboardShortcutEvent(e.target)) return
+        if (isRadixDialogOpen()) return
+
+        e.preventDefault()
+        scrollAreaRef.current?.focus({ preventScroll: true })
+      }
+
+      document.addEventListener('keydown', onKeyDown)
+      return () => document.removeEventListener('keydown', onKeyDown)
+    }, [isSmallScreen, currentIndex, index])
+
     if (isSmallScreen) {
       return (
         <DeepBrowsingProvider active={currentIndex === index}>
@@ -107,7 +130,11 @@ const SecondaryPageLayout = forwardRef(
               />
             </>
           )}
-          <div className="flex-1" ref={scrollAreaRef}>
+          <div
+            ref={scrollAreaRef}
+            tabIndex={-1}
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+          >
             {children}
             <div className="h-4" />
           </div>

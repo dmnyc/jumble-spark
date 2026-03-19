@@ -2,6 +2,7 @@ import Icon from '@/assets/Icon'
 import Logo from '@/assets/Logo'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import AccountButton from './AccountButton'
+import KeyboardShortcutsHelpSidebarButton from './KeyboardShortcutsHelpSidebarButton'
 import DiscussionsButton from './DiscussionsButton'
 import RelaysButton from './ExploreButton'
 import HomeButton from './HomeButton'
@@ -44,6 +45,7 @@ export default function PrimaryPageSidebar() {
         <PostButton />
       </div>
       <div className="space-y-2">
+        <KeyboardShortcutsHelpSidebarButton />
         <AccountButton />
         <PaneModeToggle />
       </div>

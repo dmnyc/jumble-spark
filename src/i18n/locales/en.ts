@@ -677,6 +677,28 @@ export default {
     'Showing {{filtered}} of {{total}} items': 'Showing {{filtered}} of {{total}} items',
     'Full': 'Full',
     'Compact': 'Compact',
-    'Expand': 'Expand'
+    'Expand': 'Expand',
+
+    'shortcuts.title': 'Keyboard shortcuts',
+    'shortcuts.intro':
+      'Shortcuts for this app and common browsing. Modifier combos are Shift+Alt+key (Option+Shift+key on macOS); either modifier order works when typing.',
+    'shortcuts.sectionApp': 'This app',
+    'shortcuts.sectionSearch': 'Search bar',
+    'shortcuts.sectionStandard': 'Standard',
+    'shortcuts.openHelp': 'Show this help',
+    'shortcuts.or': 'or',
+    'shortcuts.then': 'then',
+    'shortcuts.focusPrimary':
+      'Focus main column scroll (desktop; then arrow keys, Page Up/Down, Home/End)',
+    'shortcuts.focusSecondary':
+      'Focus side panel scroll when it is open (desktop; same keys to scroll)',
+    'shortcuts.newNote': 'New note / post (after login if needed)',
+    'shortcuts.searchSuggest': 'Move through suggestions',
+    'shortcuts.searchDismiss': 'Close search dropdown',
+    'shortcuts.tabNavigate': 'Move focus to the next or previous control',
+    'shortcuts.activate': 'Activate buttons and many controls',
+    'shortcuts.closeOverlays': 'Close dialogs, menus, and the search dropdown',
+    'shortcuts.scrollWhenFocused': 'Scroll the focused scrollable area',
+    'shortcuts.browserBack': 'Browser back (history)'
   }
 }

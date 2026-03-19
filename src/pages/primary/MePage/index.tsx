@@ -21,7 +21,7 @@ import {
   UserRound,
   Wallet
 } from 'lucide-react'
-import { forwardRef, HTMLProps, useState } from 'react'
+import { forwardRef, HTMLProps, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const MePage = forwardRef((_, ref) => {
@@ -117,6 +117,8 @@ function Item({
   children,
   className,
   hideChevron = false,
+  onClick,
+  onKeyDown,
   ...props
 }: HTMLProps<HTMLDivElement> & { hideChevron?: boolean }) {
   return (
@@ -126,6 +128,16 @@ function Item({
         className
       )}
       {...props}
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
+        onKeyDown?.(e)
+        if (!e.defaultPrevented && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault()
+          onClick?.(e as unknown as MouseEvent<HTMLDivElement>)
+        }
+      }}
     >
       <div className="flex items-center gap-4">{children}</div>
       {!hideChevron && <ChevronRight />}

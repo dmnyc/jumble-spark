@@ -21,6 +21,7 @@ import React, {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import FeedButton from './FeedButton'
+import { KeyboardShortcutsHelpButton } from '@/components/KeyboardShortcutsHelp'
 import ExploreButton from '@/components/Titlebar/ExploreButton'
 import AccountButton from '@/components/Titlebar/AccountButton'
 import FollowingFeed from './FollowingFeed'
@@ -185,6 +186,7 @@ function NoteListPageTitlebar({
             <Info />
           </Button>
         )}
+        <KeyboardShortcutsHelpButton />
         <AccountButton />
       </div>
     </div>

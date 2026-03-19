@@ -1,0 +1,13 @@
+import { useKeyboardShortcutsHelp } from '@/components/KeyboardShortcutsHelp'
+import { CircleHelp } from 'lucide-react'
+import SidebarItem from './SidebarItem'
+
+export default function KeyboardShortcutsHelpSidebarButton() {
+  const { openHelp } = useKeyboardShortcutsHelp()
+
+  return (
+    <SidebarItem title="shortcuts.title" onClick={openHelp}>
+      <CircleHelp strokeWidth={2.5} />
+    </SidebarItem>
+  )
+}

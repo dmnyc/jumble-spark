@@ -3,6 +3,11 @@ import { Titlebar } from '@/components/Titlebar'
 import { TPrimaryPageName, usePrimaryPage } from '@/PageManager'
 import { DeepBrowsingProvider } from '@/providers/DeepBrowsingProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import {
+  FOCUS_PRIMARY_SCROLL_SHORTCUT_KEY,
+  isRadixDialogOpen,
+  shouldIgnoreKeyboardShortcutEvent
+} from '@/lib/keyboard-shortcuts'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 
 const PrimaryPageLayout = forwardRef(
@@ -69,6 +74,24 @@ const PrimaryPageLayout = forwardRef(
       }
     }, [current, isSmallScreen, display])
 
+    useEffect(() => {
+      if (isSmallScreen) return
+      if (current !== pageName || !display) return
+
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (!e.altKey || !e.shiftKey || e.key.toLowerCase() !== FOCUS_PRIMARY_SCROLL_SHORTCUT_KEY) return
+        if (e.metaKey || e.ctrlKey) return
+        if (shouldIgnoreKeyboardShortcutEvent(e.target)) return
+        if (isRadixDialogOpen()) return
+
+        e.preventDefault()
+        scrollAreaRef.current?.focus({ preventScroll: true })
+      }
+
+      document.addEventListener('keydown', onKeyDown)
+      return () => document.removeEventListener('keydown', onKeyDown)
+    }, [isSmallScreen, current, pageName, display])
+
     if (isSmallScreen) {
       return (
         <DeepBrowsingProvider active={current === pageName && display}>
@@ -101,6 +124,7 @@ const PrimaryPageLayout = forwardRef(
           {subHeader && <div className="shrink-0 bg-background">{subHeader}</div>}
           <div
             ref={scrollAreaRef}
+            tabIndex={-1}
             className={subHeader ? 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden' : 'absolute top-12 left-0 right-0 bottom-0 overflow-y-auto overflow-x-hidden'}
           >
             {children}

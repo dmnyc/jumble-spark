@@ -22,7 +22,6 @@ const SearchInput = forwardRef<HTMLInputElement, ComponentProps<'input'>>(
 
     return (
       <div
-        tabIndex={0}
         className={cn(
           'flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors md:text-sm [&:has(:focus-visible)]:ring-ring [&:has(:focus-visible)]:ring-1 [&:has(:focus-visible)]:outline-none',
           className

@@ -54,6 +54,7 @@ import { useScreenSize } from './providers/ScreenSizeProvider'
 import { routes } from './routes'
 import modalManager from './services/modal-manager.service'
 import CreateWalletGuideToast from './components/CreateWalletGuideToast'
+import { KeyboardShortcutsHelpProvider } from '@/components/KeyboardShortcutsHelp'
 
 
 type TPrimaryPageContext = {
@@ -1427,6 +1428,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           display: secondaryStack.length === 0
         }}
       >
+        <KeyboardShortcutsHelpProvider>
         <SecondaryPageContext.Provider
           value={{
             push: pushSecondaryPage,
@@ -1534,6 +1536,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           </NotificationProvider>
         </CurrentRelaysProvider>
         </SecondaryPageContext.Provider>
+        </KeyboardShortcutsHelpProvider>
       </PrimaryPageContext.Provider>
     )
   }
@@ -1546,6 +1549,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         display: true
       }}
     >
+      <KeyboardShortcutsHelpProvider>
       <SecondaryPageContext.Provider
         value={{
           push: pushSecondaryPage,
@@ -1672,6 +1676,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           </NotificationProvider>
         </CurrentRelaysProvider>
       </SecondaryPageContext.Provider>
+      </KeyboardShortcutsHelpProvider>
     </PrimaryPageContext.Provider>
   )
 }
