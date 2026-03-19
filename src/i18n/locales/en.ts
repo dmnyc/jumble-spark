@@ -699,6 +699,27 @@ export default {
     'shortcuts.activate': 'Activate buttons and many controls',
     'shortcuts.closeOverlays': 'Close dialogs, menus, and the search dropdown',
     'shortcuts.scrollWhenFocused': 'Scroll the focused scrollable area',
-    'shortcuts.browserBack': 'Browser back (history)'
+    'shortcuts.browserBack': 'Browser back (history)',
+
+    'No spells yet. Create one with the button above.':
+      'No spells yet. Create one with the button above.',
+    'Select a spell…': 'Select a spell…',
+    'Select a spell to view its feed.': 'Select a spell to view its feed.',
+    'Add another row': 'Add another row',
+    'Remove this row': 'Remove this row',
+    'One kind number per row (e.g. 1 for notes).': 'One kind number per row (e.g. 1 for notes).',
+    'One author per row: $me, $contacts, or hex pubkey / npub.':
+      'One author per row: $me, $contacts, or hex pubkey / npub.',
+    'One hex event id per row.': 'One hex event id per row.',
+    'One wss:// URL per row. Leave empty to use your read relays.':
+      'One wss:// URL per row. Leave empty to use your read relays.',
+    'One topic per row.': 'One topic per row.',
+    topic: 'topic',
+    'Spell form fields': 'Spell form fields',
+
+    Spells: 'Spells',
+
+    'doublePane.secondaryEmpty': 'Open a note, profile, or settings item to show it here.',
+    'doublePane.secondaryEmptyHint': 'Your feed and primary pages stay on the left.'
   }
 }

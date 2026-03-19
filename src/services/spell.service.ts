@@ -2,12 +2,12 @@
  * NIP-A7 Spells: parse and execute kind 777 events as portable relay query filters.
  */
 
-import { ExtendedKind } from '@/constants'
+import { ExtendedKind, FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { tagNameEquals } from '@/lib/tag'
 import logger from '@/lib/logger'
+import { normalizeUrl } from '@/lib/url'
 import type { Event } from 'nostr-tools'
 import type { Filter } from 'nostr-tools'
-import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 
 const RELATIVE_UNIT_SECONDS: Record<string, number> = {
   s: 1,
@@ -48,17 +48,41 @@ export type SpellExecutionContext = {
   relayListRead: string[]
 }
 
+/** Default read relays for spells (deduped); merged after spell/user lists so outages on one relay still leave alternatives. */
+function defaultSpellReadFallbackRelays(): string[] {
+  return dedupeRelayUrls([...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])
+}
+
+function dedupeRelayUrls(urls: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const u of urls) {
+    const key = normalizeUrl(u) || u
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(key)
+  }
+  return out
+}
+
 /**
- * Get relay URLs for executing a spell: from spell's `relays` tag or fallback to context relay list / fast-read.
+ * Get relay URLs for executing a spell: from spell's `relays` tag or context read list, always merged with
+ * app default read relays so a single down relay (503, etc.) does not block the feed.
  */
 export function getRelaysForSpell(spell: Event, context: { relayListRead: string[] }): string[] {
+  let primary: string[] = []
   const relayTag = spell.tags.find(tagNameEquals('relays'))
   if (relayTag && relayTag.length > 1) {
     const urls = relayTag.slice(1).filter((u): u is string => typeof u === 'string' && (u.startsWith('wss://') || u.startsWith('ws://')))
-    if (urls.length) return urls
+    if (urls.length) primary = urls
   }
-  if (context.relayListRead.length) return context.relayListRead
-  return [...new Set([...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])]
+  if (!primary.length && context.relayListRead.length) {
+    primary = [...context.relayListRead]
+  }
+  if (!primary.length) {
+    return defaultSpellReadFallbackRelays()
+  }
+  return dedupeRelayUrls([...primary, ...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])
 }
 
 /**

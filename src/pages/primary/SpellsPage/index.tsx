@@ -12,8 +12,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
-import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
@@ -25,17 +31,19 @@ import {
   spellIsCount
 } from '@/services/spell.service'
 import { TFeedSubRequest } from '@/types'
-import { ChevronLeft, FileText, MoreVertical, Plus, Trash2, Wand2 } from 'lucide-react'
+import { FileText, MoreVertical, Plus, Star, Trash2, Wand2 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
 import type { TPageRef } from '@/types'
 
+/** Sentinel value for Radix Select when no spell is selected */
+const SPELL_SELECT_NONE = '__spell_none__'
+
 const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   const { t } = useTranslation()
   const { pubkey, relayList } = useNostr()
-  const { isSmallScreen } = useScreenSize()
   const [spells, setSpells] = useState<Event[]>([])
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set())
   const [selectedSpell, setSelectedSpell] = useState<Event | null>(null)
@@ -127,159 +135,173 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
       ref={ref}
       pageName="spells"
       titlebar={
-        isSmallScreen ? (
-          <div className="flex items-center justify-between w-full gap-2">
-            {selectedSpell ? (
-              <Button
-                variant="ghost"
-                size="titlebar-icon"
-                onClick={() => setSelectedSpell(null)}
-                title={t('Back to spell list')}
-              >
-                <ChevronLeft className="size-5" />
-              </Button>
-            ) : (
-              <div className="w-10 shrink-0" />
-            )}
-            <div className="font-semibold flex-1 text-center min-w-0 truncate">
-              {selectedSpell ? getSpellName(selectedSpell) : t('Spells')}
-            </div>
-            <Button
-              variant="ghost"
-              size="titlebar-icon"
-              onClick={() => setCreateOpen(true)}
-              title={t('Create a Spell')}
-            >
-              <Plus className="size-5" />
-            </Button>
-          </div>
-        ) : (
+        <div className="flex w-full items-center justify-between gap-2">
           <div className="font-semibold">{t('Spells')}</div>
-        )
+          <Button
+            variant="ghost"
+            size="titlebar-icon"
+            onClick={() => setCreateOpen(true)}
+            title={t('Create a Spell')}
+          >
+            <Plus className="size-5" />
+          </Button>
+        </div>
       }
       displayScrollToTopButton
     >
-      <div className="flex flex-col md:flex-row min-h-0 flex-1 gap-4 p-4">
-        {/* Left (desktop) / Top (mobile) pane: spell list */}
-        <div className={`flex flex-col gap-2 shrink-0 ${isSmallScreen ? 'order-1 border-b border-border pb-4' : 'w-64 border-r border-border pr-4'}`}>
-          <Button
-            className="w-full justify-start gap-2"
-            variant="outline"
-            onClick={() => setCreateOpen(true)}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
+        {/* Spell picker + actions above the feed */}
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <Select
+            value={selectedSpell?.id ?? SPELL_SELECT_NONE}
+            onValueChange={(v) => {
+              if (v === SPELL_SELECT_NONE) setSelectedSpell(null)
+              else setSelectedSpell(orderedSpells.find((s) => s.id === v) ?? null)
+            }}
+            disabled={orderedSpells.length === 0}
           >
-            <Wand2 className="size-4" />
-            {t('Create a Spell')}
-          </Button>
-          <ul className="space-y-1 overflow-y-auto min-h-0">
-            {orderedSpells.length === 0 && (
-              <li className="text-sm text-muted-foreground py-2">{t('No spells yet. Create one above.')}</li>
-            )}
-            {orderedSpells.map((spell) => (
-              <li key={spell.id} className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className={`flex-1 text-left text-sm px-2 py-1.5 rounded truncate min-w-0 ${selectedSpell?.id === spell.id ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'}`}
-                  onClick={() => setSelectedSpell(spell)}
+            <SelectTrigger className="min-w-0 flex-1 sm:max-w-md">
+              <SelectValue placeholder={t('Select a spell…')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={SPELL_SELECT_NONE}>{t('Select a spell…')}</SelectItem>
+              {orderedSpells.map((spell) => (
+                <SelectItem key={spell.id} value={spell.id}>
+                  {favoriteIds.has(spell.id) ? `★ ${getSpellName(spell)}` : getSpellName(spell)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Button
+              className="justify-start gap-2"
+              variant="outline"
+              onClick={() => setCreateOpen(true)}
+            >
+              <Wand2 className="size-4" />
+              {t('Create a Spell')}
+            </Button>
+            {selectedSpell && (
+              <>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  title={
+                    favoriteIds.has(selectedSpell.id)
+                      ? t('Remove from favorites')
+                      : t('Add to favorites')
+                  }
+                  onClick={() => toggleFavorite(selectedSpell.id)}
                 >
-                  {getSpellName(spell)}
-                </button>
+                  <Star
+                    className={`size-4 ${favoriteIds.has(selectedSpell.id) ? 'fill-amber-400 text-amber-500' : ''}`}
+                  />
+                </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <Button variant="outline" size="icon" className="shrink-0" title={t('More options')}>
                       <MoreVertical className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setDefinitionSpell(spell)}>
+                    <DropdownMenuItem onClick={() => setDefinitionSpell(selectedSpell)}>
                       <FileText className="size-4" />
                       {t('View definition')}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
-                      onClick={() => handleDeleteSpell(spell)}
+                      onClick={() => handleDeleteSpell(selectedSpell)}
                     >
                       <Trash2 className="size-4" />
                       {t('Delete')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <button
-                  type="button"
-                  className="shrink-0 p-1 text-muted-foreground hover:text-foreground"
-                  onClick={() => toggleFavorite(spell.id)}
-                  title={favoriteIds.has(spell.id) ? t('Remove from favorites') : t('Add to favorites')}
-                >
-                  {favoriteIds.has(spell.id) ? '★' : '☆'}
-                </button>
-              </li>
-            ))}
-          </ul>
+              </>
+            )}
+          </div>
         </div>
 
-        {/* Right (desktop) / Bottom (mobile) pane: feed */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        {orderedSpells.length === 0 && (
+          <p className="text-sm text-muted-foreground">{t('No spells yet. Create one with the button above.')}</p>
+        )}
+
+        {/* Feed */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {selectedSpell ? (
             subRequests.length > 0 ? (
               <NoteList
                 subRequests={subRequests}
-                showKinds={selectedSpell.tags.filter((t) => t[0] === 'k').map((t) => parseInt(t[1], 10)).filter((n) => !Number.isNaN(n)) || [1]}
+                showKinds={(() => {
+                  const kinds = selectedSpell.tags
+                    .filter((tag) => tag[0] === 'k')
+                    .map((tag) => parseInt(tag[1], 10))
+                    .filter((n) => !Number.isNaN(n))
+                  // `[] || [1]` is wrong ([] is truthy); default to kind 1 for notes
+                  return kinds.length ? kinds : [1]
+                })()}
                 useFilterAsIs
               />
             ) : spellIsCount(selectedSpell) ? (
-              <div className="text-muted-foreground py-8 text-center">{t('COUNT spells show a number, not a feed.')}</div>
-            ) : !pubkey && (selectedSpell.tags.some((t) => t[0] === 'authors' && (t.includes('$me') || t.includes('$contacts')))) ? (
-              <div className="text-muted-foreground py-8 text-center">{t('Log in to run this spell (it uses $me or $contacts).')}</div>
+              <div className="py-8 text-center text-muted-foreground">
+                {t('COUNT spells show a number, not a feed.')}
+              </div>
+            ) : !pubkey &&
+              selectedSpell.tags.some(
+                (tag) => tag[0] === 'authors' && (tag.includes('$me') || tag.includes('$contacts'))
+              ) ? (
+              <div className="py-8 text-center text-muted-foreground">
+                {t('Log in to run this spell (it uses $me or $contacts).')}
+              </div>
             ) : (
-              <div className="text-muted-foreground py-8 text-center">
-                {t('Could not run this spell. Check that it has a valid REQ/COUNT command, or add read relays in settings.')}
+              <div className="py-8 text-center text-muted-foreground">
+                {t(
+                  'Could not run this spell. Check that it has a valid REQ/COUNT command, or add read relays in settings.'
+                )}
               </div>
             )
           ) : (
-            <div className="text-muted-foreground py-8 text-center">{t('Select a spell from the list to view its feed.')}</div>
+            <div className="py-8 text-center text-muted-foreground">
+              {t('Select a spell to view its feed.')}
+            </div>
           )}
         </div>
       </div>
 
-      <CreateSpellDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onSaved={loadSpells}
-      />
+      <CreateSpellDialog open={createOpen} onOpenChange={setCreateOpen} onSaved={loadSpells} />
 
       <Dialog open={!!definitionSpell} onOpenChange={(open) => !open && setDefinitionSpell(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto max-w-lg">
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{definitionSpell ? getSpellName(definitionSpell) : t('Spell definition')}</DialogTitle>
+            <DialogTitle>
+              {definitionSpell ? getSpellName(definitionSpell) : t('Spell definition')}
+            </DialogTitle>
           </DialogHeader>
           {definitionSpell && (
             <div className="space-y-4 text-sm">
               {definitionSpell.content?.trim() && (
                 <div>
-                  <div className="font-medium text-muted-foreground mb-1">{t('Description')}</div>
+                  <div className="mb-1 font-medium text-muted-foreground">{t('Description')}</div>
                   <p className="whitespace-pre-wrap break-words">{definitionSpell.content.trim()}</p>
                 </div>
               )}
               <div>
-                <div className="font-medium text-muted-foreground mb-2">{t('Tags')}</div>
+                <div className="mb-2 font-medium text-muted-foreground">{t('Tags')}</div>
                 <dl className="space-y-1.5 font-mono text-xs">
                   {definitionSpell.tags.map((tag, i) => (
                     <div key={i} className="flex flex-wrap gap-x-2 gap-y-0.5">
-                      <dt className="text-muted-foreground shrink-0">{tag[0]}:</dt>
-                      <dd className="break-all min-w-0">
+                      <dt className="shrink-0 text-muted-foreground">{tag[0]}:</dt>
+                      <dd className="min-w-0 break-all">
                         {tag.length > 1 ? tag.slice(1).join(', ') : '—'}
                       </dd>
                     </div>
                   ))}
                 </dl>
               </div>
-              <div className="text-muted-foreground text-xs break-words overflow-wrap-anywhere">
-                <span className="font-medium">id:</span>{' '}
-                <span className="break-all">{definitionSpell.id}</span>
+              <div className="overflow-wrap-anywhere break-words text-xs text-muted-foreground">
+                <span className="font-medium">id:</span> <span className="break-all">{definitionSpell.id}</span>
               </div>
             </div>
           )}

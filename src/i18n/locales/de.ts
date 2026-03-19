@@ -618,6 +618,79 @@ export default {
     'shortcuts.activate': 'Schaltflächen und viele Steuerelemente auslösen',
     'shortcuts.closeOverlays': 'Dialoge, Menüs und Such-Dropdown schließen',
     'shortcuts.scrollWhenFocused': 'Den fokussierten scrollbaren Bereich scrollen',
-    'shortcuts.browserBack': 'Zurück im Browser (Verlauf)'
+    'shortcuts.browserBack': 'Zurück im Browser (Verlauf)',
+
+    Spells: 'Zaubersprüche',
+    Tags: 'Tags',
+    Close: 'Schließen',
+    'Back to spell list': 'Zurück zur Zauberspruch-Liste',
+    'Create a Spell': 'Zauberspruch anlegen',
+    'No spells yet. Create one with the button above.':
+      'Noch keine Zaubersprüche. Lege mit dem Button oben einen an.',
+    'Select a spell…': 'Zauberspruch wählen…',
+    'View definition': 'Definition anzeigen',
+    'Add to favorites': 'Zu Favoriten hinzufügen',
+    'Remove from favorites': 'Aus Favoriten entfernen',
+    'COUNT spells show a number, not a feed.':
+      'COUNT-Zaubersprüche zeigen eine Zahl, keinen Feed.',
+    'Log in to run this spell (it uses $me or $contacts).':
+      'Zum Ausführen anmelden (verwendet $me oder $contacts).',
+    'Could not run this spell. Check that it has a valid REQ/COUNT command, or add read relays in settings.':
+      'Zauberspruch konnte nicht ausgeführt werden. Prüfe REQ/COUNT oder füge Lese-Relays in den Einstellungen hinzu.',
+    'Select a spell to view its feed.': 'Wähle einen Zauberspruch, um den Feed zu sehen.',
+    'Add another row': 'Weitere Zeile hinzufügen',
+    'Remove this row': 'Diese Zeile entfernen',
+    'One kind number per row (e.g. 1 for notes).':
+      'Eine Kind-Nummer pro Zeile (z. B. 1 für Notizen).',
+    'One author per row: $me, $contacts, or hex pubkey / npub.':
+      'Ein Autor pro Zeile: $me, $contacts oder Hex-Pubkey / npub.',
+    'One hex event id per row.': 'Eine Hex-Event-ID pro Zeile.',
+    'One wss:// URL per row. Leave empty to use your read relays.':
+      'Eine wss://-URL pro Zeile. Alle leer lassen für deine Lese-Relays.',
+    'One topic per row.': 'Ein Thema pro Zeile.',
+    topic: 'Thema',
+    'Spell form fields': 'Zauberspruch-Formularfelder',
+    'Spell definition': 'Zauberspruch-Definition',
+    'Spell published': 'Zauberspruch veröffentlicht',
+    'Spells are saved relay filters (NIP-A7). Fill in the filter fields below. Use $me for your pubkey and $contacts for your follow list when executing.':
+      'Zaubersprüche sind gespeicherte Relay-Filter (NIP-A7). Fülle die Felder unten. $me = dein Pubkey, $contacts = deine Follow-Liste bei der Ausführung.',
+    Command: 'Befehl',
+    'REQ returns a feed; COUNT returns a number.':
+      'REQ liefert einen Feed; COUNT nur eine Zahl.',
+    Name: 'Name',
+    'Human-readable spell name': 'Lesbarer Name des Zauberspruchs',
+    'Description (content)': 'Beschreibung (Inhalt)',
+    'Plain text description of the query': 'Klartext-Beschreibung der Abfrage',
+    Kinds: 'Kinds',
+    'Comma-separated kind numbers (e.g. 1 for notes).':
+      'Kind-Nummern, durch Komma getrennt (z. B. 1 für Notizen).',
+    Authors: 'Autoren',
+    '$me = your pubkey, $contacts = your follow list. Comma-separated.':
+      '$me = dein Pubkey, $contacts = deine Follow-Liste. Komma-getrennt.',
+    'Event IDs (ids)': 'Event-IDs (ids)',
+    'Comma-separated event ids': 'Event-IDs, komma-getrennt',
+    Limit: 'Limit',
+    Since: 'Seit',
+    'Relative: 7d, 24h, 1w, 1mo, 1y. Or Unix timestamp.':
+      'Relativ: 7d, 24h, 1w, 1mo, 1y. Oder Unix-Zeitstempel.',
+    Until: 'Bis',
+    Optional: 'Optional',
+    'Search (NIP-50)': 'Suche (NIP-50)',
+    'Full-text search query': 'Volltextsuchanfrage',
+    'Leave empty to use your read relays.':
+      'Leer lassen, um deine Lese-Relays zu verwenden.',
+    'Topics (t tags for categorization)': 'Themen (t-Tags zur Kategorisierung)',
+    'Comma-separated topics': 'Themen, komma-getrennt',
+    Mode: 'Modus',
+    Feed: 'Feed',
+    Fetch: 'Abrufen',
+    'Fetch once, then stop.': 'Einmal abrufen, dann stoppen.',
+    'Live feed; keeps updating.': 'Live-Feed; wird fortgesetzt aktualisiert.',
+    'Saving…': 'Speichern…',
+    Clear: 'Leeren',
+
+    'doublePane.secondaryEmpty':
+      'Öffne eine Notiz, ein Profil oder Einstellungen, um sie hier anzuzeigen.',
+    'doublePane.secondaryEmptyHint': 'Feed und Hauptseiten bleiben links.'
   }
 }

@@ -34,17 +34,20 @@ export default function NewMailboxRelayInput({
   }
 
   return (
-    <div>
-      <div className="flex flex-col sm:flex-row gap-4">
+    <div className="min-w-0">
+      {/* flex-wrap: narrow panes (e.g. double-pane) use viewport breakpoints, not container width */}
+      <div className="flex flex-wrap gap-2">
         <Input
-          className={newRelayUrlError ? 'border-destructive' : ''}
+          className={`min-w-0 flex-1 basis-[min(100%,16rem)] ${newRelayUrlError ? 'border-destructive' : ''}`}
           placeholder={t('Add a new relay')}
           value={newRelayUrl}
           onKeyDown={handleRelayUrlInputKeyDown}
           onChange={handleRelayUrlInputChange}
           onBlur={save}
         />
-        <Button className="w-full sm:w-auto" onClick={save}>{t('Add')}</Button>
+        <Button className="shrink-0" onClick={save}>
+          {t('Add')}
+        </Button>
       </div>
       {newRelayUrlError && <div className="text-destructive text-xs mt-1">{newRelayUrlError}</div>}
     </div>

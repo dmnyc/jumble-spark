@@ -117,15 +117,21 @@ const PrimaryPageLayout = forwardRef(
 
     return (
       <DeepBrowsingProvider active={current === pageName && display} scrollAreaRef={scrollAreaRef}>
-        <div className="relative h-full min-h-0 flex flex-col">
+        <div className="relative flex h-full min-h-0 min-w-0 flex-col">
           <PrimaryPageTitlebar hideBottomBorder={hideTitlebarBottomBorder}>
             {titlebar}
           </PrimaryPageTitlebar>
-          {subHeader && <div className="shrink-0 bg-background">{subHeader}</div>}
+          {subHeader && (
+            <div className="min-w-0 shrink-0 bg-background">{subHeader}</div>
+          )}
           <div
             ref={scrollAreaRef}
             tabIndex={-1}
-            className={subHeader ? 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden' : 'absolute top-12 left-0 right-0 bottom-0 overflow-y-auto overflow-x-hidden'}
+            className={
+              subHeader
+                ? 'min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-auto'
+                : 'absolute bottom-0 left-0 right-0 top-12 min-w-0 overflow-y-auto overflow-x-auto'
+            }
           >
             {children}
             <div className="h-4" />

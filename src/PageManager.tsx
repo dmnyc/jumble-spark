@@ -31,8 +31,10 @@ import {
   cloneElement,
   createContext,
   createRef,
+  lazy,
   ReactNode,
   RefObject,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -40,6 +42,7 @@ import {
   useState
 } from 'react'
 import BottomNavigationBar from './components/BottomNavigationBar'
+import { useTranslation } from 'react-i18next'
 import TooManyRelaysAlertDialog from './components/TooManyRelaysAlertDialog'
 import { normalizeUrl } from './lib/url'
 import ExplorePage from './pages/primary/ExplorePage'
@@ -49,8 +52,10 @@ import ProfilePage from './pages/primary/ProfilePage'
 import RelayPage from './pages/primary/RelayPage'
 import SearchPage from './pages/primary/SearchPage'
 import DiscussionsPage from './pages/primary/DiscussionsPage'
-import SpellsPage from './pages/primary/SpellsPage'
 import { useScreenSize } from './providers/ScreenSizeProvider'
+
+/** Lazy-loaded so PageManager does not synchronously import SpellsPage (avoids HMR cycle: SpellsPage → PrimaryPageLayout → PageManager → SpellsPage). */
+const SpellsPageLazy = lazy(() => import('./pages/primary/SpellsPage'))
 import { routes } from './routes'
 import modalManager from './services/modal-manager.service'
 import CreateWalletGuideToast from './components/CreateWalletGuideToast'
@@ -100,7 +105,17 @@ const getPrimaryPageMap = () => ({
   relay: <RelayPage ref={PRIMARY_PAGE_REF_MAP.relay} />,
   search: <SearchPage ref={PRIMARY_PAGE_REF_MAP.search} />,
   discussions: <DiscussionsPage ref={PRIMARY_PAGE_REF_MAP.discussions} />,
-  spells: <SpellsPage ref={PRIMARY_PAGE_REF_MAP.spells} />
+  spells: (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
+          Loading…
+        </div>
+      }
+    >
+      <SpellsPageLazy ref={PRIMARY_PAGE_REF_MAP.spells} />
+    </Suspense>
+  )
 })
 
 // Type for primary page names - use the return type of getPrimaryPageMap
@@ -493,13 +508,13 @@ function MainContentArea({
     primaryNoteView: !!primaryNoteView
   })
   
-  // Always use single column layout since double-panel is disabled. flex + min-h-0 so primary page ScrollArea gets a height and can scroll.
+  // flex + min-h-0 + min-w-0 so primary pages get a real height in flex parents and can shrink horizontally (double-pane).
   return (
-    <div className="flex-1 flex flex-col min-h-0 w-full pr-2 py-2">
-      <div className="flex-1 flex flex-col min-h-0 rounded-lg shadow-lg bg-background overflow-hidden">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col w-full pr-2 py-2">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg bg-background shadow-lg">
         {primaryNoteView ? (
           // Show note view with back button
-          <div className="flex flex-col h-full w-full">
+          <div className="flex h-full min-h-0 min-w-0 w-full flex-col">
             <div className="flex justify-center py-1 border-b">
               <span className="text-green-600 dark:text-green-500 font-semibold text-sm">
                 Imwald
@@ -539,10 +554,10 @@ function MainContentArea({
             return (
               <div
                 key={name}
-                className="flex flex-col h-full min-h-0 w-full"
-                style={{
-                  display: isCurrentPage ? 'block' : 'none'
-                }}
+                className={cn(
+                  'flex h-full min-h-0 w-full min-w-0 flex-col',
+                  isCurrentPage ? 'flex' : 'hidden'
+                )}
               >
                 {(() => {
                   try {
@@ -564,6 +579,7 @@ function MainContentArea({
 }
 
 export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
+  const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
   // DEPRECATED: showRecommendedRelaysPanel removed - double-panel functionality disabled
   const [currentPrimaryPage, setCurrentPrimaryPage] = useState<TPrimaryPageName>('home')
@@ -1574,10 +1590,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                   if (panelMode === 'double') {
                     // Double-pane mode: show feed on left (flexible, maintains width), secondary stack on right (1042px, same as drawer)
                     return (
-                      <div className="flex-1 flex overflow-hidden">
-                        {/* Left panel: Feed (flexible, takes remaining space after 1042px) */}
-                        <div className="flex-1 min-w-0 overflow-auto border-r">
-                          <MainContentArea 
+                      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                        {/* Left: primary column — must be a flex column so MainContentArea flex-1 gets height */}
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r">
+                          <MainContentArea
                             primaryPages={primaryPages}
                             currentPrimaryPage={currentPrimaryPage}
                             primaryNoteView={primaryNoteView}
@@ -1585,25 +1601,27 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                             goBack={goBack}
                           />
                         </div>
-                        {/* Right panel: Secondary stack (1042px fixed width, same as drawer) */}
-                        <div className="w-[1042px] shrink-0 overflow-auto">
+                        {/* Right: secondary stack — max width so left pane keeps space on small desktops */}
+                        <div className="flex h-full min-h-0 w-[min(1042px,50vw)] shrink-0 flex-col overflow-hidden border-l border-border/60 bg-muted/20">
                           {secondaryStack.length > 0 ? (
                             secondaryStack.map((item, index) => {
                               const isLast = index === secondaryStack.length - 1
                               return (
                                 <div
                                   key={item.index}
-                                  style={{
-                                    display: isLast ? 'block' : 'none'
-                                  }}
+                                  className={cn(
+                                    'h-full min-h-0 min-w-0 flex-col',
+                                    isLast ? 'flex' : 'hidden'
+                                  )}
                                 >
                                   {item.component}
                                 </div>
                               )
                             })
                           ) : (
-                            <div className="h-full flex items-center justify-center text-muted-foreground">
-                              {/* Empty state - no secondary content */}
+                            <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 p-4 text-center text-sm text-muted-foreground">
+                              <p>{t('doublePane.secondaryEmpty')}</p>
+                              <p className="text-xs opacity-80">{t('doublePane.secondaryEmptyHint')}</p>
                             </div>
                           )}
                         </div>

@@ -612,9 +612,14 @@ export function createSpellDraftEvent(params: TSpellDraftParams): TDraftEvent {
   const tags: string[][] = [['cmd', params.cmd]]
   if (params.name?.trim()) tags.push(['name', params.name.trim()])
   if (params.alt?.trim()) tags.push(['alt', params.alt.trim()])
-  params.kinds.filter((k) => k.trim()).forEach((k) => tags.push(['k', k.trim()]))
-  if (params.authors.length) tags.push(['authors', ...params.authors])
-  if (params.ids.length) tags.push(['ids', ...params.ids])
+  params.kinds
+    .map((k) => k.trim())
+    .filter(Boolean)
+    .forEach((k) => tags.push(['k', k]))
+  const authors = params.authors.map((a) => a.trim()).filter(Boolean)
+  if (authors.length) tags.push(['authors', ...authors])
+  const ids = params.ids.map((id) => id.trim()).filter(Boolean)
+  if (ids.length) tags.push(['ids', ...ids])
   params.tagFilters.forEach(({ letter, values }) => {
     if (letter?.trim() && values.some((v) => v?.trim())) {
       tags.push(['tag', letter.trim(), ...values.map((v) => v.trim()).filter(Boolean)])
@@ -627,8 +632,12 @@ export function createSpellDraftEvent(params: TSpellDraftParams): TDraftEvent {
   if (params.since.trim()) tags.push(['since', params.since.trim()])
   if (params.until.trim()) tags.push(['until', params.until.trim()])
   if (params.search.trim()) tags.push(['search', params.search.trim()])
-  if (params.relays.length) tags.push(['relays', ...params.relays])
-  params.topics.filter((t) => t?.trim()).forEach((t) => tags.push(['t', t.trim()]))
+  const relays = params.relays.map((r) => r.trim()).filter(Boolean)
+  if (relays.length) tags.push(['relays', ...relays])
+  params.topics
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .forEach((t) => tags.push(['t', t]))
   if (params.closeOnEose) tags.push(['close-on-eose'])
   return {
     kind: ExtendedKind.SPELL,

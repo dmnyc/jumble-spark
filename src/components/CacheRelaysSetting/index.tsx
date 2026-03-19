@@ -848,45 +848,25 @@ export default function CacheRelaysSetting() {
         <div className="text-xs text-muted-foreground space-y-1">
           <div>{t('Clear cached data stored in your browser, including IndexedDB events, localStorage settings, and service worker caches.')}</div>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Button
-            variant="outline"
-            className="flex-1 w-full sm:w-auto"
-            onClick={handleClearCache}
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
+        <div className="flex min-w-0 flex-wrap gap-2">
+          <Button variant="outline" className="shrink-0" onClick={handleClearCache}>
+            <Trash2 className="mr-2 h-4 w-4" />
             {t('Clear Cache')}
           </Button>
-          <Button
-            variant="outline"
-            className="flex-1 w-full sm:w-auto"
-            onClick={handleRefreshCache}
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
+          <Button variant="outline" className="shrink-0" onClick={handleRefreshCache}>
+            <RefreshCw className="mr-2 h-4 w-4" />
             {t('Refresh Cache')}
           </Button>
-          <Button
-            variant="outline"
-            className="flex-1 w-full sm:w-auto"
-            onClick={handleBrowseCache}
-          >
-            <Database className="h-4 w-4 mr-2" />
+          <Button variant="outline" className="shrink-0" onClick={handleBrowseCache}>
+            <Database className="mr-2 h-4 w-4" />
             {t('Browse Cache')}
           </Button>
-          <Button
-            variant="outline"
-            className="flex-1 w-full sm:w-auto"
-            onClick={handleClearServiceWorker}
-          >
-            <XCircle className="h-4 w-4 mr-2" />
+          <Button variant="outline" className="shrink-0" onClick={handleClearServiceWorker}>
+            <XCircle className="mr-2 h-4 w-4" />
             {t('Clear Service Worker')}
           </Button>
-          <Button
-            variant="outline"
-            className="flex-1 w-full sm:w-auto"
-            onClick={handleShowConsoleLogs}
-          >
-            <Terminal className="h-4 w-4 mr-2" />
+          <Button variant="outline" className="shrink-0" onClick={handleShowConsoleLogs}>
+            <Terminal className="mr-2 h-4 w-4" />
             {t('View Console Logs')} ({consoleLogRef.current.length})
           </Button>
         </div>
@@ -1285,15 +1265,15 @@ export default function CacheRelaysSetting() {
                 </div>
               </div>
             </DrawerHeader>
-            <div className="px-4 pb-2 space-y-2">
-              <div className="flex flex-col sm:flex-row gap-2">
+            <div className="space-y-2 px-4 pb-2">
+              <div className="flex min-w-0 flex-wrap gap-2">
                 <Input
                   placeholder={t('Search logs...')}
                   value={consoleLogSearch}
                   onChange={(e) => setConsoleLogSearch(e.target.value)}
-                  className="flex-1"
+                  className="min-w-0 flex-1 basis-[min(100%,12rem)]"
                 />
-                <div className="flex gap-1 shrink-0">
+                <div className="flex shrink-0 gap-1">
                   <Button
                     type="button"
                     variant={consoleLogLevel === 'errors-warnings' ? 'secondary' : 'outline'}
@@ -1408,15 +1388,15 @@ export default function CacheRelaysSetting() {
                 </div>
               </div>
             </DialogHeader>
-            <div className="px-6 pb-4 space-y-2">
-              <div className="flex flex-col sm:flex-row gap-2">
+            <div className="space-y-2 px-6 pb-4">
+              <div className="flex min-w-0 flex-wrap gap-2">
                 <Input
                   placeholder={t('Search logs...')}
                   value={consoleLogSearch}
                   onChange={(e) => setConsoleLogSearch(e.target.value)}
-                  className="flex-1"
+                  className="min-w-0 flex-1 basis-[min(100%,12rem)]"
                 />
-                <div className="flex gap-1 shrink-0">
+                <div className="flex shrink-0 gap-1">
                   <Button
                     type="button"
                     variant={consoleLogLevel === 'errors-warnings' ? 'secondary' : 'outline'}
