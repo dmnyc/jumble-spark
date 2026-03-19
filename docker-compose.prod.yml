@@ -33,9 +33,14 @@ services:
     restart: unless-stopped
     environment:
       - NIP66_MONITOR_NSEC=${NIP66_MONITOR_NSEC}
-      # Optional: RELAYS_TO_MONITOR=wss://relay1,wss://relay2  (default: built-in list)
-      # Optional: PUBLISH_RELAYS=wss://...  (default: built-in list)
-      # Optional: INTERVAL_MS=3600000  (default: 1 hour between 30166 runs)
+      - RELAYS_TO_MONITOR=${RELAYS_TO_MONITOR:-}
+      - RELAY_LIST_SKIP_KIND10002=${RELAY_LIST_SKIP_KIND10002:-}
+      - MAX_RELAYS_TO_MONITOR=${MAX_RELAYS_TO_MONITOR:-}
+      - PUBLISH_RELAYS=${PUBLISH_RELAYS:-}
+      - INTERVAL_MS=${INTERVAL_MS:-}
+      # Default: merge built-in relay list + monitor’s kind 10002 (`r` tags). See nip66-cron/index.mjs.
+      # - RELAYS_TO_MONITOR — optional; replaces merged list entirely
+      # - RELAY_LIST_SKIP_KIND10002=1 — defaults only (no 10002 fetch)
     logging:
       driver: json-file
       options:

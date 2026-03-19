@@ -5,6 +5,17 @@ import { Check, ChevronDown, ChevronRight, ChevronUp, Circle } from 'lucide-reac
 import { DialogContext } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 
+/** Radix `MenuSubContentProps` omits `side` / `align`; Popper still accepts them at runtime. */
+type DropdownMenuSubContentPositionProps = Partial<
+  Pick<React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>, 'side' | 'align'>
+>
+
+const RadixSubContent = DropdownMenuPrimitive.SubContent as React.ForwardRefExoticComponent<
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent> &
+    DropdownMenuSubContentPositionProps &
+    React.RefAttributes<HTMLDivElement>
+>
+
 const DropdownMenu = DropdownMenuPrimitive.Root
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
@@ -40,15 +51,31 @@ DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayNam
 
 const DropdownMenuSubContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
-  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent> & {
-    showScrollButtons?: boolean
-  }
->(({ className, showScrollButtons = true, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent> &
+    DropdownMenuSubContentPositionProps & {
+      showScrollButtons?: boolean
+    }
+>(({ className, showScrollButtons = true, side: sideProp, align: alignProp, ...props }, ref) => {
   const [canScrollUp, setCanScrollUp] = React.useState(false)
   const [canScrollDown, setCanScrollDown] = React.useState(false)
   const contentRef = React.useRef<HTMLDivElement>(null)
   const scrollAreaRef = React.useRef<HTMLDivElement>(null)
   const lastScrollStateRef = React.useRef({ canScrollUp: false, canScrollDown: false })
+
+  /** Submenus default to the right; on narrow viewports open below so they stay on-screen (e.g. Spells). */
+  const [submenuBelow, setSubmenuBelow] = React.useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+  )
+  React.useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)')
+    const update = () => setSubmenuBelow(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+
+  const side = sideProp ?? (submenuBelow ? 'bottom' : 'right')
+  const align = alignProp ?? (submenuBelow ? 'start' : undefined)
 
   React.useImperativeHandle(ref, () => contentRef.current!)
 
@@ -84,10 +111,13 @@ const DropdownMenuSubContent = React.forwardRef<
   const inDialog = React.useContext(DialogContext)
   return (
     <DropdownMenuPrimitive.Portal>
-      <DropdownMenuPrimitive.SubContent
+      <RadixSubContent
         ref={contentRef}
+        side={side}
+        align={align}
         className={cn(
           'relative min-w-52 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+          submenuBelow && 'max-w-[min(100vw-1.5rem,24rem)]',
           inDialog ? 'z-[210]' : 'z-[100]'
         )}
         onAnimationEnd={() => {
@@ -95,7 +125,7 @@ const DropdownMenuSubContent = React.forwardRef<
             checkScrollability()
           }
         }}
-        collisionPadding={10}
+        collisionPadding={16}
         {...props}
       >
         {showScrollButtons && canScrollUp && (
@@ -131,7 +161,7 @@ const DropdownMenuSubContent = React.forwardRef<
             </button>
           </div>
         )}
-      </DropdownMenuPrimitive.SubContent>
+      </RadixSubContent>
     </DropdownMenuPrimitive.Portal>
   )
 })
