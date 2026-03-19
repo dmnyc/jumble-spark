@@ -30,21 +30,25 @@ const SESSION_STORAGE_KEY = 'jumble:session'
 async function bootstrap() {
   // Always defined: fetch does not throw on 4xx/5xx, so non-OK responses must not leave this unset.
   window.__RUNTIME_CONFIG__ = {}
-  try {
-    const r = await fetch('/config.json')
-    if (r.ok) {
-      window.__RUNTIME_CONFIG__ = (await r.json()) as { NIP66_MONITOR_NPUB?: string }
-    }
-  } catch {
-    window.__RUNTIME_CONFIG__ = {}
-  }
+  await Promise.all([
+    storage.initAsync(),
+    (async () => {
+      try {
+        const r = await fetch('/config.json')
+        if (r.ok) {
+          window.__RUNTIME_CONFIG__ = (await r.json()) as { NIP66_MONITOR_NPUB?: string }
+        }
+      } catch {
+        window.__RUNTIME_CONFIG__ = {}
+      }
+    })()
+  ])
   // Mark session storage as used so it's visible in DevTools; VersionUpdateBanner and NotePage also use it.
   try {
     sessionStorage.setItem(SESSION_STORAGE_KEY, String(Date.now()))
   } catch {
     // ignore quota or private browsing
   }
-  await storage.initAsync()
   publishMonitorAnnouncementOnce()
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

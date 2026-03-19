@@ -61,8 +61,11 @@ class Logger {
 
   private formatMessage(level: LogLevel, message: string, ...args: any[]): [string, ...any[]] {
     const timestamp = new Date().toISOString().substring(11, 23) // HH:mm:ss.SSS
-    const caller = this.getCallerInfo()
-    const prefix = `[${timestamp}] [${level.toUpperCase()}] [${caller}]`
+    // Stack capture is expensive (main-thread jank, especially on mobile). Only when deep debug is on.
+    const caller = this.config.enableDebug ? this.getCallerInfo() : ''
+    const prefix = caller
+      ? `[${timestamp}] [${level.toUpperCase()}] [${caller}]`
+      : `[${timestamp}] [${level.toUpperCase()}]`
     return [`${prefix} ${message}`, ...args]
   }
 

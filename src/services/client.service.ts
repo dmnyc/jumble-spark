@@ -97,7 +97,13 @@ class ClientService extends EventTarget {
 
   async init() {
     await indexedDb.iterateProfileEvents((profileEvent) => this.addUsernameToIndex(profileEvent))
-    this.fetchNip66RelayDiscovery().catch(() => {})
+    // Defer NIP-66 discovery so the first WebSocket slots go to login, relay list, and feed — not background search.
+    const runNip66 = () => this.fetchNip66RelayDiscovery().catch(() => {})
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(() => runNip66(), { timeout: 8000 })
+    } else {
+      setTimeout(runNip66, 2500)
+    }
   }
 
   /** NIP-66: fetch relay discovery events (30166) in background to supplement search/NIP support. */
@@ -1291,7 +1297,7 @@ class ClientService extends EventTarget {
     const isExternalSearch = eoseTimeout > 1000 // Consider it external search if timeout > 1s
     
     if (isExternalSearch) {
-      logger.info('query: Starting external relay search', {
+      logger.debug('query: Starting external relay search', {
         relayCount: urls.length,
         relays: urls,
         eoseTimeout,
@@ -1301,7 +1307,7 @@ class ClientService extends EventTarget {
     }
     
     /** Once one relay returns results, give others this long (ms) then resolve with what we have */
-    const FIRST_RESULT_GRACE_MS = 2000
+    const FIRST_RESULT_GRACE_MS = 1200
 
     return await new Promise<NEvent[]>((resolve) => {
       const events: NEvent[] = []
@@ -1331,7 +1337,7 @@ class ClientService extends EventTarget {
         }
         const duration = eoseTime ? Date.now() - eoseTime : 0
         if (isExternalSearch) {
-          logger.info('query: Resolving external search', {
+          logger.debug('query: Resolving external search', {
             eventsFound: events.length,
             eventCount,
             allEosed,
@@ -1346,7 +1352,7 @@ class ClientService extends EventTarget {
         onevent(evt) {
           eventCount++
           if (isExternalSearch && eventCount <= 3) {
-            logger.info('query: Received event', {
+            logger.debug('query: Received event', {
               eventId: evt.id.substring(0, 8),
               eventCount,
               timeSinceEose: eoseTime ? Date.now() - eoseTime : null
@@ -1393,7 +1399,7 @@ class ClientService extends EventTarget {
             allEosed = true
             eoseTime = Date.now()
             if (isExternalSearch) {
-              logger.info('query: Received EOSE from all relays', {
+              logger.debug('query: Received EOSE from all relays', {
                 eventsSoFar: events.length,
                 eventCount,
                 willWait: eoseTimeout
@@ -1418,7 +1424,7 @@ class ClientService extends EventTarget {
         },
         onclose: (url, reason) => {
           if (isExternalSearch) {
-            logger.info('query: Relay connection closed', { url, reason, eventsSoFar: events.length, allEosed })
+            logger.debug('query: Relay connection closed', { url, reason, eventsSoFar: events.length, allEosed })
           }
           // If we've received EOSE, we have a timeout set - let it handle resolution
           // This gives searchable relays time to search their databases
@@ -1447,7 +1453,7 @@ class ClientService extends EventTarget {
       // Fallback timeout: resolve after globalTimeout to prevent hanging
       globalTimeoutId = setTimeout(() => {
         if (isExternalSearch) {
-          logger.info('query: Global timeout reached', {
+          logger.debug('query: Global timeout reached', {
             eventsFound: events.length,
             eventCount,
             allEosed
