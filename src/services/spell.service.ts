@@ -53,8 +53,25 @@ function defaultSpellWriteFallbackRelays(): string[] {
   return dedupeRelayUrls([...FAST_WRITE_RELAY_URLS])
 }
 
-/** Max kind-777 events to pull when syncing the user's spell definitions from relays. */
+/** Max kind-777 events to pull when syncing spell definitions from relays (you only). */
 export const SPELL_CATALOG_SYNC_LIMIT = 200
+
+/**
+ * When also syncing spells authored by people you follow, allow a larger merged result so
+ * follow-authored spells are not squeezed out by your own.
+ */
+export const SPELL_CATALOG_SYNC_LIMIT_WITH_FOLLOWS = 600
+
+/** Max distinct pubkeys in one catalog REQ (relay compatibility). Your pubkey is always first. */
+export const SPELL_CATALOG_MAX_AUTHORS = 400
+
+/** Build author list for spell catalog sync: always include `pubkey`, then follows, deduped. */
+export function buildSpellCatalogAuthors(pubkey: string, contacts: string[]): string[] {
+  const rest = contacts.filter((c) => typeof c === 'string' && c.length > 0 && c !== pubkey)
+  const uniqueFollows = [...new Set(rest)]
+  const combined = [pubkey, ...uniqueFollows]
+  return combined.slice(0, SPELL_CATALOG_MAX_AUTHORS)
+}
 
 /**
  * Relays to fetch the user's kind-777 spells: **read** (inboxes), **write** (outboxes), and

@@ -728,6 +728,19 @@ export default {
     listImportATagFailed: 'Adress-Tag konnte nicht aufgelöst werden: {{preview}}…',
     listImportEventNotFound: 'Kein Event zu dieser Referenz gefunden.',
     'REQ tag filters': 'REQ-Tag-Filter',
+    spellFormTagFiltersLabel: 'Tag-Filter auf passenden Events',
+    spellCreateIntro:
+      'Zaubersprüche sind gespeicherte Relay-Filter (NIP-A7). Der Abschnitt „Abfrage“ ist die eigentliche Definition; der gestrichelte Kasten unten nur für Namen, Beschreibung und Katalog-Labels. Beim Ausführen: $me für deinen Pubkey, $contacts für deine Follow-Liste.',
+    spellFormSectionQueryTitle: 'Abfrage (Spell-Definition)',
+    spellFormSectionQueryHint:
+      'Dieser Block ist die eigentliche Definition: Er wird zum Nostr-REQ-/COUNT-Filter (Kinds, Autoren, Zeitraum, Tag-Filter auf passenden Events, Relays usw.).',
+    spellFormSectionMetadataTitle: 'Anzeige & Beschriftung (optional)',
+    spellFormSectionMetadataBadge: 'Gehört nicht zur Abfrage',
+    spellFormSectionMetadataHint:
+      'Name, Beschreibung und Themen-Labels dienen nur der Darstellung und in Zauberspruch-Listen. Sie werden beim Abrufen von Events nicht verwendet.',
+    spellFormCatalogTopicsLabel: 'Themen-Labels auf dem Zauberspruch (t-Tags)',
+    spellTopicsMetadataHint:
+      'Ein Thema pro Zeile. Um Notes nach Thema zu filtern, nutze oben im Block „Abfrage“ die REQ-Tag-Filter (Buchstabe „t“).',
     spellTagFiltersHint:
       'Optionale Filter auf abonnierte Events (NIP-01 Ein-Buchstaben-Tags). Beispiel: Buchstabe „t“, Werte „bitcoin“.',
     spellTagFiltersEmpty:

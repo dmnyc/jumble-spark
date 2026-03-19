@@ -763,6 +763,19 @@ export default {
     listImportATagFailed: 'Failed to resolve address tag: {{preview}}…',
     listImportEventNotFound: 'No event found for that reference.',
     'REQ tag filters': 'REQ tag filters',
+    spellFormTagFiltersLabel: 'Tag filters on matching events',
+    spellCreateIntro:
+      'Spells are saved relay filters (NIP-A7). The “Spell query” section is the real definition; the dashed box at the bottom is only for names, descriptions, and catalog labels. Use $me for your pubkey and $contacts for your follow list when executing.',
+    spellFormSectionQueryTitle: 'Spell query',
+    spellFormSectionQueryHint:
+      'This block is the actual spell definition: it becomes the Nostr REQ/COUNT filter (kinds, authors, time range, tag filters on matching events, relays, etc.).',
+    spellFormSectionMetadataTitle: 'Listing & labels (optional)',
+    spellFormSectionMetadataBadge: 'Not part of the query',
+    spellFormSectionMetadataHint:
+      'Name, description, and topic labels are only for display and spell pickers. They are not used when the spell fetches events.',
+    spellFormCatalogTopicsLabel: 'Topic labels on this spell (t tags)',
+    spellTopicsMetadataHint:
+      'One topic per row. To filter which notes you see, use “REQ tag filters” in the spell query above (letter “t”).',
     spellTagFiltersHint:
       'Optional filters on subscribed events (NIP-01 single-letter tags). Example: letter “t”, values “bitcoin”.',
     spellTagFiltersEmpty: 'No tag filters yet. Add rows below or apply an event reference above.',

@@ -23,10 +23,10 @@ import { showPublishingError, showSimplePublishSuccess } from '@/lib/publishing-
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import { getRelaysForSpellCatalogSync } from '@/services/spell.service'
-import { Minus, Plus, X } from 'lucide-react'
+import { Info, Minus, Plus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Event as NostrEvent } from 'nostr-tools'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import logger from '@/lib/logger'
 
 /** Arrow keys should control the control, not the dialog scroll */
@@ -140,6 +140,44 @@ function DynamicStringListField({
   )
 }
 
+/** Bottom-of-form panel: name, description, catalog topics — not part of NIP-A7 REQ filter. */
+function SpellMetadataSection({
+  title,
+  badge,
+  hint,
+  children
+}: {
+  title: string
+  badge: string
+  hint: string
+  children: ReactNode
+}) {
+  return (
+    <div
+      className="rounded-xl border-2 border-dashed border-muted-foreground/35 bg-muted/25"
+      role="region"
+      aria-labelledby="spell-form-metadata-title"
+    >
+      <div className="space-y-1.5 border-b border-border/80 bg-muted/40 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Info className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <h3 id="spell-form-metadata-title" className="text-sm font-semibold tracking-tight">
+            {title}
+          </h3>
+          <span
+            className="rounded-md border border-muted-foreground/45 bg-background/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+            title={hint}
+          >
+            {badge}
+          </span>
+        </div>
+        <p className="ps-6 text-xs leading-relaxed text-muted-foreground">{hint}</p>
+      </div>
+      <div className="grid gap-4 p-4">{children}</div>
+    </div>
+  )
+}
+
 function TagFiltersEditor({
   tagFilters,
   onChange
@@ -156,7 +194,7 @@ function TagFiltersEditor({
   }
   return (
     <div className="grid gap-2">
-      <Label>{t('REQ tag filters')}</Label>
+      <Label>{t('spellFormTagFiltersLabel')}</Label>
       <p className="text-xs text-muted-foreground">{t('spellTagFiltersHint')}</p>
       {tagFilters.length === 0 ? (
         <p className="text-xs text-muted-foreground">{t('spellTagFiltersEmpty')}</p>
@@ -405,9 +443,7 @@ export default function CreateSpellDialog({
           <p className="mt-2 text-sm text-muted-foreground">
             {spellToClone
               ? t('Clone spell intro')
-              : t(
-                  'Spells are saved relay filters (NIP-A7). Fill in the filter fields below. Use $me for your pubkey and $contacts for your follow list when executing.'
-                )}
+              : t('spellCreateIntro')}
           </p>
         </div>
 
@@ -458,153 +494,166 @@ export default function CreateSpellDialog({
               ) : null}
             </div>
 
-            <div className="grid gap-2">
-              <Label>{t('Command')}</Label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-                value={form.cmd}
-                onChange={(e) => {
-                  const cmd = e.target.value as 'REQ' | 'COUNT'
-                  setForm((f) =>
-                    cmd === 'COUNT' ? { ...f, cmd, closeOnEose: false } : { ...f, cmd }
-                  )
-                }}
-              >
-                <option value="REQ">REQ (subscribe to events)</option>
-                <option value="COUNT">COUNT (count only)</option>
-              </select>
-              <p className="text-xs text-muted-foreground">{t('REQ returns a feed; COUNT returns a number.')}</p>
-            </div>
+            <div className="space-y-4 border-t border-border pt-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold text-foreground">{t('spellFormSectionQueryTitle')}</h3>
+                <p className="text-xs text-muted-foreground">{t('spellFormSectionQueryHint')}</p>
+              </div>
 
-            <div className="grid gap-2">
-              <Label>{t('Name')}</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder={t('Human-readable spell name')}
+              <div className="grid gap-2">
+                <Label>{t('Command')}</Label>
+                <select
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                  value={form.cmd}
+                  onChange={(e) => {
+                    const cmd = e.target.value as 'REQ' | 'COUNT'
+                    setForm((f) =>
+                      cmd === 'COUNT' ? { ...f, cmd, closeOnEose: false } : { ...f, cmd }
+                    )
+                  }}
+                >
+                  <option value="REQ">REQ (subscribe to events)</option>
+                  <option value="COUNT">COUNT (count only)</option>
+                </select>
+                <p className="text-xs text-muted-foreground">{t('REQ returns a feed; COUNT returns a number.')}</p>
+              </div>
+
+              <DynamicStringListField
+                label={t('Kinds')}
+                hint={t('One kind number per row (e.g. 1 for notes).')}
+                placeholder="1"
+                inputType="number"
+                values={form.kinds}
+                onChange={(kinds) => setForm((f) => ({ ...f, kinds }))}
               />
-            </div>
 
-            <div className="grid gap-2">
-              <Label>{t('Description (content)')}</Label>
-              <Textarea
-                value={form.content}
-                onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
-                placeholder={t('Plain text description of the query')}
-                rows={2}
+              <DynamicStringListField
+                label={t('Authors')}
+                hint={t('One author per row: $me, $contacts, or hex pubkey / npub.')}
+                placeholder="$me"
+                values={form.authors}
+                onChange={(authors) => setForm((f) => ({ ...f, authors }))}
               />
-            </div>
 
-            <DynamicStringListField
-              label={t('Kinds')}
-              hint={t('One kind number per row (e.g. 1 for notes).')}
-              placeholder="1"
-              inputType="number"
-              values={form.kinds}
-              onChange={(kinds) => setForm((f) => ({ ...f, kinds }))}
-            />
-
-            <DynamicStringListField
-              label={t('Authors')}
-              hint={t('One author per row: $me, $contacts, or hex pubkey / npub.')}
-              placeholder="$me"
-              values={form.authors}
-              onChange={(authors) => setForm((f) => ({ ...f, authors }))}
-            />
-
-            <DynamicStringListField
-              label={t('Event IDs (ids)')}
-              hint={t('One hex event id per row.')}
-              placeholder="hex id…"
-              values={form.ids}
-              onChange={(ids) => setForm((f) => ({ ...f, ids }))}
-            />
-
-            <div className="grid gap-2">
-              <Label>{t('Limit')}</Label>
-              <Input
-                type="number"
-                value={form.limit}
-                onChange={(e) => setForm((f) => ({ ...f, limit: e.target.value }))}
-                placeholder="50"
+              <DynamicStringListField
+                label={t('Event IDs (ids)')}
+                hint={t('One hex event id per row.')}
+                placeholder="hex id…"
+                values={form.ids}
+                onChange={(ids) => setForm((f) => ({ ...f, ids }))}
               />
-            </div>
 
-            <div className="grid gap-2">
-              <Label>{t('Since')}</Label>
-              <Input
-                value={form.since}
-                onChange={(e) => setForm((f) => ({ ...f, since: e.target.value }))}
-                placeholder="7d or 1704067200 or now"
+              <TagFiltersEditor
+                tagFilters={form.tagFilters}
+                onChange={(tagFilters) => setForm((f) => ({ ...f, tagFilters }))}
               />
-              <p className="text-xs text-muted-foreground">
-                {t('Relative: 7d, 24h, 1w, 1mo, 1y. Or Unix timestamp.')}
-              </p>
-            </div>
 
-            <div className="grid gap-2">
-              <Label>{t('Until')}</Label>
-              <Input
-                value={form.until}
-                onChange={(e) => setForm((f) => ({ ...f, until: e.target.value }))}
-                placeholder={t('Optional')}
-              />
-            </div>
+              <div className="grid gap-2">
+                <Label>{t('Limit')}</Label>
+                <Input
+                  type="number"
+                  value={form.limit}
+                  onChange={(e) => setForm((f) => ({ ...f, limit: e.target.value }))}
+                  placeholder="50"
+                />
+              </div>
 
-            <div className="grid gap-2">
-              <Label>{t('Search (NIP-50)')}</Label>
-              <Input
-                value={form.search}
-                onChange={(e) => setForm((f) => ({ ...f, search: e.target.value }))}
-                placeholder={t('Full-text search query')}
-              />
-            </div>
-
-            <DynamicStringListField
-              label={t('Relays')}
-              hint={t('One wss:// URL per row. Leave empty to use your write relays.')}
-              placeholder="wss://…"
-              values={form.relays}
-              onChange={(relays) => setForm((f) => ({ ...f, relays }))}
-            />
-
-            <DynamicStringListField
-              label={t('Topics (t tags for categorization)')}
-              hint={t('One topic per row.')}
-              placeholder={t('topic')}
-              values={form.topics}
-              onChange={(topics) => setForm((f) => ({ ...f, topics }))}
-            />
-
-            <TagFiltersEditor
-              tagFilters={form.tagFilters}
-              onChange={(tagFilters) => setForm((f) => ({ ...f, tagFilters }))}
-            />
-
-            {form.cmd === 'REQ' ? (
-              <div className="flex flex-col gap-1.5">
-                <Label>{t('Mode')}</Label>
-                <div className="flex rounded-lg border border-input bg-muted p-0.5">
-                  <button
-                    type="button"
-                    className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${!form.closeOnEose ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
-                    onClick={() => setForm((f) => ({ ...f, closeOnEose: false }))}
-                  >
-                    {t('Feed')}
-                  </button>
-                  <button
-                    type="button"
-                    className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${form.closeOnEose ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
-                    onClick={() => setForm((f) => ({ ...f, closeOnEose: true }))}
-                  >
-                    {t('Fetch')}
-                  </button>
-                </div>
+              <div className="grid gap-2">
+                <Label>{t('Since')}</Label>
+                <Input
+                  value={form.since}
+                  onChange={(e) => setForm((f) => ({ ...f, since: e.target.value }))}
+                  placeholder="7d or 1704067200 or now"
+                />
                 <p className="text-xs text-muted-foreground">
-                  {form.closeOnEose ? t('Fetch once, then stop.') : t('Live feed; keeps updating.')}
+                  {t('Relative: 7d, 24h, 1w, 1mo, 1y. Or Unix timestamp.')}
                 </p>
               </div>
-            ) : null}
+
+              <div className="grid gap-2">
+                <Label>{t('Until')}</Label>
+                <Input
+                  value={form.until}
+                  onChange={(e) => setForm((f) => ({ ...f, until: e.target.value }))}
+                  placeholder={t('Optional')}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label>{t('Search (NIP-50)')}</Label>
+                <Input
+                  value={form.search}
+                  onChange={(e) => setForm((f) => ({ ...f, search: e.target.value }))}
+                  placeholder={t('Full-text search query')}
+                />
+              </div>
+
+              <DynamicStringListField
+                label={t('Relays')}
+                hint={t('One wss:// URL per row. Leave empty to use your write relays.')}
+                placeholder="wss://…"
+                values={form.relays}
+                onChange={(relays) => setForm((f) => ({ ...f, relays }))}
+              />
+
+              {form.cmd === 'REQ' ? (
+                <div className="flex flex-col gap-1.5">
+                  <Label>{t('Mode')}</Label>
+                  <div className="flex rounded-lg border border-input bg-muted p-0.5">
+                    <button
+                      type="button"
+                      className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${!form.closeOnEose ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
+                      onClick={() => setForm((f) => ({ ...f, closeOnEose: false }))}
+                    >
+                      {t('Feed')}
+                    </button>
+                    <button
+                      type="button"
+                      className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${form.closeOnEose ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
+                      onClick={() => setForm((f) => ({ ...f, closeOnEose: true }))}
+                    >
+                      {t('Fetch')}
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {form.closeOnEose ? t('Fetch once, then stop.') : t('Live feed; keeps updating.')}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            <SpellMetadataSection
+              title={t('spellFormSectionMetadataTitle')}
+              badge={t('spellFormSectionMetadataBadge')}
+              hint={t('spellFormSectionMetadataHint')}
+            >
+              <div className="grid gap-2">
+                <Label>{t('Name')}</Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder={t('Human-readable spell name')}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label>{t('Description (content)')}</Label>
+                <Textarea
+                  value={form.content}
+                  onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
+                  placeholder={t('Plain text description of the query')}
+                  rows={2}
+                />
+              </div>
+
+              <DynamicStringListField
+                label={t('spellFormCatalogTopicsLabel')}
+                hint={t('spellTopicsMetadataHint')}
+                placeholder={t('topic')}
+                values={form.topics}
+                onChange={(topics) => setForm((f) => ({ ...f, topics }))}
+              />
+            </SpellMetadataSection>
           </div>
         </div>
 

@@ -24,11 +24,13 @@ import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import { ExtendedKind } from '@/constants'
 import {
+  buildSpellCatalogAuthors,
   getRelaysForSpell,
   getRelaysForSpellCatalogSync,
   getSpellName,
   isSpellEvent,
   SPELL_CATALOG_SYNC_LIMIT,
+  SPELL_CATALOG_SYNC_LIMIT_WITH_FOLLOWS,
   spellEventToFilter,
   spellHasExplicitRelays,
   spellIsCount
@@ -100,6 +102,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
     loadSpells()
   }, [loadSpells])
 
+  /** Stable key so we re-sync when the follow list changes (not only on array identity). */
+  const contactsSyncKey = useMemo(() => [...contacts].sort().join(','), [contacts])
+
   /** After showing the cache, pull kind 777 from merged mailbox (10002 + 10432) read/write + fast read. */
   useEffect(() => {
     if (!pubkey) {
@@ -110,10 +115,12 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
     spellCatalogCloserRef.current = null
     setSpellsCatalogSyncing(true)
     const urls = getRelaysForSpellCatalogSync(relayList ?? undefined)
+    const catalogAuthors = buildSpellCatalogAuthors(pubkey, contacts)
+    const authorAllowlist = new Set(catalogAuthors)
     const filter = {
       kinds: [ExtendedKind.SPELL],
-      authors: [pubkey],
-      limit: SPELL_CATALOG_SYNC_LIMIT
+      authors: catalogAuthors,
+      limit: contacts.length > 0 ? SPELL_CATALOG_SYNC_LIMIT_WITH_FOLLOWS : SPELL_CATALOG_SYNC_LIMIT
     }
     const syncTimeout = window.setTimeout(() => {
       if (cancelled) return
@@ -133,7 +140,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
               window.clearTimeout(syncTimeout)
               for (const ev of events) {
                 if (cancelled) return
-                if (!verifyEvent(ev) || !isSpellEvent(ev) || ev.pubkey !== pubkey) continue
+                if (!verifyEvent(ev) || !isSpellEvent(ev) || !authorAllowlist.has(ev.pubkey)) continue
                 try {
                   await indexedDb.putSpellEvent(ev)
                 } catch (e) {
@@ -168,7 +175,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
       spellCatalogCloserRef.current = null
       setSpellsCatalogSyncing(false)
     }
-  }, [pubkey, spellCatalogRelayKey, loadSpells])
+  }, [pubkey, spellCatalogRelayKey, loadSpells, contactsSyncKey])
 
   useEffect(() => {
     if (!pubkey) {
