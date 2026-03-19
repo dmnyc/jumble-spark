@@ -2720,7 +2720,7 @@ class ClientService extends EventTarget {
       return undefined
     }
     
-    logger.info('fetchEventWithExternalRelays: Starting search', {
+    logger.debug('fetchEventWithExternalRelays: Starting search', {
       eventId: eventId.substring(0, 8),
       relayCount: externalRelays.length,
       relays: externalRelays
@@ -2741,7 +2741,7 @@ class ClientService extends EventTarget {
     )
     const duration = Date.now() - startTime
     
-    logger.info('fetchEventWithExternalRelays: Search completed', {
+    logger.debug('fetchEventWithExternalRelays: Search completed', {
       eventId: eventId.substring(0, 8),
       relayCount: externalRelays.length,
       eventsFound: events.length,

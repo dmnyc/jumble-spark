@@ -1355,15 +1355,14 @@ function parseMarkdownContent(
           // 4. There's text on the same line before it (part of a sentence)
           // 5. There's text before it (even on previous lines, as long as no paragraph break)
           shouldMergeHashtag = lineHasOnlyHashtags || hasOtherHashtagsOnLine || hasHashtagsOnAdjacentLines || hasTextOnSameLine || hasTextBefore
-          
-          // If none of the above, but there's text after the hashtag on the same line, also merge
-          // This handles cases where hashtag is at start of line but followed by text (e.g. "#pyramid 1.1 has...")
-          if (!shouldMergeHashtag) {
-            const textAfterOnSameLine = content.substring(pattern.end, lineEndIndex)
-            hasTextAfterOnSameLine = textAfterOnSameLine.trim().length > 0
-            if (hasTextAfterOnSameLine) {
-              shouldMergeHashtag = true
-            }
+
+          // Always compute — merge branch 2 below needs this even when shouldMergeHashtag was already
+          // true from hasOtherHashtagsOnLine (e.g. "#a #b word" is not "only hashtags" so branch 1 skips,
+          // and without hasTextAfterOnSameLine branch 2 would not run → spurious line break before <p>).
+          const textAfterOnSameLineRaw = content.substring(pattern.end, lineEndIndex)
+          hasTextAfterOnSameLine = textAfterOnSameLineRaw.trim().length > 0
+          if (!shouldMergeHashtag && hasTextAfterOnSameLine) {
+            shouldMergeHashtag = true
           }
         }
         
@@ -1483,23 +1482,21 @@ function parseMarkdownContent(
           
           // Mark this pattern as merged so we don't render it separately later
           mergedPatterns.add(patternIdx)
-        } else if (pattern.type === 'nostr' && (hasTextOnSameLine || hasTextBefore)) {
-          // Only merge profile types (npub/nprofile) inline; event types (note/nevent/naddr) remain block-level
+        } else if (pattern.type === 'nostr') {
+          // Only merge profile types (npub/nprofile) inline; event types (note/nevent/naddr) remain block-level.
+          // Same idea as hashtags: if the mention is first on the line but more text follows on that line,
+          // merge into the paragraph — otherwise we emit a bare <span> and the rest in <p>, which looks
+          // like a spurious hard return (block <p> after inline-block mention).
           const bech32Id = pattern.data
           const isProfileType = bech32Id.startsWith('npub') || bech32Id.startsWith('nprofile')
-          
-          if (isProfileType) {
-            // Get the original pattern syntax from the content
+          const hasTextAfterNostrOnSameLine =
+            isProfileType && content.substring(pattern.end, lineEndIndex).trim().length > 0
+
+          if (isProfileType && (hasTextOnSameLine || hasTextBefore || hasTextAfterNostrOnSameLine)) {
             const patternMarkdown = content.substring(pattern.index, pattern.end)
-            
-            // Get text after the pattern on the same line
             const textAfterPattern = content.substring(pattern.end, lineEndIndex)
-            
-            // Extend the text to include the pattern and any text after it on the same line
             text = text + patternMarkdown + textAfterPattern
             textEndIndex = lineEndIndex === content.length ? content.length : lineEndIndex + 1
-            
-            // Mark this pattern as merged so we don't render it separately later
             mergedPatterns.add(patternIdx)
           }
         }
@@ -2155,7 +2152,7 @@ function parseMarkdownContent(
       // Check if it's a profile type (mentions/handles should be inline)
       if (bech32Id.startsWith('npub') || bech32Id.startsWith('nprofile')) {
         parts.push(
-          <span key={`nostr-${patternIdx}`} className="inline-block">
+          <span key={`nostr-${patternIdx}`} className="inline">
             <EmbeddedMention userId={bech32Id} />
           </span>
         )

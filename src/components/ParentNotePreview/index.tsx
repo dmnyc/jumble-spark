@@ -4,7 +4,7 @@ import { useFetchEvent } from '@/hooks'
 import { cn } from '@/lib/utils'
 import client from '@/services/client.service'
 import { useTranslation } from 'react-i18next'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Event, nip19 } from 'nostr-tools'
 import ContentPreview from '../ContentPreview'
 import UserAvatar from '../UserAvatar'
@@ -23,6 +23,8 @@ export default function ParentNotePreview({
   const { event, isFetching } = useFetchEvent(eventId)
   const [fallbackEvent, setFallbackEvent] = useState<Event | undefined>(undefined)
   const [isFetchingFallback, setIsFetchingFallback] = useState(false)
+  /** One automatic searchable-relay attempt per eventId; without this, the effect re-fires forever after each 20s timeout. */
+  const autoSearchableAttemptedRef = useRef(false)
 
   // Helper function to decode event ID
   const getHexEventId = (id: string): string | null => {
@@ -62,10 +64,22 @@ export default function ParentNotePreview({
     }
   }, [eventId])
 
-  // If the initial fetch fails, try fetching from searchable relays automatically
   useEffect(() => {
-    if (!isFetching && !event && !fallbackEvent && !isFetchingFallback && eventId) {
-      fetchFromSearchableRelays()
+    autoSearchableAttemptedRef.current = false
+  }, [eventId])
+
+  // If the initial fetch fails, try searchable relays once (manual retry still works via onClick).
+  useEffect(() => {
+    if (
+      !isFetching &&
+      !event &&
+      !fallbackEvent &&
+      !isFetchingFallback &&
+      eventId &&
+      !autoSearchableAttemptedRef.current
+    ) {
+      autoSearchableAttemptedRef.current = true
+      void fetchFromSearchableRelays()
     }
   }, [isFetching, event, eventId, fallbackEvent, isFetchingFallback, fetchFromSearchableRelays])
 
