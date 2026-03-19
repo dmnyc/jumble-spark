@@ -1,16 +1,7 @@
 import { useMediaExtraction } from '@/hooks'
-import {
-  EmbeddedEmojiParser,
-  EmbeddedEventParser,
-  EmbeddedHashtagParser,
-  EmbeddedLNInvoiceParser,
-  EmbeddedMentionParser,
-  EmbeddedPaytoParser,
-  EmbeddedUrlParser,
-  EmbeddedWebsocketUrlParser,
-  parseContent
-} from '@/lib/content-parser'
+import { parseContent, PARSE_CONTENT_PARSERS_NOTE_TEXT } from '@/lib/content-parser'
 import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
+import { logContentSpacing, reprString } from '@/lib/content-spacing-debug'
 import logger from '@/lib/logger'
 import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
@@ -93,17 +84,15 @@ export default function Content({
     const emojiInfos = getEmojiInfosFromEmojiTags(event?.tags)
     const customShortcodes = emojiInfos.map((e) => e.shortcode)
     const normalized = replaceStandardEmojiShortcodesInContent(_content, customShortcodes)
+    if (normalized.includes('nostr:')) {
+      logContentSpacing('Content:useMemo', {
+        rawRepr: reprString(_content),
+        normalizedRepr: reprString(normalized),
+        same: _content === normalized
+      })
+    }
 
-    const nodes = parseContent(normalized, [
-      EmbeddedUrlParser,
-      EmbeddedLNInvoiceParser,
-      EmbeddedPaytoParser,
-      EmbeddedWebsocketUrlParser,
-      EmbeddedEventParser,
-      EmbeddedMentionParser,
-      EmbeddedHashtagParser,
-      EmbeddedEmojiParser
-    ])
+    const nodes = parseContent(normalized, PARSE_CONTENT_PARSERS_NOTE_TEXT)
 
     return { nodes, emojiInfos }
   }, [_content, event])

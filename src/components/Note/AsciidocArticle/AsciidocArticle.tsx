@@ -22,6 +22,11 @@ import { ReplyProvider } from '@/providers/ReplyProvider'
 import Wikilink from '@/components/UniversalContent/Wikilink'
 import { BookstrContent } from '@/components/Bookstr'
 import { preprocessAsciidocMediaLinks } from '../MarkdownArticle/preprocessMarkup'
+import {
+  NOSTR_ASCIIDOC_EARLY_LINK_REGEX,
+  NOSTR_ASCIIDOC_TEXT_NODE_REGEX,
+  NOSTR_HTML_BECH32_RELAXED
+} from '@/lib/content-patterns'
 import logger from '@/lib/logger'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { ExtendedKind } from '@/constants'
@@ -66,7 +71,7 @@ function convertMarkdownToAsciidoc(content: string): string {
   // naddr addresses can be 200+ characters, so we use + instead of specific length
   // Also handle optional [] suffix (empty link text in AsciiDoc)
   // Note: Citations are already protected in passthrough (+++...+++), so nostr: links inside them won't be processed
-  asciidoc = asciidoc.replace(/nostr:(npub1[a-z0-9]{58,}|nprofile1[a-z0-9]+|note1[a-z0-9]{58,}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)(\[\])?/g, (_match, bech32Id, emptyBrackets) => {
+  asciidoc = asciidoc.replace(NOSTR_ASCIIDOC_EARLY_LINK_REGEX, (_match, bech32Id, emptyBrackets) => {
     // Convert directly to AsciiDoc link format
     // This will be processed later in HTML post-processing to render as React components
     // If [] suffix is present, use empty link text, otherwise use the bech32Id
@@ -690,7 +695,12 @@ export default function AsciidocArticle({
         // Match the full bech32 address format - addresses can vary in length
         // npub: 58 chars, nprofile: variable, note: 58 chars, nevent: variable, naddr: 200+ chars
         // Use a more flexible pattern that matches any valid bech32 address
-        htmlString = htmlString.replace(/<a[^>]*href=["']nostr:((?:npub1|nprofile1|note1|nevent1|naddr1)[a-z0-9]{20,})["'][^>]*>([^<]*)<\/a>/gi, (_match, bech32Id, _linkText) => {
+        htmlString = htmlString.replace(
+          new RegExp(
+            `<a[^>]*href=["']nostr:(${NOSTR_HTML_BECH32_RELAXED})["'][^>]*>([^<]*)</a>`,
+            'gi'
+          ),
+          (_match, bech32Id, _linkText) => {
           // Validate bech32 ID and create appropriate placeholder
           if (!bech32Id) return _match
           
@@ -709,13 +719,22 @@ export default function AsciidocArticle({
         // Process text nodes by replacing content between > and <
         // Use more flexible regex that matches any valid bech32 address (naddr can be 200+ chars)
         // Match addresses with optional [] suffix
-        htmlString = htmlString.replace(/>([^<]*nostr:((?:npub1|nprofile1|note1|nevent1|naddr1)[a-z0-9]{20,})(\[\])?[^<]*)</g, (_match, textContent) => {
+        htmlString = htmlString.replace(
+          new RegExp(
+            `>([^<]*nostr:(${NOSTR_HTML_BECH32_RELAXED})(\\[\\])?[^<]*)<`,
+            'g'
+          ),
+          (_match, textContent) => {
           // Extract nostr addresses from the text content - use flexible pattern that handles long addresses
           // npub and note are typically 58 chars, but naddr can be 200+ chars
-          const nostrRegex = /nostr:((?:npub1[a-z0-9]{58,}|nprofile1[a-z0-9]+|note1[a-z0-9]{58,}|nevent1[a-z0-9]+|naddr1[a-z0-9]+))(\[\])?/g
+          const nostrRegex = new RegExp(
+            NOSTR_ASCIIDOC_TEXT_NODE_REGEX.source,
+            NOSTR_ASCIIDOC_TEXT_NODE_REGEX.flags
+          )
           let processedText = textContent
           const replacements: Array<{ start: number; end: number; replacement: string }> = []
           
+          nostrRegex.lastIndex = 0
           let m
           while ((m = nostrRegex.exec(textContent)) !== null) {
             const bech32Id = m[1]
@@ -751,7 +770,9 @@ export default function AsciidocArticle({
         
         // Fallback: ensure any remaining nostr: addresses are shown as plain text
         // This catches any that weren't converted to placeholders
-        htmlString = htmlString.replace(/([^>])nostr:((?:npub1|nprofile1|note1|nevent1|naddr1)[a-z0-9]{20,})(\[\])?/g, (_match, prefix, bech32Id, emptyBrackets) => {
+        htmlString = htmlString.replace(
+          new RegExp(`([^>])nostr:(${NOSTR_HTML_BECH32_RELAXED})(\\[\\])?`, 'g'),
+          (_match, prefix, bech32Id, emptyBrackets) => {
           // Show as plain text if not already in a tag or placeholder
           return `${prefix}nostr:${bech32Id}${emptyBrackets || ''}`
         })

@@ -1,3 +1,4 @@
+import { NOSTR_URI_INLINE_REGEX } from '@/lib/content-patterns'
 import { isImage, isVideo, isAudio } from '@/lib/url'
 import { URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
 
@@ -231,7 +232,7 @@ export function postProcessNostrLinks(content: string): string {
   // nostr:npub1... -> [nostr:npub1...]
   // nostr:note1... -> [nostr:note1...]
   // etc.
-  const nostrRegex = /nostr:(npub1[a-z0-9]{58}|nprofile1[a-z0-9]+|note1[a-z0-9]{58}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)/g
+  const nostrRegex = new RegExp(NOSTR_URI_INLINE_REGEX.source, NOSTR_URI_INLINE_REGEX.flags)
   processed = processed.replace(nostrRegex, (match) => {
     // Already in a link? Don't double-wrap
     // Check if it's already in markdown link syntax [text](nostr:...)

@@ -1,3 +1,4 @@
+import { EMOJI_SHORT_CODE_REGEX } from '@/lib/content-patterns'
 import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 
 const STANDARD_EMOJI_LIMIT = 20
@@ -42,7 +43,7 @@ export function replaceStandardEmojiShortcodesInContent(
   const customSet = customShortcodes instanceof Set
     ? customShortcodes
     : new Set(customShortcodes ?? [])
-  return content.replace(/:([a-zA-Z0-9_\-\s]+):/g, (match, shortcode: string) => {
+  return content.replace(EMOJI_SHORT_CODE_REGEX, (match, shortcode: string) => {
     const trimmed = shortcode.trim()
     if (customSet.has(trimmed)) return match
     const native = shortcodeToEmoji(trimmed, emojis) ?? shortcodeToEmoji(trimmed.replace(/\s+/g, '_'), emojis)

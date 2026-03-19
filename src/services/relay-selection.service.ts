@@ -1,5 +1,6 @@
 import { Event, kinds } from 'nostr-tools'
 import { ExtendedKind, FAST_WRITE_RELAY_URLS, RANDOM_PUBLISH_RELAY_COUNT } from '@/constants'
+import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
 import client from '@/services/client.service'
 import { normalizeUrl, isLocalNetworkUrl } from '@/lib/url'
 import { TRelaySet, TRelayList } from '@/types'
@@ -734,9 +735,7 @@ class RelaySelectionService {
     }
     
     // Extract nostr addresses from content
-    const matches = content.match(
-      /nostr:(npub1[a-z0-9]{58}|nprofile1[a-z0-9]+|note1[a-z0-9]{58}|nevent1[a-z0-9]+)/g
-    )
+    const matches = content.match(NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX)
 
 
     if (matches) {

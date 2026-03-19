@@ -1,4 +1,5 @@
-import { CALENDAR_EVENT_KINDS, EMBEDDED_MENTION_REGEX, ExtendedKind } from '@/constants'
+import { CALENDAR_EVENT_KINDS, ExtendedKind } from '@/constants'
+import { EMBEDDED_MENTION_REGEX, NOSTR_EMBEDDED_NOTE_REGEX } from '@/lib/content-patterns'
 import client from '@/services/client.service'
 import { TImetaInfo } from '@/types'
 import { LRUCache } from 'lru-cache'
@@ -223,8 +224,7 @@ export function getEmbeddedNoteBech32Ids(event: Event) {
   if (cache) return cache
 
   const embeddedNoteBech32Ids: string[] = []
-  const embeddedNoteRegex = /nostr:(note1[a-z0-9]{58}|nevent1[a-z0-9]+)/g
-  ;(event.content.match(embeddedNoteRegex) || []).forEach((note) => {
+  ;(event.content.match(NOSTR_EMBEDDED_NOTE_REGEX) || []).forEach((note) => {
     try {
       const { type, data } = nip19.decode(note.split(':')[1])
       if (type === 'nevent') {

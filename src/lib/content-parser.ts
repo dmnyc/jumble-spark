@@ -1,14 +1,18 @@
 import {
-  EMBEDDED_EVENT_REGEX,
-  EMBEDDED_MENTION_REGEX,
-  EMOJI_SHORT_CODE_REGEX,
   HASHTAG_REGEX,
   LN_INVOICE_REGEX,
   URL_REGEX,
   WS_URL_REGEX,
   YOUTUBE_URL_REGEX
 } from '@/constants'
+import {
+  EMBEDDED_EVENT_REGEX,
+  EMBEDDED_MENTION_REGEX,
+  EMOJI_SHORT_CODE_REGEX,
+  LEGACY_PROFILE_BECH32_REGEX
+} from '@/lib/content-patterns'
 import { PAYTO_URI_REGEX } from '@/lib/payto'
+import { logContentSpacing, reprString } from '@/lib/content-spacing-debug'
 import { isImage, isMedia } from './url'
 
 export type TEmbeddedNodeType =
@@ -53,7 +57,7 @@ export const EmbeddedMentionParser: TContentParser = {
 
 export const EmbeddedLegacyMentionParser: TContentParser = {
   type: 'legacy-mention',
-  regex: /npub1[a-z0-9]{58}|nprofile1[a-z0-9]+/g
+  regex: LEGACY_PROFILE_BECH32_REGEX
 }
 
 export const EmbeddedEventParser: TContentParser = {
@@ -133,10 +137,39 @@ export const EmbeddedUrlParser: TContentParser = (content: string) => {
   return result
 }
 
+/**
+ * Shared pipeline for kind-1–style strings (note body, reply preview, profile fields using parseContent).
+ * Order matters.
+ */
+export const PARSE_CONTENT_PARSERS_NOTE_TEXT: TContentParser[] = [
+  EmbeddedUrlParser,
+  EmbeddedLNInvoiceParser,
+  EmbeddedPaytoParser,
+  EmbeddedWebsocketUrlParser,
+  EmbeddedEventParser,
+  EmbeddedMentionParser,
+  EmbeddedHashtagParser,
+  EmbeddedEmojiParser
+]
+
 export function parseContent(content: string, parsers: TContentParser[]) {
+  const trace = content.includes('nostr:')
+  if (trace) {
+    logContentSpacing('parseContent:input', {
+      rawLength: content.length,
+      afterTrimRepr: reprString(content.trim()),
+      trimRemovedLeading: content.length - content.trimStart().length,
+      trimRemovedTrailing: content.length - content.trimEnd().length
+    })
+  }
+
   let nodes: TEmbeddedNode[] = [{ type: 'text', data: content.trim() }]
 
-  parsers.forEach((parser) => {
+  parsers.forEach((parser, parserIndex) => {
+    const parserLabel =
+      typeof parser === 'function' ? `fn[${parserIndex}]` : parser.type
+    const beforeSummary = trace ? summarizeContentNodesForDebug(nodes) : null
+
     nodes = nodes
       .flatMap((node) => {
         if (node.type !== 'text') return [node]
@@ -178,13 +211,36 @@ export function parseContent(content: string, parsers: TContentParser[]) {
         return result
       })
       .filter((n) => n.data !== '')
+
+    if (trace) {
+      logContentSpacing('parseContent:after-parser', {
+        parser: parserLabel,
+        parserIndex,
+        before: beforeSummary,
+        after: summarizeContentNodesForDebug(nodes)
+      })
+    }
   })
 
   nodes = mergeConsecutiveTextNodes(nodes)
   nodes = mergeConsecutiveImageNodes(nodes)
   nodes = removeExtraNewlines(nodes)
 
+  if (trace) {
+    logContentSpacing('parseContent:final', {
+      afterMergeNewlines: summarizeContentNodesForDebug(nodes)
+    })
+  }
+
   return nodes
+}
+
+function summarizeContentNodesForDebug(nodes: TEmbeddedNode[]): Array<{ type: string; repr?: string }> {
+  return nodes.map((n) => {
+    if (n.type === 'text') return { type: 'text', repr: reprString(n.data) }
+    if (n.type === 'images') return { type: 'images', repr: `[${n.data.length} urls]` }
+    return { type: n.type, repr: typeof n.data === 'string' ? reprString(n.data) : undefined }
+  })
 }
 
 function mergeConsecutiveTextNodes(nodes: TEmbeddedNode[]) {

@@ -13,7 +13,9 @@ import { parsePaytoUri } from '@/lib/payto'
 import PaytoLink from '@/components/PaytoLink'
 import { TImetaInfo } from '@/types'
 import { Event } from 'nostr-tools'
+import { NOSTR_PARSER_REGEX } from '@/lib/content-patterns'
 import logger from '@/lib/logger'
+import { logContentSpacing, reprString } from '@/lib/content-spacing-debug'
 
 export interface ParsedNostrContent {
   elements: Array<{
@@ -39,9 +41,16 @@ export interface ParsedNostrContent {
  */
 export function parseNostrContent(content: string, event?: Event): ParsedNostrContent {
   const elements: ParsedNostrContent['elements'] = []
-  
-  // Regex to match nostr: addresses that are not inside URLs or other contexts
-  const nostrRegex = /(?:^|\s|>|\[)nostr:(npub1[a-z0-9]{58}|nprofile1[a-z0-9]+|note1[a-z0-9]{58}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)(?=\s|$|>|\]|,|\.|!|\?|;|:)/g
+  const traceNostr = content.includes('nostr:')
+  if (traceNostr) {
+    logContentSpacing('parseNostrContent:input', {
+      length: content.length,
+      repr: reprString(content),
+      eventId: event?.id
+    })
+  }
+
+  const nostrRegex = new RegExp(NOSTR_PARSER_REGEX.source, NOSTR_PARSER_REGEX.flags)
   
   // Regex to match all URLs (we'll filter by type later)
   const urlRegex = /(https?:\/\/[^\s]+)/gi
@@ -79,12 +88,25 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
   // Find nostr matches
   let nostrMatch
   while ((nostrMatch = nostrRegex.exec(content)) !== null) {
-    if (isNostrAddressInValidContext(content, nostrMatch.index, nostrMatch.index + nostrMatch[0].length)) {
+    const nStart = nostrMatch.index
+    const nEnd = nostrMatch.index + nostrMatch[0].length
+    const valid = isNostrAddressInValidContext(content, nStart, nEnd)
+    if (traceNostr) {
+      logContentSpacing('parseNostrContent:nostr-regex', {
+        index: nStart,
+        end: nEnd,
+        fullMatchRepr: reprString(nostrMatch[0]),
+        validContext: valid,
+        charBeforeIndex: nStart > 0 ? reprString(content[nStart - 1]) : '(start)',
+        charAtIndex: reprString(content[nStart] ?? '')
+      })
+    }
+    if (valid) {
       allMatches.push({
         type: 'nostr',
         match: nostrMatch,
-        start: nostrMatch.index,
-        end: nostrMatch.index + nostrMatch[0].length
+        start: nStart,
+        end: nEnd
       })
     }
   }
@@ -269,6 +291,23 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
       const isAtEnd = end === content.length || content[end] === '\n'
       const needsSpaceBefore = !isAtStart && content[start - 1] !== ' '
       const needsSpaceAfter = !isAtEnd && content[end] !== ' '
+      if (traceNostr) {
+        const textBefore = start > lastIndex ? content.slice(lastIndex, start) : ''
+        logContentSpacing('parseNostrContent:nostr-element', {
+          lastIndex,
+          start,
+          end,
+          textBeforeSliceRepr: reprString(textBefore),
+          isAtStart,
+          isAtEnd,
+          needsSpaceBefore,
+          needsSpaceAfter,
+          prevCharRepr:
+            start > 0 ? reprString(content[start - 1]) : '(none)',
+          nextCharRepr:
+            end < content.length ? reprString(content[end]) : '(eof)'
+        })
+      }
       
       if (needsSpaceBefore) {
         elements.push({
@@ -422,6 +461,12 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
       images: allImages
     })
     
+    if (traceNostr) {
+      logContentSpacing('parseNostrContent:result', {
+        branch: 'gallery',
+        sequence: summarizeParsedElementsForDebug(filteredElements)
+      })
+    }
     return { elements: filteredElements }
   }
   
@@ -433,7 +478,23 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
     })
   }
   
+  if (traceNostr) {
+    logContentSpacing('parseNostrContent:result', {
+      branch: elements.length === 1 && elements[0].type === 'text' ? 'text-only' : 'elements',
+      sequence: summarizeParsedElementsForDebug(elements)
+    })
+  }
   return { elements }
+}
+
+function summarizeParsedElementsForDebug(
+  els: ParsedNostrContent['elements']
+): Array<{ type: string; repr?: string; bech32Id?: string }> {
+  return els.map((e) => {
+    if (e.type === 'text') return { type: 'text', repr: reprString(e.content) }
+    if (e.type === 'nostr') return { type: 'nostr', bech32Id: e.bech32Id }
+    return { type: e.type }
+  })
 }
 
 /**

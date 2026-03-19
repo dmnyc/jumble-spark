@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { cleanUrl } from '@/lib/url'
 import { Event } from 'nostr-tools'
+import { logContentSpacing, reprString } from '@/lib/content-spacing-debug'
 import { parseNostrContent, renderNostrContent } from '@/lib/nostr-parser.tsx'
 import { cn } from '@/lib/utils'
 
@@ -30,12 +31,28 @@ export default function SimpleContent({
       }
     )
     
+    if (rawContent.includes('nostr:')) {
+      logContentSpacing('SimpleContent:processedContent', {
+        rawRepr: reprString(rawContent),
+        cleanedRepr: reprString(cleaned),
+        same: rawContent === cleaned
+      })
+    }
     return cleaned
   }, [content, event?.content])
 
   // Parse content for nostr addresses and media
   const parsedContent = useMemo(() => {
-    return parseNostrContent(processedContent, event)
+    const parsed = parseNostrContent(processedContent, event)
+    if (processedContent.includes('nostr:')) {
+      logContentSpacing('SimpleContent:parsedContent', {
+        elementCount: parsed.elements.length,
+        tail: parsed.elements.slice(-3).map((e) =>
+          e.type === 'text' ? { type: 'text', repr: reprString(e.content) } : { type: e.type }
+        )
+      })
+    }
+    return parsed
   }, [processedContent, event])
 
   return (

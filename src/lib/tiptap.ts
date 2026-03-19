@@ -1,10 +1,19 @@
+import { logContentSpacing, reprString } from '@/lib/content-spacing-debug'
 import customEmojiService from '@/services/custom-emoji.service'
 import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { JSONContent } from '@tiptap/react'
 import { nip19 } from 'nostr-tools'
 
 export function parseEditorJsonToText(node?: JSONContent) {
-  let text = _parseEditorJsonToText(node).trim()
+  const rawJoined = _parseEditorJsonToText(node)
+  let text = rawJoined.trim()
+  const trace = rawJoined.includes('nostr:') || /npub1|nprofile1/.test(rawJoined)
+  if (trace) {
+    logContentSpacing('parseEditorJsonToText:joined', {
+      beforeTrimRepr: reprString(rawJoined),
+      afterTrimRepr: reprString(text)
+    })
+  }
   const regex = /(?:^|\s)(nevent|naddr|nprofile|npub)1[a-zA-Z0-9]+/g
 
   text = text.replace(regex, (match) => {
@@ -20,7 +29,14 @@ export function parseEditorJsonToText(node?: JSONContent) {
   })
 
   // Ensure space before nostr: when not already preceded by space (fixes "Like:nostr:npub" and "Like:\nnostr:npub")
+  const beforeNostrSpacePass = text
   text = text.replace(/(.)(?=nostr:)/g, (_, prev) => (prev === ' ' ? prev : prev + ' '))
+  if (trace) {
+    logContentSpacing('parseEditorJsonToText:after-nostr-prefix-pass', {
+      beforeRepr: reprString(beforeNostrSpacePass),
+      afterRepr: reprString(text)
+    })
+  }
   return text
 }
 

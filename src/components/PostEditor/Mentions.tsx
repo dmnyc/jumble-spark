@@ -3,6 +3,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
+import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
 import logger from '@/lib/logger'
 import { Check } from 'lucide-react'
 import { Event, nip19 } from 'nostr-tools'
@@ -144,9 +145,7 @@ export async function extractMentions(content: string, parentEvent?: Event) {
     pubkeys.push(parentEventPubkey)
   }
   
-  const matches = content.match(
-    /nostr:(npub1[a-z0-9]{58}|nprofile1[a-z0-9]+|note1[a-z0-9]{58}|nevent1[a-z0-9]+)/g
-  )
+  const matches = content.match(NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX)
 
   const addToSet = (arr: string[], pubkey: string) => {
     if (!arr.includes(pubkey)) arr.push(pubkey)

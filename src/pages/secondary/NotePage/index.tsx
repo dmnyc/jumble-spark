@@ -21,9 +21,8 @@ import type { Event } from 'nostr-tools'
 import { kinds, nip19 } from 'nostr-tools'
 import { forwardRef, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { NOSTR_URI_NADDR_REGEX } from '@/lib/content-patterns'
 import NotFound from './NotFound'
-
-const NADDR_REGEX = /nostr:(naddr1[a-z0-9]+)/g
 
 // Helper function to get event type name (matching WebPreview)
 function getEventTypeName(kind: number): string {
@@ -109,8 +108,8 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: string;
   // When viewing a kind-24 invite (e.g. from notifications), extract calendar event naddr from content and show full calendar card with RSVP
   const calendarInviteNaddr = useMemo(() => {
     if (finalEvent?.kind !== ExtendedKind.PUBLIC_MESSAGE || !finalEvent.content?.trim()) return undefined
-    const match = NADDR_REGEX.exec(finalEvent.content)
-    NADDR_REGEX.lastIndex = 0
+    const match = NOSTR_URI_NADDR_REGEX.exec(finalEvent.content)
+    NOSTR_URI_NADDR_REGEX.lastIndex = 0
     const naddr = match?.[1]
     if (!naddr) return undefined
     try {

@@ -12,7 +12,8 @@ import { cleanUrl, isImage, isMedia, isVideo, isAudio, isWebsocketUrl } from '@/
 import { getImetaInfosFromEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import Emoji from '@/components/Emoji'
-import { ExtendedKind, EMOJI_SHORT_CODE_REGEX, WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
+import { ExtendedKind, WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
+import { EMOJI_SHORT_CODE_REGEX, NOSTR_URI_INLINE_REGEX } from '@/lib/content-patterns'
 import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { TEmoji } from '@/types'
@@ -29,6 +30,7 @@ import { PAYTO_URI_REGEX, parsePaytoUri } from '@/lib/payto'
 import PaytoLink from '@/components/PaytoLink'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
+import { isContentSpacingDebug, reprString } from '@/lib/content-spacing-debug'
 import logger from '@/lib/logger'
 
 /**
@@ -1087,7 +1089,7 @@ function parseMarkdownContent(
   })
 
   // Nostr addresses (nostr:npub1..., nostr:note1..., etc.)
-  const nostrRegex = /nostr:(npub1[a-z0-9]{58}|nprofile1[a-z0-9]+|note1[a-z0-9]{58}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)/g
+  const nostrRegex = new RegExp(NOSTR_URI_INLINE_REGEX.source, NOSTR_URI_INLINE_REGEX.flags)
   const nostrMatches = Array.from(content.matchAll(nostrRegex))
   nostrMatches.forEach(match => {
     if (match.index !== undefined) {
@@ -2679,12 +2681,26 @@ function parseMarkdownContent(
  * - Footnote references: [^1] (handled at block level, but parsed here for inline context)
  */
 function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<string, string> = new Map(), emojiInfos: TEmoji[] = []): React.ReactNode[] {
+  if (isContentSpacingDebug() && text.includes('nostr:')) {
+    // eslint-disable-next-line no-console
+    console.log('[jumble content-spacing] parseInlineMarkdown:before-normalize', {
+      keyPrefix,
+      repr: reprString(text)
+    })
+  }
   // Normalize newlines to spaces at the start (defensive - text should already be normalized, but ensure it)
   // This prevents any hard breaks within inline content
   text = text.replace(/\n/g, ' ')
   // Collapse multiple consecutive spaces/tabs (2+) into a single space, but preserve single spaces
   text = text.replace(/[ \t]{2,}/g, ' ')
-  
+  if (isContentSpacingDebug() && text.includes('nostr:')) {
+    // eslint-disable-next-line no-console
+    console.log('[jumble content-spacing] parseInlineMarkdown:after-normalize', {
+      keyPrefix,
+      repr: reprString(text)
+    })
+  }
+
   const parts: React.ReactNode[] = []
   let lastIndex = 0
   const inlinePatterns: Array<{ index: number; end: number; type: string; data: any }> = []
@@ -2937,7 +2953,7 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
   
   // Nostr addresses: nostr:npub1..., nostr:note1..., etc. (process after code/bold/italic/links/hashtags/relay-urls to avoid conflicts)
   // Only process profile types (npub/nprofile) inline; event types (note/nevent/naddr) should remain block-level
-  const nostrRegex = /nostr:(npub1[a-z0-9]{58}|nprofile1[a-z0-9]+|note1[a-z0-9]{58}|nevent1[a-z0-9]+|naddr1[a-z0-9]+)/g
+  const nostrRegex = new RegExp(NOSTR_URI_INLINE_REGEX.source, NOSTR_URI_INLINE_REGEX.flags)
   const nostrMatches = Array.from(text.matchAll(nostrRegex))
   nostrMatches.forEach(match => {
     if (match.index !== undefined) {
@@ -3001,7 +3017,7 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
           index: match.index,
           end: match.index + match[0].length,
           type: 'emoji',
-          data: match[0].slice(1, -1).trim()
+          data: (match[1] ?? match[0].slice(1, -1)).trim()
         })
       }
     }
