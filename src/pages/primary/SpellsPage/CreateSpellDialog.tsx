@@ -134,7 +134,8 @@ export default function CreateSpellDialog({
   open,
   onOpenChange,
   onSaved,
-  spellToEdit
+  spellToEdit,
+  spellToClone
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -142,6 +143,8 @@ export default function CreateSpellDialog({
   onSaved?: (publishedEvent?: NostrEvent) => void
   /** When set, form is preloaded and save replaces this spell id in storage/favorites. */
   spellToEdit?: NostrEvent | null
+  /** When set, form is preloaded from this spell but save always publishes a new event (your pubkey). */
+  spellToClone?: NostrEvent | null
 }) {
   const { t } = useTranslation()
   const { pubkey, publish, checkLogin } = useNostr()
@@ -151,12 +154,13 @@ export default function CreateSpellDialog({
 
   useEffect(() => {
     if (!open) return
-    if (spellToEdit) {
-      setForm(spellEventToDraftParams(spellToEdit))
+    const source = spellToClone ?? spellToEdit
+    if (source) {
+      setForm(spellEventToDraftParams(source))
     } else {
       setForm({ ...DEFAULT_PARAMS })
     }
-  }, [open, spellToEdit])
+  }, [open, spellToEdit, spellToClone])
 
   const handleScrollBodyKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     const el = scrollBodyRef.current
@@ -210,7 +214,9 @@ export default function CreateSpellDialog({
       handleClear()
       onSaved?.(event)
       onOpenChange(false)
-      showSimplePublishSuccess(replaceSpellId ? t('Spell updated') : t('Spell published'))
+      showSimplePublishSuccess(
+        replaceSpellId ? t('Spell updated') : spellToClone ? t('Spell cloned') : t('Spell published')
+      )
     } catch (e) {
       logger.error('[CreateSpellDialog] Publish failed', e)
       showPublishingError(e instanceof Error ? e : new Error(String(e)))
@@ -238,12 +244,18 @@ export default function CreateSpellDialog({
             <X className="size-4" />
           </Button>
           <DialogHeader className="space-y-1.5 pr-10 text-left sm:text-left">
-            <DialogTitle>{replaceSpellId ? t('Edit spell') : t('Create a Spell')}</DialogTitle>
+            <DialogTitle>
+              {replaceSpellId ? t('Edit spell') : spellToClone ? t('Clone spell') : t('Create a Spell')}
+            </DialogTitle>
           </DialogHeader>
           <p className="mt-2 text-sm text-muted-foreground">
-            {t(
-              'Spells are saved relay filters (NIP-A7). Fill in the filter fields below. Use $me for your pubkey and $contacts for your follow list when executing.'
-            )}
+            {spellToClone
+              ? t(
+                  'This spell is preloaded from someone else’s definition. Adjust anything you like, then save to publish a new spell signed by you.'
+                )
+              : t(
+                  'Spells are saved relay filters (NIP-A7). Fill in the filter fields below. Use $me for your pubkey and $contacts for your follow list when executing.'
+                )}
           </p>
         </div>
 

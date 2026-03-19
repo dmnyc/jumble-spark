@@ -13,7 +13,15 @@ import { formatPubkey, isValidPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib
 import { getPubkeysFromPTags, getServersFromServerTags, tagNameEquals } from '@/lib/tag'
 import { isLocalNetworkUrl, isWebsocketUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import { isSafari } from '@/lib/utils'
-import { ISigner, TProfile, TPublishOptions, TRelayList, TMailboxRelay, TSubRequestFilter } from '@/types'
+import {
+  ISigner,
+  TProfile,
+  TPublishOptions,
+  TRelayList,
+  TMailboxRelay,
+  TSignerType,
+  TSubRequestFilter
+} from '@/types'
 import { sha256 } from '@noble/hashes/sha2'
 import DataLoader from 'dataloader'
 import dayjs from 'dayjs'
@@ -40,6 +48,8 @@ class ClientService extends EventTarget {
   static instance: ClientService
 
   signer?: ISigner
+  /** Set with signer from NostrProvider; used to skip relay AUTH when read-only (e.g. npub). */
+  signerType?: TSignerType
   pubkey?: string
   private pool: SimplePool
 
@@ -184,6 +194,13 @@ class ClientService extends EventTarget {
       const next = queue.shift()!
       next()
     }
+  }
+
+  /** Read-only logins (e.g. npub) cannot sign relay AUTH challenges; avoid calling signEvent. */
+  private canSignerAuthenticateRelay(): boolean {
+    if (!this.signer) return false
+    if (this.signerType === 'npub') return false
+    return true
   }
 
   /**
@@ -684,7 +701,7 @@ class ClientService extends EventTarget {
                 if (
                   error instanceof Error &&
                   error.message.startsWith('auth-required') &&
-                  !!that.signer
+                  that.canSignerAuthenticateRelay()
                 ) {
                   logger.debug(`[PublishEvent] Auth required, attempting authentication`, { url })
                   return relay
@@ -1048,7 +1065,7 @@ class ClientService extends EventTarget {
           oneose: () => handleEose(i),
           onclose: (reason: string) => {
             releaseOnce()
-            if (reason.startsWith('auth-required: ') && that.signer) {
+            if (reason.startsWith('auth-required: ') && that.canSignerAuthenticateRelay()) {
               relay.auth(async (authEvt: EventTemplate) => {
                 const evt = await that.signer!.signEvent(authEvt)
                 if (!evt) throw new Error('sign event failed')

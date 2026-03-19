@@ -707,6 +707,8 @@ export default {
     'Could not run this spell. Check that it has a valid REQ/COUNT command, or add write relays in settings.':
       'Could not run this spell. Check that it has a valid REQ/COUNT command, or add write relays in settings.',
     'Select a spell…': 'Select a spell…',
+    'Spells from follows': 'From people you follow ({{count}})',
+    'Other spells': 'Other spells ({{count}})',
     'Select a spell to view its feed.': 'Select a spell to view its feed.',
     'Add another row': 'Add another row',
     'Remove this row': 'Remove this row',
@@ -721,6 +723,10 @@ export default {
     'Spell form fields': 'Spell form fields',
     'Counting matching events…': 'Counting matching events…',
     'Edit spell': 'Edit spell',
+    'Clone spell': 'Clone spell',
+    'Spell cloned': 'Spell cloned',
+    'Clone spell intro':
+      'This spell is preloaded from another author’s definition. Change anything you like, then save to publish a new spell signed with your account.',
     'Spell updated': 'Spell updated',
     'Relay URL': 'Relay',
     Count: 'Count',

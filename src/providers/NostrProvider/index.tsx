@@ -551,7 +551,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     } else {
       client.signer = undefined
     }
-  }, [signer])
+    client.signerType = account?.signerType
+  }, [signer, account?.signerType])
 
   useEffect(() => {
     if (account) {

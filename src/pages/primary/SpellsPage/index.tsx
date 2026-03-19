@@ -12,15 +12,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import logger from '@/lib/logger'
 import { useNostr } from '@/providers/NostrProvider'
@@ -38,16 +34,13 @@ import {
   spellIsCount
 } from '@/services/spell.service'
 import { TFeedSubRequest } from '@/types'
-import { FileText, MoreVertical, Pencil, Plus, Star, Trash2, Wand2 } from 'lucide-react'
+import { Check, ChevronDown, Copy, FileText, MoreVertical, Pencil, Plus, Star, Trash2, Wand2 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { verifyEvent } from 'nostr-tools'
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
 import type { TPageRef } from '@/types'
-
-/** Sentinel value for Radix Select when no spell is selected */
-const SPELL_SELECT_NONE = '__spell_none__'
 
 const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   const { t } = useTranslation()
@@ -57,6 +50,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   const [selectedSpell, setSelectedSpell] = useState<Event | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [spellToEdit, setSpellToEdit] = useState<Event | null>(null)
+  const [spellToClone, setSpellToClone] = useState<Event | null>(null)
   const [definitionSpell, setDefinitionSpell] = useState<Event | null>(null)
   const [subRequests, setSubRequests] = useState<TFeedSubRequest[]>([])
   const [contacts, setContacts] = useState<string[]>([])
@@ -355,13 +349,51 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
     [loadSpells, selectedSpell?.id]
   )
 
-  const orderedSpells = [...spells].sort((a, b) => {
-    const aFav = favoriteIds.has(a.id)
-    const bFav = favoriteIds.has(b.id)
-    if (aFav && !bFav) return -1
-    if (!aFav && bFav) return 1
-    return (b.created_at ?? 0) - (a.created_at ?? 0)
-  })
+  const { ownSpells, followSpells, otherSpells, spellsForSelect } = useMemo(() => {
+    const byName = (a: Event, b: Event) =>
+      getSpellName(a).localeCompare(getSpellName(b), undefined, { sensitivity: 'base' })
+
+    const followSet = new Set(contacts)
+    const own: Event[] = []
+    const follow: Event[] = []
+    const other: Event[] = []
+
+    for (const s of spells) {
+      if (pubkey && s.pubkey === pubkey) own.push(s)
+      else if (followSet.has(s.pubkey)) follow.push(s)
+      else other.push(s)
+    }
+
+    own.sort(byName)
+    follow.sort(byName)
+    other.sort(byName)
+
+    return {
+      ownSpells: own,
+      followSpells: follow,
+      otherSpells: other,
+      spellsForSelect: [...own, ...follow, ...other]
+    }
+  }, [spells, pubkey, contacts])
+
+  const spellMenuLabel = useCallback(
+    (spell: Event) => (favoriteIds.has(spell.id) ? `★ ${getSpellName(spell)}` : getSpellName(spell)),
+    [favoriteIds]
+  )
+
+  const renderSpellMenuItem = useCallback(
+    (spell: Event) => (
+      <DropdownMenuItem onSelect={() => setSelectedSpell(spell)} className="gap-2">
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {selectedSpell?.id === spell.id ? <Check className="size-4" aria-hidden /> : null}
+        </span>
+        <span className="min-w-0 truncate">{spellMenuLabel(spell)}</span>
+      </DropdownMenuItem>
+    ),
+    [selectedSpell?.id, spellMenuLabel]
+  )
+
+  const selectedSpellIsOwn = !!(pubkey && selectedSpell && selectedSpell.pubkey === pubkey)
 
   return (
     <PrimaryPageLayout
@@ -375,6 +407,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
             size="titlebar-icon"
             onClick={() => {
               setSpellToEdit(null)
+              setSpellToClone(null)
               setCreateOpen(true)
             }}
             title={t('Create a Spell')}
@@ -388,26 +421,74 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
         {/* Spell picker + actions above the feed */}
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <Select
-            value={selectedSpell?.id ?? SPELL_SELECT_NONE}
-            onValueChange={(v) => {
-              if (v === SPELL_SELECT_NONE) setSelectedSpell(null)
-              else setSelectedSpell(orderedSpells.find((s) => s.id === v) ?? null)
-            }}
-            disabled={orderedSpells.length === 0}
-          >
-            <SelectTrigger className="min-w-0 flex-1 sm:max-w-md">
-              <SelectValue placeholder={t('Select a spell…')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={SPELL_SELECT_NONE}>{t('Select a spell…')}</SelectItem>
-              {orderedSpells.map((spell) => (
-                <SelectItem key={spell.id} value={spell.id}>
-                  {favoriteIds.has(spell.id) ? `★ ${getSpellName(spell)}` : getSpellName(spell)}
-                </SelectItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                disabled={spellsForSelect.length === 0}
+                className="min-w-0 flex-1 justify-between font-normal sm:max-w-md"
+                title={selectedSpell ? spellMenuLabel(selectedSpell) : undefined}
+              >
+                <span className="truncate">
+                  {selectedSpell ? spellMenuLabel(selectedSpell) : t('Select a spell…')}
+                </span>
+                <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="max-h-[min(24rem,70vh)] w-[var(--radix-dropdown-menu-trigger-width)] min-w-[12rem] overflow-y-auto sm:max-w-md"
+            >
+              <DropdownMenuItem onSelect={() => setSelectedSpell(null)} className="gap-2">
+                <span className="flex size-4 shrink-0 items-center justify-center">
+                  {!selectedSpell ? <Check className="size-4" aria-hidden /> : null}
+                </span>
+                <span className="truncate">{t('Select a spell…')}</span>
+              </DropdownMenuItem>
+              {(ownSpells.length > 0 || followSpells.length > 0 || otherSpells.length > 0) && (
+                <DropdownMenuSeparator />
+              )}
+              {ownSpells.map((spell) => (
+                <Fragment key={spell.id}>{renderSpellMenuItem(spell)}</Fragment>
               ))}
-            </SelectContent>
-          </Select>
+              {ownSpells.length > 0 && (followSpells.length > 0 || otherSpells.length > 0) && (
+                <DropdownMenuSeparator />
+              )}
+              {followSpells.length > 0 ? (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="cursor-default">
+                    {t('Spells from follows', { count: followSpells.length })}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent
+                    className="max-h-[50vh] min-w-[12rem] overflow-y-auto sm:min-w-[16rem]"
+                    showScrollButtons
+                  >
+                    {followSpells.map((spell) => (
+                      <Fragment key={spell.id}>{renderSpellMenuItem(spell)}</Fragment>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              ) : null}
+              {otherSpells.length > 0 && (ownSpells.length > 0 || followSpells.length > 0) ? (
+                <DropdownMenuSeparator />
+              ) : null}
+              {otherSpells.length > 0 ? (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="cursor-default">
+                    {t('Other spells', { count: otherSpells.length })}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent
+                    className="max-h-[50vh] min-w-[12rem] overflow-y-auto sm:min-w-[16rem]"
+                    showScrollButtons
+                  >
+                    {otherSpells.map((spell) => (
+                      <Fragment key={spell.id}>{renderSpellMenuItem(spell)}</Fragment>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Button
@@ -415,6 +496,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
               variant="outline"
               onClick={() => {
                 setSpellToEdit(null)
+                setSpellToClone(null)
                 setCreateOpen(true)
               }}
             >
@@ -445,28 +527,47 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      className="gap-2"
-                      onClick={() => {
-                        setSpellToEdit(selectedSpell)
-                        setCreateOpen(true)
-                      }}
-                    >
-                      <Pencil className="size-4" />
-                      {t('Edit spell')}
-                    </DropdownMenuItem>
+                    {selectedSpellIsOwn ? (
+                      <DropdownMenuItem
+                        className="gap-2"
+                        onClick={() => {
+                          setSpellToClone(null)
+                          setSpellToEdit(selectedSpell)
+                          setCreateOpen(true)
+                        }}
+                      >
+                        <Pencil className="size-4" />
+                        {t('Edit spell')}
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem
+                        className="gap-2"
+                        onClick={() => {
+                          setSpellToEdit(null)
+                          setSpellToClone(selectedSpell)
+                          setCreateOpen(true)
+                        }}
+                      >
+                        <Copy className="size-4" />
+                        {t('Clone spell')}
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem className="gap-2" onClick={() => setDefinitionSpell(selectedSpell)}>
                       <FileText className="size-4" />
                       {t('View definition')}
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="gap-2 text-destructive focus:text-destructive"
-                      onClick={() => handleDeleteSpell(selectedSpell)}
-                    >
-                      <Trash2 className="size-4" />
-                      {t('Delete')}
-                    </DropdownMenuItem>
+                    {selectedSpellIsOwn ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="gap-2 text-destructive focus:text-destructive"
+                          onClick={() => handleDeleteSpell(selectedSpell)}
+                        >
+                          <Trash2 className="size-4" />
+                          {t('Delete')}
+                        </DropdownMenuItem>
+                      </>
+                    ) : null}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </>
@@ -478,7 +579,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
           <p className="text-xs text-muted-foreground">{t('Loading spells from your relays…')}</p>
         ) : null}
 
-        {orderedSpells.length === 0 && !spellsCatalogSyncing && (
+        {spellsForSelect.length === 0 && !spellsCatalogSyncing && (
           <p className="text-sm text-muted-foreground">{t('No spells yet. Create one with the button above.')}</p>
         )}
 
@@ -605,12 +706,19 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
         open={createOpen}
         onOpenChange={(open) => {
           setCreateOpen(open)
-          if (!open) setSpellToEdit(null)
+          if (!open) {
+            setSpellToEdit(null)
+            setSpellToClone(null)
+          }
         }}
         spellToEdit={spellToEdit}
+        spellToClone={spellToClone}
         onSaved={(ev) => {
           void loadSpells()
           if (ev && spellToEdit && selectedSpell?.id === spellToEdit.id) {
+            setSelectedSpell(ev)
+          }
+          if (ev && spellToClone && selectedSpell?.id === spellToClone.id) {
             setSelectedSpell(ev)
           }
         }}
