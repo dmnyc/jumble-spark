@@ -627,6 +627,7 @@ export default {
     'Create a Spell': 'Zauberspruch anlegen',
     'No spells yet. Create one with the button above.':
       'Noch keine Zaubersprüche. Lege mit dem Button oben einen an.',
+    'Loading spells from your relays…': 'Zaubersprüche werden von deinen Relays geladen…',
     'Select a spell…': 'Zauberspruch wählen…',
     'View definition': 'Definition anzeigen',
     'Add to favorites': 'Zu Favoriten hinzufügen',
@@ -635,8 +636,8 @@ export default {
       'COUNT-Zaubersprüche zeigen eine Zahl, keinen Feed.',
     'Log in to run this spell (it uses $me or $contacts).':
       'Zum Ausführen anmelden (verwendet $me oder $contacts).',
-    'Could not run this spell. Check that it has a valid REQ/COUNT command, or add read relays in settings.':
-      'Zauberspruch konnte nicht ausgeführt werden. Prüfe REQ/COUNT oder füge Lese-Relays in den Einstellungen hinzu.',
+    'Could not run this spell. Check that it has a valid REQ/COUNT command, or add write relays in settings.':
+      'Zauberspruch konnte nicht ausgeführt werden. Prüfe REQ/COUNT oder füge Schreib-Relays (Outbox) in den Einstellungen hinzu.',
     'Select a spell to view its feed.': 'Wähle einen Zauberspruch, um den Feed zu sehen.',
     'Add another row': 'Weitere Zeile hinzufügen',
     'Remove this row': 'Diese Zeile entfernen',
@@ -645,14 +646,14 @@ export default {
     'One author per row: $me, $contacts, or hex pubkey / npub.':
       'Ein Autor pro Zeile: $me, $contacts oder Hex-Pubkey / npub.',
     'One hex event id per row.': 'Eine Hex-Event-ID pro Zeile.',
-    'One wss:// URL per row. Leave empty to use your read relays.':
-      'Eine wss://-URL pro Zeile. Alle leer lassen für deine Lese-Relays.',
+    'One wss:// URL per row. Leave empty to use your write relays.':
+      'Eine wss://-URL pro Zeile. Alle leer lassen für deine Schreib-Relays (Outbox).',
     'One topic per row.': 'Ein Thema pro Zeile.',
     topic: 'Thema',
     'Spell form fields': 'Zauberspruch-Formularfelder',
     'Counting matching events…': 'Zähle passende Events…',
     'COUNT spell result explanation':
-      'Verschiedene Events, die zum Filter passen (von den Relays des Zaubers und Fallbacks zusammengeführt, Duplikate entfernt). Relays liefern höchstens so viele wie im Limit steht.',
+      'Verschiedene Events, die zum Filter passen (von den Relays des Zaubers und Standard-Schreib-Relays zusammengeführt, Duplikate entfernt). Relays liefern höchstens so viele wie im Limit steht.',
     'COUNT spell may be capped by limit':
       'Die Zahl kann deinem Limit entsprechen — es könnte noch mehr passende Events geben.',
     'Spell count failed. Check relays or try again.':
@@ -693,8 +694,8 @@ export default {
     Optional: 'Optional',
     'Search (NIP-50)': 'Suche (NIP-50)',
     'Full-text search query': 'Volltextsuchanfrage',
-    'Leave empty to use your read relays.':
-      'Leer lassen, um deine Lese-Relays zu verwenden.',
+    'Leave empty to use your write relays.':
+      'Leer lassen, um deine Schreib-Relays (Outbox) zu verwenden.',
     'Topics (t tags for categorization)': 'Themen (t-Tags zur Kategorisierung)',
     'Comma-separated topics': 'Themen, komma-getrennt',
     Mode: 'Modus',

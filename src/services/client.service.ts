@@ -279,6 +279,42 @@ class ClientService extends EventTarget {
     if (specifiedRelayUrls?.length) {
       relays = specifiedRelayUrls
     } else {
+      // Kind 777 spells: merged write list (kind 10002 outbox + kind 10432 CACHE_RELAYS) + fast write.
+      if (event.kind === ExtendedKind.SPELL) {
+        let spellRelayList: TRelayList | undefined
+        try {
+          spellRelayList = await this.fetchRelayList(event.pubkey)
+        } catch (err) {
+          logger.warn('[DetermineTargetRelays] fetchRelayList failed for spell', {
+            pubkey: event.pubkey?.substring(0, 8),
+            error: err instanceof Error ? err.message : String(err)
+          })
+          spellRelayList = { write: [], read: [], originalRelays: [] }
+        }
+        const normalizedWrite = (spellRelayList?.write ?? [])
+          .map((url) => normalizeUrl(url))
+          .filter((url): url is string => !!url)
+        const cappedWrite = normalizedWrite.slice(0, 10)
+        const merged = [...cappedWrite, ...FAST_WRITE_RELAY_URLS]
+        const seen = new Set<string>()
+        let spellRelays: string[] = []
+        for (const u of merged) {
+          const n = normalizeUrl(u) || u
+          if (!n || seen.has(n)) continue
+          seen.add(n)
+          spellRelays.push(n)
+        }
+        if (!spellRelays.length) {
+          spellRelays = [...FAST_WRITE_RELAY_URLS]
+        }
+        const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+        spellRelays = spellRelays.filter((url) => {
+          const n = normalizeUrl(url) || url
+          return !readOnlySet.has(n)
+        })
+        return spellRelays.length > 0 ? spellRelays : [...FAST_WRITE_RELAY_URLS]
+      }
+
       const _additionalRelayUrls: string[] = additionalRelayUrls ?? []
       if (!specifiedRelayUrls?.length && ![kinds.Contacts, kinds.Mutelist].includes(event.kind)) {
         const mentions: string[] = []

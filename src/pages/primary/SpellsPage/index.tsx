@@ -22,13 +22,17 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
+import logger from '@/lib/logger'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
-import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { ExtendedKind } from '@/constants'
 import {
   getRelaysForSpell,
+  getRelaysForSpellCatalogSync,
   getSpellName,
+  isSpellEvent,
+  SPELL_CATALOG_SYNC_LIMIT,
   spellEventToFilter,
   spellHasExplicitRelays,
   spellIsCount
@@ -36,7 +40,8 @@ import {
 import { TFeedSubRequest } from '@/types'
 import { FileText, MoreVertical, Pencil, Plus, Star, Trash2, Wand2 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
-import { forwardRef, useCallback, useEffect, useState } from 'react'
+import { verifyEvent } from 'nostr-tools'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
 import type { TPageRef } from '@/types'
@@ -55,6 +60,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   const [definitionSpell, setDefinitionSpell] = useState<Event | null>(null)
   const [subRequests, setSubRequests] = useState<TFeedSubRequest[]>([])
   const [contacts, setContacts] = useState<string[]>([])
+  /** True while fetching kind 777 authored by the user from write relays into IndexedDB */
+  const [spellsCatalogSyncing, setSpellsCatalogSyncing] = useState(false)
+  const spellCatalogCloserRef = useRef<(() => void) | null>(null)
   /** COUNT spells: per-relay breakdown + distinct total */
   const [spellCount, setSpellCount] = useState<{
     loading: boolean
@@ -81,9 +89,92 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
     setFavoriteIds(new Set(ids))
   }, [])
 
+  /** Re-sync catalog when inbox / outbox / mailbox entries change (not only `write`). */
+  const spellCatalogRelayKey = useMemo(
+    () =>
+      relayList
+        ? JSON.stringify({
+            r: relayList.read,
+            w: relayList.write,
+            o: relayList.originalRelays.map((x) => [x.url, x.scope])
+          })
+        : '',
+    [relayList]
+  )
+
   useEffect(() => {
     loadSpells()
   }, [loadSpells])
+
+  /** After showing the cache, pull kind 777 from merged mailbox (10002 + 10432) read/write + fast read. */
+  useEffect(() => {
+    if (!pubkey) {
+      setSpellsCatalogSyncing(false)
+      return
+    }
+    let cancelled = false
+    spellCatalogCloserRef.current = null
+    setSpellsCatalogSyncing(true)
+    const urls = getRelaysForSpellCatalogSync(relayList ?? undefined)
+    const filter = {
+      kinds: [ExtendedKind.SPELL],
+      authors: [pubkey],
+      limit: SPELL_CATALOG_SYNC_LIMIT
+    }
+    const syncTimeout = window.setTimeout(() => {
+      if (cancelled) return
+      logger.warn('[SpellsPage] Spell catalog sync timed out')
+      spellCatalogCloserRef.current?.()
+      spellCatalogCloserRef.current = null
+      setSpellsCatalogSyncing(false)
+    }, 40_000)
+
+    void (async () => {
+      try {
+        const { closer } = await client.subscribeTimeline(
+          [{ urls, filter }],
+          {
+            onEvents: async (events, eosed) => {
+              if (!eosed || cancelled) return
+              window.clearTimeout(syncTimeout)
+              for (const ev of events) {
+                if (cancelled) return
+                if (!verifyEvent(ev) || !isSpellEvent(ev) || ev.pubkey !== pubkey) continue
+                try {
+                  await indexedDb.putSpellEvent(ev)
+                } catch (e) {
+                  logger.warn('[SpellsPage] Failed to cache spell from relay', e)
+                }
+              }
+              if (!cancelled) await loadSpells()
+              if (!cancelled) setSpellsCatalogSyncing(false)
+              closer()
+              spellCatalogCloserRef.current = null
+            },
+            onNew: () => {}
+          },
+          { needSort: true }
+        )
+        if (cancelled) {
+          closer()
+          return
+        }
+        spellCatalogCloserRef.current = closer
+      } catch (e) {
+        window.clearTimeout(syncTimeout)
+        logger.warn('[SpellsPage] Spell catalog subscribe failed', e)
+        if (!cancelled) setSpellsCatalogSyncing(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(syncTimeout)
+      spellCatalogCloserRef.current?.()
+      spellCatalogCloserRef.current = null
+      setSpellsCatalogSyncing(false)
+    }
+  }, [pubkey, spellCatalogRelayKey, loadSpells])
 
   useEffect(() => {
     if (!pubkey) {
@@ -118,34 +209,31 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
       mayHitLimit: false,
       usedExplicitRelays: false
     })
-    const defaultRelays = [...new Set([...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])]
-    const relayListRead = relayList?.read?.length ? relayList.read : defaultRelays
+    const relayListWrite = relayList?.write ?? []
     const ctx = {
       pubkey,
-      contacts,
-      relayListRead
+      contacts
     }
     const filter = spellEventToFilter(selectedSpell, ctx)
     if (!filter) {
       setSubRequests([])
       return
     }
-    const relays = getRelaysForSpell(selectedSpell, { relayListRead })
+    const relays = getRelaysForSpell(selectedSpell, { relayListWrite })
     if (!relays.length) {
       setSubRequests([])
       return
     }
     setSubRequests([{ urls: relays, filter }])
-  }, [selectedSpell, pubkey, contacts, relayList?.read])
+  }, [selectedSpell, pubkey, contacts, relayList?.write])
 
   useEffect(() => {
     if (!selectedSpell || !spellIsCount(selectedSpell)) {
       return
     }
     let cancelled = false
-    const defaultRelays = [...new Set([...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])]
-    const relayListRead = relayList?.read?.length ? relayList.read : defaultRelays
-    const ctx = { pubkey, contacts, relayListRead }
+    const relayListWrite = relayList?.write ?? []
+    const ctx = { pubkey, contacts }
     const usedExplicitRelays = spellHasExplicitRelays(selectedSpell)
 
     const needsLogin =
@@ -177,7 +265,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
       })
       return
     }
-    const relays = getRelaysForSpell(selectedSpell, { relayListRead }, { mergeDefaultReadRelays: false })
+    const relays = getRelaysForSpell(selectedSpell, { relayListWrite }, { mergeDefaultReadRelays: false })
     if (!relays.length) {
       setSpellCount({
         loading: false,
@@ -245,7 +333,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
     return () => {
       cancelled = true
     }
-  }, [selectedSpell, pubkey, contacts, relayList?.read])
+  }, [selectedSpell, pubkey, contacts, relayList?.write])
 
   const toggleFavorite = useCallback(async (spellId: string) => {
     const ids = await indexedDb.getSpellFavoriteIds()
@@ -386,7 +474,11 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
           </div>
         </div>
 
-        {orderedSpells.length === 0 && (
+        {spellsCatalogSyncing ? (
+          <p className="text-xs text-muted-foreground">{t('Loading spells from your relays…')}</p>
+        ) : null}
+
+        {orderedSpells.length === 0 && !spellsCatalogSyncing && (
           <p className="text-sm text-muted-foreground">{t('No spells yet. Create one with the button above.')}</p>
         )}
 
@@ -402,7 +494,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
                 ) : spellCount.error === 'invalid' ? (
                   <p className="text-center text-muted-foreground">
                     {t(
-                      'Could not run this spell. Check that it has a valid REQ/COUNT command, or add read relays in settings.'
+                      'Could not run this spell. Check that it has a valid REQ/COUNT command, or add write relays in settings.'
                     )}
                   </p>
                 ) : spellCount.error === 'failed' ? (
@@ -497,7 +589,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
             ) : (
               <div className="py-8 text-center text-muted-foreground">
                 {t(
-                  'Could not run this spell. Check that it has a valid REQ/COUNT command, or add read relays in settings.'
+                  'Could not run this spell. Check that it has a valid REQ/COUNT command, or add write relays in settings.'
                 )}
               </div>
             )

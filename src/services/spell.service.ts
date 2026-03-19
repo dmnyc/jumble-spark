@@ -2,9 +2,10 @@
  * NIP-A7 Spells: parse and execute kind 777 events as portable relay query filters.
  */
 
-import { ExtendedKind, FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { ExtendedKind, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import { tagNameEquals } from '@/lib/tag'
 import logger from '@/lib/logger'
+import type { TRelayList } from '@/types'
 import { normalizeUrl } from '@/lib/url'
 import type { Event } from 'nostr-tools'
 import type { Filter } from 'nostr-tools'
@@ -45,12 +46,30 @@ export function resolveRelativeTime(value: string): number {
 export type SpellExecutionContext = {
   pubkey: string | null
   contacts: string[]
-  relayListRead: string[]
 }
 
-/** Default read relays for spells (deduped); merged after spell/user lists so outages on one relay still leave alternatives. */
-function defaultSpellReadFallbackRelays(): string[] {
-  return dedupeRelayUrls([...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])
+/** When the spell has no `relays` tag and NIP-65 write list is empty: known-good write relays. */
+function defaultSpellWriteFallbackRelays(): string[] {
+  return dedupeRelayUrls([...FAST_WRITE_RELAY_URLS])
+}
+
+/** Max kind-777 events to pull when syncing the user's spell definitions from relays. */
+export const SPELL_CATALOG_SYNC_LIMIT = 200
+
+/**
+ * Relays to fetch the user's kind-777 spells: **read** (inboxes), **write** (outboxes), and
+ * {@link FAST_READ_RELAY_URLS}.
+ *
+ * Pass `relayList` from {@link ClientService.fetchRelayList} / NostrProvider — it already merges
+ * kind **10002** and kind **10432** (CACHE_RELAYS / “local relays” in the app). Do not infer local
+ * relays from hostnames.
+ */
+export function getRelaysForSpellCatalogSync(relayList: TRelayList | null | undefined): string[] {
+  return dedupeRelayUrls([
+    ...(relayList?.read ?? []),
+    ...(relayList?.write ?? []),
+    ...FAST_READ_RELAY_URLS
+  ])
 }
 
 function dedupeRelayUrls(urls: string[]): string[] {
@@ -67,19 +86,19 @@ function dedupeRelayUrls(urls: string[]): string[] {
 
 export type GetRelaysForSpellOptions = {
   /**
-   * When true (default): merge FAST_READ + SEARCHABLE after primary list (REQ feeds).
-   * When false: use only spell `relays` tag, or only read list / defaults — no extra padding (COUNT, explicit relays).
+   * When true (default): merge FAST_WRITE after the primary list (REQ feeds) for resilience.
+   * When false: use only spell `relays` tag, NIP-65 write relays, or write fallback — no extra padding (COUNT).
    */
   mergeDefaultReadRelays?: boolean
 }
 
 /**
- * Get relay URLs for executing a spell: from spell's `relays` tag or context read list.
- * REQ feeds default to merging default read relays; pass `mergeDefaultReadRelays: false` for COUNT-only lists.
+ * Get relay URLs for executing a spell: spell `relays` tag, else the user's NIP-65 **write** (outbox) relays.
+ * Publishing and running spells use outboxes only (plus optional FAST_WRITE padding when mergeDefaults is true).
  */
 export function getRelaysForSpell(
   spell: Event,
-  context: { relayListRead: string[] },
+  context: { relayListWrite: string[] },
   options?: GetRelaysForSpellOptions
 ): string[] {
   const mergeDefaults = options?.mergeDefaultReadRelays !== false
@@ -91,14 +110,14 @@ export function getRelaysForSpell(
       .filter((u): u is string => typeof u === 'string' && (u.startsWith('wss://') || u.startsWith('ws://')))
     if (urls.length) primary = urls
   }
-  if (!primary.length && context.relayListRead.length) {
-    primary = [...context.relayListRead]
+  if (!primary.length && context.relayListWrite.length) {
+    primary = [...context.relayListWrite]
   }
   if (!primary.length) {
-    return defaultSpellReadFallbackRelays()
+    return defaultSpellWriteFallbackRelays()
   }
   if (mergeDefaults) {
-    return dedupeRelayUrls([...primary, ...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])
+    return dedupeRelayUrls([...primary, ...FAST_WRITE_RELAY_URLS])
   }
   return dedupeRelayUrls(primary)
 }

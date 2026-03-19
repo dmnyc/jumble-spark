@@ -703,6 +703,9 @@ export default {
 
     'No spells yet. Create one with the button above.':
       'No spells yet. Create one with the button above.',
+    'Loading spells from your relays…': 'Loading spells from your relays…',
+    'Could not run this spell. Check that it has a valid REQ/COUNT command, or add write relays in settings.':
+      'Could not run this spell. Check that it has a valid REQ/COUNT command, or add write relays in settings.',
     'Select a spell…': 'Select a spell…',
     'Select a spell to view its feed.': 'Select a spell to view its feed.',
     'Add another row': 'Add another row',
@@ -711,8 +714,8 @@ export default {
     'One author per row: $me, $contacts, or hex pubkey / npub.':
       'One author per row: $me, $contacts, or hex pubkey / npub.',
     'One hex event id per row.': 'One hex event id per row.',
-    'One wss:// URL per row. Leave empty to use your read relays.':
-      'One wss:// URL per row. Leave empty to use your read relays.',
+    'One wss:// URL per row. Leave empty to use your write relays.':
+      'One wss:// URL per row. Leave empty to use your write relays.',
     'One topic per row.': 'One topic per row.',
     topic: 'topic',
     'Spell form fields': 'Spell form fields',
@@ -726,8 +729,11 @@ export default {
       'One or more relays failed or returned an error. You can change the relay list in the spell and save again.',
     'COUNT spell total distinct explanation':
       'Distinct matching event IDs across all relays that responded successfully (duplicates across relays removed). Each relay only returns up to the filter limit.',
+
+    'Leave empty to use your write relays.':
+      'Leave empty to use your write relays.',
     'COUNT spell result explanation':
-      'Distinct events returned for this filter (merged from your spell relays and fallbacks, duplicates removed). Relays only return up to the filter limit.',
+      'Distinct events returned for this filter (merged from your spell relays and default write relays, duplicates removed). Relays only return up to the filter limit.',
     'COUNT spell may be capped by limit':
       'This count may equal your spell limit — there could be more matching events on the network.',
     'Spell count failed. Check relays or try again.':

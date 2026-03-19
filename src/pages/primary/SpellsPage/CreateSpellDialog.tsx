@@ -360,7 +360,7 @@ export default function CreateSpellDialog({
 
             <DynamicStringListField
               label={t('Relays')}
-              hint={t('One wss:// URL per row. Leave empty to use your read relays.')}
+              hint={t('One wss:// URL per row. Leave empty to use your write relays.')}
               placeholder="wss://…"
               values={form.relays}
               onChange={(relays) => setForm((f) => ({ ...f, relays }))}
