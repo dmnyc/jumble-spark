@@ -272,6 +272,13 @@ function suppressExpectedRejections() {
     if (msg.includes('The operation is insecure') || (event.reason?.name === 'SecurityError' && msg.includes('insecure'))) {
       event.preventDefault()
       event.stopPropagation()
+      return
+    }
+    // nostr-tools: relay.send() attaches to connectionPromise without .catch(); if the socket
+    // closes before the REQ is sent, the rejection was previously uncaught (SendingOnClosedConnection).
+    if (event.reason?.name === 'SendingOnClosedConnection') {
+      event.preventDefault()
+      event.stopPropagation()
     }
   })
 }

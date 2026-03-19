@@ -1066,39 +1066,58 @@ class ClientService extends EventTarget {
           onclose: (reason: string) => {
             releaseOnce()
             if (reason.startsWith('auth-required: ') && that.canSignerAuthenticateRelay()) {
-              relay.auth(async (authEvt: EventTemplate) => {
-                const evt = await that.signer!.signEvent(authEvt)
-                if (!evt) throw new Error('sign event failed')
-                return evt as VerifiedEvent
-              }).then(() => that.acquireSubSlot(relayKey)).then(() => {
-                let slotReleased2 = false
-                const releaseSlot2 = () => {
-                  if (!slotReleased2) {
-                    slotReleased2 = true
+              relay
+                .auth(async (authEvt: EventTemplate) => {
+                  const evt = await that.signer!.signEvent(authEvt)
+                  if (!evt) throw new Error('sign event failed')
+                  return evt as VerifiedEvent
+                })
+                .then(async () => {
+                  await that.acquireSubSlot(relayKey)
+                  // After AUTH the socket may be closed or the relay dropped from the pool;
+                  // resubscribe on a fresh connection from ensureRelay (fixes SendingOnClosedConnection).
+                  let liveRelay: AbstractRelay
+                  try {
+                    liveRelay = await that.pool.ensureRelay(url, { connectionTimeout: 5000 })
+                  } catch (err) {
                     that.releaseSubSlot(relayKey)
+                    handleClose(i, (err as Error)?.message ?? String(err))
+                    return
                   }
-                }
-                const sub2 = relay.subscribe(relayFilters, {
-                  receivedEvent: (_relay, id) => that.trackEventSeenOn(id, _relay),
-                  onevent: (evt: NEvent) => onevent?.(evt),
-                  oneose: () => handleEose(i),
-                  onclose: (reason2: string) => {
+                  let slotReleased2 = false
+                  const releaseSlot2 = () => {
+                    if (!slotReleased2) {
+                      slotReleased2 = true
+                      that.releaseSubSlot(relayKey)
+                    }
+                  }
+                  try {
+                    const sub2 = liveRelay.subscribe(relayFilters, {
+                      receivedEvent: (_relay, id) => that.trackEventSeenOn(id, _relay),
+                      onevent: (evt: NEvent) => onevent?.(evt),
+                      oneose: () => handleEose(i),
+                      onclose: (reason2: string) => {
+                        releaseSlot2()
+                        handleClose(i, reason2)
+                      },
+                      alreadyHaveEvent: localAlreadyHaveEvent,
+                      eoseTimeout: 10_000
+                    })
+                    subs.push({
+                      relayKey,
+                      close: () => {
+                        releaseSlot2()
+                        sub2.close()
+                      }
+                    })
+                  } catch (err) {
                     releaseSlot2()
-                    handleClose(i, reason2)
-                  },
-                  alreadyHaveEvent: localAlreadyHaveEvent,
-                  eoseTimeout: 10_000
-                })
-                subs.push({
-                  relayKey,
-                  close: () => {
-                    releaseSlot2()
-                    sub2.close()
+                    handleClose(i, (err as Error)?.message ?? String(err))
                   }
                 })
-              }).catch((err) => {
-                handleClose(i, `auth failed: ${(err as Error)?.message ?? err}`)
-              })
+                .catch((err) => {
+                  handleClose(i, `auth failed: ${(err as Error)?.message ?? err}`)
+                })
               return
             }
             if (reason.startsWith('auth-required: ')) {

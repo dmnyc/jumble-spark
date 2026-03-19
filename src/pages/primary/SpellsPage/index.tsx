@@ -25,6 +25,7 @@ import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import logger from '@/lib/logger'
+import { showPublishingError } from '@/lib/publishing-feedback'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
@@ -147,7 +148,7 @@ function SpellSheetOptionRow({
 
 const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   const { t } = useTranslation()
-  const { pubkey, relayList } = useNostr()
+  const { pubkey, relayList, attemptDelete } = useNostr()
   const [spells, setSpells] = useState<Event[]>([])
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set())
   const [selectedSpell, setSelectedSpell] = useState<Event | null>(null)
@@ -449,13 +450,27 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
 
   const handleDeleteSpell = useCallback(
     async (spell: Event) => {
-      await indexedDb.deleteSpellEvent(spell.id)
-      const ids = await indexedDb.getSpellFavoriteIds()
-      await indexedDb.setSpellFavoriteIds(ids.filter((id) => id !== spell.id))
-      if (selectedSpell?.id === spell.id) setSelectedSpell(null)
-      loadSpells()
+      try {
+        await attemptDelete(spell)
+      } catch (e) {
+        logger.error('Spell deletion publish failed', { error: e, spellId: spell.id })
+        showPublishingError(e instanceof Error ? e : new Error(String(e)))
+        return
+      }
+      try {
+        await indexedDb.deleteSpellEvent(spell.id)
+        const ids = await indexedDb.getSpellFavoriteIds()
+        await indexedDb.setSpellFavoriteIds(ids.filter((id) => id !== spell.id))
+        if (selectedSpell?.id === spell.id) setSelectedSpell(null)
+        await loadSpells()
+      } catch (e) {
+        logger.error('Spell local cleanup after delete failed', { error: e, spellId: spell.id })
+        showPublishingError(
+          e instanceof Error ? e : new Error(t('Failed to remove spell from local storage'))
+        )
+      }
     },
-    [loadSpells, selectedSpell?.id]
+    [attemptDelete, loadSpells, selectedSpell?.id, t]
   )
 
   const { ownSpells, followSpells, otherSpells, spellsForSelect } = useMemo(() => {

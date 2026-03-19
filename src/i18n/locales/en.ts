@@ -784,6 +784,8 @@ export default {
     'Add tag filter': 'Add tag filter',
 
     spellPickerSectionYours: 'Your spells',
+    'Failed to remove spell from local storage':
+      'Failed to remove spell from local storage',
 
     Spells: 'Spells',
 

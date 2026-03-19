@@ -621,6 +621,8 @@ export default {
     'shortcuts.browserBack': 'Zurück im Browser (Verlauf)',
 
     spellPickerSectionYours: 'Deine Zaubersprüche',
+    'Failed to remove spell from local storage':
+      'Zauberspruch konnte lokal nicht entfernt werden',
 
     Spells: 'Zaubersprüche',
     Tags: 'Tags',
