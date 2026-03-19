@@ -150,16 +150,33 @@ class Nip66Service {
 
   /**
    * Build list of relay URLs that are public (no auth, no payment) and have been
-   * reported by NIP-66 monitors (lively). Used for "add 3 random relays" censorship resilience.
+   * reported by NIP-66 monitors (lively). Used for random publish relays (censorship resilience).
+   * Relays with a sane monitor `rtt-write` measurement are shuffled first — more likely to accept EVENT.
    */
   private buildPublicLivelyFromDiscovery(): string[] {
-    const out: string[] = []
+    const eligible: TNip66RelayDiscovery[] = []
     for (const d of this.discoveryByUrl.values()) {
       const authRequired = d.requirements.auth === true
       const paymentRequired = d.requirements.payment === true
-      if (!authRequired && !paymentRequired) out.push(d.url)
+      if (!authRequired && !paymentRequired) eligible.push(d)
     }
-    return out
+    const shuffleInPlace = <T>(arr: T[]) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[arr[i], arr[j]] = [arr[j]!, arr[i]!]
+      }
+      return arr
+    }
+    /** Monitor recorded write RTT — indicates write path was exercised recently */
+    const writeProven = eligible.filter(
+      (d) => d.rttWriteMs != null && d.rttWriteMs > 0 && d.rttWriteMs < 120_000
+    )
+    const rest = eligible.filter(
+      (d) => !(d.rttWriteMs != null && d.rttWriteMs > 0 && d.rttWriteMs < 120_000)
+    )
+    shuffleInPlace(writeProven)
+    shuffleInPlace(rest)
+    return [...writeProven, ...rest].map((d) => d.url)
   }
 
   /**
@@ -189,7 +206,7 @@ class Nip66Service {
   /**
    * Ingest relay info from our own monitor (after we publish 30166). Adds the relay to
    * in-memory discovery and updates the IndexedDB public lively cache so it can be used
-   * for "add 3 random relays" and relay info page liveliness display.
+   * for random publish relay selection and relay info page liveliness display.
    */
   addDiscoveryFromRelayInfo(relayInfo: TRelayInfo): void {
     const lim = relayInfo.limitation

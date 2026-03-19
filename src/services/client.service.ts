@@ -411,6 +411,29 @@ class ClientService extends EventTarget {
   }
 
   /**
+   * Relays that returned OK on at least one publish this session — merged ahead of NIP-66 lively list
+   * so they stay in the random-relay pool even if not currently in monitoring data.
+   */
+  getSessionSuccessfulPublishRelayUrlsForRandomPool(): string[] {
+    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const out: string[] = []
+    for (const [url, stats] of this.sessionRelayPublishStats.entries()) {
+      if (stats.successCount < 1) continue
+      const n = normalizeUrl(url) || url
+      if (!n || readOnlySet.has(n)) continue
+      if ((this.publishStrikeCount.get(n) ?? 0) >= ClientService.PUBLISH_STRIKES_THRESHOLD) continue
+      out.push(n)
+    }
+    out.sort((a, b) => {
+      const sa = this.sessionRelayPublishStats.get(a)!
+      const sb = this.sessionRelayPublishStats.get(b)!
+      if (sb.successCount !== sa.successCount) return sb.successCount - sa.successCount
+      return sa.sumLatencyMs / sa.successCount - sb.sumLatencyMs / sb.successCount
+    })
+    return out
+  }
+
+  /**
    * Session-only debug info for the Session Relays settings tab: working/striked preset relays and scored random relays.
    */
   getSessionRelayDebug(): {
@@ -460,6 +483,7 @@ class ClientService extends EventTarget {
     preferred.sort((a, b) => {
       const sa = this.sessionRelayPublishStats.get(a)!
       const sb = this.sessionRelayPublishStats.get(b)!
+      if (sb.successCount !== sa.successCount) return sb.successCount - sa.successCount
       const avgA = sa.sumLatencyMs / sa.successCount
       const avgB = sb.sumLatencyMs / sb.successCount
       return avgA - avgB
@@ -467,12 +491,13 @@ class ClientService extends EventTarget {
     const result: string[] = []
     let pi = 0
     let ri = 0
-    const shuffledRest = rest.slice().sort(() => Math.random() - 0.5)
-    while (result.length < count && (pi < preferred.length || ri < shuffledRest.length)) {
+    // Preserve candidate order (e.g. NIP-66 write-proven relays first); avoid full shuffle so monitoring hints apply.
+    const orderedRest = rest.slice()
+    while (result.length < count && (pi < preferred.length || ri < orderedRest.length)) {
       if (pi < preferred.length) {
         result.push(preferred[pi++])
-      } else if (ri < shuffledRest.length) {
-        result.push(shuffledRest[ri++])
+      } else if (ri < orderedRest.length) {
+        result.push(orderedRest[ri++])
       }
     }
     return result.slice(0, count)
@@ -1499,6 +1524,37 @@ class ClientService extends EventTarget {
       })
     }
     return events
+  }
+
+  /**
+   * Query one relay only (e.g. spell COUNT per-relay). Connection failures return `connectionError` instead of throwing.
+   */
+  async fetchEventsFromSingleRelay(
+    url: string,
+    filter: Filter | Filter[],
+    options?: { globalTimeout?: number }
+  ): Promise<{ events: NEvent[]; connectionError?: string }> {
+    const normalized = normalizeUrl(url) || url
+    if (!normalized) {
+      return { events: [], connectionError: 'Invalid relay URL' }
+    }
+    try {
+      await this.pool.ensureRelay(normalized, { connectionTimeout: 12_000 })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { events: [], connectionError: msg }
+    }
+    try {
+      const events = await this.query([normalized], filter, undefined, {
+        globalTimeout: options?.globalTimeout ?? 25_000
+      })
+      return { events, connectionError: undefined }
+    } catch (e) {
+      return {
+        events: [],
+        connectionError: e instanceof Error ? e.message : String(e)
+      }
+    }
   }
 
   /**

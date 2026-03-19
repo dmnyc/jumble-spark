@@ -1,6 +1,5 @@
 import { Event, kinds } from 'nostr-tools'
-import { ExtendedKind } from '@/constants'
-import { FAST_WRITE_RELAY_URLS } from '@/constants'
+import { ExtendedKind, FAST_WRITE_RELAY_URLS, RANDOM_PUBLISH_RELAY_COUNT } from '@/constants'
 import client from '@/services/client.service'
 import { normalizeUrl, isLocalNetworkUrl } from '@/lib/url'
 import { TRelaySet, TRelayList } from '@/types'
@@ -145,12 +144,18 @@ class RelaySelectionService {
     if (typeof window !== 'undefined') {
       try {
         const publicLively = await nip66Service.getPublicLivelyRelayUrls()
+        /** Session OK relays first so they stay candidates even if absent from NIP-66 lively list */
+        const sessionBoost = client.getSessionSuccessfulPublishRelayUrlsForRandomPool()
         const existing = new Set(order.map((o) => o.url))
-        const candidates = publicLively.filter((u) => {
+        const seenCand = new Set<string>()
+        const candidates: string[] = []
+        for (const u of [...sessionBoost, ...publicLively]) {
           const n = normalizeUrl(u) || u
-          return !existing.has(n)
-        })
-        const preferred = client.getPreferredRelaysForRandom(candidates, 3)
+          if (!n || existing.has(n) || seenCand.has(n)) continue
+          seenCand.add(n)
+          candidates.push(n)
+        }
+        const preferred = client.getPreferredRelaysForRandom(candidates, RANDOM_PUBLISH_RELAY_COUNT)
         preferred.forEach((url) => {
           const normalized = normalizeUrl(url) || url
           addRelay(normalized, 'randomly_selected')

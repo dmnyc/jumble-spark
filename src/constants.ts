@@ -91,6 +91,12 @@ export const BIG_RELAY_URLS = [
   'wss://thecitadel.nostr1.com',
 ]
 
+/**
+ * Random public relays (from NIP-66 lively list; write-tested monitors preferred) merged into the
+ * publish relay picker. More candidates improve odds some accept open writes.
+ */
+export const RANDOM_PUBLISH_RELAY_COUNT = 5
+
 /** Relays to query for NIP-66 relay monitoring events (30166), in addition to BIG_RELAY_URLS. */
 export const NIP66_DISCOVERY_RELAY_URLS = [
   'wss://thecitadel.nostr1.com',
@@ -107,7 +113,12 @@ export const BOOKSTR_RELAY_URLS = [
 export const READ_ONLY_RELAY_URLS = ['wss://aggr.nostr.land']
 
 /** Relays that block kind 1 (microblogging); skip for kind 1 read and write. */
-export const KIND_1_BLOCKED_RELAY_URLS = ['wss://thecitadel.nostr1.com']
+export const KIND_1_BLOCKED_RELAY_URLS = [
+  'wss://thecitadel.nostr1.com',
+  'wss://hist.nostr.land',
+  'wss://profiles.nostr1.com',
+  'wss://purplepag.es'
+]
 
 // Optimized relay list for read operations (includes aggregator)
 export const FAST_READ_RELAY_URLS = [

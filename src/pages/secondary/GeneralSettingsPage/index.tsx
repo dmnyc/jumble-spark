@@ -1,7 +1,12 @@
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { FONT_SIZE, MEDIA_AUTO_LOAD_POLICY, NOTIFICATION_LIST_STYLE } from '@/constants'
+import {
+  FONT_SIZE,
+  MEDIA_AUTO_LOAD_POLICY,
+  NOTIFICATION_LIST_STYLE,
+  RANDOM_PUBLISH_RELAY_COUNT
+} from '@/constants'
 import { LocalizedLanguageNames, TLanguage } from '@/i18n'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { cn, isSupportCheckConnectionType } from '@/lib/utils'
@@ -149,9 +154,9 @@ const GeneralSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
         </SettingItem>
         <SettingItem>
           <Label htmlFor="add-random-relays" className="text-base font-normal">
-            <div>{t('Add 3 random relays to every publish')}</div>
+            <div>{t('Add random relays to every publish')}</div>
             <div className="text-muted-foreground">
-              {t('Add 3 random relays to every publish description')}
+              {t('Add random relays to every publish description', { n: RANDOM_PUBLISH_RELAY_COUNT })}
             </div>
           </Label>
           <Switch

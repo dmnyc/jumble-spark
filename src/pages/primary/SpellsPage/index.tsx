@@ -1,5 +1,6 @@
 import NoteList from '@/components/NoteList'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import {
@@ -28,10 +30,11 @@ import {
   getRelaysForSpell,
   getSpellName,
   spellEventToFilter,
+  spellHasExplicitRelays,
   spellIsCount
 } from '@/services/spell.service'
 import { TFeedSubRequest } from '@/types'
-import { FileText, MoreVertical, Plus, Star, Trash2, Wand2 } from 'lucide-react'
+import { FileText, MoreVertical, Pencil, Plus, Star, Trash2, Wand2 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -48,9 +51,26 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set())
   const [selectedSpell, setSelectedSpell] = useState<Event | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [spellToEdit, setSpellToEdit] = useState<Event | null>(null)
   const [definitionSpell, setDefinitionSpell] = useState<Event | null>(null)
   const [subRequests, setSubRequests] = useState<TFeedSubRequest[]>([])
   const [contacts, setContacts] = useState<string[]>([])
+  /** COUNT spells: per-relay breakdown + distinct total */
+  const [spellCount, setSpellCount] = useState<{
+    loading: boolean
+    rows: { url: string; count: number | null; error?: string }[]
+    totalDistinct: number | null
+    error: 'none' | 'login' | 'invalid' | 'failed'
+    mayHitLimit: boolean
+    usedExplicitRelays: boolean
+  }>({
+    loading: false,
+    rows: [],
+    totalDistinct: null,
+    error: 'none',
+    mayHitLimit: false,
+    usedExplicitRelays: false
+  })
 
   const loadSpells = useCallback(async () => {
     const [events, ids] = await Promise.all([
@@ -76,12 +96,28 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   useEffect(() => {
     if (!selectedSpell) {
       setSubRequests([])
+      setSpellCount({
+        loading: false,
+        rows: [],
+        totalDistinct: null,
+        error: 'none',
+        mayHitLimit: false,
+        usedExplicitRelays: false
+      })
       return
     }
     if (spellIsCount(selectedSpell)) {
       setSubRequests([])
       return
     }
+    setSpellCount({
+      loading: false,
+      rows: [],
+      totalDistinct: null,
+      error: 'none',
+      mayHitLimit: false,
+      usedExplicitRelays: false
+    })
     const defaultRelays = [...new Set([...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])]
     const relayListRead = relayList?.read?.length ? relayList.read : defaultRelays
     const ctx = {
@@ -100,6 +136,115 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
       return
     }
     setSubRequests([{ urls: relays, filter }])
+  }, [selectedSpell, pubkey, contacts, relayList?.read])
+
+  useEffect(() => {
+    if (!selectedSpell || !spellIsCount(selectedSpell)) {
+      return
+    }
+    let cancelled = false
+    const defaultRelays = [...new Set([...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])]
+    const relayListRead = relayList?.read?.length ? relayList.read : defaultRelays
+    const ctx = { pubkey, contacts, relayListRead }
+    const usedExplicitRelays = spellHasExplicitRelays(selectedSpell)
+
+    const needsLogin =
+      !pubkey &&
+      selectedSpell.tags.some(
+        (tag) => tag[0] === 'authors' && (tag.includes('$me') || tag.includes('$contacts'))
+      )
+    if (needsLogin) {
+      setSpellCount({
+        loading: false,
+        rows: [],
+        totalDistinct: null,
+        error: 'login',
+        mayHitLimit: false,
+        usedExplicitRelays
+      })
+      return
+    }
+
+    const filter = spellEventToFilter(selectedSpell, ctx)
+    if (!filter) {
+      setSpellCount({
+        loading: false,
+        rows: [],
+        totalDistinct: null,
+        error: 'invalid',
+        mayHitLimit: false,
+        usedExplicitRelays
+      })
+      return
+    }
+    const relays = getRelaysForSpell(selectedSpell, { relayListRead }, { mergeDefaultReadRelays: false })
+    if (!relays.length) {
+      setSpellCount({
+        loading: false,
+        rows: [],
+        totalDistinct: null,
+        error: 'failed',
+        mayHitLimit: false,
+        usedExplicitRelays
+      })
+      return
+    }
+
+    setSpellCount({
+      loading: true,
+      rows: [],
+      totalDistinct: null,
+      error: 'none',
+      mayHitLimit: false,
+      usedExplicitRelays
+    })
+    ;(async () => {
+      const rows: { url: string; count: number | null; error?: string }[] = []
+      const allIds = new Set<string>()
+      try {
+        for (const url of relays) {
+          if (cancelled) return
+          const { events, connectionError } = await client.fetchEventsFromSingleRelay(url, filter, {
+            globalTimeout: 28_000
+          })
+          if (cancelled) return
+          if (connectionError) {
+            rows.push({ url, count: null, error: connectionError })
+          } else {
+            const c = new Set(events.map((e) => e.id)).size
+            rows.push({ url, count: c })
+            events.forEach((e) => allIds.add(e.id))
+          }
+        }
+        if (cancelled) return
+        const lim = filter.limit
+        const totalDistinct = allIds.size
+        const mayHitLimit = typeof lim === 'number' && lim > 0 && totalDistinct >= lim
+        setSpellCount({
+          loading: false,
+          rows,
+          totalDistinct,
+          error: 'none',
+          mayHitLimit,
+          usedExplicitRelays
+        })
+      } catch {
+        if (!cancelled) {
+          setSpellCount({
+            loading: false,
+            rows,
+            totalDistinct: null,
+            error: 'failed',
+            mayHitLimit: false,
+            usedExplicitRelays
+          })
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
   }, [selectedSpell, pubkey, contacts, relayList?.read])
 
   const toggleFavorite = useCallback(async (spellId: string) => {
@@ -140,7 +285,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
           <Button
             variant="ghost"
             size="titlebar-icon"
-            onClick={() => setCreateOpen(true)}
+            onClick={() => {
+              setSpellToEdit(null)
+              setCreateOpen(true)
+            }}
             title={t('Create a Spell')}
           >
             <Plus className="size-5" />
@@ -177,7 +325,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
             <Button
               className="justify-start gap-2"
               variant="outline"
-              onClick={() => setCreateOpen(true)}
+              onClick={() => {
+                setSpellToEdit(null)
+                setCreateOpen(true)
+              }}
             >
               <Wand2 className="size-4" />
               {t('Create a Spell')}
@@ -206,12 +357,23 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => setDefinitionSpell(selectedSpell)}>
+                    <DropdownMenuItem
+                      className="gap-2"
+                      onClick={() => {
+                        setSpellToEdit(selectedSpell)
+                        setCreateOpen(true)
+                      }}
+                    >
+                      <Pencil className="size-4" />
+                      {t('Edit spell')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2" onClick={() => setDefinitionSpell(selectedSpell)}>
                       <FileText className="size-4" />
                       {t('View definition')}
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
+                      className="gap-2 text-destructive focus:text-destructive"
                       onClick={() => handleDeleteSpell(selectedSpell)}
                     >
                       <Trash2 className="size-4" />
@@ -231,7 +393,89 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
         {/* Feed */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {selectedSpell ? (
-            subRequests.length > 0 ? (
+            spellIsCount(selectedSpell) ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-10 px-4">
+                {spellCount.error === 'login' ? (
+                  <p className="text-center text-muted-foreground">
+                    {t('Log in to run this spell (it uses $me or $contacts).')}
+                  </p>
+                ) : spellCount.error === 'invalid' ? (
+                  <p className="text-center text-muted-foreground">
+                    {t(
+                      'Could not run this spell. Check that it has a valid REQ/COUNT command, or add read relays in settings.'
+                    )}
+                  </p>
+                ) : spellCount.error === 'failed' ? (
+                  <p className="text-center text-muted-foreground">
+                    {t('Spell count failed. Check relays or try again.')}
+                  </p>
+                ) : spellCount.loading ? (
+                  <div className="flex w-full max-w-md flex-col items-center gap-3">
+                    <Skeleton className="h-12 w-24" />
+                    <Skeleton className="h-32 w-full max-w-lg" />
+                    <p className="text-sm text-muted-foreground">{t('Counting matching events…')}</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-5xl font-semibold tabular-nums tracking-tight text-foreground">
+                      {spellCount.totalDistinct ?? '—'}
+                    </div>
+                    <p className="max-w-md text-center text-sm text-muted-foreground">
+                      {t('COUNT spell total distinct explanation')}
+                    </p>
+                    <div className="w-full max-w-3xl overflow-x-auto rounded-md border border-border">
+                      <table className="w-full min-w-[20rem] border-collapse text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
+                            <th className="px-3 py-2 font-medium">{t('Relay URL')}</th>
+                            <th className="w-28 px-3 py-2 font-medium">{t('Count')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {spellCount.rows.map((r) => (
+                            <tr key={r.url} className="border-b border-border/60 last:border-0">
+                              <td className="break-all px-3 py-2 align-top font-mono text-xs">{r.url}</td>
+                              <td className="px-3 py-2 align-top tabular-nums">
+                                {r.error ? (
+                                  <span className="text-destructive">{r.error}</span>
+                                ) : (
+                                  (r.count ?? '—')
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {spellCount.usedExplicitRelays &&
+                    spellCount.rows.some((r) => r.error) &&
+                    !spellCount.loading ? (
+                      <div className="flex max-w-md flex-col items-center gap-2 text-center">
+                        <p className="text-sm text-muted-foreground">
+                          {t('COUNT spell relay errors hint')}
+                        </p>
+                        <Button
+                          variant="outline"
+                          className="gap-2"
+                          onClick={() => {
+                            setSpellToEdit(selectedSpell)
+                            setCreateOpen(true)
+                          }}
+                        >
+                          <Wand2 className="size-4" />
+                          {t('Edit spell relays')}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {spellCount.mayHitLimit ? (
+                      <p className="max-w-md text-center text-xs text-amber-600 dark:text-amber-500">
+                        {t('COUNT spell may be capped by limit')}
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            ) : subRequests.length > 0 ? (
               <NoteList
                 subRequests={subRequests}
                 showKinds={(() => {
@@ -239,15 +483,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
                     .filter((tag) => tag[0] === 'k')
                     .map((tag) => parseInt(tag[1], 10))
                     .filter((n) => !Number.isNaN(n))
-                  // `[] || [1]` is wrong ([] is truthy); default to kind 1 for notes
                   return kinds.length ? kinds : [1]
                 })()}
                 useFilterAsIs
               />
-            ) : spellIsCount(selectedSpell) ? (
-              <div className="py-8 text-center text-muted-foreground">
-                {t('COUNT spells show a number, not a feed.')}
-              </div>
             ) : !pubkey &&
               selectedSpell.tags.some(
                 (tag) => tag[0] === 'authors' && (tag.includes('$me') || tag.includes('$contacts'))
@@ -270,7 +509,20 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
         </div>
       </div>
 
-      <CreateSpellDialog open={createOpen} onOpenChange={setCreateOpen} onSaved={loadSpells} />
+      <CreateSpellDialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open)
+          if (!open) setSpellToEdit(null)
+        }}
+        spellToEdit={spellToEdit}
+        onSaved={(ev) => {
+          void loadSpells()
+          if (ev && spellToEdit && selectedSpell?.id === spellToEdit.id) {
+            setSelectedSpell(ev)
+          }
+        }}
+      />
 
       <Dialog open={!!definitionSpell} onOpenChange={(open) => !open && setDefinitionSpell(null)}>
         <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">

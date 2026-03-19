@@ -65,15 +65,30 @@ function dedupeRelayUrls(urls: string[]): string[] {
   return out
 }
 
+export type GetRelaysForSpellOptions = {
+  /**
+   * When true (default): merge FAST_READ + SEARCHABLE after primary list (REQ feeds).
+   * When false: use only spell `relays` tag, or only read list / defaults — no extra padding (COUNT, explicit relays).
+   */
+  mergeDefaultReadRelays?: boolean
+}
+
 /**
- * Get relay URLs for executing a spell: from spell's `relays` tag or context read list, always merged with
- * app default read relays so a single down relay (503, etc.) does not block the feed.
+ * Get relay URLs for executing a spell: from spell's `relays` tag or context read list.
+ * REQ feeds default to merging default read relays; pass `mergeDefaultReadRelays: false` for COUNT-only lists.
  */
-export function getRelaysForSpell(spell: Event, context: { relayListRead: string[] }): string[] {
+export function getRelaysForSpell(
+  spell: Event,
+  context: { relayListRead: string[] },
+  options?: GetRelaysForSpellOptions
+): string[] {
+  const mergeDefaults = options?.mergeDefaultReadRelays !== false
   let primary: string[] = []
   const relayTag = spell.tags.find(tagNameEquals('relays'))
   if (relayTag && relayTag.length > 1) {
-    const urls = relayTag.slice(1).filter((u): u is string => typeof u === 'string' && (u.startsWith('wss://') || u.startsWith('ws://')))
+    const urls = relayTag
+      .slice(1)
+      .filter((u): u is string => typeof u === 'string' && (u.startsWith('wss://') || u.startsWith('ws://')))
     if (urls.length) primary = urls
   }
   if (!primary.length && context.relayListRead.length) {
@@ -82,7 +97,19 @@ export function getRelaysForSpell(spell: Event, context: { relayListRead: string
   if (!primary.length) {
     return defaultSpellReadFallbackRelays()
   }
-  return dedupeRelayUrls([...primary, ...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])
+  if (mergeDefaults) {
+    return dedupeRelayUrls([...primary, ...FAST_READ_RELAY_URLS, ...SEARCHABLE_RELAY_URLS])
+  }
+  return dedupeRelayUrls(primary)
+}
+
+/** Spell lists at least one relay URL in its `relays` tag. */
+export function spellHasExplicitRelays(spell: Event): boolean {
+  const relayTag = spell.tags.find(tagNameEquals('relays'))
+  if (!relayTag || relayTag.length < 2) return false
+  return relayTag
+    .slice(1)
+    .some((u) => typeof u === 'string' && (u.startsWith('wss://') || u.startsWith('ws://')))
 }
 
 /**
@@ -179,9 +206,7 @@ export function spellEventToFilter(spell: Event, ctx: SpellExecutionContext): Fi
   return filter
 }
 
-/**
- * Whether the spell is COUNT (we only support REQ for feed display).
- */
+/** Spell uses COUNT: run filter against relays and show a numeric result (not a feed). */
 export function spellIsCount(spell: Event): boolean {
   return spell.tags.find(tagNameEquals('cmd'))?.[1] === 'COUNT'
 }

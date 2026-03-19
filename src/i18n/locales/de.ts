@@ -332,9 +332,9 @@ export default {
     Autoplay: 'Automatische Wiedergabe',
     'Enable video autoplay on this device':
       'Aktiviere die automatische Video-Wiedergabe auf diesem Gerät',
-    'Add 3 random relays to every publish': '3 zufällige Relays bei jedem Publish hinzufügen',
-    'Add 3 random relays to every publish description':
-      'Fügt der Publish-Relay-Liste immer 3 zufällige öffentliche Relays hinzu. Bei AN sind sie standardmäßig ausgewählt; bei AUS erscheinen sie in der Liste, sind aber nicht angehakt, sodass du sie optional einbeziehen kannst.',
+    'Add random relays to every publish': 'Zufällige Relays in der Publish-Liste',
+    'Add random relays to every publish description':
+      'Fügt {{n}} zufällige öffentliche Relays aus der NIP-66-Liveliness-Liste hinzu (bevorzugt solche, deren Monitor eine Write-RTT gemeldet hat). Bei AN standardmäßig ausgewählt; bei AUS in der Liste, aber nicht angehakt.',
     'relayType_local': 'Lokal',
     'relayType_relay_list': 'Relay-Liste',
     'relayType_client_default': 'Client-Standard',
@@ -650,13 +650,29 @@ export default {
     'One topic per row.': 'Ein Thema pro Zeile.',
     topic: 'Thema',
     'Spell form fields': 'Zauberspruch-Formularfelder',
+    'Counting matching events…': 'Zähle passende Events…',
+    'COUNT spell result explanation':
+      'Verschiedene Events, die zum Filter passen (von den Relays des Zaubers und Fallbacks zusammengeführt, Duplikate entfernt). Relays liefern höchstens so viele wie im Limit steht.',
+    'COUNT spell may be capped by limit':
+      'Die Zahl kann deinem Limit entsprechen — es könnte noch mehr passende Events geben.',
+    'Spell count failed. Check relays or try again.':
+      'Zählung fehlgeschlagen. Relays prüfen oder erneut versuchen.',
     'Spell definition': 'Zauberspruch-Definition',
     'Spell published': 'Zauberspruch veröffentlicht',
+    'Edit spell': 'Zauberspruch bearbeiten',
+    'Spell updated': 'Zauberspruch aktualisiert',
+    'Relay URL': 'Relay',
+    Count: 'Anzahl',
+    'Edit spell relays': 'Relays bearbeiten',
+    'COUNT spell relay errors hint':
+      'Mindestens ein Relay ist fehlgeschlagen oder hat einen Fehler gemeldet. Du kannst die Relay-Liste im Zauber anpassen und erneut speichern.',
+    'COUNT spell total distinct explanation':
+      'Verschiedene passende Event-IDs über alle erfolgreich antwortenden Relays (Duplikate zwischen Relays entfernt). Jedes Relay liefert höchstens so viele wie im Limit steht.',
     'Spells are saved relay filters (NIP-A7). Fill in the filter fields below. Use $me for your pubkey and $contacts for your follow list when executing.':
       'Zaubersprüche sind gespeicherte Relay-Filter (NIP-A7). Fülle die Felder unten. $me = dein Pubkey, $contacts = deine Follow-Liste bei der Ausführung.',
     Command: 'Befehl',
     'REQ returns a feed; COUNT returns a number.':
-      'REQ liefert einen Feed; COUNT nur eine Zahl.',
+      'REQ: scrollbarer Feed (unten Feed live oder einmaliger Abruf). COUNT: nur eine Zahl, kein Feed.',
     Name: 'Name',
     'Human-readable spell name': 'Lesbarer Name des Zauberspruchs',
     'Description (content)': 'Beschreibung (Inhalt)',

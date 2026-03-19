@@ -8,13 +8,18 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { createSpellDraftEvent, type TSpellDraftParams } from '@/lib/draft-event'
+import {
+  createSpellDraftEvent,
+  spellEventToDraftParams,
+  type TSpellDraftParams
+} from '@/lib/draft-event'
 import { useNostr } from '@/providers/NostrProvider'
 import { showPublishingError, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import indexedDb from '@/services/indexed-db.service'
 import { Minus, Plus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useCallback, useRef, useState } from 'react'
+import type { Event as NostrEvent } from 'nostr-tools'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import logger from '@/lib/logger'
 
 /** Arrow keys should control the control, not the dialog scroll */
@@ -128,17 +133,30 @@ function DynamicStringListField({
 export default function CreateSpellDialog({
   open,
   onOpenChange,
-  onSaved
+  onSaved,
+  spellToEdit
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSaved?: () => void
+  /** Called after a successful publish; pass the new event so the parent can refresh selection. */
+  onSaved?: (publishedEvent?: NostrEvent) => void
+  /** When set, form is preloaded and save replaces this spell id in storage/favorites. */
+  spellToEdit?: NostrEvent | null
 }) {
   const { t } = useTranslation()
   const { pubkey, publish, checkLogin } = useNostr()
   const [form, setForm] = useState<TSpellDraftParams>(DEFAULT_PARAMS)
   const [saving, setSaving] = useState(false)
   const scrollBodyRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    if (spellToEdit) {
+      setForm(spellEventToDraftParams(spellToEdit))
+    } else {
+      setForm({ ...DEFAULT_PARAMS })
+    }
+  }, [open, spellToEdit])
 
   const handleScrollBodyKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     const el = scrollBodyRef.current
@@ -170,6 +188,8 @@ export default function CreateSpellDialog({
     onOpenChange(false)
   }
 
+  const replaceSpellId = spellToEdit?.id
+
   const handleSave = async () => {
     if (!pubkey) {
       checkLogin()
@@ -179,11 +199,18 @@ export default function CreateSpellDialog({
     try {
       const draft = createSpellDraftEvent(form)
       const event = await publish(draft)
+      if (replaceSpellId) {
+        await indexedDb.deleteSpellEvent(replaceSpellId)
+        const favs = await indexedDb.getSpellFavoriteIds()
+        if (favs.length) {
+          await indexedDb.setSpellFavoriteIds(favs.map((id) => (id === replaceSpellId ? event.id : id)))
+        }
+      }
       await indexedDb.putSpellEvent(event)
       handleClear()
+      onSaved?.(event)
       onOpenChange(false)
-      onSaved?.()
-      showSimplePublishSuccess(t('Spell published'))
+      showSimplePublishSuccess(replaceSpellId ? t('Spell updated') : t('Spell published'))
     } catch (e) {
       logger.error('[CreateSpellDialog] Publish failed', e)
       showPublishingError(e instanceof Error ? e : new Error(String(e)))
@@ -211,7 +238,7 @@ export default function CreateSpellDialog({
             <X className="size-4" />
           </Button>
           <DialogHeader className="space-y-1.5 pr-10 text-left sm:text-left">
-            <DialogTitle>{t('Create a Spell')}</DialogTitle>
+            <DialogTitle>{replaceSpellId ? t('Edit spell') : t('Create a Spell')}</DialogTitle>
           </DialogHeader>
           <p className="mt-2 text-sm text-muted-foreground">
             {t(
@@ -234,7 +261,12 @@ export default function CreateSpellDialog({
               <select
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
                 value={form.cmd}
-                onChange={(e) => setForm((f) => ({ ...f, cmd: e.target.value as 'REQ' | 'COUNT' }))}
+                onChange={(e) => {
+                  const cmd = e.target.value as 'REQ' | 'COUNT'
+                  setForm((f) =>
+                    cmd === 'COUNT' ? { ...f, cmd, closeOnEose: false } : { ...f, cmd }
+                  )
+                }}
               >
                 <option value="REQ">REQ (subscribe to events)</option>
                 <option value="COUNT">COUNT (count only)</option>
@@ -342,28 +374,30 @@ export default function CreateSpellDialog({
               onChange={(topics) => setForm((f) => ({ ...f, topics }))}
             />
 
-            <div className="flex flex-col gap-1.5">
-              <Label>{t('Mode')}</Label>
-              <div className="flex rounded-lg border border-input bg-muted p-0.5">
-                <button
-                  type="button"
-                  className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${!form.closeOnEose ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
-                  onClick={() => setForm((f) => ({ ...f, closeOnEose: false }))}
-                >
-                  {t('Feed')}
-                </button>
-                <button
-                  type="button"
-                  className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${form.closeOnEose ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
-                  onClick={() => setForm((f) => ({ ...f, closeOnEose: true }))}
-                >
-                  {t('Fetch')}
-                </button>
+            {form.cmd === 'REQ' ? (
+              <div className="flex flex-col gap-1.5">
+                <Label>{t('Mode')}</Label>
+                <div className="flex rounded-lg border border-input bg-muted p-0.5">
+                  <button
+                    type="button"
+                    className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${!form.closeOnEose ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => setForm((f) => ({ ...f, closeOnEose: false }))}
+                  >
+                    {t('Feed')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${form.closeOnEose ? 'bg-background text-foreground shadow' : 'text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => setForm((f) => ({ ...f, closeOnEose: true }))}
+                  >
+                    {t('Fetch')}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {form.closeOnEose ? t('Fetch once, then stop.') : t('Live feed; keeps updating.')}
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {form.closeOnEose ? t('Fetch once, then stop.') : t('Live feed; keeps updating.')}
-              </p>
-            </div>
+            ) : null}
           </div>
         </div>
 

@@ -394,9 +394,9 @@ export default {
     General: 'General',
     Autoplay: 'Autoplay',
     'Enable video autoplay on this device': 'Enable video autoplay on this device',
-    'Add 3 random relays to every publish': 'Random relays in publish list',
-    'Add 3 random relays to every publish description':
-      'Always adds 3 random public relays to the publish relay list. When ON, they are selected by default; when OFF, they appear in the list but are unchecked so you can optionally include them.',
+    'Add random relays to every publish': 'Random relays in publish list',
+    'Add random relays to every publish description':
+      'Adds {{n}} random public relays from the NIP-66 lively list (preferring monitors that reported a write RTT) to the publish relay list. When ON, they are selected by default; when OFF, they appear in the list but are unchecked so you can optionally include them.',
     'relayType_local': 'Local',
     'relayType_relay_list': 'Relay list',
     'relayType_client_default': 'Client default',
@@ -716,6 +716,24 @@ export default {
     'One topic per row.': 'One topic per row.',
     topic: 'topic',
     'Spell form fields': 'Spell form fields',
+    'Counting matching events…': 'Counting matching events…',
+    'Edit spell': 'Edit spell',
+    'Spell updated': 'Spell updated',
+    'Relay URL': 'Relay',
+    Count: 'Count',
+    'Edit spell relays': 'Edit relays',
+    'COUNT spell relay errors hint':
+      'One or more relays failed or returned an error. You can change the relay list in the spell and save again.',
+    'COUNT spell total distinct explanation':
+      'Distinct matching event IDs across all relays that responded successfully (duplicates across relays removed). Each relay only returns up to the filter limit.',
+    'COUNT spell result explanation':
+      'Distinct events returned for this filter (merged from your spell relays and fallbacks, duplicates removed). Relays only return up to the filter limit.',
+    'COUNT spell may be capped by limit':
+      'This count may equal your spell limit — there could be more matching events on the network.',
+    'Spell count failed. Check relays or try again.':
+      'Could not complete the count. Check relays or try again.',
+    'REQ returns a feed; COUNT returns a number.':
+      'REQ: scrollable feed (choose live Feed or one-shot Fetch below). COUNT: a single number, no feed.',
 
     Spells: 'Spells',
 

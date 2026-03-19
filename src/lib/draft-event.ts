@@ -638,12 +638,76 @@ export function createSpellDraftEvent(params: TSpellDraftParams): TDraftEvent {
     .map((t) => t.trim())
     .filter(Boolean)
     .forEach((t) => tags.push(['t', t]))
-  if (params.closeOnEose) tags.push(['close-on-eose'])
+  // Live vs one-shot subscription only applies to REQ, not COUNT
+  if (params.cmd === 'REQ' && params.closeOnEose) tags.push(['close-on-eose'])
   return {
     kind: ExtendedKind.SPELL,
     content: params.content?.trim() ?? '',
     tags,
     created_at: dayjs().unix()
+  }
+}
+
+/** Rehydrate the spell form from a stored/published kind 777 event (edit flow). */
+export function spellEventToDraftParams(event: Event): TSpellDraftParams {
+  if (event.kind !== ExtendedKind.SPELL) {
+    return {
+      cmd: 'REQ',
+      content: '',
+      name: '',
+      alt: '',
+      kinds: ['1'],
+      authors: ['$me', '$contacts'],
+      ids: [],
+      tagFilters: [],
+      limit: '50',
+      since: '7d',
+      until: '',
+      search: '',
+      relays: [],
+      topics: [],
+      closeOnEose: false
+    }
+  }
+  const gt = (name: string) => event.tags.find((t) => t[0] === name)
+  const all = (name: string) => event.tags.filter((t) => t[0] === name)
+  const cmdRaw = gt('cmd')?.[1]
+  const cmd: 'REQ' | 'COUNT' = cmdRaw === 'COUNT' ? 'COUNT' : 'REQ'
+  const kinds = all('k')
+    .map((t) => t[1])
+    .filter((x): x is string => !!x?.trim())
+  const authorsTag = gt('authors')
+  const authors =
+    authorsTag && authorsTag.length > 1 ? authorsTag.slice(1).filter((x): x is string => !!x) : []
+  const idsTag = gt('ids')
+  const ids = idsTag && idsTag.length > 1 ? idsTag.slice(1).filter((x): x is string => !!x) : []
+  const relaysTag = gt('relays')
+  const relays =
+    relaysTag && relaysTag.length > 1 ? relaysTag.slice(1).filter((x): x is string => !!x) : []
+  const tagTagRows = all('tag').filter((t) => t.length >= 2)
+  const tagFilters = tagTagRows.map((t) => ({
+    letter: t[1] ?? '',
+    values: t.slice(2).filter((x): x is string => !!x)
+  }))
+
+  return {
+    cmd,
+    content: event.content ?? '',
+    name: gt('name')?.[1] ?? '',
+    alt: gt('alt')?.[1] ?? '',
+    kinds: kinds.length ? kinds : ['1'],
+    authors: authors.length ? authors : ['$me', '$contacts'],
+    ids,
+    tagFilters,
+    limit: gt('limit')?.[1] ?? '50',
+    since: gt('since')?.[1] ?? '7d',
+    until: gt('until')?.[1] ?? '',
+    search: gt('search')?.[1] ?? '',
+    relays,
+    topics: all('t')
+      .map((t) => t[1])
+      .filter((x): x is string => !!x?.trim()),
+    closeOnEose: cmd === 'REQ' && event.tags.some((t) => t[0] === 'close-on-eose')
   }
 }
 
