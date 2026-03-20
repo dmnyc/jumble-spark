@@ -6,6 +6,11 @@ import { TProfile } from '@/types'
 import { useEffect, useState, useRef, useCallback } from 'react'
 import logger from '@/lib/logger'
 
+// CRITICAL: Global deduplication - shared across ALL hook instances
+// This prevents multiple components from fetching the same profile simultaneously
+const globalFetchPromises = new Map<string, Promise<TProfile | null>>()
+const globalFetchingPubkeys = new Set<string>()
+
 export function useFetchProfile(id?: string, skipCache = false) {
   // CRITICAL: Reduce logging to prevent performance issues during infinite loops
   // Only log if we're actually going to process (not just checking)
@@ -25,10 +30,10 @@ export function useFetchProfile(id?: string, skipCache = false) {
   const effectRunCountRef = useRef<Map<string, number>>(new Map()) // Track how many times effect has run for each pubkey (safety guard against infinite loops)
   const initializedPubkeysRef = useRef<Set<string>>(new Set()) // Track pubkeys we've successfully initialized (have profile or failed)
 
-  // Function to check for profile updates
+  // Function to check for profile updates with GLOBAL deduplication
   // fetchProfileEvent already checks: 1) IndexedDB, 2) network (with author's relays)
   // Memoize to prevent recreation on every render
-  const checkProfile = useCallback(async (pubkey: string, cancelled: { current: boolean }) => {
+  const checkProfile = useCallback(async (pubkey: string, cancelled: { current: boolean }): Promise<TProfile | null> => {
     // CRITICAL: Reduce logging during rapid scrolling to prevent performance issues
     // Only log at debug level during normal operations
     logger.debug('[useFetchProfile] checkProfile called', {
@@ -38,43 +43,212 @@ export function useFetchProfile(id?: string, skipCache = false) {
     })
     
     if (cancelled.current) {
-      logger.debug('[useFetchProfile] Already cancelled, returning false')
-      return false
+      logger.debug('[useFetchProfile] Already cancelled, returning null')
+      return null
     }
     
+    // CRITICAL: Check if another hook instance is already fetching this pubkey
+    // If so, wait for that fetch to complete instead of starting a new one
+    // Add timeout protection to prevent infinite waits
+    const existingPromise = globalFetchPromises.get(pubkey)
+    if (existingPromise) {
+      logger.debug('[useFetchProfile] Reusing existing fetch promise', {
+        pubkey: pubkey.substring(0, 8)
+      })
+      try {
+        // Add timeout to prevent waiting forever on a stuck promise
+        const timeoutPromise = new Promise<null>((resolve) => {
+          setTimeout(() => {
+            logger.warn('[useFetchProfile] Existing promise timeout, will start new fetch', {
+              pubkey: pubkey.substring(0, 8)
+            })
+            resolve(null)
+          }, 5000) // 5 seconds
+        })
+        
+        const existingProfile = await Promise.race([existingPromise, timeoutPromise])
+        if (cancelled.current) return null
+        
+        // If timeout won, existingProfile will be null and we'll continue to start new fetch
+        if (existingProfile === null && !cancelled.current) {
+          // Timeout occurred, clear the stuck promise and start fresh
+          globalFetchPromises.delete(pubkey)
+          globalFetchingPubkeys.delete(pubkey)
+          // Fall through to start new fetch
+        } else if (existingProfile) {
+          // Update state for this instance
+          setProfile(existingProfile)
+          setIsFetching(false)
+          initializedPubkeysRef.current.add(pubkey)
+          if (checkIntervalRef.current) {
+            clearInterval(checkIntervalRef.current)
+            checkIntervalRef.current = null
+          }
+          effectRunCountRef.current.delete(pubkey)
+          return existingProfile
+        } else {
+          setIsFetching(false)
+          return null
+        }
+      } catch (err) {
+        // If the existing promise failed, we'll try again below
+        logger.debug('[useFetchProfile] Existing promise failed, will retry', {
+          pubkey: pubkey.substring(0, 8),
+          error: err instanceof Error ? err.message : String(err)
+        })
+        // Clear the failed promise so we can start fresh
+        globalFetchPromises.delete(pubkey)
+        globalFetchingPubkeys.delete(pubkey)
+      }
+    }
+    
+    // Mark as fetching globally to prevent other instances from starting
+    if (globalFetchingPubkeys.has(pubkey)) {
+      // Another instance is fetching, wait a bit and check again
+      await new Promise(resolve => setTimeout(resolve, 50))
+      const retryPromise = globalFetchPromises.get(pubkey)
+      if (retryPromise) {
+        try {
+          // Add timeout protection here too
+          const timeoutPromise = new Promise<null>((resolve) => {
+            setTimeout(() => {
+              logger.warn('[useFetchProfile] Retry promise timeout, will start new fetch', {
+                pubkey: pubkey.substring(0, 8)
+              })
+              resolve(null)
+            }, 5000) // 5 seconds
+          })
+          
+          const retryProfile = await Promise.race([retryPromise, timeoutPromise])
+          if (cancelled.current) return null
+          
+          if (retryProfile === null && !cancelled.current) {
+            // Timeout occurred, clear and start fresh
+            globalFetchPromises.delete(pubkey)
+            globalFetchingPubkeys.delete(pubkey)
+            // Fall through to start new fetch
+          } else if (retryProfile) {
+            // Update state for this instance
+            setProfile(retryProfile)
+            setIsFetching(false)
+            initializedPubkeysRef.current.add(pubkey)
+            if (checkIntervalRef.current) {
+              clearInterval(checkIntervalRef.current)
+              checkIntervalRef.current = null
+            }
+            effectRunCountRef.current.delete(pubkey)
+            return retryProfile
+          } else {
+            setIsFetching(false)
+            return null
+          }
+        } catch (err) {
+          logger.debug('[useFetchProfile] Retry promise failed', {
+            pubkey: pubkey.substring(0, 8),
+            error: err instanceof Error ? err.message : String(err)
+          })
+          // Clear the failed promise
+          globalFetchPromises.delete(pubkey)
+          globalFetchingPubkeys.delete(pubkey)
+          // Fall through to start our own fetch
+        }
+      }
+    }
+    
+    // Create a new fetch promise with timeout protection
+    const fetchPromise = (async (): Promise<TProfile | null> => {
+      try {
+        globalFetchingPubkeys.add(pubkey)
+        const startTime = Date.now()
+        
+        // CRITICAL: Add timeout to prevent infinite hangs
+        // Use Promise.race to timeout after 5 seconds
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`Profile fetch timeout after 5s for pubkey ${pubkey.substring(0, 8)}`))
+          }, 5000) // 5 second timeout
+        })
+        
+        // Use fetchProfileEvent which includes author's relay list for better profile discovery
+        const profileEvent = await Promise.race([
+          replaceableEventService.fetchProfileEvent(pubkey, skipCache),
+          timeoutPromise
+        ])
+        const fetchTime = Date.now() - startTime
+        
+        // Only log at info level if profile was found or if fetch took a long time
+        if (profileEvent || fetchTime > 1000) {
+          logger.info('[useFetchProfile] fetchProfileEvent completed', {
+            pubkey: pubkey.substring(0, 8),
+            hasEvent: !!profileEvent,
+            eventId: profileEvent?.id?.substring(0, 8),
+            fetchTime: `${fetchTime}ms`
+          })
+        }
+        
+        if (cancelled.current) {
+          logger.info('[useFetchProfile] Fetch cancelled after fetch', { pubkey })
+          return null
+        }
+        
+        if (profileEvent) {
+          // getProfileFromEvent always returns a profile object (with fallback username)
+          const newProfile = getProfileFromEvent(profileEvent)
+          // Only log at debug level to reduce noise during rapid scrolling
+          logger.debug('[useFetchProfile] Profile found', {
+            pubkey: pubkey.substring(0, 8),
+            username: newProfile.username,
+            hasAvatar: !!newProfile.avatar,
+            fetchTime: `${fetchTime}ms`
+          })
+          return newProfile
+        }
+        // Only log warnings for missing profiles if skipCache is true (user explicitly requested)
+        if (skipCache) {
+          logger.debug('[useFetchProfile] No profile event found', {
+            pubkey: pubkey.substring(0, 8),
+            fetchTime: `${fetchTime}ms`
+          })
+        }
+        return null
+      } catch (err) {
+        const isTimeout = err instanceof Error && err.message.includes('timeout')
+        if (isTimeout) {
+          logger.warn('[useFetchProfile] Profile fetch timed out', {
+            pubkey: pubkey.substring(0, 8),
+            error: err.message
+          })
+          // Return null on timeout instead of throwing - allows UI to show fallback
+          return null
+        }
+        logger.error('[useFetchProfile] Profile fetch error', {
+          pubkey: pubkey.substring(0, 8),
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+          cancelled: cancelled.current
+        })
+        // For non-timeout errors, still throw to allow retry logic
+        throw err
+      } finally {
+        // Clean up global tracking
+        globalFetchingPubkeys.delete(pubkey)
+        // Keep promise in cache for a short time to allow other instances to reuse it
+        // But remove it immediately on timeout/error to allow retries
+        setTimeout(() => {
+          globalFetchPromises.delete(pubkey)
+        }, 1000) // 1 second cache retention
+      }
+    })()
+    
+    // Store the promise globally so other instances can reuse it
+    globalFetchPromises.set(pubkey, fetchPromise)
+    
     try {
-      const startTime = Date.now()
+      const profile = await fetchPromise
+      if (cancelled.current) return null
       
-      // Use fetchProfileEvent which includes author's relay list for better profile discovery
-      const profileEvent = await replaceableEventService.fetchProfileEvent(pubkey, skipCache)
-      const fetchTime = Date.now() - startTime
-      
-      // Only log at info level if profile was found or if fetch took a long time
-      if (profileEvent || fetchTime > 1000) {
-        logger.info('[useFetchProfile] fetchProfileEvent completed', {
-          pubkey: pubkey.substring(0, 8),
-          hasEvent: !!profileEvent,
-          eventId: profileEvent?.id?.substring(0, 8),
-          fetchTime: `${fetchTime}ms`
-        })
-      }
-      
-      if (cancelled.current) {
-        logger.info('[useFetchProfile] Fetch cancelled after fetch', { pubkey })
-        return false
-      }
-      
-      if (profileEvent) {
-        // getProfileFromEvent always returns a profile object (with fallback username)
-        const newProfile = getProfileFromEvent(profileEvent)
-        // Only log at debug level to reduce noise during rapid scrolling
-        logger.debug('[useFetchProfile] Profile found', {
-          pubkey: pubkey.substring(0, 8),
-          username: newProfile.username,
-          hasAvatar: !!newProfile.avatar,
-          fetchTime: `${fetchTime}ms`
-        })
-        setProfile(newProfile)
+      if (profile) {
+        setProfile(profile)
         setIsFetching(false)
         // Mark as initialized
         initializedPubkeysRef.current.add(pubkey)
@@ -86,28 +260,19 @@ export function useFetchProfile(id?: string, skipCache = false) {
         }
         // Clear run count when profile is found
         effectRunCountRef.current.delete(pubkey)
-        return true
+        return profile
       }
-      // Only log warnings for missing profiles if skipCache is true (user explicitly requested)
-      if (skipCache) {
-        logger.debug('[useFetchProfile] No profile event found', {
-          pubkey: pubkey.substring(0, 8),
-          fetchTime: `${fetchTime}ms`
-        })
+      
+      if (!cancelled.current) {
+        setIsFetching(false)
       }
-      return false
+      return null
     } catch (err) {
-      logger.error('[useFetchProfile] Profile fetch error', {
-        pubkey,
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
-        cancelled: cancelled.current
-      })
-        if (!cancelled.current) {
-          setError(err as Error)
-          setIsFetching(false)
-        }
-      return false
+      if (!cancelled.current) {
+        setError(err as Error)
+        setIsFetching(false)
+      }
+      return null
     }
   }, [skipCache])
 
@@ -289,13 +454,14 @@ export function useFetchProfile(id?: string, skipCache = false) {
         setError(null)
         
         // Initial fetch - fetchReplaceableEvent checks: 1) in-memory, 2) IndexedDB, 3) network
-        const found = await checkProfile(extractedPubkey, cancelled)
+        // checkProfile now returns the profile directly (or null) and handles global deduplication
+        const profile = await checkProfile(extractedPubkey, cancelled)
         
         // Only log if profile was found or if cancelled (important events)
-        if (found || cancelled.current) {
+        if (profile || cancelled.current) {
           logger.debug('[useFetchProfile] checkProfile completed', {
             pubkey: extractedPubkey?.substring(0, 8),
-            found,
+            found: !!profile,
             cancelled: cancelled.current
           })
         }
@@ -306,8 +472,9 @@ export function useFetchProfile(id?: string, skipCache = false) {
           return
         }
         
-        if (found) {
+        if (profile) {
           // Profile found (from cache or network), we're done
+          // checkProfile already set the profile state, so we're done
           return
         }
         
@@ -327,8 +494,24 @@ export function useFetchProfile(id?: string, skipCache = false) {
           // This reduces memory usage when many profiles are being fetched (e.g., trending page)
           let checkCount = 0
           const maxChecks = 3 // Reduced from 4 to further reduce load
+          const startTime = Date.now()
+          const maxTotalTime = 20000 // 20 seconds total timeout (3 checks * ~5s + buffer)
           
           checkIntervalRef.current = setInterval(async () => {
+            // CRITICAL: Check for timeout to prevent infinite retries
+            const elapsed = Date.now() - startTime
+            if (elapsed > maxTotalTime) {
+              logger.warn('[useFetchProfile] Retry interval timeout reached, stopping retries', {
+                pubkey: extractedPubkey?.substring(0, 8),
+                elapsed: `${elapsed}ms`
+              })
+              if (checkIntervalRef.current) {
+                clearInterval(checkIntervalRef.current)
+                checkIntervalRef.current = null
+              }
+              return
+            }
+            
             if (cancelled.current || checkCount >= maxChecks) {
               if (checkIntervalRef.current) {
                 clearInterval(checkIntervalRef.current)
@@ -338,8 +521,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
             }
             
             checkCount++
-            const found = await checkProfile(extractedPubkey, cancelled)
-            if (found || cancelled.current) {
+            const profile = await checkProfile(extractedPubkey, cancelled)
+            if (profile || cancelled.current) {
               // Profile found or cancelled, stop checking
               if (checkIntervalRef.current) {
                 clearInterval(checkIntervalRef.current)

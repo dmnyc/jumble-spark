@@ -209,85 +209,135 @@ const NoteList = forwardRef(
     useImperativeHandle(ref, () => ({ scrollToTop, refresh }), [])
 
     useEffect(() => {
-      if (!subRequests.length) return
+      logger.info('[NoteList] useEffect triggered', {
+        subRequestsLength: subRequests.length,
+        subRequests: subRequests.map(({ urls, filter }) => ({
+          urls: urls.slice(0, 2),
+          filterKeys: Object.keys(filter)
+        }))
+      })
+      
+      if (!subRequests.length) {
+        logger.warn('[NoteList] subRequests is empty, not initializing')
+        return
+      }
 
       async function init() {
+        logger.debug('[NoteList] init called', {
+          subRequestsCount: subRequests.length,
+          showKindsLength: showKinds.length,
+          showKinds,
+          useFilterAsIs,
+          areAlgoRelays
+        })
         setLoading(true)
         setEvents([])
         setNewEvents([])
         setHasMore(true)
         consecutiveEmptyRef.current = 0 // Reset counter on refresh
 
-        const { closer, timelineKey } = await client.subscribeTimeline(
-          subRequests.map(({ urls, filter }) => ({
-            urls,
-            filter: useFilterAsIs
-              ? { ...filter, limit: filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT) }
-              : {
-                  ...filter,
-                  // If showKinds is empty, default to kind 1 (ShortTextNote) only
-                  kinds: showKinds.length > 0 ? showKinds : [kinds.ShortTextNote],
-                  limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
-                }
-          })),
-          {
-            onEvents: (events, eosed) => {
-              if (events.length > 0) {
-                setEvents(events)
+        const mappedSubRequests = subRequests.map(({ urls, filter }) => ({
+          urls,
+          filter: useFilterAsIs
+            ? { ...filter, limit: filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT) }
+            : {
+                ...filter,
+                // If showKinds is empty, default to kind 1 (ShortTextNote) only
+                kinds: showKinds.length > 0 ? showKinds : [kinds.ShortTextNote],
+                limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
+              }
+        }))
+        
+        logger.debug('[NoteList] Subscribing with filters', {
+          subRequestCount: mappedSubRequests.length,
+          filters: mappedSubRequests.map(({ urls, filter }) => ({
+            urls: urls.slice(0, 2), // Log first 2 URLs
+            kinds: filter.kinds,
+            limit: filter.limit
+          }))
+        })
+
+        logger.info('[NoteList] About to call subscribeTimeline', {
+          mappedSubRequestsCount: mappedSubRequests.length
+        })
+        
+        let closer: (() => void) | undefined
+        let timelineKey: string | undefined
+        
+        try {
+          const result = await client.subscribeTimeline(
+            mappedSubRequests,
+            {
+              onEvents: (events: Event[], eosed: boolean) => {
+                logger.debug('[NoteList] onEvents called', {
+                  eventCount: events.length,
+                  eosed,
+                  showKindsLength: showKinds.length,
+                  subRequestsCount: subRequests.length
+                })
                 
-                // CRITICAL: Prefetch profiles for initial events (reduced batch size for faster initial load)
-                // This ensures profiles are ready before user starts scrolling
-                // Reduced from 300 to 150 to reduce initial load time
-                const initialPubkeys = Array.from(
-                  new Set(events.slice(0, 150).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
-                )
-                if (initialPubkeys.length > 0) {
-                  // Filter out already prefetched pubkeys
-                  const pubkeysToFetch = initialPubkeys.filter((p) => !prefetchedPubkeysRef.current.has(p))
-                  if (pubkeysToFetch.length > 0) {
+                if (events.length > 0) {
+                  setEvents(events)
+                  
+                  // CRITICAL: Prefetch profiles for initial events (reduced batch size for faster initial load)
+                  // This ensures profiles are ready before user starts scrolling
+                  // Reduced from 300 to 150 to reduce initial load time
+                  const initialPubkeys = Array.from(
+                    new Set(events.slice(0, 150).map((ev: Event) => ev.pubkey).filter((p: string) => p?.length === 64))
+                  )
+                  if (initialPubkeys.length > 0) {
+                    // Filter out already prefetched pubkeys
+                    const pubkeysToFetch = initialPubkeys.filter((p) => !prefetchedPubkeysRef.current.has(p))
+                    if (pubkeysToFetch.length > 0) {
+                      // Mark as prefetched immediately to prevent duplicate requests
+                      pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.add(p))
+                      // Batch fetch in background (non-blocking)
+                      client.fetchProfilesForPubkeys(pubkeysToFetch).catch(() => {
+                        // On error, remove from prefetched set so we can retry later
+                        pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.delete(p))
+                      })
+                    }
+                  }
+                  
+                  // CRITICAL: Prefetch embedded events for initial events
+                  // Extract embedded event IDs from initial events
+                  const initialEmbeddedEventIds = new Set<string>()
+                  events.slice(0, 150).forEach((ev: Event) => {
+                    const embeddedIds = extractEmbeddedEventIds(ev)
+                    embeddedIds.forEach((id: string) => initialEmbeddedEventIds.add(id))
+                  })
+                  const eventIdsToFetch = Array.from(initialEmbeddedEventIds).filter(
+                    (id) => !prefetchedEventIdsRef.current.has(id)
+                  )
+                  if (eventIdsToFetch.length > 0) {
                     // Mark as prefetched immediately to prevent duplicate requests
-                    pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.add(p))
-                    // Batch fetch in background (non-blocking)
-                    client.fetchProfilesForPubkeys(pubkeysToFetch).catch(() => {
+                    eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
+                    // Batch fetch embedded events in background (non-blocking)
+                    Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
                       // On error, remove from prefetched set so we can retry later
-                      pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.delete(p))
+                      eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
                     })
                   }
+                } else if (eosed) {
+                  // No events received but EOSE - set empty events array and stop loading
+                  logger.debug('[NoteList] EOSE with no events, stopping loading')
+                  setEvents([])
+                  setLoading(false)
                 }
                 
-                // CRITICAL: Prefetch embedded events for initial events
-                // Extract embedded event IDs from initial events
-                const initialEmbeddedEventIds = new Set<string>()
-                events.slice(0, 150).forEach((ev) => {
-                  const embeddedIds = extractEmbeddedEventIds(ev)
-                  embeddedIds.forEach((id) => initialEmbeddedEventIds.add(id))
-                })
-                const eventIdsToFetch = Array.from(initialEmbeddedEventIds).filter(
-                  (id) => !prefetchedEventIdsRef.current.has(id)
-                )
-                if (eventIdsToFetch.length > 0) {
-                  // Mark as prefetched immediately to prevent duplicate requests
-                  eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
-                  // Batch fetch embedded events in background (non-blocking)
-                  Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
-                    // On error, remove from prefetched set so we can retry later
-                    eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
-                  })
+                if (areAlgoRelays) {
+                  setHasMore(false)
                 }
-              }
-              if (areAlgoRelays) {
-                setHasMore(false)
-              }
-              if (eosed) {
-                setLoading(false)
-                // CRITICAL FIX: Always set hasMore to true on eosed, even if we have few events
-                // The initial load might only return a few events due to filtering or relay limits
-                // We should still try to load more on scroll - the loadMore logic will handle stopping
-                // Only set to false if we explicitly know there are no more events (handled in loadMore)
-                setHasMore(true)
-              }
-            },
-            onNew: (event) => {
+                if (eosed) {
+                  setLoading(false)
+                  // CRITICAL FIX: Always set hasMore to true on eosed, even if we have few events
+                  // The initial load might only return a few events due to filtering or relay limits
+                  // We should still try to load more on scroll - the loadMore logic will handle stopping
+                  // Only set to false if we explicitly know there are no more events (handled in loadMore)
+                  setHasMore(true)
+                }
+              },
+            onNew: (event: Event) => {
               if (!useFilterAsIs && !showKinds.includes(event.kind)) return
               if (event.kind === kinds.ShortTextNote) {
                 const isReply = isReplyNoteEvent(event)
@@ -307,7 +357,7 @@ const NoteList = forwardRef(
                 )
               }
             },
-            onClose: (url, reason) => {
+            onClose: (url: string, reason: string) => {
               if (!showRelayCloseReason) return
               // ignore reasons from nostr-tools
               if (
@@ -345,8 +395,22 @@ const NoteList = forwardRef(
             useCache: false // Main feeds should always fetch fresh from relays, not use cache
           }
         )
+        closer = result.closer
+        timelineKey = result.timelineKey
+        logger.info('[NoteList] subscribeTimeline completed', {
+          hasTimelineKey: !!timelineKey,
+          hasCloser: !!closer
+        })
         setTimelineKey(timelineKey)
         return closer
+      } catch (error) {
+        logger.error('[NoteList] Error in subscribeTimeline', {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        })
+        setLoading(false)
+        throw error
+      }
       }
 
       const promise = init()

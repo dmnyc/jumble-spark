@@ -30,9 +30,34 @@ export default function RelaysFeed({
         setIsReady(false)
         return
       }
-      const relayInfos = await relayInfoService.getRelayInfos(relayUrls)
-      setAreAlgoRelays(relayInfos.every((relayInfo) => checkAlgoRelay(relayInfo)))
-      setIsReady(true)
+      
+      // Add timeout to prevent hanging if getRelayInfos is slow
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('getRelayInfos timeout after 5 seconds'))
+        }, 5000)
+      })
+      
+      try {
+        const relayInfos = await Promise.race([
+          relayInfoService.getRelayInfos(relayUrls),
+          timeoutPromise
+        ])
+        setAreAlgoRelays(relayInfos.every((relayInfo) => checkAlgoRelay(relayInfo)))
+        setIsReady(true)
+        logger.debug('RelaysFeed: Initialized successfully', {
+          relayCount: relayUrls.length,
+          areAlgoRelays: relayInfos.every((relayInfo) => checkAlgoRelay(relayInfo))
+        })
+      } catch (error) {
+        logger.warn('RelaysFeed: Failed to get relay infos, proceeding anyway', {
+          error: error instanceof Error ? error.message : String(error),
+          relayUrls
+        })
+        // Proceed anyway - we can still show the feed even without relay info
+        setAreAlgoRelays(false)
+        setIsReady(true)
+      }
     }
     init()
   }, [relayUrls])

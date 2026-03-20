@@ -1259,12 +1259,16 @@ class ClientService extends EventTarget {
           onNew(evt)
         }
 
-        // Only update timeline cache if caching is enabled
-        if (!useCache) return
-        
+        // Update timeline refs for pagination tracking (even when useCache is false)
+        // This is needed for loadMoreTimeline to know what events have been loaded
         const timeline = that.timelines[key]
-        if (!timeline || Array.isArray(timeline) || !timeline.refs.length) {
+        if (!timeline || Array.isArray(timeline)) {
           return
+        }
+        
+        // Initialize refs if empty (needed for pagination even when not using cache)
+        if (!timeline.refs || timeline.refs.length === 0) {
+          timeline.refs = []
         }
 
         // find the right position to insert
@@ -1334,7 +1338,28 @@ class ClientService extends EventTarget {
             onEvents([...events.concat(cachedEvents).slice(0, filter.limit)], true)
           }
         } else {
-          // No caching - just return events directly
+          // No caching for initial load, but still need to initialize timeline.refs for loadMoreTimeline pagination
+          const timeline = that.timelines[key]
+          if (!timeline || Array.isArray(timeline)) {
+            // Initialize timeline with refs for pagination (even though we don't use cache for initial load)
+            that.timelines[key] = {
+              refs: events.map((evt) => [evt.id, evt.created_at]),
+              filter,
+              urls
+            }
+          } else {
+            // Update refs with new events for pagination tracking
+            const firstRefCreatedAt = timeline.refs.length > 0 ? timeline.refs[0][1] : dayjs().unix()
+            const newRefs = events
+              .filter((evt) => evt.created_at > firstRefCreatedAt)
+              .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
+            if (events.length >= filter.limit) {
+              timeline.refs = newRefs
+            } else {
+              timeline.refs = newRefs.concat(timeline.refs)
+            }
+          }
+          // Return events directly (no cache concatenation)
           onEvents([...events], true)
         }
       },
@@ -1360,17 +1385,22 @@ class ClientService extends EventTarget {
     if (!timeline || Array.isArray(timeline)) return []
 
     const { filter, urls, refs } = timeline
-    const startIdx = refs.findIndex(([, createdAt]) => createdAt <= until)
-    const cachedEvents =
-      startIdx >= 0
-        ? ((
-            await Promise.all(
-              refs.slice(startIdx, startIdx + limit).map(([id]) => this.eventService.fetchEvent(id))
-            )
-          ).filter((evt): evt is NEvent => !!evt) as NEvent[])
-        : []
-    if (cachedEvents.length >= limit) {
-      return cachedEvents
+    
+    // Only try to load from cache if refs exist and we have cached events
+    // When useCache is false, refs might be empty or we might not want to use cache
+    let cachedEvents: NEvent[] = []
+    if (refs && refs.length > 0) {
+      const startIdx = refs.findIndex(([, createdAt]) => createdAt <= until)
+      if (startIdx >= 0) {
+        cachedEvents = (
+          await Promise.all(
+            refs.slice(startIdx, startIdx + limit).map(([id]) => this.eventService.fetchEvent(id))
+          )
+        ).filter((evt): evt is NEvent => !!evt) as NEvent[]
+      }
+      if (cachedEvents.length >= limit) {
+        return cachedEvents
+      }
     }
 
     until = cachedEvents.length ? cachedEvents[cachedEvents.length - 1].created_at - 1 : until
@@ -1381,13 +1411,27 @@ class ClientService extends EventTarget {
     })
     events = events.sort((a, b) => b.created_at - a.created_at).slice(0, limit)
 
+    // Update refs for pagination tracking (even when useCache is false)
+    // Initialize refs if empty
+    if (!timeline.refs) {
+      timeline.refs = []
+    }
+    
     // Prevent concurrent requests from duplicating the same event
-    const lastRefCreatedAt = refs.length > 0 ? refs[refs.length - 1][1] : dayjs().unix()
-    timeline.refs.push(
-      ...events
-        .filter((evt) => evt.created_at < lastRefCreatedAt)
-        .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
-    )
+    // Only filter by lastRefCreatedAt if refs exist and have items
+    if (timeline.refs.length > 0) {
+      const lastRefCreatedAt = timeline.refs[timeline.refs.length - 1][1]
+      timeline.refs.push(
+        ...events
+          .filter((evt) => evt.created_at < lastRefCreatedAt)
+          .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
+      )
+    } else {
+      // No existing refs, add all events
+      timeline.refs.push(
+        ...events.map((evt) => [evt.id, evt.created_at] as TTimelineRef)
+      )
+    }
     return [...cachedEvents, ...events]
   }
 
