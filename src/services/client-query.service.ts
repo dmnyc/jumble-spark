@@ -17,8 +17,10 @@ function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
 export interface QueryOptions {
   eoseTimeout?: number
   globalTimeout?: number
-  /** For replaceable events: race strategy - wait 2s after first result, then return best */
+  /** For replaceable events: race strategy - wait after first result, then return best (per author when batching) */
   replaceableRace?: boolean
+  /** Ms to wait after the first event when replaceableRace is true (lets other relays return a newer version) */
+  replaceableRaceWaitMs?: number
   /** For non-replaceable single events: return immediately on first match */
   immediateReturn?: boolean
 }
@@ -113,6 +115,7 @@ export class QueryService {
     const eoseTimeout = options?.eoseTimeout ?? 500
     const globalTimeout = options?.globalTimeout ?? 10000
     const replaceableRace = options?.replaceableRace ?? false
+    const replaceableRaceWaitMs = options?.replaceableRaceWaitMs ?? 2000
     const immediateReturn = options?.immediateReturn ?? false
     const isExternalSearch = eoseTimeout > 1000
     
@@ -129,7 +132,6 @@ export class QueryService {
     }
     
     const FIRST_RESULT_GRACE_MS = 1200
-    const REPLACEABLE_RACE_WAIT_MS = 1000 // Reduced from 2000ms for faster profile loading in feeds
 
     return await new Promise<NEvent[]>((resolve) => {
       const events: NEvent[] = []
@@ -142,6 +144,35 @@ export class QueryService {
       let firstResultTime: number | null = null
       let globalTimeoutId: ReturnType<typeof setTimeout> | null = null
 
+      const resolveReplaceableRaceEvents = (): NEvent[] => {
+        if (events.length === 0) return events
+        const filters = Array.isArray(filter) ? filter : [filter]
+        const authorSet = new Set<string>()
+        for (const f of filters) {
+          if (f.authors) {
+            for (const a of f.authors) {
+              if (a) authorSet.add(a)
+            }
+          }
+        }
+        // Batch profile / replaceable fetch: keep the newest event per pubkey (not one global "winner")
+        if (authorSet.size > 1) {
+          const byPk = new Map<string, NEvent>()
+          for (const e of events) {
+            if (!authorSet.has(e.pubkey)) continue
+            const prev = byPk.get(e.pubkey)
+            if (!prev || e.created_at > prev.created_at) {
+              byPk.set(e.pubkey, e)
+            }
+          }
+          return Array.from(byPk.values())
+        }
+        const bestEvent = events.reduce((best, current) =>
+          current.created_at > best.created_at ? current : best
+        )
+        return [bestEvent]
+      }
+
       const resolveWithEvents = () => {
         if (resolved) return
         resolved = true
@@ -153,10 +184,7 @@ export class QueryService {
         sub.close()
         
         if (replaceableRace && events.length > 0) {
-          const bestEvent = events.reduce((best, current) => 
-            current.created_at > best.created_at ? current : best
-          )
-          resolve([bestEvent])
+          resolve(resolveReplaceableRaceEvents())
         } else {
           resolve(events)
         }
@@ -189,7 +217,7 @@ export class QueryService {
             replaceableRaceTimeoutId = setTimeout(() => {
               replaceableRaceTimeoutId = null
               resolveWithEvents()
-            }, REPLACEABLE_RACE_WAIT_MS)
+            }, replaceableRaceWaitMs)
           }
 
           if (!replaceableRace && !immediateReturn && isSingleEventFetch && events.length === 1 && !firstResultGraceTimeoutId) {

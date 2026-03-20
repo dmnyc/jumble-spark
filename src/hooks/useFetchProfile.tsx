@@ -10,6 +10,8 @@ import logger from '@/lib/logger'
 // This prevents multiple components from fetching the same profile simultaneously
 const globalFetchPromises = new Map<string, Promise<TProfile | null>>()
 const globalFetchingPubkeys = new Set<string>()
+// Cooldown period after timeout to prevent cascade of duplicate fetches
+const globalFetchCooldowns = new Map<string, number>() // pubkey -> timestamp when cooldown expires
 
 export function useFetchProfile(id?: string, skipCache = false) {
   // CRITICAL: Reduce logging to prevent performance issues during infinite loops
@@ -47,6 +49,20 @@ export function useFetchProfile(id?: string, skipCache = false) {
       return null
     }
     
+    // CRITICAL: Check cooldown period first to prevent cascade of duplicate fetches after timeout
+    const cooldownExpiry = globalFetchCooldowns.get(pubkey)
+    if (cooldownExpiry && Date.now() < cooldownExpiry) {
+      logger.debug('[useFetchProfile] In cooldown period after timeout, skipping fetch', {
+        pubkey: pubkey.substring(0, 8),
+        remainingMs: cooldownExpiry - Date.now()
+      })
+      return null
+    }
+    // Clean up expired cooldowns
+    if (cooldownExpiry && Date.now() >= cooldownExpiry) {
+      globalFetchCooldowns.delete(pubkey)
+    }
+    
     // CRITICAL: Check if another hook instance is already fetching this pubkey
     // If so, wait for that fetch to complete instead of starting a new one
     // Add timeout protection to prevent infinite waits
@@ -71,9 +87,12 @@ export function useFetchProfile(id?: string, skipCache = false) {
 
         // If timeout won: do NOT start a new fetch (avoids pile-up of parallel fetches for same pubkey).
         // Return null so caller can show fallback; the original fetch may still complete and update cache.
+        // Set a cooldown period to prevent immediate retries from other components
         if (existingProfile === null && !cancelled.current) {
           globalFetchPromises.delete(pubkey)
           globalFetchingPubkeys.delete(pubkey)
+          // Set cooldown for 10 seconds to prevent cascade of duplicate fetches
+          globalFetchCooldowns.set(pubkey, Date.now() + 10000)
           return null
         }
         if (existingProfile) {
@@ -126,6 +145,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
           if (retryProfile === null && !cancelled.current) {
             globalFetchPromises.delete(pubkey)
             globalFetchingPubkeys.delete(pubkey)
+            // Set cooldown for 10 seconds to prevent cascade of duplicate fetches
+            globalFetchCooldowns.set(pubkey, Date.now() + 10000)
             return null
           }
           if (retryProfile) {
@@ -219,6 +240,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
             pubkey: pubkey.substring(0, 8),
             error: err.message
           })
+          // Set cooldown period after timeout to prevent cascade of duplicate fetches
+          globalFetchCooldowns.set(pubkey, Date.now() + 10000) // 10 second cooldown
           // Return null on timeout instead of throwing - allows UI to show fallback
           return null
         }

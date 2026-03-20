@@ -156,7 +156,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   const [spellToEdit, setSpellToEdit] = useState<Event | null>(null)
   const [spellToClone, setSpellToClone] = useState<Event | null>(null)
   const [definitionSpell, setDefinitionSpell] = useState<Event | null>(null)
-  const [subRequests, setSubRequests] = useState<TFeedSubRequest[]>([])
   const [contacts, setContacts] = useState<string[]>([])
   /** True while fetching kind 777 authored by the user from write relays into IndexedDB */
   const [spellsCatalogSyncing, setSpellsCatalogSyncing] = useState(false)
@@ -290,9 +289,33 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
     client.fetchFollowings(pubkey).then(setContacts).catch(() => setContacts([]))
   }, [pubkey])
 
+  // Memoize subRequests to prevent NoteList from re-subscribing when array reference changes
+  // This ensures the array reference only changes when the actual content changes
+  const subRequests = useMemo<TFeedSubRequest[]>(() => {
+    if (!selectedSpell) {
+      return []
+    }
+    if (spellIsCount(selectedSpell)) {
+      return []
+    }
+    const relayListWrite = relayList?.write ?? []
+    const ctx = {
+      pubkey,
+      contacts
+    }
+    const filter = spellEventToFilter(selectedSpell, ctx)
+    if (!filter) {
+      return []
+    }
+    const relays = getRelaysForSpell(selectedSpell, { relayListWrite })
+    if (!relays.length) {
+      return []
+    }
+    return [{ urls: relays, filter }]
+  }, [selectedSpell, pubkey, contacts, relayList?.write])
+
   useEffect(() => {
     if (!selectedSpell) {
-      setSubRequests([])
       setSpellCount({
         loading: false,
         rows: [],
@@ -304,7 +327,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
       return
     }
     if (spellIsCount(selectedSpell)) {
-      setSubRequests([])
       return
     }
     setSpellCount({
@@ -315,23 +337,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
       mayHitLimit: false,
       usedExplicitRelays: false
     })
-    const relayListWrite = relayList?.write ?? []
-    const ctx = {
-      pubkey,
-      contacts
-    }
-    const filter = spellEventToFilter(selectedSpell, ctx)
-    if (!filter) {
-      setSubRequests([])
-      return
-    }
-    const relays = getRelaysForSpell(selectedSpell, { relayListWrite })
-    if (!relays.length) {
-      setSubRequests([])
-      return
-    }
-    setSubRequests([{ urls: relays, filter }])
-  }, [selectedSpell, pubkey, contacts, relayList?.write])
+  }, [selectedSpell])
 
   useEffect(() => {
     if (!selectedSpell || !spellIsCount(selectedSpell)) {

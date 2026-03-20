@@ -1239,20 +1239,22 @@ class ClientService extends EventTarget {
     let eosedAt: number | null = null
     let initialBatchScheduled = false
     let lastDeliveredCount = 0
-    // CRITICAL FIX: Faster progressive loading - show results as soon as we have them
-    // Reduced delays to improve perceived performance
-    const PROGRESSIVE_DELAY_MS = 0 // Show first batch immediately
-    const PROGRESSIVE_INTERVAL_MS = 100 // Check for new events every 100ms (reduced from 200ms)
-    const MIN_NEW_EVENTS = 5 // Deliver when we have at least 5 new events
+    // Progressive loading: show the first event(s) as soon as they arrive (not only after 5+ events)
+    const PROGRESSIVE_INTERVAL_MS = 100 // Poll for more events while relays are still streaming
+    const MIN_NEW_EVENTS_AFTER_FIRST = 5 // After first paint, batch updates to limit re-renders
     let progressiveIntervalId: ReturnType<typeof setInterval> | null = null
     const deliverProgressive = () => {
       if (eosedAt || events.length === 0) return
       const sortedEvents = [...events].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
       const newEventCount = sortedEvents.length - lastDeliveredCount
-      
-      // Only deliver if we have significantly more events than last time
-      // This reduces unnecessary re-renders while still showing progress quickly
-      if (newEventCount >= MIN_NEW_EVENTS || sortedEvents.length >= filter.limit * 0.5) {
+
+      const isFirstPaint = lastDeliveredCount === 0
+      const shouldDeliver =
+        isFirstPaint
+          ? sortedEvents.length >= 1
+          : newEventCount >= MIN_NEW_EVENTS_AFTER_FIRST || sortedEvents.length >= filter.limit * 0.5
+
+      if (shouldDeliver) {
         lastDeliveredCount = sortedEvents.length
         const snap = sortedEvents
         // Only include cached events if caching is enabled
@@ -1266,13 +1268,10 @@ class ClientService extends EventTarget {
         // not eosed yet, push to events
         if (!eosedAt) {
           events.push(evt)
-          // Deliver first batch quickly so UI doesn't wait for all relays to EOSE
-          // CRITICAL FIX: Show results immediately when we have enough events
-          if (needSort && events.length >= MIN_NEW_EVENTS && !initialBatchScheduled) {
+          // Deliver as soon as we have any event while waiting for EOSE (then batch further updates)
+          if (needSort && events.length >= 1 && !initialBatchScheduled) {
             initialBatchScheduled = true
-            // Deliver immediately for better perceived performance
             deliverProgressive()
-            // Then continue checking for more events
             if (!progressiveIntervalId) {
               progressiveIntervalId = setInterval(deliverProgressive, PROGRESSIVE_INTERVAL_MS)
             }
