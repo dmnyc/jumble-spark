@@ -44,7 +44,7 @@ export default function MainNoteCard({
         e.stopPropagation()
         client.addEventToCache(event)
         const noteUrl = toNote(originalNoteId ?? event)
-        navigateToNote(noteUrl)
+        navigateToNote(noteUrl, event)
       }}
     >
       <div className={`clickable ${embedded ? 'p-2 sm:p-3 border rounded-lg' : 'py-3'}`} style={embedded ? { position: 'relative', isolation: 'isolate', overflow: 'visible' } : undefined}>

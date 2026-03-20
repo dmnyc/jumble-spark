@@ -117,8 +117,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
     // Extract pubkey early to check if id has changed
     const extractedPubkey = id ? userIdToPubkey(id) : null
     
-    // EARLY EXIT: If we're already processing this exact pubkey, skip immediately
-    // This prevents the effect from doing any work if it's already running
+    // CRITICAL: Early exit if already processing this exact pubkey - prevents infinite loops
     if (extractedPubkey && processingPubkeyRef.current === extractedPubkey) {
       logger.info('[useFetchProfile] EARLY EXIT: Already processing this pubkey', {
         extractedPubkey,
@@ -127,14 +126,18 @@ export function useFetchProfile(id?: string, skipCache = false) {
       return
     }
     
-    // Guard against infinite loops: limit effect runs per pubkey
+    // CRITICAL: Guard against infinite loops - limit effect runs per pubkey (reduced from 10 to 3)
     if (extractedPubkey) {
       const runCount = effectRunCountRef.current.get(extractedPubkey) || 0
-      if (runCount > 10) {
+      if (runCount >= 3) {
         logger.warn('[useFetchProfile] Too many effect runs for this pubkey, preventing infinite loop', {
           extractedPubkey,
           runCount
         })
+        // Clear the run count after a delay to allow retries later
+        setTimeout(() => {
+          effectRunCountRef.current.delete(extractedPubkey)
+        }, 30000) // Clear after 30 seconds
         return
       }
       effectRunCountRef.current.set(extractedPubkey, runCount + 1)
@@ -220,17 +223,17 @@ export function useFetchProfile(id?: string, skipCache = false) {
       return
     }
     
-    // Also check if we already have a profile for this pubkey before starting a new fetch
+    // CRITICAL: Check if we already have a profile for this pubkey before starting a new fetch
+    // This prevents re-fetching when profile state already exists
     if (profile && profile.pubkey === extractedPubkey) {
       logger.info('[useFetchProfile] Already have profile for this pubkey, skipping fetch', {
         extractedPubkey
       })
-      // Still update the ref to prevent re-processing
+      // Mark as processing to prevent re-fetch, but don't update state unnecessarily
       processingPubkeyRef.current = extractedPubkey
       setIsFetching(false)
-      if (pubkey !== extractedPubkey) {
-        setPubkey(extractedPubkey)
-      }
+      // Clear run count since we have the profile
+      effectRunCountRef.current.delete(extractedPubkey)
       return
     }
     
@@ -239,8 +242,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
     // This prevents the effect from running again for the same pubkey
     processingPubkeyRef.current = extractedPubkey
     
-    // Only set pubkey state if it's different to avoid unnecessary re-renders
-    // Do this AFTER setting the ref to prevent loops
+    // CRITICAL: Only update pubkey state if it's actually different
+    // Avoid state updates that could trigger re-renders and loops
     if (pubkey !== extractedPubkey) {
       setPubkey(extractedPubkey)
     }
@@ -290,9 +293,10 @@ export function useFetchProfile(id?: string, skipCache = false) {
         setError(null) // Clear any previous errors
         
         // If no profile was found, periodically re-check (profiles might load asynchronously)
-        // Check every 2 seconds for up to 30 seconds (15 checks)
+        // REDUCED: Check every 5 seconds for up to 20 seconds (4 checks) to prevent too many intervals
+        // This reduces memory usage when many profiles are being fetched (e.g., trending page)
         let checkCount = 0
-        const maxChecks = 15
+        const maxChecks = 4 // Reduced from 15 to prevent browser crashes
         
         checkIntervalRef.current = setInterval(async () => {
           if (cancelled.current || checkCount >= maxChecks) {
@@ -312,7 +316,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
               checkIntervalRef.current = null
             }
           }
-        }, 2000) // Check every 2 seconds
+        }, 5000) // Increased from 2 seconds to 5 seconds to reduce load
       } catch (err) {
                  logger.error('[useFetchProfile] run() error', {
                    pubkey: extractedPubkey,
@@ -353,12 +357,13 @@ export function useFetchProfile(id?: string, skipCache = false) {
   }, [id, skipCache]) // checkProfile is memoized and stable, no need to include it
 
   useEffect(() => {
-    // Only use currentAccountProfile if it matches the pubkey we're looking for
+    // CRITICAL: Only use currentAccountProfile if it matches the pubkey we're looking for
     // Use pubkey from the profile object to avoid reference equality issues
+    // Only update if we don't have a profile yet AND we're not currently processing
     if (currentAccountProfile?.pubkey && pubkey && pubkey === currentAccountProfile.pubkey) {
       // Only update if we don't have a profile yet (avoid unnecessary updates)
-      // Using a ref to track if we've already set it to prevent loops
-      if (!profile) {
+      // Also check that we're processing this pubkey to prevent race conditions
+      if (!profile && processingPubkeyRef.current === pubkey) {
         setProfile(currentAccountProfile)
         setIsFetching(false)
         // Clear interval if we got the profile from current account
@@ -366,9 +371,11 @@ export function useFetchProfile(id?: string, skipCache = false) {
           clearInterval(checkIntervalRef.current)
           checkIntervalRef.current = null
         }
+        // Clear run count since we have the profile
+        effectRunCountRef.current.delete(pubkey)
       }
     }
-  }, [currentAccountProfile?.pubkey, pubkey]) // Removed profile?.pubkey to prevent loops
+  }, [currentAccountProfile?.pubkey, pubkey, profile]) // Include profile to prevent unnecessary updates
 
   return { isFetching, error, profile }
 }

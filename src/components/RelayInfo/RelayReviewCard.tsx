@@ -33,7 +33,7 @@ export default function RelayReviewCard({
           return
         }
         client.addEventToCache(event)
-        navigateToNote(toNote(event))
+        navigateToNote(toNote(event), event)
       }}
     >
       <div className="flex justify-between items-start gap-2">

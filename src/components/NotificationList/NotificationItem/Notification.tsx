@@ -54,7 +54,7 @@ export default function Notification({
 
     if (targetEvent) {
       client.addEventToCache(targetEvent)
-      navigateToNote(toNote(targetEvent.id))
+      navigateToNote(toNote(targetEvent.id), targetEvent)
     } else if (pubkey) {
       push(toProfile(pubkey))
     }

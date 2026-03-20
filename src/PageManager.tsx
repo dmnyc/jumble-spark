@@ -18,6 +18,9 @@ import RssFeedSettingsPage from '@/pages/secondary/RssFeedSettingsPage'
 import NoteDrawer from '@/components/NoteDrawer'
 import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
 import storage from '@/services/local-storage.service'
+import client from '@/services/client.service'
+import { navigationEventStore } from '@/services/navigation-event-store'
+import type { Event } from 'nostr-tools'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import FollowingListPage from '@/pages/secondary/FollowingListPage'
 import MuteListPage from '@/pages/secondary/MuteListPage'
@@ -222,9 +225,16 @@ export function useSmartNoteNavigation() {
   const { isSmallScreen } = useScreenSize()
   const { current: currentPrimaryPage } = usePrimaryPage()
   
-  const navigateToNote = (url: string) => {
+  const navigateToNote = (url: string, event?: Event) => {
     // Extract noteId from URL (handles both /notes/{id} and /{context}/notes/{id})
     const { noteId } = parseNoteUrl(url)
+    
+    // If event is provided, store it in navigation event store to avoid re-fetching
+    if (event) {
+      navigationEventStore.setEvent(event)
+      // Also add to cache for future use
+      client.addEventToCache(event)
+    }
     
     // Build contextual URL based on current page
     const contextualUrl = buildNoteUrl(noteId, currentPrimaryPage)

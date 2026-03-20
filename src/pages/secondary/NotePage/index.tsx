@@ -90,9 +90,9 @@ function stripMarkdown(content: string): string {
   return text.trim()
 }
 
-const NotePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: string; index?: number; hideTitlebar?: boolean }, ref) => {
+const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: { id?: string; index?: number; hideTitlebar?: boolean; initialEvent?: Event }, ref) => {
   const { t } = useTranslation()
-  const { event, isFetching } = useFetchEvent(id)
+  const { event, isFetching } = useFetchEvent(id, initialEvent)
   const [externalEvent, setExternalEvent] = useState<Event | undefined>(undefined)
   const finalEvent = event || externalEvent
   

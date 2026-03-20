@@ -262,7 +262,7 @@ export default function Note({
           }
           e.stopPropagation()
           client.addEventToCache(event)
-          navigateToNote(toNote(event))
+          navigateToNote(toNote(event), event)
         }}
       >
         <div className="flex justify-between items-start gap-2">
@@ -294,7 +294,7 @@ export default function Note({
                 onClick={(e) => {
                   e.stopPropagation()
                   client.addEventToCache(event)
-                  navigateToNote(toNote(event))
+                  navigateToNote(toNote(event), event)
                 }}
                 title="View in Discussions"
               >

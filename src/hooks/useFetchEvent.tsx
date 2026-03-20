@@ -1,20 +1,40 @@
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import { useReply } from '@/providers/ReplyProvider'
 import { eventService } from '@/services/client.service'
+import { navigationEventStore } from '@/services/navigation-event-store'
 import { Event } from 'nostr-tools'
 import { useEffect, useState } from 'react'
 
-export function useFetchEvent(eventId?: string) {
+export function useFetchEvent(eventId?: string, initialEvent?: Event) {
   const { isEventDeleted } = useDeletedEvent()
   const { addReplies } = useReply()
   const [error, setError] = useState<Error | null>(null)
-  const [event, setEvent] = useState<Event | undefined>(undefined)
-  const [isFetching, setIsFetching] = useState(true)
+  const [event, setEvent] = useState<Event | undefined>(initialEvent)
+  const [isFetching, setIsFetching] = useState(!initialEvent)
 
   useEffect(() => {
     if (!eventId) {
       setIsFetching(false)
       setError(new Error('No id provided'))
+      return
+    }
+
+    // If we have an initial event that matches the eventId, use it and skip fetching
+    if (initialEvent && (initialEvent.id === eventId || eventId.includes(initialEvent.id))) {
+      if (!isEventDeleted(initialEvent)) {
+        setEvent(initialEvent)
+        addReplies([initialEvent])
+        setIsFetching(false)
+      }
+      return
+    }
+
+    // Check navigation event store first (events passed through navigation)
+    const navigationEvent = navigationEventStore.getEvent(eventId)
+    if (navigationEvent && !isEventDeleted(navigationEvent)) {
+      setEvent(navigationEvent)
+      addReplies([navigationEvent])
+      setIsFetching(false)
       return
     }
 
@@ -36,7 +56,7 @@ export function useFetchEvent(eventId?: string) {
     }
 
     fetchEvent()
-  }, [eventId, isEventDeleted, addReplies])
+  }, [eventId, initialEvent, isEventDeleted, addReplies])
 
   useEffect(() => {
     if (event && isEventDeleted(event)) {
