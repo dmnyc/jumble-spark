@@ -11,6 +11,8 @@ import { LRUCache } from 'lru-cache'
 import indexedDb from './indexed-db.service'
 import type { QueryService } from './client-query.service'
 import { isReplaceableEvent, getReplaceableCoordinateFromEvent } from '@/lib/event'
+import logger from '@/lib/logger'
+import client from './client.service'
 
 export class ReplaceableEventService {
   private queryService: QueryService
@@ -70,8 +72,107 @@ export class ReplaceableEventService {
   }
 
   /**
+   * Extract relay hints from event tags (e, a, q tags - 3rd position)
+   */
+  private extractRelayHintsFromEvent(event: NEvent | undefined): string[] {
+    if (!event) return []
+    const hints = new Set<string>()
+    
+    // Extract from e, a, q tags (relay hint is in position 2, index 2)
+    const tagTypesWithRelayHints = ['e', 'a', 'q']
+    for (const tag of event.tags) {
+      if (tagTypesWithRelayHints.includes(tag[0]) && tag.length > 2 && typeof tag[2] === 'string') {
+        const hint = tag[2]
+        if (hint.startsWith('wss://') || hint.startsWith('ws://')) {
+          hints.add(hint)
+        }
+      }
+    }
+    
+    // Also check for dedicated "relays" tag
+    const relaysTag = event.tags.find(tag => tag[0] === 'relays')
+    if (relaysTag && relaysTag.length > 1) {
+      relaysTag.slice(1).forEach(url => {
+        if (typeof url === 'string' && (url.startsWith('wss://') || url.startsWith('ws://'))) {
+          hints.add(url)
+        }
+      })
+    }
+    
+    return Array.from(hints)
+  }
+
+  /**
+   * Build comprehensive relay list: author's outboxes + user's inboxes + relay hints + defaults
+   */
+  private async buildComprehensiveRelayListForAuthor(
+    authorPubkey: string,
+    kind: number,
+    relayHints: string[] = []
+  ): Promise<string[]> {
+    const relayUrls = new Set<string>()
+    
+    // 1. Add relay hints (highest priority - these are explicit hints)
+    relayHints.forEach(url => {
+      const normalized = normalizeUrl(url)
+      if (normalized) relayUrls.add(normalized)
+    })
+    
+    // 2. Add author's outboxes (write relays) - where they publish
+    try {
+      const authorRelayList = await client.fetchRelayList(authorPubkey)
+      const authorOutboxes = (authorRelayList.write || []).slice(0, 10)
+      authorOutboxes.forEach(url => {
+        const normalized = normalizeUrl(url)
+        if (normalized) relayUrls.add(normalized)
+      })
+      logger.debug('[ReplaceableEventService] Added author outboxes', {
+        author: authorPubkey.substring(0, 8),
+        count: authorOutboxes.length
+      })
+    } catch (error) {
+      logger.debug('[ReplaceableEventService] Failed to fetch author relay list', { error })
+    }
+    
+    // 3. Add logged-in user's inboxes (read relays) - where they receive events
+    const userPubkey = client.pubkey
+    if (userPubkey) {
+      try {
+        const userRelayList = await client.fetchRelayList(userPubkey)
+        const userInboxes = (userRelayList.read || []).slice(0, 10)
+        userInboxes.forEach(url => {
+          const normalized = normalizeUrl(url)
+          if (normalized) relayUrls.add(normalized)
+        })
+        logger.debug('[ReplaceableEventService] Added user inboxes', {
+          count: userInboxes.length
+        })
+      } catch (error) {
+        logger.debug('[ReplaceableEventService] Failed to fetch user relay list', { error })
+      }
+    }
+    
+    // 4. Add default fast read relays as fallback
+    FAST_READ_RELAY_URLS.forEach(url => {
+      const normalized = normalizeUrl(url)
+      if (normalized) relayUrls.add(normalized)
+    })
+    
+    // 5. Add profile fetch relays for profiles
+    if (kind === kinds.Metadata) {
+      PROFILE_FETCH_RELAY_URLS.forEach(url => {
+        const normalized = normalizeUrl(url)
+        if (normalized) relayUrls.add(normalized)
+      })
+    }
+    
+    return Array.from(relayUrls)
+  }
+
+  /**
    * Fetch replaceable event (profile, relay list, etc.)
    * Always checks in-memory cache FIRST (instant), then IndexedDB, then fetches from relays
+   * ALWAYS uses: author's outboxes + user's inboxes + relay hints + defaults
    */
   async fetchReplaceableEvent(pubkey: string, kind: number, d?: string): Promise<NEvent | undefined> {
     const cacheKey = d ? `${kind}:${pubkey}:${d}` : `${kind}:${pubkey}`
@@ -114,14 +215,48 @@ export class ReplaceableEventService {
     }
     
     // 3. Not in cache, fetch from network
-    const event = d
-      ? await this.replaceableEventDataLoader.load({ pubkey, kind, d })
-      : await this.replaceableEventFromBigRelaysDataloader.load({ pubkey, kind })
-    
-    if (event) {
-      // Add to memory cache for instant access next time
-      this.replaceableEventMemoryCache.set(cacheKey, event)
-      return event
+    // Note: DataLoader will use comprehensive relay list from batch load function
+    try {
+      const event = d
+        ? await this.replaceableEventDataLoader.load({ pubkey, kind, d })
+        : await this.replaceableEventFromBigRelaysDataloader.load({ pubkey, kind })
+      
+      if (event) {
+        // Extract relay hints from the found event (for future related fetches)
+        const eventRelayHints = this.extractRelayHintsFromEvent(event)
+        
+        // Add to memory cache for instant access next time
+        this.replaceableEventMemoryCache.set(cacheKey, event)
+        if (kind === kinds.Metadata) {
+          this.profileMemoryCache.set(pubkey, event)
+        }
+        
+        // If we found relay hints, log them (they're already used in the batch load function)
+        if (eventRelayHints.length > 0) {
+          logger.debug('[ReplaceableEventService] Found relay hints in event', {
+            pubkey: formatPubkey(pubkey),
+            hintCount: eventRelayHints.length
+          })
+        }
+        
+        return event
+      }
+      
+      // Log when no event is found (helps debug relay failures)
+      if (kind === kinds.Metadata) {
+        logger.debug('[ReplaceableEventService] No profile found for pubkey', { 
+          pubkey: formatPubkey(pubkey),
+          cacheKey
+        })
+      }
+    } catch (error) {
+      // Log errors but don't throw - return undefined so UI can show fallback
+      if (kind === kinds.Metadata) {
+        logger.warn('[ReplaceableEventService] Error fetching profile', { 
+          pubkey: formatPubkey(pubkey),
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
     }
     
     return undefined
@@ -284,18 +419,27 @@ export class ReplaceableEventService {
     const eventsMap = new Map<string, NEvent>()
     await Promise.allSettled(
       Array.from(groups.entries()).map(async ([kind, pubkeys]) => {
-        // Use more relays in parallel for better performance
-        // Browsers can handle many concurrent subscriptions, so we use all available relays
-        let relayUrls: string[]
-        if (kind === kinds.Metadata || kind === kinds.RelayList) {
-          // Combine all available relays for profiles and relay lists
-          const base = Array.from(new Set([...FAST_READ_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS]))
-          // TODO: Inject relay list service to get user's relays
-          relayUrls = base
-        } else {
-          // Use all big relays for other replaceable events
-          relayUrls = FAST_READ_RELAY_URLS
-        }
+        // ALWAYS use comprehensive relay list: author's outboxes + user's inboxes + defaults
+        // For each pubkey, build comprehensive relay list
+        const relayUrlSets = await Promise.all(
+          pubkeys.map(async (pubkey) => {
+            // Build comprehensive relay list for this author
+            return await this.buildComprehensiveRelayListForAuthor(pubkey, kind, [])
+          })
+        )
+        
+        // Merge all relay sets
+        const mergedRelays = new Set<string>()
+        relayUrlSets.forEach(relayList => {
+          relayList.forEach(url => mergedRelays.add(url))
+        })
+        
+        const relayUrls = Array.from(mergedRelays)
+        logger.debug('[ReplaceableEventService] Using comprehensive relay list', {
+          pubkeyCount: pubkeys.length,
+          totalRelayCount: relayUrls.length,
+          kind
+        })
         
         // Use all relays in parallel - browsers can handle many concurrent subscriptions
         // The QueryService manages per-relay concurrency limits to avoid overloading individual relays
@@ -308,6 +452,15 @@ export class ReplaceableEventService {
           eoseTimeout: 200,
           globalTimeout: 3000
         })
+        
+        // Log when no events are found (helps debug relay failures)
+        if (kind === kinds.Metadata && events.length === 0 && pubkeys.length > 0) {
+          logger.debug('[ReplaceableEventService] No profile events found from relays', {
+            pubkeyCount: pubkeys.length,
+            relayCount: relayUrls.length,
+            relays: relayUrls.slice(0, 3) // Show first 3 for brevity
+          })
+        }
 
         for (const event of events) {
           // Check tombstone in background (non-blocking)
