@@ -505,6 +505,26 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
   const followSpellGroups = useMemo(() => groupSpellsByPubkeySorted(followSpells), [followSpells])
   const otherSpellGroups = useMemo(() => groupSpellsByPubkeySorted(otherSpells), [otherSpells])
 
+  // Memoize showKinds to prevent NoteList from re-subscribing when array reference changes
+  // Create stable key from 'k' tags for dependency
+  const showKindsTagKey = useMemo(() => {
+    if (!selectedSpell) return ''
+    return selectedSpell.tags
+      .filter((tag) => tag[0] === 'k')
+      .map((tag) => tag[1])
+      .sort()
+      .join(',')
+  }, [selectedSpell?.id])
+
+  const showKinds = useMemo(() => {
+    if (!selectedSpell) return [1]
+    const kinds = selectedSpell.tags
+      .filter((tag) => tag[0] === 'k')
+      .map((tag) => parseInt(tag[1], 10))
+      .filter((n) => !Number.isNaN(n))
+    return kinds.length ? kinds : [1]
+  }, [selectedSpell?.id, showKindsTagKey])
+
   const spellMenuLabel = useCallback(
     (spell: Event) => (favoriteIds.has(spell.id) ? `★ ${getSpellName(spell)}` : getSpellName(spell)),
     [favoriteIds]
@@ -851,13 +871,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
             ) : subRequests.length > 0 ? (
               <NoteList
                 subRequests={subRequests}
-                showKinds={(() => {
-                  const kinds = selectedSpell.tags
-                    .filter((tag) => tag[0] === 'k')
-                    .map((tag) => parseInt(tag[1], 10))
-                    .filter((n) => !Number.isNaN(n))
-                  return kinds.length ? kinds : [1]
-                })()}
+                showKinds={showKinds}
                 useFilterAsIs
               />
             ) : !pubkey &&

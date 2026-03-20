@@ -82,7 +82,10 @@ export default function QuoteList({ event, className }: { event: Event; classNam
             }
             if (eosed) {
               setLoading(false)
-              setHasMore(events.length > 0)
+              // CRITICAL FIX: Always assume there might be more events
+              // Even if we got fewer events than the limit, there might be more due to filtering
+              // The loadMore logic will handle stopping when we've truly reached the end
+              setHasMore(true)
             }
           },
           onNew: (event) => {
@@ -123,17 +126,41 @@ export default function QuoteList({ event, className }: { event: Event; classNam
 
       if (!timelineKey || loading || !hasMore) return
       setLoading(true)
-      const newEvents = await client.loadMoreTimeline(
-        timelineKey,
-        events.length ? events[events.length - 1].created_at - 1 : dayjs().unix(),
-        LIMIT
-      )
-      setLoading(false)
-      if (newEvents.length === 0) {
-        setHasMore(false)
-        return
+      try {
+        const newEvents = await client.loadMoreTimeline(
+          timelineKey,
+          events.length ? events[events.length - 1].created_at - 1 : dayjs().unix(),
+          LIMIT
+        )
+        
+        // CRITICAL FIX: Be more conservative about stopping
+        // Check if timeline has more cached refs that we haven't loaded yet
+        if (newEvents.length === 0) {
+          const until = events.length ? events[events.length - 1].created_at - 1 : dayjs().unix()
+          const hasMoreCached = client.hasMoreTimelineEvents?.(timelineKey, until) ?? false
+          
+          if (hasMoreCached) {
+            // There are more cached events, keep hasMore true and try again
+            setLoading(false)
+            setTimeout(() => {
+              if (hasMore && !loading) {
+                loadMore()
+              }
+            }, 300)
+            return
+          }
+          
+          // No more events available, stop loading
+          setHasMore(false)
+        } else {
+          setEvents((oldEvents) => [...oldEvents, ...newEvents])
+        }
+      } catch (error) {
+        // On error, don't set hasMore to false - might be temporary network issue
+        console.error('[QuoteList] Error loading more events', error)
+      } finally {
+        setLoading(false)
       }
-      setEvents((oldEvents) => [...oldEvents, ...newEvents])
     }
 
     const observerInstance = new IntersectionObserver((entries) => {

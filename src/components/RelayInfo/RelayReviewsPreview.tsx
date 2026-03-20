@@ -52,46 +52,67 @@ export default function RelayReviewsPreview({ relayUrl }: { relayUrl: string }) 
   }, [myReview, reviews])
 
   useEffect(() => {
+    let cancelled = false
     const init = async () => {
-      const filters: Filter[] = [
-        { kinds: [ExtendedKind.RELAY_REVIEW], '#d': [relayUrl], limit: 100 }
-      ]
-      if (pubkey) {
-        filters.push({ kinds: [ExtendedKind.RELAY_REVIEW], authors: [pubkey], '#d': [relayUrl] })
+      try {
+        const filters: Filter[] = [
+          { kinds: [ExtendedKind.RELAY_REVIEW], '#d': [relayUrl], limit: 100 }
+        ]
+        if (pubkey) {
+          filters.push({ kinds: [ExtendedKind.RELAY_REVIEW], authors: [pubkey], '#d': [relayUrl] })
+        }
+        // Use FAST_READ_RELAY_URLS first so we don't block on a slow/failing relay;
+        // add relayUrl as fallback so we still get reviews from the relay itself.
+        const relayUrls = [...FAST_READ_RELAY_URLS, relayUrl]
+        const events = await queryService.fetchEvents(relayUrls, filters, {
+          eoseTimeout: 3000,
+          globalTimeout: 6000
+        })
+
+        if (cancelled) return
+
+        const pubkeySet = new Set<string>()
+        const reviewsList: NostrEvent[] = []
+        let myReviewEvt: NostrEvent | null = null
+
+        events.sort((a, b) => compareEvents(b, a))
+        for (const evt of events) {
+          if (
+            mutePubkeySet.has(evt.pubkey) ||
+            pubkeySet.has(evt.pubkey) ||
+            (hideUntrustedNotes && !isUserTrusted(evt.pubkey))
+          ) {
+            continue
+          }
+          const stars = getStarsFromRelayReviewEvent(evt)
+          if (!stars) {
+            continue
+          }
+
+          pubkeySet.add(evt.pubkey)
+          if (evt.pubkey === pubkey) {
+            myReviewEvt = evt
+          } else {
+            reviewsList.push(evt)
+          }
+        }
+
+        setMyReview(myReviewEvt)
+        setReviews(reviewsList)
+      } catch (_) {
+        // Don't block UI: show "No reviews yet" so feed and rest of page stay usable
+        if (!cancelled) {
+          setMyReview(null)
+          setReviews([])
+        }
+      } finally {
+        if (!cancelled) setInitialized(true)
       }
-      const events = await queryService.fetchEvents([relayUrl, ...FAST_READ_RELAY_URLS], filters)
-
-      const pubkeySet = new Set<string>()
-      const reviews: NostrEvent[] = []
-      let myReview: NostrEvent | null = null
-
-      events.sort((a, b) => compareEvents(b, a))
-      for (const evt of events) {
-        if (
-          mutePubkeySet.has(evt.pubkey) ||
-          pubkeySet.has(evt.pubkey) ||
-          (hideUntrustedNotes && !isUserTrusted(evt.pubkey))
-        ) {
-          continue
-        }
-        const stars = getStarsFromRelayReviewEvent(evt)
-        if (!stars) {
-          continue
-        }
-
-        pubkeySet.add(evt.pubkey)
-        if (evt.pubkey === pubkey) {
-          myReview = evt
-        } else {
-          reviews.push(evt)
-        }
-      }
-
-      setMyReview(myReview)
-      setReviews(reviews)
-      setInitialized(true)
     }
     init()
+    return () => {
+      cancelled = true
+    }
   }, [relayUrl, pubkey, mutePubkeySet, hideUntrustedNotes, isUserTrusted])
 
   const handleReviewed = (evt: NostrEvent) => {

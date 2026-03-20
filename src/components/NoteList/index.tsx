@@ -101,6 +101,13 @@ const NoteList = forwardRef(
       })))
     }, [subRequests])
 
+    // Stable key for kind filter so subscription effect doesn't re-run on parent re-renders with same kinds
+    // Use sorted array and JSON.stringify to create a stable key that only changes when content changes
+    const showKindsKey = useMemo(() => {
+      if (!showKinds || showKinds.length === 0) return ''
+      return JSON.stringify([...showKinds].sort((a, b) => a - b))
+    }, [showKinds])
+
     const shouldHideEvent = useCallback(
       (evt: Event) => {
         const pinnedEventHexIdSet = new Set()
@@ -325,11 +332,11 @@ const NoteList = forwardRef(
                 if (events.length > 0) {
                   setEvents(events)
                   
-                  // CRITICAL: Prefetch profiles for initial events (reduced batch size for faster initial load)
-                  // This ensures profiles are ready before user starts scrolling
-                  // Reduced from 300 to 150 to reduce initial load time
+                  // CRITICAL: Prefetch profiles for initial events (optimized for faster initial load)
+                  // Only prefetch for first 50 events to reduce initial load time
+                  // Additional prefetching happens on scroll via the useEffect hooks
                   const initialPubkeys = Array.from(
-                    new Set(events.slice(0, 150).map((ev: Event) => ev.pubkey).filter((p: string) => p?.length === 64))
+                    new Set(events.slice(0, 50).map((ev: Event) => ev.pubkey).filter((p: string) => p?.length === 64))
                   )
                   if (initialPubkeys.length > 0) {
                     // Filter out already prefetched pubkeys
@@ -337,18 +344,20 @@ const NoteList = forwardRef(
                     if (pubkeysToFetch.length > 0) {
                       // Mark as prefetched immediately to prevent duplicate requests
                       pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.add(p))
-                      // Batch fetch in background (non-blocking)
-                      client.fetchProfilesForPubkeys(pubkeysToFetch).catch(() => {
-                        // On error, remove from prefetched set so we can retry later
-                        pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.delete(p))
-                      })
+                      // Batch fetch in background (non-blocking) with delay to not block initial render
+                      setTimeout(() => {
+                        client.fetchProfilesForPubkeys(pubkeysToFetch).catch(() => {
+                          // On error, remove from prefetched set so we can retry later
+                          pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.delete(p))
+                        })
+                      }, 100)
                     }
                   }
                   
-                  // CRITICAL: Prefetch embedded events for initial events
-                  // Extract embedded event IDs from initial events
+                  // CRITICAL: Prefetch embedded events for initial events (reduced scope)
+                  // Only prefetch for first 50 events to reduce initial load time
                   const initialEmbeddedEventIds = new Set<string>()
-                  events.slice(0, 150).forEach((ev: Event) => {
+                  events.slice(0, 50).forEach((ev: Event) => {
                     const embeddedIds = extractEmbeddedEventIds(ev)
                     embeddedIds.forEach((id: string) => initialEmbeddedEventIds.add(id))
                   })
@@ -358,11 +367,13 @@ const NoteList = forwardRef(
                   if (eventIdsToFetch.length > 0) {
                     // Mark as prefetched immediately to prevent duplicate requests
                     eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
-                    // Batch fetch embedded events in background (non-blocking)
-                    Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
-                      // On error, remove from prefetched set so we can retry later
-                      eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
-                    })
+                    // Batch fetch embedded events in background (non-blocking) with delay
+                    setTimeout(() => {
+                      Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
+                        // On error, remove from prefetched set so we can retry later
+                        eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
+                      })
+                    }, 200)
                   }
                 } else if (eosed) {
                   // No events received but EOSE - set empty events array and stop loading
@@ -372,15 +383,22 @@ const NoteList = forwardRef(
                 }
                 
                 if (areAlgoRelays) {
+                  // Algorithm feeds typically return all results at once
                   setHasMore(false)
-                }
-                if (eosed) {
+                } else if (eosed) {
                   setLoading(false)
-                  // CRITICAL FIX: Always set hasMore to true on eosed, even if we have few events
+                  // CRITICAL FIX: For non-algo feeds, always assume there might be more events
                   // The initial load might only return a few events due to filtering or relay limits
                   // We should still try to load more on scroll - the loadMore logic will handle stopping
                   // Only set to false if we explicitly know there are no more events (handled in loadMore)
-                  setHasMore(true)
+                  // If we got a full limit of events, there's likely more available
+                  if (events.length >= (areAlgoRelays ? ALGO_LIMIT : LIMIT)) {
+                    setHasMore(true)
+                  } else {
+                    // Even with fewer events, there might be more (filtering, slow relays, etc.)
+                    // Let loadMore determine if we've reached the end
+                    setHasMore(true)
+                  }
                 }
               },
             onNew: (event: Event) => {
@@ -467,7 +485,7 @@ const NoteList = forwardRef(
       return () => {
         promise.then((closer) => closer?.())
       }
-    }, [subRequestsKey, refreshCount, showKinds, showKind1OPs, showKind1Replies, showKind1111, useFilterAsIs])
+    }, [subRequestsKey, refreshCount, showKindsKey, showKind1OPs, showKind1Replies, showKind1111, useFilterAsIs])
 
     // Use refs to avoid dependency issues and ensure latest values in async callbacks
     const eventsRef = useRef(events)
@@ -499,8 +517,9 @@ const NoteList = forwardRef(
     useEffect(() => {
       const options: IntersectionObserverInit = {
         root: null,
-        rootMargin: '10px',
-        threshold: 0.1
+        // Trigger when user is 400px from the bottom so we start loading before they reach the end
+        rootMargin: '0px 0px 400px 0px',
+        threshold: 0
       }
 
       const loadMore = async (): Promise<void> => {
@@ -578,12 +597,14 @@ const NoteList = forwardRef(
               // This prevents stopping due to temporary relay issues or slow relays
               consecutiveEmptyRef.current += 1
               
-              // CRITICAL FIX: Only stop if we have MANY consecutive empty results
+              // CRITICAL FIX: Only stop if we have MANY consecutive empty results AND we have a reasonable number of events
               // This ensures we don't stop prematurely when relays are slow or filtering is aggressive
-              // Even with few visible events, we might have many events that are filtered out
-              if (consecutiveEmptyRef.current >= 20) {
-                // After 20 consecutive empty results, assume we've reached the end
-                // Increased from 10 to 20 to be even more patient with slow relays
+              // If we have very few events (< 50), keep trying longer in case filtering is aggressive
+              const eventCount = latestEvents.length
+              const shouldStop = consecutiveEmptyRef.current >= (eventCount < 50 ? 30 : 15)
+              
+              if (shouldStop) {
+                // After many consecutive empty results, assume we've reached the end
                 setHasMore(false)
               }
               // Otherwise, keep hasMore true to allow retry on next scroll
@@ -597,15 +618,35 @@ const NoteList = forwardRef(
             
             setEvents((oldEvents) => [...oldEvents, ...newEvents])
             
+            // After appending, the bottom sentinel may have moved below the fold. Re-check after
+            // paint: if it's still in/near view, trigger loadMore again so user doesn't have to scroll.
+            setTimeout(() => {
+              const bottomEl = bottomRef.current
+              if (bottomEl && hasMoreRef.current && !loadingRef.current) {
+                const rect = bottomEl.getBoundingClientRect()
+                if (rect.top < window.innerHeight + 200) {
+                  loadMore()
+                }
+              }
+            }, 150)
+            
             // NEVER automatically set hasMore to false based on result count
             // Only stop when we get consecutive empty results
             // This ensures the feed continues loading even with partial results
             
-            // CRITICAL: Prefetch profiles for newly loaded events (throttled to reduce frequency)
-            // This ensures profiles are ready before user scrolls to them
-            if (newEvents.length > 0) {
-              // Throttle profile prefetching for newly loaded events to reduce network load
-              setTimeout(() => {
+            // CRITICAL: Prefetch profiles for newly loaded events (optimized to reduce stuttering)
+            // Only prefetch if we're not currently loading to avoid blocking scroll
+            if (newEvents.length > 0 && !loadingRef.current) {
+              // Use requestIdleCallback if available, otherwise setTimeout with longer delay
+              const schedulePrefetch = (callback: () => void) => {
+                if (typeof requestIdleCallback !== 'undefined') {
+                  requestIdleCallback(callback, { timeout: 500 })
+                } else {
+                  setTimeout(callback, 300)
+                }
+              }
+              
+              schedulePrefetch(() => {
                 const newPubkeys = Array.from(
                   new Set(newEvents.map((ev) => ev.pubkey).filter((p) => p?.length === 64))
                 )
@@ -623,9 +664,10 @@ const NoteList = forwardRef(
                   }
                 }
                 
-                // CRITICAL: Prefetch embedded events for newly loaded events
+                // CRITICAL: Prefetch embedded events for newly loaded events (throttled)
                 const newEmbeddedEventIds = new Set<string>()
-                newEvents.forEach((ev) => {
+                // Only prefetch for first 30 events to reduce load
+                newEvents.slice(0, 30).forEach((ev) => {
                   const embeddedIds = extractEmbeddedEventIds(ev)
                   embeddedIds.forEach((id) => newEmbeddedEventIds.add(id))
                 })
@@ -641,7 +683,7 @@ const NoteList = forwardRef(
                     eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
                   })
                 }
-              }, 100) // Small delay to batch with other profile fetches
+              })
             }
           } catch (error) {
             // On error, don't set hasMore to false - might be temporary network issue
@@ -741,17 +783,17 @@ const NoteList = forwardRef(
         clearTimeout(prefetchTimeoutRef.current)
       }
       
-      // Debounce profile prefetching by 200ms to reduce frequency during rapid scrolling
+      // Debounce profile prefetching by 300ms to reduce frequency during rapid scrolling
       prefetchTimeoutRef.current = setTimeout(() => {
         // Prefetch profiles for:
-        // 1. Currently visible events (first 60, reduced from 80)
-        // 2. Upcoming events that will be visible when scrolling (next 150, reduced from 300)
+        // 1. Currently visible events (first 40, reduced to reduce stuttering)
+        // 2. Upcoming events that will be visible when scrolling (next 80, reduced to reduce load)
         // This ensures profiles are ready before they're needed during rapid scrolling
         const visiblePubkeys = Array.from(
-          new Set(filteredEvents.slice(0, 60).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
+          new Set(filteredEvents.slice(0, 40).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
         )
         const upcomingPubkeys = Array.from(
-          new Set(events.slice(0, 150).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
+          new Set(events.slice(0, 80).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
         )
         
         // Combine visible and upcoming, but prioritize visible ones
@@ -779,11 +821,22 @@ const NoteList = forwardRef(
         
         // Batch fetch profiles for new pubkeys (IndexedDB + network in one request)
         // This is the key optimization: batch processing prevents individual fetches during scrolling
-        client.fetchProfilesForPubkeys(newPubkeys).catch(() => {
-          // On error, remove from prefetched set so we can retry later
-          newPubkeys.forEach((p) => prefetchedPubkeysRef.current.delete(p))
+        // Use requestIdleCallback if available to avoid blocking scroll
+        const scheduleFetch = (callback: () => void) => {
+          if (typeof requestIdleCallback !== 'undefined') {
+            requestIdleCallback(callback, { timeout: 500 })
+          } else {
+            setTimeout(callback, 0)
+          }
+        }
+        
+        scheduleFetch(() => {
+          client.fetchProfilesForPubkeys(newPubkeys).catch(() => {
+            // On error, remove from prefetched set so we can retry later
+            newPubkeys.forEach((p) => prefetchedPubkeysRef.current.delete(p))
+          })
         })
-      }, 200) // Debounce by 200ms to reduce frequency
+      }, 300) // Debounce by 300ms to reduce frequency during rapid scrolling
       
       return () => {
         if (prefetchTimeoutRef.current) {
@@ -801,18 +854,18 @@ const NoteList = forwardRef(
         clearTimeout(prefetchEmbeddedEventsTimeoutRef.current)
       }
       
-      // Debounce embedded event prefetching by 300ms to reduce frequency during rapid scrolling
+      // Debounce embedded event prefetching by 400ms to reduce frequency during rapid scrolling
       prefetchEmbeddedEventsTimeoutRef.current = setTimeout(() => {
-        // Extract embedded event IDs from visible events (first 60)
+        // Extract embedded event IDs from visible events (first 40, reduced to reduce load)
         const visibleEmbeddedEventIds = new Set<string>()
-        filteredEvents.slice(0, 60).forEach((ev) => {
+        filteredEvents.slice(0, 40).forEach((ev) => {
           const embeddedIds = extractEmbeddedEventIds(ev)
           embeddedIds.forEach((id) => visibleEmbeddedEventIds.add(id))
         })
         
-        // Also extract from upcoming events (next 150)
+        // Also extract from upcoming events (next 80, reduced to reduce load)
         const upcomingEmbeddedEventIds = new Set<string>()
-        events.slice(0, 150).forEach((ev) => {
+        events.slice(0, 80).forEach((ev) => {
           const embeddedIds = extractEmbeddedEventIds(ev)
           embeddedIds.forEach((id) => upcomingEmbeddedEventIds.add(id))
         })
@@ -835,11 +888,22 @@ const NoteList = forwardRef(
         eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
         
         // Batch fetch embedded events in background (non-blocking)
-        Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
-          // On error, remove from prefetched set so we can retry later
-          eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
+        // Use requestIdleCallback if available to avoid blocking scroll
+        const scheduleFetch = (callback: () => void) => {
+          if (typeof requestIdleCallback !== 'undefined') {
+            requestIdleCallback(callback, { timeout: 500 })
+          } else {
+            setTimeout(callback, 0)
+          }
+        }
+        
+        scheduleFetch(() => {
+          Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
+            // On error, remove from prefetched set so we can retry later
+            eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
+          })
         })
-      }, 300) // Debounce by 300ms to reduce frequency
+      }, 400) // Debounce by 400ms to reduce frequency during rapid scrolling
       
       return () => {
         if (prefetchEmbeddedEventsTimeoutRef.current) {
@@ -860,12 +924,12 @@ const NoteList = forwardRef(
         clearTimeout(prefetchNewEventsTimeoutRef.current)
       }
       
-      // Debounce profile prefetching for newly loaded events
+      // Debounce profile prefetching for newly loaded events (optimized to reduce stuttering)
       prefetchNewEventsTimeoutRef.current = setTimeout(() => {
         // When we have more events loaded, prefetch profiles for the newly loaded ones
-        // Reduced from 200 to 100 to reduce batch size
+        // Reduced to 50 to reduce batch size and prevent stuttering
         const newlyLoadedPubkeys = Array.from(
-          new Set(events.slice(showCount, showCount + 100).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
+          new Set(events.slice(showCount, showCount + 50).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
         )
         
         if (newlyLoadedPubkeys.length > 0) {
@@ -876,17 +940,27 @@ const NoteList = forwardRef(
             // Mark as prefetched immediately to prevent duplicate requests
             newPubkeys.forEach((p) => prefetchedPubkeysRef.current.add(p))
             
-            // Batch fetch in background (non-blocking)
-            client.fetchProfilesForPubkeys(newPubkeys).catch(() => {
-              // On error, remove from prefetched set so we can retry later
-              newPubkeys.forEach((p) => prefetchedPubkeysRef.current.delete(p))
+            // Batch fetch in background (non-blocking) using requestIdleCallback
+            const scheduleFetch = (callback: () => void) => {
+              if (typeof requestIdleCallback !== 'undefined') {
+                requestIdleCallback(callback, { timeout: 500 })
+              } else {
+                setTimeout(callback, 0)
+              }
+            }
+            
+            scheduleFetch(() => {
+              client.fetchProfilesForPubkeys(newPubkeys).catch(() => {
+                // On error, remove from prefetched set so we can retry later
+                newPubkeys.forEach((p) => prefetchedPubkeysRef.current.delete(p))
+              })
             })
           }
         }
         
-        // CRITICAL: Prefetch embedded events for newly loaded events
+        // CRITICAL: Prefetch embedded events for newly loaded events (reduced scope)
         const newlyLoadedEmbeddedEventIds = new Set<string>()
-        events.slice(showCount, showCount + 100).forEach((ev) => {
+        events.slice(showCount, showCount + 50).forEach((ev) => {
           const embeddedIds = extractEmbeddedEventIds(ev)
           embeddedIds.forEach((id) => newlyLoadedEmbeddedEventIds.add(id))
         })
@@ -896,13 +970,23 @@ const NoteList = forwardRef(
         if (eventIdsToFetch.length > 0) {
           // Mark as prefetched immediately to prevent duplicate requests
           eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
-          // Batch fetch embedded events in background (non-blocking)
-          Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
-            // On error, remove from prefetched set so we can retry later
-            eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
+          // Batch fetch embedded events in background (non-blocking) using requestIdleCallback
+          const scheduleFetch = (callback: () => void) => {
+            if (typeof requestIdleCallback !== 'undefined') {
+              requestIdleCallback(callback, { timeout: 500 })
+            } else {
+              setTimeout(callback, 0)
+            }
+          }
+          
+          scheduleFetch(() => {
+            Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
+              // On error, remove from prefetched set so we can retry later
+              eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
+            })
           })
         }
-      }, 300) // Debounce by 300ms to reduce frequency during rapid scrolling
+      }, 400) // Debounce by 400ms to reduce frequency during rapid scrolling
       
       return () => {
         if (prefetchNewEventsTimeoutRef.current) {

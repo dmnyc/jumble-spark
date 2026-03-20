@@ -1181,7 +1181,19 @@ class ClientService extends EventTarget {
   ) {
     const relays = Array.from(new Set(urls))
     const key = this.generateTimelineKey(relays, filter)
-    const timeline = this.timelines[key]
+    let timeline = this.timelines[key]
+    
+    // CRITICAL FIX: Always initialize timeline object, even when useCache is false
+    // This ensures refs are always available for pagination tracking
+    if (!timeline || Array.isArray(timeline)) {
+      this.timelines[key] = {
+        refs: [],
+        filter,
+        urls: relays
+      }
+      timeline = this.timelines[key]
+    }
+    
     let cachedEvents: NEvent[] = []
     let since: number | undefined
     // CRITICAL: Only use cache if explicitly enabled (for profile timelines)
@@ -1226,14 +1238,26 @@ class ClientService extends EventTarget {
     let events: NEvent[] = []
     let eosedAt: number | null = null
     let initialBatchScheduled = false
-    const PROGRESSIVE_DELAY_MS = 0
-    const PROGRESSIVE_INTERVAL_MS = 200
+    let lastDeliveredCount = 0
+    // CRITICAL FIX: Faster progressive loading - show results as soon as we have them
+    // Reduced delays to improve perceived performance
+    const PROGRESSIVE_DELAY_MS = 0 // Show first batch immediately
+    const PROGRESSIVE_INTERVAL_MS = 100 // Check for new events every 100ms (reduced from 200ms)
+    const MIN_NEW_EVENTS = 5 // Deliver when we have at least 5 new events
     let progressiveIntervalId: ReturnType<typeof setInterval> | null = null
     const deliverProgressive = () => {
       if (eosedAt || events.length === 0) return
-      const snap = [...events].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
-      // Only include cached events if caching is enabled
-      onEvents(needSort && useCache ? snap.concat(cachedEvents).slice(0, filter.limit) : snap, false)
+      const sortedEvents = [...events].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
+      const newEventCount = sortedEvents.length - lastDeliveredCount
+      
+      // Only deliver if we have significantly more events than last time
+      // This reduces unnecessary re-renders while still showing progress quickly
+      if (newEventCount >= MIN_NEW_EVENTS || sortedEvents.length >= filter.limit * 0.5) {
+        lastDeliveredCount = sortedEvents.length
+        const snap = sortedEvents
+        // Only include cached events if caching is enabled
+        onEvents(needSort && useCache ? snap.concat(cachedEvents).slice(0, filter.limit) : snap, false)
+      }
     }
     const subCloser = this.subscribe(relays, since ? { ...filter, since } : filter, {
       startLogin,
@@ -1243,14 +1267,15 @@ class ClientService extends EventTarget {
         if (!eosedAt) {
           events.push(evt)
           // Deliver first batch quickly so UI doesn't wait for all relays to EOSE
-          if (needSort && events.length > 0 && !initialBatchScheduled) {
+          // CRITICAL FIX: Show results immediately when we have enough events
+          if (needSort && events.length >= MIN_NEW_EVENTS && !initialBatchScheduled) {
             initialBatchScheduled = true
-            setTimeout(() => {
-              deliverProgressive()
-              if (!progressiveIntervalId) {
-                progressiveIntervalId = setInterval(deliverProgressive, PROGRESSIVE_INTERVAL_MS)
-              }
-            }, PROGRESSIVE_DELAY_MS)
+            // Deliver immediately for better perceived performance
+            deliverProgressive()
+            // Then continue checking for more events
+            if (!progressiveIntervalId) {
+              progressiveIntervalId = setInterval(deliverProgressive, PROGRESSIVE_INTERVAL_MS)
+            }
           }
           return
         }
@@ -1386,8 +1411,7 @@ class ClientService extends EventTarget {
 
     const { filter, urls, refs } = timeline
     
-    // Only try to load from cache if refs exist and we have cached events
-    // When useCache is false, refs might be empty or we might not want to use cache
+    // Try to load from cache if refs exist
     let cachedEvents: NEvent[] = []
     if (refs && refs.length > 0) {
       const startIdx = refs.findIndex(([, createdAt]) => createdAt <= until)
@@ -1403,8 +1427,19 @@ class ClientService extends EventTarget {
       }
     }
 
+    // CRITICAL FIX: Always query relay for more events, even if we have some cached
+    // This ensures we continue fetching from relays when scrolling, not just from cache
+    // Calculate the correct until timestamp based on what we already have
     until = cachedEvents.length ? cachedEvents[cachedEvents.length - 1].created_at - 1 : until
     limit = limit - cachedEvents.length
+    
+    // CRITICAL: Ensure we always query the relay, even if limit is small
+    // This prevents the feed from stopping when we have few cached events
+    if (limit <= 0) {
+      limit = 100 // Minimum limit to ensure we get more events from relay
+    }
+    
+    // Query relay for more events with proper until parameter for pagination
     let events = await this.query(urls, { ...filter, until, limit })
     events.forEach((evt) => {
       this.addEventToCache(evt)
@@ -1417,21 +1452,42 @@ class ClientService extends EventTarget {
       timeline.refs = []
     }
     
-    // Prevent concurrent requests from duplicating the same event
-    // Only filter by lastRefCreatedAt if refs exist and have items
+    // Prevent duplicate events in refs
+    const existingRefIds = new Set(timeline.refs.map(([id]) => id))
+    const newRefs: TTimelineRef[] = []
+    
+    // Add cached events to refs if not already present
+    for (const evt of cachedEvents) {
+      if (!existingRefIds.has(evt.id)) {
+        newRefs.push([evt.id, evt.created_at])
+        existingRefIds.add(evt.id)
+      }
+    }
+    
+    // Add new events from relay to refs
+    for (const evt of events) {
+      if (!existingRefIds.has(evt.id)) {
+        newRefs.push([evt.id, evt.created_at])
+        existingRefIds.add(evt.id)
+      }
+    }
+    
+    // Sort new refs by created_at descending and merge with existing refs
+    newRefs.sort((a, b) => b[1] - a[1])
+    
+    // Merge with existing refs, maintaining sorted order
     if (timeline.refs.length > 0) {
       const lastRefCreatedAt = timeline.refs[timeline.refs.length - 1][1]
-      timeline.refs.push(
-        ...events
-          .filter((evt) => evt.created_at < lastRefCreatedAt)
-          .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
-      )
+      // Only add events that are older than the last ref (for pagination)
+      const olderRefs = newRefs.filter(([, createdAt]) => createdAt < lastRefCreatedAt)
+      timeline.refs.push(...olderRefs)
+      // Keep refs sorted
+      timeline.refs.sort((a, b) => b[1] - a[1])
     } else {
-      // No existing refs, add all events
-      timeline.refs.push(
-        ...events.map((evt) => [evt.id, evt.created_at] as TTimelineRef)
-      )
+      // No existing refs, add all new refs
+      timeline.refs.push(...newRefs)
     }
+    
     return [...cachedEvents, ...events]
   }
 

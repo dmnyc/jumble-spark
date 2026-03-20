@@ -59,23 +59,24 @@ export function useFetchProfile(id?: string, skipCache = false) {
         // Add timeout to prevent waiting forever on a stuck promise
         const timeoutPromise = new Promise<null>((resolve) => {
           setTimeout(() => {
-            logger.warn('[useFetchProfile] Existing promise timeout, will start new fetch', {
+            logger.warn('[useFetchProfile] Existing promise timeout, not starting duplicate fetch', {
               pubkey: pubkey.substring(0, 8)
             })
             resolve(null)
           }, 5000) // 5 seconds
         })
-        
+
         const existingProfile = await Promise.race([existingPromise, timeoutPromise])
         if (cancelled.current) return null
-        
-        // If timeout won, existingProfile will be null and we'll continue to start new fetch
+
+        // If timeout won: do NOT start a new fetch (avoids pile-up of parallel fetches for same pubkey).
+        // Return null so caller can show fallback; the original fetch may still complete and update cache.
         if (existingProfile === null && !cancelled.current) {
-          // Timeout occurred, clear the stuck promise and start fresh
           globalFetchPromises.delete(pubkey)
           globalFetchingPubkeys.delete(pubkey)
-          // Fall through to start new fetch
-        } else if (existingProfile) {
+          return null
+        }
+        if (existingProfile) {
           // Update state for this instance
           setProfile(existingProfile)
           setIsFetching(false)
@@ -112,22 +113,22 @@ export function useFetchProfile(id?: string, skipCache = false) {
           // Add timeout protection here too
           const timeoutPromise = new Promise<null>((resolve) => {
             setTimeout(() => {
-              logger.warn('[useFetchProfile] Retry promise timeout, will start new fetch', {
+              logger.warn('[useFetchProfile] Retry promise timeout, not starting duplicate fetch', {
                 pubkey: pubkey.substring(0, 8)
               })
               resolve(null)
             }, 5000) // 5 seconds
           })
-          
+
           const retryProfile = await Promise.race([retryPromise, timeoutPromise])
           if (cancelled.current) return null
-          
+
           if (retryProfile === null && !cancelled.current) {
-            // Timeout occurred, clear and start fresh
             globalFetchPromises.delete(pubkey)
             globalFetchingPubkeys.delete(pubkey)
-            // Fall through to start new fetch
-          } else if (retryProfile) {
+            return null
+          }
+          if (retryProfile) {
             // Update state for this instance
             setProfile(retryProfile)
             setIsFetching(false)
@@ -277,17 +278,19 @@ export function useFetchProfile(id?: string, skipCache = false) {
   }, [skipCache])
 
   useEffect(() => {
-    // CRITICAL: Reduce logging - only log when actually processing, not on every render
-    // logger.info('[useFetchProfile] useEffect triggered', { 
-    //   id: id || 'undefined',
-    //   skipCache,
-    //   processingPubkey: processingPubkeyRef.current,
-    //   hasProfile: !!profile,
-    //   profilePubkey: profile?.pubkey
-    // })
-    
+    // Early exit when id is missing (e.g. truncated or undefined) - use debug to avoid console spam
+    if (!id) {
+      logger.debug('[useFetchProfile] No id provided')
+      setProfile(null)
+      setPubkey(null)
+      setIsFetching(false)
+      setError(new Error('No id provided'))
+      processingPubkeyRef.current = null
+      return
+    }
+
     // Extract pubkey early to check if id has changed
-    const extractedPubkey = id ? userIdToPubkey(id) : null
+    const extractedPubkey = userIdToPubkey(id)
     
     // CRITICAL: Early exit if already processing this exact pubkey - prevents infinite loops
     // This check must happen FIRST, before any other logic
@@ -368,16 +371,6 @@ export function useFetchProfile(id?: string, skipCache = false) {
       processingPubkeyRef.current = null
     }
     
-    if (!id) {
-      logger.warn('[useFetchProfile] No id provided')
-      setProfile(null)
-      setPubkey(null)
-      setIsFetching(false)
-      setError(new Error('No id provided'))
-      processingPubkeyRef.current = null
-      return
-    }
-
     const cancelled = { current: false }
     // CRITICAL: Reduce logging during rapid scrolling - only log at debug level
     logger.debug('[useFetchProfile] Extracting pubkey', {
@@ -551,8 +544,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
       }
     }
 
-    logger.info('[useFetchProfile] About to call run()', {
-      pubkey: extractedPubkey
+    logger.debug('[useFetchProfile] About to call run()', {
+      pubkey: extractedPubkey?.substring(0, 8)
     })
     run().catch((err) => {
       logger.error('[useFetchProfile] Unhandled error in run()', {
