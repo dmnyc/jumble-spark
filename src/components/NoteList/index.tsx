@@ -219,7 +219,10 @@ const NoteList = forwardRef(
       
       if (!subRequests.length) {
         logger.warn('[NoteList] subRequests is empty, not initializing')
-        return
+        setLoading(false)
+        setEvents([])
+        // Return a no-op closer function to satisfy the cleanup function
+        return () => {}
       }
 
       async function init() {
@@ -236,26 +239,61 @@ const NoteList = forwardRef(
         setHasMore(true)
         consecutiveEmptyRef.current = 0 // Reset counter on refresh
 
-        const mappedSubRequests = subRequests.map(({ urls, filter }) => ({
-          urls,
-          filter: useFilterAsIs
-            ? { ...filter, limit: filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT) }
+        const mappedSubRequests = subRequests.map(({ urls, filter }) => {
+          // CRITICAL: Always ensure filter has kinds - relays require this to return events
+          const defaultKinds = showKinds.length > 0 ? showKinds : [kinds.ShortTextNote]
+          const finalFilter = useFilterAsIs
+            ? {
+                ...filter,
+                // If filter doesn't have kinds, add them (required for relay queries)
+                kinds: filter.kinds && filter.kinds.length > 0 ? filter.kinds : defaultKinds,
+                limit: filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT)
+              }
             : {
                 ...filter,
                 // If showKinds is empty, default to kind 1 (ShortTextNote) only
-                kinds: showKinds.length > 0 ? showKinds : [kinds.ShortTextNote],
+                kinds: defaultKinds,
                 limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
               }
-        }))
+          
+          // CRITICAL: Validate filter has kinds before subscribing
+          if (!finalFilter.kinds || finalFilter.kinds.length === 0) {
+            logger.error('[NoteList] Filter missing kinds! Using default', {
+              originalFilter: filter,
+              showKinds,
+              useFilterAsIs
+            })
+            finalFilter.kinds = [kinds.ShortTextNote]
+          }
+          
+          return { urls, filter: finalFilter }
+        })
         
         logger.debug('[NoteList] Subscribing with filters', {
           subRequestCount: mappedSubRequests.length,
           filters: mappedSubRequests.map(({ urls, filter }) => ({
             urls: urls.slice(0, 2), // Log first 2 URLs
             kinds: filter.kinds,
-            limit: filter.limit
+            limit: filter.limit,
+            hasKinds: !!(filter.kinds && filter.kinds.length > 0)
           }))
         })
+        
+        // CRITICAL: Validate all filters have kinds before subscribing
+        const invalidFilters = mappedSubRequests.filter(({ filter }) => !filter.kinds || filter.kinds.length === 0)
+        if (invalidFilters.length > 0) {
+          logger.error('[NoteList] CRITICAL: Some filters are missing kinds!', {
+            invalidCount: invalidFilters.length,
+            totalCount: mappedSubRequests.length,
+            showKinds,
+            useFilterAsIs
+          })
+          // Don't subscribe with invalid filters - this would return no events
+          setLoading(false)
+          setEvents([])
+          // Return a no-op closer function to satisfy the cleanup function
+          return () => {}
+        }
 
         logger.info('[NoteList] About to call subscribeTimeline', {
           mappedSubRequestsCount: mappedSubRequests.length
@@ -265,7 +303,15 @@ const NoteList = forwardRef(
         let timelineKey: string | undefined
         
         try {
-          const result = await client.subscribeTimeline(
+          // Add timeout wrapper to prevent subscribeTimeline from hanging indefinitely
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => {
+              reject(new Error('subscribeTimeline timeout after 5 seconds'))
+            }, 5000) // 5 second timeout
+          })
+          
+          const result = await Promise.race([
+            client.subscribeTimeline(
             mappedSubRequests,
             {
               onEvents: (events: Event[], eosed: boolean) => {
@@ -394,9 +440,11 @@ const NoteList = forwardRef(
             needSort: !areAlgoRelays,
             useCache: false // Main feeds should always fetch fresh from relays, not use cache
           }
-        )
-        closer = result.closer
-        timelineKey = result.timelineKey
+            ),
+            timeoutPromise
+          ])
+          closer = result.closer
+          timelineKey = result.timelineKey
         logger.info('[NoteList] subscribeTimeline completed', {
           hasTimelineKey: !!timelineKey,
           hasCloser: !!closer
@@ -409,13 +457,15 @@ const NoteList = forwardRef(
           stack: error instanceof Error ? error.stack : undefined
         })
         setLoading(false)
-        throw error
+        // Return a no-op closer function instead of throwing - allows cleanup to work
+        // The error is already logged, no need to crash the component
+        return () => {}
       }
       }
 
       const promise = init()
       return () => {
-        promise.then((closer) => closer())
+        promise.then((closer) => closer?.())
       }
     }, [subRequestsKey, refreshCount, showKinds, showKind1OPs, showKind1Replies, showKind1111, useFilterAsIs])
 
