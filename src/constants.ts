@@ -158,7 +158,16 @@ export const SEARCHABLE_RELAY_URLS = [
   'wss://relay.wikifreedia.xyz',
   'wss://nostr.einundzwanzig.space',
   'wss://relay.lumina.rocks',
-  'wss://nostrelites.org'
+  'wss://nostrelites.org',
+  'wss://relay.nsec.app',
+  'wss://bucket.coracle.social',
+  'wss://relay.nostr.bg',
+  'wss://spatia-arcana.com',
+  'wss://sendit.nosflare.com',
+  'wss://nostr-pub.wellorder.net',
+  'wss://pyramid.fiatjaf.com/',
+  'wss://nostr.lopp.social/',
+  'wss://relay.dergigi.com/'
   ]
 
 export const PROFILE_RELAY_URLS = [

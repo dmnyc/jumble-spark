@@ -63,7 +63,14 @@ const DEFAULT_RELAYS_TO_MONITOR = [
   'wss://relay.lumina.rocks',
   'wss://nostrelites.org',
   'wss://relay.nsec.app',
-  'wss://bucket.coracle.social'
+  'wss://bucket.coracle.social',
+  'wss://relay.nostr.bg',
+  'wss://spatia-arcana.com',
+  'wss://sendit.nosflare.com',
+  'wss://nostr-pub.wellorder.net',
+  'wss://pyramid.fiatjaf.com/',
+  'wss://nostr.lopp.social/',
+  'wss://relay.dergigi.com/'
 ]
 
 /** Relays to publish 30166/10166 and to REQ kind 10002 from; broad enough for Imwald + NIP-66 discovery. */

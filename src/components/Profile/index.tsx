@@ -37,9 +37,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { FileText, Link, Film, Copy, Ellipsis, Calendar, MapPin, Pencil } from 'lucide-react'
+import { FileText, Link, Film, Copy, Ellipsis, Calendar, MapPin, Pencil, SatelliteDish, Code } from 'lucide-react'
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -63,6 +64,12 @@ import {
   ScheduleVideoCallDialog,
   ScheduleInPersonMeetingDialog
 } from '@/components/ScheduleVideoCallDialog'
+import RawEventDialog from '@/components/NoteOptions/RawEventDialog'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
+import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
+import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
+import { nip66Service } from '@/services/nip66.service'
+import { normalizeUrl } from '@/lib/url'
 import type { TProfile } from '@/types'
 
 type ProfileTabValue = 'posts' | 'pins' | 'bookmarks' | 'interests' | 'articles' | 'media' | 'you' | 'notes'
@@ -173,11 +180,15 @@ export default function Profile({ id }: { id?: string }) {
   const { profile, isFetching } = useFetchProfile(id)
   const { pubkey: accountPubkey } = useNostr()
   const [paymentInfo, setPaymentInfo] = useState<ReturnType<typeof getPaymentInfoFromEvent> | null>(null)
+  const [profileEvent, setProfileEvent] = useState<Event | undefined>(undefined)
   const [openZapDialog, setOpenZapDialog] = useState(false)
   const [openPublicMessageTo, setOpenPublicMessageTo] = useState<string | null>(null)
   const [openCallInviteTo, setOpenCallInviteTo] = useState<{ pubkey: string; url: string } | null>(null)
   const [openScheduleOwnCall, setOpenScheduleOwnCall] = useState(false)
   const [openScheduleInPersonMeeting, setOpenScheduleInPersonMeeting] = useState(false)
+  const [isRawEventDialogOpen, setIsRawEventDialogOpen] = useState(false)
+  const { relayUrls: currentBrowsingRelayUrls } = useCurrentRelays()
+  const { relaySets, favoriteRelays } = useFavoriteRelays()
 
   const mergedPaymentMethods = useMemo(() => {
     const list = mergePaymentMethods(paymentInfo, profile ?? null)
@@ -228,6 +239,32 @@ export default function Profile({ id }: { id?: string }) {
     }
 
     fetchPaymentInfo()
+  }, [profile?.pubkey])
+
+  // Fetch profile event (kind 0) for republishing and viewing JSON
+  // Use fetchProfileEvent which does comprehensive search, not fetchReplaceableEvent
+  useEffect(() => {
+    if (!profile?.pubkey) {
+      setProfileEvent(undefined)
+      return
+    }
+
+    const fetchProfileEventData = async () => {
+      try {
+        // Use fetchProfileEvent which includes comprehensive relay search
+        const event = await replaceableEventService.fetchProfileEvent(profile.pubkey, false)
+        if (event) {
+          setProfileEvent(event)
+        } else {
+          setProfileEvent(undefined)
+        }
+      } catch (error) {
+        logger.error('Failed to fetch profile event', { error, pubkey: profile.pubkey })
+        setProfileEvent(undefined)
+      }
+    }
+
+    fetchProfileEventData()
   }, [profile?.pubkey])
   const [activeTab, setActiveTab] = useState<ProfileTabValue>('posts')
   const [searchQuery, setSearchQuery] = useState('')
@@ -331,6 +368,62 @@ export default function Profile({ id }: { id?: string }) {
   )
   const isSelf = accountPubkey === profile?.pubkey
 
+  /** All available relays: current feed, favorites, relay sets, defaults (FAST_READ, FAST_WRITE). */
+  const allAvailableRelayUrls = useMemo(() => {
+    const urls = [
+      ...currentBrowsingRelayUrls.map(url => normalizeUrl(url) || url),
+      ...favoriteRelays.map(url => normalizeUrl(url) || url),
+      ...relaySets.flatMap(set => set.relayUrls.map(url => normalizeUrl(url) || url)),
+      ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url),
+      ...FAST_WRITE_RELAY_URLS.map(url => normalizeUrl(url) || url)
+    ].filter(Boolean) as string[]
+    return Array.from(new Set(urls))
+  }, [currentBrowsingRelayUrls, favoriteRelays, relaySets])
+
+  const handleRepublishToAllAvailable = async () => {
+    if (!profileEvent) return
+    const promise = client.publishEvent(allAvailableRelayUrls, profileEvent).then((result) => {
+      if (result.successCount < 1) {
+        throw new Error(t('No relay accepted the event'))
+      }
+      return result
+    })
+    toast.promise(promise, {
+      loading: t('Republishing...'),
+      success: () => t('Successfully republish to all available relays'),
+      error: (err) => t('Failed to republish to all available relays: {{error}}', { error: err.message })
+    })
+  }
+
+  const handleRepublishToAllActive = async () => {
+    if (!profileEvent) return
+    const promise = (async () => {
+      let relays = await nip66Service.getPublicLivelyRelayUrls()
+      const usedMonitoringList = !!relays?.length
+      if (!relays?.length) {
+        relays = allAvailableRelayUrls
+      }
+      if (!relays?.length) {
+        throw new Error(t('No relays available'))
+      }
+      const result = await client.publishEvent(relays, profileEvent)
+      const minRequired = usedMonitoringList ? 5 : 1
+      if (result.successCount < minRequired) {
+        throw new Error(
+          usedMonitoringList
+            ? t('Only {{count}} relay(s) accepted the event; at least 5 required for "all active relays".', { count: result.successCount })
+            : t('No relay accepted the event')
+        )
+      }
+      return result
+    })()
+    toast.promise(promise, {
+      loading: t('Republishing...'),
+      success: () => t('Successfully republish to all active relays'),
+      error: (err) => t('Failed to republish to all active relays: {{error}}', { error: err.message })
+    })
+  }
+
   // Refresh functions for each tab
   const handleRefresh = () => {
     if (activeTab === 'posts') {
@@ -433,10 +526,17 @@ export default function Profile({ id }: { id?: string }) {
           <Skeleton className="h-5 w-28 mt-14 mb-1" />
           <Skeleton className="h-5 w-56 mt-2 my-1 rounded-full" />
         </div>
+        <div className="px-4 pt-4 flex items-center justify-center">
+          <div className="text-sm text-muted-foreground">
+            {t('Searching all available relays...')}
+          </div>
+        </div>
       </>
     )
   }
-  if (!profile) return <NotFound />
+  if (!profile && !isFetching) return <NotFound />
+  
+  if (!profile) return null // TypeScript guard - should never reach here but satisfies type checker
 
   const { banner, username, about, avatar, pubkey, website, websiteList, nip05List } = profile
   
@@ -463,6 +563,7 @@ export default function Profile({ id }: { id?: string }) {
           <div className="flex justify-end h-8 gap-2 items-center">
             <ProfileOptions
               pubkey={pubkey}
+              profileEvent={profileEvent}
               onSendPublicMessage={!isSelf ? () => setOpenPublicMessageTo(pubkey) : undefined}
               onSendCallInvite={
                 !isSelf
@@ -494,6 +595,23 @@ export default function Profile({ id }: { id?: string }) {
                     <Pencil />
                     {t('Edit')}
                   </DropdownMenuItem>
+                  {profileEvent && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={handleRepublishToAllAvailable}>
+                        <SatelliteDish />
+                        {t('Republish to all available relays')} ({allAvailableRelayUrls.length})
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleRepublishToAllActive}>
+                        <SatelliteDish />
+                        {t('Republish to all active relays')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setIsRawEventDialogOpen(true)}>
+                        <Code />
+                        {t('View JSON')}
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
@@ -545,7 +663,7 @@ export default function Profile({ id }: { id?: string }) {
             )}
             {websiteList && websiteList.length > 1 && (
               <div className="flex flex-col gap-1 mt-1">
-                {websiteList.slice(1).map((url, idx) => (
+                {websiteList.slice(1).map((url: string, idx: number) => (
                   <div key={idx} className="flex gap-1 items-center text-primary truncate select-text">
                     <Link size={12} className="shrink-0" />
                     <a
@@ -847,6 +965,13 @@ export default function Profile({ id }: { id?: string }) {
         open={openScheduleInPersonMeeting}
         onOpenChange={setOpenScheduleInPersonMeeting}
       />
+      {profileEvent && (
+        <RawEventDialog
+          event={profileEvent}
+          isOpen={isRawEventDialogOpen}
+          onClose={() => setIsRawEventDialogOpen(false)}
+        />
+      )}
     </>
   )
 }

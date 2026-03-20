@@ -7,12 +7,13 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import logger from '@/lib/logger'
 
 export function useFetchProfile(id?: string, skipCache = false) {
-  // Log hook invocation immediately - this will show if the hook is even being called
-  logger.info('[useFetchProfile] Hook called', { 
-    id: id || 'undefined',
-    skipCache,
-    stack: new Error().stack?.split('\n').slice(1, 4).join('\n')
-  })
+  // CRITICAL: Reduce logging to prevent performance issues during infinite loops
+  // Only log if we're actually going to process (not just checking)
+  // logger.info('[useFetchProfile] Hook called', { 
+  //   id: id || 'undefined',
+  //   skipCache,
+  //   stack: new Error().stack?.split('\n').slice(1, 4).join('\n')
+  // })
   
   const { profile: currentAccountProfile } = useNostr()
   const [isFetching, setIsFetching] = useState(true)
@@ -22,6 +23,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const processingPubkeyRef = useRef<string | null>(null) // Track which pubkey we're currently processing (prevents duplicate fetches)
   const effectRunCountRef = useRef<Map<string, number>>(new Map()) // Track how many times effect has run for each pubkey (safety guard against infinite loops)
+  const initializedPubkeysRef = useRef<Set<string>>(new Set()) // Track pubkeys we've successfully initialized (have profile or failed)
 
   // Function to check for profile updates
   // fetchProfileEvent already checks: 1) IndexedDB, 2) network (with author's relays)
@@ -77,6 +79,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
         })
         setProfile(newProfile)
         setIsFetching(false)
+        // Mark as initialized
+        initializedPubkeysRef.current.add(pubkey)
         // Keep processingPubkeyRef set so we don't re-fetch
         // Clear interval once we have a profile
         if (checkIntervalRef.current) {
@@ -108,25 +112,57 @@ export function useFetchProfile(id?: string, skipCache = false) {
   }, [skipCache])
 
   useEffect(() => {
-    logger.info('[useFetchProfile] useEffect triggered', { 
-      id: id || 'undefined',
-      skipCache,
-      processingPubkey: processingPubkeyRef.current
-    })
+    // CRITICAL: Reduce logging - only log when actually processing, not on every render
+    // logger.info('[useFetchProfile] useEffect triggered', { 
+    //   id: id || 'undefined',
+    //   skipCache,
+    //   processingPubkey: processingPubkeyRef.current,
+    //   hasProfile: !!profile,
+    //   profilePubkey: profile?.pubkey
+    // })
     
     // Extract pubkey early to check if id has changed
     const extractedPubkey = id ? userIdToPubkey(id) : null
     
     // CRITICAL: Early exit if already processing this exact pubkey - prevents infinite loops
+    // This check must happen FIRST, before any other logic
     if (extractedPubkey && processingPubkeyRef.current === extractedPubkey) {
-      logger.info('[useFetchProfile] EARLY EXIT: Already processing this pubkey', {
-        extractedPubkey,
-        processingPubkey: processingPubkeyRef.current
-      })
+      // Silently exit - no logging to reduce noise
+      return
+    }
+    
+    // CRITICAL: Early exit if we already have a profile for this pubkey
+    // This prevents re-fetching when we already have the profile
+    if (extractedPubkey && profile && profile.pubkey === extractedPubkey) {
+      // Ensure processingPubkeyRef is set to prevent re-fetch
+      if (processingPubkeyRef.current !== extractedPubkey) {
+        processingPubkeyRef.current = extractedPubkey
+      }
+      // Mark as initialized
+      initializedPubkeysRef.current.add(extractedPubkey)
+      // Ensure fetching is false (but don't call setState if already false to avoid re-renders)
+      if (isFetching) {
+        setIsFetching(false)
+      }
+      // Clear run count since we have the profile
+      effectRunCountRef.current.delete(extractedPubkey)
+      return
+    }
+    
+    // CRITICAL: Early exit if we've already initialized this pubkey (even if profile is null)
+    // This prevents re-fetching when we've already tried and failed
+    // BUT: Allow retry if skipCache is true (user explicitly wants to refresh)
+    if (extractedPubkey && initializedPubkeysRef.current.has(extractedPubkey) && !profile && !skipCache) {
+      // Already tried and failed - don't retry unless explicitly requested
+      // Ensure fetching is false
+      if (isFetching) {
+        setIsFetching(false)
+      }
       return
     }
     
     // CRITICAL: Guard against infinite loops - limit effect runs per pubkey (reduced from 10 to 3)
+    // Only increment if we're actually going to process (not early exiting)
     if (extractedPubkey) {
       const runCount = effectRunCountRef.current.get(extractedPubkey) || 0
       if (runCount >= 3) {
@@ -140,19 +176,17 @@ export function useFetchProfile(id?: string, skipCache = false) {
         }, 30000) // Clear after 30 seconds
         return
       }
+      // Only increment if we're actually going to process
       effectRunCountRef.current.set(extractedPubkey, runCount + 1)
     }
     
-    // If id has changed (extractedPubkey is different from processingPubkeyRef), clear the ref
+    // If id has changed (extractedPubkey is different from processingPubkeyRef), clear the refs
     // This allows a new fetch to start for a different pubkey
     if (extractedPubkey && processingPubkeyRef.current && processingPubkeyRef.current !== extractedPubkey) {
       const oldPubkey = processingPubkeyRef.current
-      logger.info('[useFetchProfile] ID changed, clearing refs', {
-        oldPubkey,
-        newPubkey: extractedPubkey
-      })
-      // Clear run count for old pubkey before clearing ref
+      // Clear run count and initialized status for old pubkey before clearing ref
       effectRunCountRef.current.delete(oldPubkey)
+      initializedPubkeysRef.current.delete(oldPubkey)
       processingPubkeyRef.current = null
     }
     
@@ -212,27 +246,22 @@ export function useFetchProfile(id?: string, skipCache = false) {
       return
     }
     
-    // CRITICAL: Check if we're already processing this pubkey IMMEDIATELY after validation
-    // This must happen before any other logic to prevent infinite loops
+    // These checks are now done earlier in the effect (before incrementing run count)
+    // Keeping this as a safety check, but it should rarely be hit
     if (processingPubkeyRef.current === extractedPubkey) {
-      logger.info('[useFetchProfile] Already processing this pubkey, skipping duplicate fetch', {
+      logger.info('[useFetchProfile] Already processing this pubkey (safety check)', {
         extractedPubkey,
-        processingPubkey: processingPubkeyRef.current,
-        hasProfile: !!profile
+        processingPubkey: processingPubkeyRef.current
       })
       return
     }
     
-    // CRITICAL: Check if we already have a profile for this pubkey before starting a new fetch
-    // This prevents re-fetching when profile state already exists
     if (profile && profile.pubkey === extractedPubkey) {
-      logger.info('[useFetchProfile] Already have profile for this pubkey, skipping fetch', {
+      logger.info('[useFetchProfile] Already have profile for this pubkey (safety check)', {
         extractedPubkey
       })
-      // Mark as processing to prevent re-fetch, but don't update state unnecessarily
       processingPubkeyRef.current = extractedPubkey
       setIsFetching(false)
-      // Clear run count since we have the profile
       effectRunCountRef.current.delete(extractedPubkey)
       return
     }
@@ -360,6 +389,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
     // CRITICAL: Only use currentAccountProfile if it matches the pubkey we're looking for
     // Use pubkey from the profile object to avoid reference equality issues
     // Only update if we don't have a profile yet AND we're not currently processing
+    // CRITICAL FIX: Don't include profile in dependencies to prevent infinite loops
+    // We only read profile to check if it exists, we don't need to re-run when it changes
     if (currentAccountProfile?.pubkey && pubkey && pubkey === currentAccountProfile.pubkey) {
       // Only update if we don't have a profile yet (avoid unnecessary updates)
       // Also check that we're processing this pubkey to prevent race conditions
@@ -375,7 +406,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
         effectRunCountRef.current.delete(pubkey)
       }
     }
-  }, [currentAccountProfile?.pubkey, pubkey, profile]) // Include profile to prevent unnecessary updates
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentAccountProfile?.pubkey, pubkey]) // Removed profile from dependencies to prevent infinite loops
 
   return { isFetching, error, profile }
 }

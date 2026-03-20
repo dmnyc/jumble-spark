@@ -27,79 +27,108 @@ export default function NotFound({
     if (!bech32Id) return
 
     const getExternalRelays = async () => {
-      // Get all relays that have already been tried (FAST_READ_RELAY_URLS)
-      // These are the relays used in the initial fetch
-      const alreadyTriedRelaysSet = new Set<string>()
-      ;[...FAST_READ_RELAY_URLS].forEach(url => {
-        const normalized = normalizeUrl(url)
-        if (normalized) alreadyTriedRelaysSet.add(normalized)
-      })
-      
-      let hintRelays: string[] = []
-      let extractedHexEventId: string | null = null
-      
-      // Parse relay hints and author from bech32 ID
-      if (!/^[0-9a-f]{64}$/.test(bech32Id)) {
-        try {
-          const { type, data } = nip19.decode(bech32Id)
-          
-          if (type === 'nevent') {
-            extractedHexEventId = data.id
-            if (data.relays) hintRelays.push(...data.relays)
-            if (data.author) {
-              const authorRelayList = await client.fetchRelayList(data.author).catch(() => ({ read: [] as string[], write: [] as string[] }))
-              hintRelays.push(...(authorRelayList.read ?? []).slice(0, 4), ...(authorRelayList.write ?? []).slice(0, 4))
+      try {
+        // Get all relays that have already been tried (FAST_READ_RELAY_URLS)
+        // These are the relays used in the initial fetch
+        const alreadyTriedRelaysSet = new Set<string>()
+        ;[...FAST_READ_RELAY_URLS].forEach(url => {
+          const normalized = normalizeUrl(url)
+          if (normalized) alreadyTriedRelaysSet.add(normalized)
+        })
+        
+        let bech32HintRelays: string[] = [] // Relay hints from bech32 (highest priority)
+        let extractedHexEventId: string | null = null
+        
+        // CRITICAL: Parse relay hints from bech32 ID FIRST (highest priority)
+        // These are explicit hints from the bech32 address and should always be used
+        if (!/^[0-9a-f]{64}$/.test(bech32Id)) {
+          try {
+            const { type, data } = nip19.decode(bech32Id)
+            
+            if (type === 'nevent') {
+              extractedHexEventId = data.id
+              // CRITICAL: Always extract relay hints from nevent bech32
+              if (data.relays && Array.isArray(data.relays)) {
+                bech32HintRelays.push(...data.relays)
+                logger.debug('Extracted relay hints from nevent', { 
+                  bech32Id, 
+                  hintCount: data.relays.length,
+                  hints: data.relays 
+                })
+              }
+              // Note: We skip fetching author relay list here to avoid infinite loops
+              // The relay hints from bech32 are the most reliable source
+            } else if (type === 'naddr') {
+              // CRITICAL: Always extract relay hints from naddr bech32
+              if (data.relays && Array.isArray(data.relays)) {
+                bech32HintRelays.push(...data.relays)
+                logger.debug('Extracted relay hints from naddr', { 
+                  bech32Id, 
+                  hintCount: data.relays.length,
+                  hints: data.relays 
+                })
+              }
+              // Note: We skip fetching author relay list here to avoid infinite loops
+            } else if (type === 'note') {
+              extractedHexEventId = data
             }
-          } else if (type === 'naddr') {
-            if (data.relays) hintRelays.push(...data.relays)
-            const authorRelayList = await client.fetchRelayList(data.pubkey).catch(() => ({ read: [] as string[], write: [] as string[] }))
-            hintRelays.push(...(authorRelayList.read ?? []).slice(0, 4), ...(authorRelayList.write ?? []).slice(0, 4))
-          } else if (type === 'note') {
-            extractedHexEventId = data
+          } catch (err) {
+            logger.error('Failed to parse bech32 ID for relay hints', { error: err, bech32Id })
           }
-        } catch (err) {
-          logger.error('Failed to parse external relays', { error: err, bech32Id })
+        } else {
+          extractedHexEventId = bech32Id
         }
-      } else {
-        extractedHexEventId = bech32Id
+        
+        setHexEventId(extractedHexEventId)
+        
+        // Get relays where this event was seen (if we have the hex ID)
+        const seenOn = extractedHexEventId ? client.getSeenEventRelayUrls(extractedHexEventId) : []
+        
+        // Normalize bech32 hint relays (highest priority - these come from the bech32 address itself)
+        const normalizedBech32Hints = bech32HintRelays
+          .map(url => normalizeUrl(url))
+          .filter((url): url is string => Boolean(url))
+        
+        // Normalize seen relays
+        const normalizedSeenRelays = seenOn
+          .map(url => normalizeUrl(url))
+          .filter((url): url is string => Boolean(url))
+        
+        // Normalize SEARCHABLE_RELAY_URLS (fallback)
+        const normalizedSearchableRelays = SEARCHABLE_RELAY_URLS
+          .map(url => normalizeUrl(url))
+          .filter((url): url is string => Boolean(url))
+        
+        // CRITICAL: Preserve order - bech32 hints first, then seen, then searchable
+        // This ensures relay hints from bech32 are shown first in the UI
+        // Order matters: bech32 hints (explicit) > seen relays > searchable (fallback)
+        const orderedExternalRelays = [
+          ...normalizedBech32Hints.filter(r => !alreadyTriedRelaysSet.has(r)),
+          ...normalizedSeenRelays.filter(r => !alreadyTriedRelaysSet.has(r) && !normalizedBech32Hints.includes(r)),
+          ...normalizedSearchableRelays.filter(r => !alreadyTriedRelaysSet.has(r) && !normalizedBech32Hints.includes(r) && !normalizedSeenRelays.includes(r))
+        ]
+        
+        setExternalRelays(orderedExternalRelays)
+        
+        logger.debug('External relays calculated (NotFound)', {
+          bech32Id,
+          bech32HintCount: normalizedBech32Hints.length,
+          seenRelayCount: normalizedSeenRelays.length,
+          searchableRelaysCount: normalizedSearchableRelays.length,
+          alreadyTriedCount: alreadyTriedRelaysSet.size,
+          externalRelaysCount: orderedExternalRelays.length,
+          bech32Hints: normalizedBech32Hints,
+          externalRelays: orderedExternalRelays.slice(0, 10) // Log first 10
+        })
+      } catch (error) {
+        logger.error('Error calculating external relays (NotFound)', { 
+          error, 
+          bech32Id,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        })
+        // Set empty array on error to prevent UI issues
+        setExternalRelays([])
       }
-      
-      setHexEventId(extractedHexEventId)
-      
-      // Get relays where this event was seen
-      const seenOn = extractedHexEventId ? client.getSeenEventRelayUrls(extractedHexEventId) : []
-      hintRelays.push(...seenOn)
-      
-      // Normalize all hint relays
-      const normalizedHints = hintRelays
-        .map(url => normalizeUrl(url))
-        .filter((url): url is string => Boolean(url))
-      
-      // Combine hints with SEARCHABLE_RELAY_URLS (always include as fallback)
-      // Normalize SEARCHABLE_RELAY_URLS for comparison
-      const normalizedSearchableRelays = SEARCHABLE_RELAY_URLS
-        .map(url => normalizeUrl(url))
-        .filter((url): url is string => Boolean(url))
-      
-      // Combine all potential relays (hints + searchable)
-      const allPotentialRelays = new Set([...normalizedHints, ...normalizedSearchableRelays])
-      
-      // Filter out relays that were already tried
-      const externalRelays = Array.from(allPotentialRelays).filter(
-        relay => !alreadyTriedRelaysSet.has(relay)
-      )
-      
-      // Deduplicate final relay list
-      setExternalRelays(externalRelays)
-      
-      logger.debug('External relays calculated (NotFound)', {
-        bech32Id,
-        hintRelaysCount: normalizedHints.length,
-        searchableRelaysCount: normalizedSearchableRelays.length,
-        alreadyTriedCount: alreadyTriedRelaysSet.size,
-        externalRelaysCount: externalRelays.length,
-        externalRelays: externalRelays.slice(0, 10) // Log first 10
-      })
     }
 
     getExternalRelays()
@@ -172,7 +201,7 @@ export default function NotFound({
             ) : (
               <>
                 <Search className="w-4 h-4" />
-                {t('Try external relays')}
+                {t('Try external relays')} ({externalRelays.length})
               </>
             )}
           </Button>
