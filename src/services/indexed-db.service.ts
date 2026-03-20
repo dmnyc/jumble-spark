@@ -452,10 +452,17 @@ class IndexedDbService {
           return resolve(undefined)
         }
         // Invalidate profile and payment info cache when stale so they refetch regularly
+        // BUT: Always return cached profiles even if stale - we'll refresh in background
+        // This ensures profiles are always visible, even if slightly outdated
         const isProfileOrPayment = kind === kinds.Metadata || kind === ExtendedKind.PAYMENT_INFO
         if (isProfileOrPayment && row.addedAt && Date.now() - row.addedAt > PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS) {
-          transaction.commit()
-          return resolve(undefined)
+          // Profile is stale, but return it anyway - refresh will happen in background
+          // This prevents the "no profile" state when cache exists but is just old
+          logger.debug('[IndexedDB] Profile cache is stale but returning anyway', {
+            pubkey: pubkey.substring(0, 8),
+            age: Date.now() - row.addedAt,
+            maxAge: PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS
+          })
         }
         transaction.commit()
         resolve(row.value)

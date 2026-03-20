@@ -439,6 +439,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       if (profileEvent) {
         const updatedProfileEvent = await indexedDb.putReplaceableEvent(profileEvent)
         if (updatedProfileEvent.id === profileEvent.id) {
+          // Update in-memory cache so it's immediately available
+          await replaceableEventService.updateReplaceableEventCache(updatedProfileEvent)
           setProfileEvent(updatedProfileEvent)
           setProfile(getProfileFromEvent(updatedProfileEvent))
         }

@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { toWallet } from '@/lib/link'
-import { formatPubkey, generateImageByPubkey } from '@/lib/pubkey'
+import { formatPubkey, generateImageByPubkey, pubkeyToNpub, formatNpub } from '@/lib/pubkey'
 import { usePrimaryPage, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import { ArrowDownUp, LogIn, LogOut, UserRound, Wallet } from 'lucide-react'
@@ -39,7 +39,10 @@ function ProfileButton() {
   if (!pubkey) return null
 
   const defaultAvatar = generateImageByPubkey(pubkey)
-  const { username, avatar } = profile || { username: formatPubkey(pubkey), avatar: defaultAvatar }
+  // Fallback to formatted npub if no profile
+  const npub = pubkeyToNpub(pubkey)
+  const fallbackUsername = npub ? formatNpub(npub) : formatPubkey(pubkey)
+  const { username, avatar } = profile || { username: fallbackUsername, avatar: defaultAvatar }
 
   return (
     <DropdownMenu>

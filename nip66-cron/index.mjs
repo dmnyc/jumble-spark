@@ -179,9 +179,30 @@ async function fetchRelayUrlsFromKind10002 (authorPubkey, queryRelayUrls) {
     try {
       ws = new WebSocket(relayUrl, { handshakeTimeout: 12000 })
       await new Promise((resolve, reject) => {
-        ws.on('open', resolve)
-        ws.on('error', reject)
-        setTimeout(() => reject(new Error('open timeout')), 15000)
+        let timeoutId
+        let resolved = false
+        const onOpen = () => {
+          if (resolved) return
+          resolved = true
+          clearTimeout(timeoutId)
+          resolve()
+        }
+        const onError = (err) => {
+          if (resolved) return
+          resolved = true
+          clearTimeout(timeoutId)
+          ws.removeListener('open', onOpen)
+          reject(err)
+        }
+        timeoutId = setTimeout(() => {
+          if (resolved) return
+          resolved = true
+          ws.removeListener('open', onOpen)
+          ws.removeListener('error', onError)
+          reject(new Error('open timeout'))
+        }, 15000)
+        ws.once('open', onOpen)
+        ws.on('error', onError)
       })
       ws.send(JSON.stringify(['REQ', subId, filter]))
       const events = await new Promise((resolve) => {
@@ -306,9 +327,30 @@ async function publishEvent (relayUrls, event) {
     try {
       const ws = new WebSocket(url, { handshakeTimeout: 8000 })
       await new Promise((resolve, reject) => {
-        ws.on('open', resolve)
-        ws.on('error', reject)
-        setTimeout(() => reject(new Error('open timeout')), 10000)
+        let timeoutId
+        let resolved = false
+        const onOpen = () => {
+          if (resolved) return
+          resolved = true
+          clearTimeout(timeoutId)
+          resolve()
+        }
+        const onError = (err) => {
+          if (resolved) return
+          resolved = true
+          clearTimeout(timeoutId)
+          ws.removeListener('open', onOpen)
+          reject(err)
+        }
+        timeoutId = setTimeout(() => {
+          if (resolved) return
+          resolved = true
+          ws.removeListener('open', onOpen)
+          ws.removeListener('error', onError)
+          reject(new Error('open timeout'))
+        }, 10000)
+        ws.once('open', onOpen)
+        ws.on('error', onError)
       })
       conns.push(ws)
       ws.send(msg)
