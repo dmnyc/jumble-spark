@@ -177,6 +177,9 @@ export class QueryService {
           const isSingleEventFetch = maxLimit === 1
           const hasIdFilter = filters.some(f => f.ids && f.ids.length > 0)
 
+          // For immediateReturn: return as soon as we find the event
+          // This is critical for non-replaceable events (not in 10000-19999 or 30000-39999 ranges)
+          // which should be rendered ASAP
           if (immediateReturn && hasIdFilter && isSingleEventFetch && events.length > 0) {
             resolveWithEvents()
             return

@@ -1,4 +1,4 @@
-import { FAST_READ_RELAY_URLS, ExtendedKind, PROFILE_FETCH_RELAY_URLS } from '@/constants'
+import { ExtendedKind, FAST_READ_RELAY_URLS } from '@/constants'
 import { kinds, nip19 } from 'nostr-tools'
 import type { Event as NEvent, Filter } from 'nostr-tools'
 import DataLoader from 'dataloader'
@@ -13,6 +13,7 @@ import type { QueryService } from './client-query.service'
 import { isReplaceableEvent, getReplaceableCoordinateFromEvent } from '@/lib/event'
 import logger from '@/lib/logger'
 import client from './client.service'
+import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 
 export class ReplaceableEventService {
   private queryService: QueryService
@@ -104,77 +105,47 @@ export class ReplaceableEventService {
 
   /**
    * Build comprehensive relay list: author's outboxes + user's inboxes + relay hints + defaults
+   * For profiles/metadata: includes user's own relays (read/write/local) + PROFILE_FETCH_RELAY_URLS
    */
   private async buildComprehensiveRelayListForAuthor(
     authorPubkey: string,
     kind: number,
-    relayHints: string[] = []
+    relayHints: string[] = [],
+    containingEventRelays: string[] = []
   ): Promise<string[]> {
-    const relayUrls = new Set<string>()
-    
-    // 1. Add relay hints (highest priority - these are explicit hints)
-    relayHints.forEach(url => {
-      const normalized = normalizeUrl(url)
-      if (normalized) relayUrls.add(normalized)
-    })
-    
-    // 2. Add author's outboxes (write relays) - where they publish
-    try {
-      const authorRelayList = await client.fetchRelayList(authorPubkey)
-      const authorOutboxes = (authorRelayList.write || []).slice(0, 10)
-      authorOutboxes.forEach(url => {
-        const normalized = normalizeUrl(url)
-        if (normalized) relayUrls.add(normalized)
-      })
-      logger.debug('[ReplaceableEventService] Added author outboxes', {
-        author: authorPubkey.substring(0, 8),
-        count: authorOutboxes.length
-      })
-    } catch (error) {
-      logger.debug('[ReplaceableEventService] Failed to fetch author relay list', { error })
-    }
-    
-    // 3. Add logged-in user's inboxes (read relays) - where they receive events
     const userPubkey = client.pubkey
-    if (userPubkey) {
-      try {
-        const userRelayList = await client.fetchRelayList(userPubkey)
-        const userInboxes = (userRelayList.read || []).slice(0, 10)
-        userInboxes.forEach(url => {
-          const normalized = normalizeUrl(url)
-          if (normalized) relayUrls.add(normalized)
-        })
-        logger.debug('[ReplaceableEventService] Added user inboxes', {
-          count: userInboxes.length
-        })
-      } catch (error) {
-        logger.debug('[ReplaceableEventService] Failed to fetch user relay list', { error })
-      }
-    }
+    const isProfileOrMetadata = kind === kinds.Metadata || kind === kinds.RelayList
     
-    // 4. Add default fast read relays as fallback
-    FAST_READ_RELAY_URLS.forEach(url => {
-      const normalized = normalizeUrl(url)
-      if (normalized) relayUrls.add(normalized)
+    // Use the comprehensive relay list builder
+    return buildComprehensiveRelayList({
+      authorPubkey,
+      userPubkey,
+      relayHints,
+      containingEventRelays,
+      includeUserOwnRelays: isProfileOrMetadata, // For profiles/metadata, include user's own relays
+      includeProfileFetchRelays: isProfileOrMetadata, // For profiles/metadata, include PROFILE_FETCH_RELAY_URLS
+      includeFastReadRelays: true,
+      includeLocalRelays: true
     })
-    
-    // 5. Add profile fetch relays for profiles
-    if (kind === kinds.Metadata) {
-      PROFILE_FETCH_RELAY_URLS.forEach(url => {
-        const normalized = normalizeUrl(url)
-        if (normalized) relayUrls.add(normalized)
-      })
-    }
-    
-    return Array.from(relayUrls)
   }
 
   /**
    * Fetch replaceable event (profile, relay list, etc.)
    * Always checks in-memory cache FIRST (instant), then IndexedDB, then fetches from relays
    * ALWAYS uses: author's outboxes + user's inboxes + relay hints + defaults
+   * For profiles/metadata: includes user's own relays (read/write/local) + PROFILE_FETCH_RELAY_URLS
+   * 
+   * @param pubkey - Author's pubkey
+   * @param kind - Event kind
+   * @param d - Optional d-tag for parameterized replaceable events
+   * @param containingEventRelays - Optional relays where a containing event was found (for profiles, might be on same relay as event)
    */
-  async fetchReplaceableEvent(pubkey: string, kind: number, d?: string): Promise<NEvent | undefined> {
+  async fetchReplaceableEvent(
+    pubkey: string, 
+    kind: number, 
+    d?: string,
+    containingEventRelays: string[] = []
+  ): Promise<NEvent | undefined> {
     const cacheKey = d ? `${kind}:${pubkey}:${d}` : `${kind}:${pubkey}`
     
     // 1. Check in-memory cache FIRST - instant return, no async overhead
@@ -216,10 +187,32 @@ export class ReplaceableEventService {
     
     // 3. Not in cache, fetch from network
     // Note: DataLoader will use comprehensive relay list from batch load function
+    // For profiles: if we have containingEventRelays (from fetchProfileEvent), include them
+    // Profiles are often on the same relays where the author publishes their events
     try {
-      const event = d
-        ? await this.replaceableEventDataLoader.load({ pubkey, kind, d })
-        : await this.replaceableEventFromBigRelaysDataloader.load({ pubkey, kind })
+      // If we have containing event relays and this is a profile, we need to use a custom relay list
+      // Otherwise, use DataLoader (which uses comprehensive relay list)
+      let event: NEvent | undefined
+      if (containingEventRelays.length > 0 && kind === kinds.Metadata && !d) {
+        // For profiles with containing event relays (author's relay list), build custom relay list and query directly
+        const relayUrls = await this.buildComprehensiveRelayListForAuthor(pubkey, kind, containingEventRelays, [])
+        const events = await this.queryService.query(relayUrls, {
+          authors: [pubkey],
+          kinds: [kind]
+        }, undefined, {
+          replaceableRace: true,
+          eoseTimeout: 200,
+          globalTimeout: 3000
+        })
+        const sortedEvents = events.sort((a, b) => b.created_at - a.created_at)
+        event = sortedEvents.length > 0 ? sortedEvents[0] : undefined
+      } else {
+        // Use DataLoader for batching
+        const loadedEvent = d
+          ? await this.replaceableEventDataLoader.load({ pubkey, kind, d })
+          : await this.replaceableEventFromBigRelaysDataloader.load({ pubkey, kind })
+        event = loadedEvent || undefined
+      }
       
       if (event) {
         // Extract relay hints from the found event (for future related fetches)
@@ -420,11 +413,12 @@ export class ReplaceableEventService {
     await Promise.allSettled(
       Array.from(groups.entries()).map(async ([kind, pubkeys]) => {
         // ALWAYS use comprehensive relay list: author's outboxes + user's inboxes + defaults
+        // For profiles/metadata: includes user's own relays (read/write/local) + PROFILE_FETCH_RELAY_URLS
         // For each pubkey, build comprehensive relay list
         const relayUrlSets = await Promise.all(
           pubkeys.map(async (pubkey) => {
             // Build comprehensive relay list for this author
-            return await this.buildComprehensiveRelayListForAuthor(pubkey, kind, [])
+            return await this.buildComprehensiveRelayListForAuthor(pubkey, kind, [], [])
           })
         )
         
@@ -632,7 +626,31 @@ export class ReplaceableEventService {
         return localProfile
       }
     }
-    const profileEvent = await this.fetchReplaceableEvent(pubkey, kinds.Metadata)
+    
+    // For profiles: get author's relay list (from cache if available) and use those relays
+    // Profiles are often on the same relays where the author publishes their events
+    let authorRelayList: { read?: string[]; write?: string[] } | null = null
+    try {
+      authorRelayList = await client.fetchRelayList(pubkey)
+      // Use author's outboxes (write relays) and inboxes (read relays) - profiles are often there
+      const authorRelays = [
+        ...(authorRelayList.write || []).slice(0, 10),
+        ...(authorRelayList.read || []).slice(0, 10)
+      ]
+      relays = [...new Set([...relays, ...authorRelays])]
+      logger.debug('[ReplaceableEventService] Using author relay list for profile fetch', {
+        pubkey: formatPubkey(pubkey),
+        authorRelayCount: authorRelays.length,
+        totalRelayCount: relays.length
+      })
+    } catch (error) {
+      logger.debug('[ReplaceableEventService] Failed to fetch author relay list for profile', { 
+        pubkey: formatPubkey(pubkey),
+        error 
+      })
+    }
+    
+    const profileEvent = await this.fetchReplaceableEvent(pubkey, kinds.Metadata, undefined, relays)
     if (profileEvent) {
       await this.indexProfile(profileEvent)
       return profileEvent

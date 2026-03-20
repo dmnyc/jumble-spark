@@ -1,4 +1,4 @@
-import { FAST_READ_RELAY_URLS, ExtendedKind } from '@/constants'
+import { ExtendedKind } from '@/constants'
 import {
   getParentETag,
   getReplaceableCoordinateFromEvent,
@@ -12,17 +12,18 @@ import {
 import logger from '@/lib/logger'
 import { toNote } from '@/lib/link'
 import { generateBech32IdFromETag, tagNameEquals } from '@/lib/tag'
-import { normalizeUrl } from '@/lib/url'
 import { useSmartNoteNavigation, useSecondaryPage } from '@/PageManager'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useReply } from '@/providers/ReplyProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import client from '@/services/client.service'
 import { eventService, queryService } from '@/services/client.service'
 import noteStatsService from '@/services/note-stats.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
+import { buildReplyReadRelayList } from '@/lib/relay-list-builder'
 import { Filter, Event as NEvent, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -44,7 +45,8 @@ function ReplyNoteList({ index, event, sort = 'oldest' }: { index?: number; even
   const { hideUntrustedInteractions, isUserTrusted } = useUserTrust()
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
-  const { relayList: userRelayList } = useNostr()
+  const { relayList: userRelayList, pubkey: userPubkey } = useNostr()
+  const { blockedRelays } = useFavoriteRelays()
   const [rootInfo, setRootInfo] = useState<TRootInfo | undefined>(undefined)
   const { repliesMap, addReplies } = useReply()
 
@@ -298,14 +300,13 @@ function ReplyNoteList({ index, event, sort = 'oldest' }: { index?: number; even
         if (!rootInfo) return // Type guard
         
         try {
-          // Privacy: Only use user's own relays + defaults, never connect to other users' relays
-          const userReadRelays = userRelayList?.read || []
-          const userWriteRelays = userRelayList?.write || []
-          const finalRelayUrls = Array.from(new Set([
-            ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url), // Fast, well-connected relays
-            ...userReadRelays.map(url => normalizeUrl(url) || url), // User's read relays
-            ...userWriteRelays.map(url => normalizeUrl(url) || url) // User's write relays
-          ]))
+          // READ from: FAST_READ_RELAY_URLS + user's inboxes + local relays + OP author's outboxes
+          const opAuthorPubkey = rootInfo.type === 'E' || rootInfo.type === 'A' ? rootInfo.pubkey : undefined
+          const finalRelayUrls = await buildReplyReadRelayList(
+            opAuthorPubkey,
+            userPubkey || undefined,
+            blockedRelays || []
+          )
 
           const filters: Filter[] = []
           if (rootInfo.type === 'E') {

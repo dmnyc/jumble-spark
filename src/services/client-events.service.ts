@@ -1,6 +1,4 @@
-import { FAST_READ_RELAY_URLS } from '@/constants'
 import logger from '@/lib/logger'
-import { normalizeUrl } from '@/lib/url'
 import type { Event as NEvent, Filter } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
 import DataLoader from 'dataloader'
@@ -8,72 +6,28 @@ import { LRUCache } from 'lru-cache'
 import indexedDb from './indexed-db.service'
 import type { QueryService } from './client-query.service'
 import client from './client.service'
+import { isReplaceableEvent } from '@/lib/event'
+import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 
 /**
  * Build comprehensive relay list: author's outboxes + user's inboxes + relay hints + defaults
+ * Uses the shared relay list builder utility
  */
-async function buildComprehensiveRelayList(
+async function buildComprehensiveRelayListForEvents(
   authorPubkey: string | undefined,
   relayHints: string[] = [],
-  seenRelays: string[] = []
+  seenRelays: string[] = [],
+  containingEventRelays: string[] = []
 ): Promise<string[]> {
-  const relayUrls = new Set<string>()
-  
-  // 1. Add relay hints (highest priority - these are explicit hints)
-  relayHints.forEach(url => {
-    const normalized = normalizeUrl(url)
-    if (normalized) relayUrls.add(normalized)
+  return buildComprehensiveRelayList({
+    authorPubkey,
+    userPubkey: client.pubkey,
+    relayHints,
+    seenRelays,
+    containingEventRelays,
+    includeFastReadRelays: true,
+    includeLocalRelays: true
   })
-  
-  // 2. Add relays where event was seen
-  seenRelays.forEach(url => {
-    const normalized = normalizeUrl(url)
-    if (normalized) relayUrls.add(normalized)
-  })
-  
-  // 3. Add author's outboxes (write relays) - where they publish
-  if (authorPubkey) {
-    try {
-      const authorRelayList = await client.fetchRelayList(authorPubkey)
-      const authorOutboxes = (authorRelayList.write || []).slice(0, 10) // Limit to 10 to avoid too many
-      authorOutboxes.forEach(url => {
-        const normalized = normalizeUrl(url)
-        if (normalized) relayUrls.add(normalized)
-      })
-      logger.debug('[EventService] Added author outboxes', {
-        author: authorPubkey.substring(0, 8),
-        count: authorOutboxes.length
-      })
-    } catch (error) {
-      logger.debug('[EventService] Failed to fetch author relay list', { error })
-    }
-  }
-  
-  // 4. Add logged-in user's inboxes (read relays) - where they receive events
-  const userPubkey = client.pubkey
-  if (userPubkey) {
-    try {
-      const userRelayList = await client.fetchRelayList(userPubkey)
-      const userInboxes = (userRelayList.read || []).slice(0, 10) // Limit to 10
-      userInboxes.forEach(url => {
-        const normalized = normalizeUrl(url)
-        if (normalized) relayUrls.add(normalized)
-      })
-      logger.debug('[EventService] Added user inboxes', {
-        count: userInboxes.length
-      })
-    } catch (error) {
-      logger.debug('[EventService] Failed to fetch user relay list', { error })
-    }
-  }
-  
-  // 5. Add default fast read relays as fallback
-  FAST_READ_RELAY_URLS.forEach(url => {
-    const normalized = normalizeUrl(url)
-    if (normalized) relayUrls.add(normalized)
-  })
-  
-  return Array.from(relayUrls)
 }
 
 export class EventService {
@@ -331,7 +285,7 @@ export class EventService {
     const authorPubkey = filter.authors?.length === 1 ? filter.authors[0] : undefined
     
     // Build comprehensive relay list
-    const relayUrls = await buildComprehensiveRelayList(authorPubkey, relayHints, seenRelays)
+    const relayUrls = await buildComprehensiveRelayListForEvents(authorPubkey, relayHints, seenRelays, [])
     
     if (!relayUrls.length) {
       // Fallback to default relays if comprehensive list is empty
@@ -349,12 +303,27 @@ export class EventService {
     })
 
     const isSingleEventById = filter.ids && filter.ids.length === 1 && filter.limit === 1
+    
+    // For single-event fetches, always use immediateReturn to return ASAP
+    // This is especially important for non-replaceable events (not in 10000-19999 or 30000-39999 ranges)
     const events = await this.queryService.query(relayUrls, filter, undefined, {
-      immediateReturn: isSingleEventById,
+      immediateReturn: isSingleEventById, // Return immediately when found
       eoseTimeout: isSingleEventById ? 100 : 500,
       globalTimeout: isSingleEventById ? 3000 : 10000
     })
-    return events.sort((a, b) => b.created_at - a.created_at)[0]
+    
+    const event = events.sort((a, b) => b.created_at - a.created_at)[0]
+    
+    // For non-replaceable events, we've already returned immediately via immediateReturn
+    // But log it for debugging
+    if (event && isSingleEventById && !isReplaceableEvent(event.kind)) {
+      logger.debug('[EventService] Non-replaceable event returned immediately', {
+        eventId: event.id.substring(0, 8),
+        kind: event.kind
+      })
+    }
+    
+    return event
   }
 
   /**
@@ -364,14 +333,16 @@ export class EventService {
   private async fetchEventsFromBigRelays(ids: readonly string[]): Promise<(NEvent | undefined)[]> {
     // Build comprehensive relay list (user's inboxes + defaults)
     // Note: For batch fetches, we don't have author info, so we use user's inboxes + defaults
-    const relayUrls = await buildComprehensiveRelayList(undefined, [], [])
+    const relayUrls = await buildComprehensiveRelayListForEvents(undefined, [], [], [])
 
     const isSingleEventFetch = ids.length === 1
+    // For single-event fetches, always use immediateReturn to return ASAP
+    // This is especially important for non-replaceable events (not in 10000-19999 or 30000-39999 ranges)
     const events = await this.queryService.query(relayUrls, {
       ids: Array.from(new Set(ids)),
       limit: ids.length
     }, undefined, {
-      immediateReturn: isSingleEventFetch,
+      immediateReturn: isSingleEventFetch, // Return immediately when found
       eoseTimeout: isSingleEventFetch ? 100 : 500,
       globalTimeout: isSingleEventFetch ? 3000 : 10000
     })

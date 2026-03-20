@@ -451,7 +451,7 @@ export default function Content({
         }
         if (node.type === 'event') {
           const id = node.data.split(':')[1]
-          return <EmbeddedNote key={index} noteId={id} className="mt-2" />
+          return <EmbeddedNote key={index} noteId={id} className="mt-2" containingEvent={event} />
         }
         if (node.type === 'mention') {
           return <EmbeddedMention key={index} userId={node.data.split(':')[1]} />

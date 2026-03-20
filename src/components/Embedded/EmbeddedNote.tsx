@@ -18,7 +18,15 @@ import { contentParserService } from '@/services/content-parser.service'
 import { useSmartNoteNavigation } from '@/PageManager'
 import { toNote } from '@/lib/link'
 
-export function EmbeddedNote({ noteId, className }: { noteId: string; className?: string }) {
+export function EmbeddedNote({ 
+  noteId, 
+  className,
+  containingEvent 
+}: { 
+  noteId: string
+  className?: string
+  containingEvent?: Event // Event that contains this embedded note - use its author's relays and relay hints
+}) {
   const { event, isFetching } = useFetchEvent(noteId)
   const [retryEvent, setRetryEvent] = useState<Event | undefined>(undefined)
   const [isRetrying, setIsRetrying] = useState(false)
@@ -59,7 +67,7 @@ export function EmbeddedNote({ noteId, className }: { noteId: string; className?
   }
 
   if (!finalEvent) {
-    return <EmbeddedNoteNotFound className={className} noteId={noteId} onEventFound={setRetryEvent} />
+    return <EmbeddedNoteNotFound className={className} noteId={noteId} onEventFound={setRetryEvent} containingEvent={containingEvent} />
   }
 
   // Check if this event has bookstr tags (at least "book" tag)
@@ -119,11 +127,13 @@ function EmbeddedNoteSkeleton({ className }: { className?: string }) {
 function EmbeddedNoteNotFound({ 
   noteId, 
   className,
-  onEventFound 
+  onEventFound,
+  containingEvent
 }: { 
   noteId: string
   className?: string
   onEventFound?: (event: Event) => void
+  containingEvent?: Event // Event that contains this embedded note - use its author's relays and relay hints
 }) {
   const { t } = useTranslation()
   const [isSearchingExternal, setIsSearchingExternal] = useState(false)
@@ -132,8 +142,12 @@ function EmbeddedNoteNotFound({
   const [hexEventId, setHexEventId] = useState<string | null>(null)
 
   // Calculate which external relays would be tried when user clicks "Try external relays".
-  // The client's initial fetch now uses: (1) user's relays or BIG, (2) bech32 hints + author read+write, (3) SEARCHABLE.
-  // We treat BIG + FAST_READ as "already tried"; external = (hints + author read+write + seenOn + SEARCHABLE) minus those.
+  // IMPORTANT: For embedded events, we should search:
+  // 1. Containing event author's relays (outboxes + inboxes)
+  // 2. Relay hints from containing event (e, a, q tags - 3rd position)
+  // 3. Bech32 hints + embedded event author's relays
+  // 4. Relays where embedded event was seen
+  // 5. SEARCHABLE_RELAY_URLS
   useEffect(() => {
     const getExternalRelays = async () => {
       const alreadyTriedRelaysSet = new Set<string>()
@@ -145,6 +159,27 @@ function EmbeddedNoteNotFound({
       let hintRelays: string[] = []
       let extractedHexEventId: string | null = null
 
+      // 1. Extract relay hints from containing event (e, a, q tags - 3rd position)
+      if (containingEvent) {
+        for (const tag of containingEvent.tags) {
+          if (['e', 'a', 'q'].includes(tag[0]) && tag.length > 2 && typeof tag[2] === 'string') {
+            const hint = tag[2]
+            if (hint.startsWith('wss://') || hint.startsWith('ws://')) {
+              hintRelays.push(hint)
+            }
+          }
+        }
+        
+        // Also get containing event author's relays
+        try {
+          const containingAuthorRelayList = await client.fetchRelayList(containingEvent.pubkey).catch(() => ({ read: [] as string[], write: [] as string[] }))
+          hintRelays.push(...(containingAuthorRelayList.read ?? []).slice(0, 10), ...(containingAuthorRelayList.write ?? []).slice(0, 10))
+        } catch (err) {
+          logger.debug('Failed to fetch containing event author relays', { error: err })
+        }
+      }
+
+      // 2. Extract hints from bech32 ID and embedded event author
       if (!/^[0-9a-f]{64}$/.test(noteId)) {
         try {
           const { type, data } = nip19.decode(noteId)
@@ -154,12 +189,12 @@ function EmbeddedNoteNotFound({
             if (data.relays) hintRelays.push(...data.relays)
             if (data.author) {
               const authorRelayList = await client.fetchRelayList(data.author).catch(() => ({ read: [] as string[], write: [] as string[] }))
-              hintRelays.push(...(authorRelayList.read ?? []).slice(0, 4), ...(authorRelayList.write ?? []).slice(0, 4))
+              hintRelays.push(...(authorRelayList.read ?? []).slice(0, 10), ...(authorRelayList.write ?? []).slice(0, 10))
             }
           } else if (type === 'naddr') {
             if (data.relays) hintRelays.push(...data.relays)
             const authorRelayList = await client.fetchRelayList(data.pubkey).catch(() => ({ read: [] as string[], write: [] as string[] }))
-            hintRelays.push(...(authorRelayList.read ?? []).slice(0, 4), ...(authorRelayList.write ?? []).slice(0, 4))
+            hintRelays.push(...(authorRelayList.read ?? []).slice(0, 10), ...(authorRelayList.write ?? []).slice(0, 10))
           } else if (type === 'note') {
             extractedHexEventId = data
           }
@@ -172,7 +207,7 @@ function EmbeddedNoteNotFound({
       
       setHexEventId(extractedHexEventId)
       
-      // Get relays where this event was seen
+      // 3. Get relays where this embedded event was seen
       const seenOn = extractedHexEventId ? client.getSeenEventRelayUrls(extractedHexEventId) : []
       hintRelays.push(...seenOn)
       
