@@ -181,24 +181,23 @@ async function fetchRelayUrlsFromKind10002 (authorPubkey, queryRelayUrls) {
       await new Promise((resolve, reject) => {
         let timeoutId
         let resolved = false
-        const onOpen = () => {
+        const cleanup = () => {
           if (resolved) return
           resolved = true
           clearTimeout(timeoutId)
+          ws.removeListener('open', onOpen)
+          ws.removeListener('error', onError)
+        }
+        const onOpen = () => {
+          cleanup()
           resolve()
         }
         const onError = (err) => {
-          if (resolved) return
-          resolved = true
-          clearTimeout(timeoutId)
-          ws.removeListener('open', onOpen)
+          cleanup()
           reject(err)
         }
         timeoutId = setTimeout(() => {
-          if (resolved) return
-          resolved = true
-          ws.removeListener('open', onOpen)
-          ws.removeListener('error', onError)
+          cleanup()
           reject(new Error('open timeout'))
         }, 15000)
         ws.once('open', onOpen)
@@ -329,24 +328,23 @@ async function publishEvent (relayUrls, event) {
       await new Promise((resolve, reject) => {
         let timeoutId
         let resolved = false
-        const onOpen = () => {
+        const cleanup = () => {
           if (resolved) return
           resolved = true
           clearTimeout(timeoutId)
+          ws.removeListener('open', onOpen)
+          ws.removeListener('error', onError)
+        }
+        const onOpen = () => {
+          cleanup()
           resolve()
         }
         const onError = (err) => {
-          if (resolved) return
-          resolved = true
-          clearTimeout(timeoutId)
-          ws.removeListener('open', onOpen)
+          cleanup()
           reject(err)
         }
         timeoutId = setTimeout(() => {
-          if (resolved) return
-          resolved = true
-          ws.removeListener('open', onOpen)
-          ws.removeListener('error', onError)
+          cleanup()
           reject(new Error('open timeout'))
         }, 10000)
         ws.once('open', onOpen)

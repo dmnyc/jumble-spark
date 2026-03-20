@@ -282,7 +282,7 @@ class IndexedDbService {
       : event.id
     const isTombstoned = await this.isTombstoned(tombstoneKey)
     if (isTombstoned) {
-      logger.debug('[IndexedDB] Skipping tombstoned event', { tombstoneKey, eventId: event.id?.substring(0, 8) })
+      logger.debug('[IndexedDB] Skipping tombstoned event', { tombstoneKey, eventId: event.id })
       return Promise.reject(new Error('Event is tombstoned'))
     }
     
@@ -299,10 +299,9 @@ class IndexedDbService {
     logger.debug('[IndexedDB] Putting replaceable event', {
       kind: cleanEvent.kind,
       storeName,
-      eventId: cleanEvent.id?.substring(0, 8),
-      pubkey: cleanEvent.pubkey?.substring(0, 8),
-      created_at: cleanEvent.created_at,
-      fullEventId: cleanEvent.id
+      eventId: cleanEvent.id,
+      pubkey: cleanEvent.pubkey,
+      created_at: cleanEvent.created_at
     })
     
     await this.initPromise
@@ -343,7 +342,7 @@ class IndexedDbService {
       logger.debug('[IndexedDB] Store exists, proceeding with save', {
         storeName,
         kind: cleanEvent.kind,
-        eventId: cleanEvent.id?.substring(0, 8),
+        eventId: cleanEvent.id,
         dbVersion: this.db.version,
         allStores: Array.from(this.db.objectStoreNames)
       })
@@ -352,7 +351,7 @@ class IndexedDbService {
       const store = transaction.objectStore(storeName)
 
       const key = this.getReplaceableEventKeyFromEvent(cleanEvent)
-      logger.debug('[IndexedDB] Getting existing event', { storeName, key, eventId: cleanEvent.id?.substring(0, 8) })
+      logger.debug('[IndexedDB] Getting existing event', { storeName, key, eventId: cleanEvent.id })
       
       const getRequest = store.get(key)
       getRequest.onsuccess = () => {
@@ -361,7 +360,7 @@ class IndexedDbService {
           logger.debug('[IndexedDB] Found existing event', { 
             storeName,
             key,
-            oldEventId: oldValue.value.id?.substring(0, 8),
+            oldEventId: oldValue.value.id,
             oldCreatedAt: oldValue.value.created_at,
             newCreatedAt: cleanEvent.created_at,
             willUpdate: cleanEvent.created_at > oldValue.value.created_at 
@@ -374,7 +373,7 @@ class IndexedDbService {
           logger.debug('[IndexedDB] Keeping existing event (newer or same timestamp)', { 
             storeName,
             key,
-            existingEventId: oldValue.value.id?.substring(0, 8) 
+            existingEventId: oldValue.value.id 
           })
           transaction.commit()
           return resolve(oldValue.value)
@@ -383,17 +382,16 @@ class IndexedDbService {
         logger.debug('[IndexedDB] Putting new event', { 
           storeName, 
           key, 
-          eventId: cleanEvent.id?.substring(0, 8), 
-          fullEventId: cleanEvent.id,
-          content: cleanEvent.content?.substring(0, 50) 
+          eventId: cleanEvent.id,
+          content: cleanEvent.content
         })
         const putRequest = store.put(this.formatValue(key, cleanEvent))
         putRequest.onsuccess = () => {
           logger.debug('[IndexedDB] Successfully put event', { 
             storeName, 
             key, 
-            eventId: cleanEvent.id?.substring(0, 8),
-            content: cleanEvent.content?.substring(0, 50)
+            eventId: cleanEvent.id,
+            content: cleanEvent.content
           })
           transaction.commit()
           resolve(cleanEvent)
@@ -448,6 +446,11 @@ class IndexedDbService {
       request.onsuccess = () => {
         const row = request.result as TValue<Event> | undefined
         if (!row) {
+          logger.debug('[IndexedDB] getReplaceableEvent - no row found', {
+            pubkey,
+            kind,
+            d
+          })
           transaction.commit()
           return resolve(undefined)
         }
@@ -459,11 +462,18 @@ class IndexedDbService {
           // Profile is stale, but return it anyway - refresh will happen in background
           // This prevents the "no profile" state when cache exists but is just old
           logger.debug('[IndexedDB] Profile cache is stale but returning anyway', {
-            pubkey: pubkey.substring(0, 8),
+            pubkey,
             age: Date.now() - row.addedAt,
-            maxAge: PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS
+            maxAge: PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS,
+            eventId: row.value?.id
           })
         }
+        logger.debug('[IndexedDB] getReplaceableEvent - found', {
+          pubkey,
+          kind,
+          eventId: row.value?.id,
+          addedAt: row.addedAt
+        })
         transaction.commit()
         resolve(row.value)
       }

@@ -187,7 +187,7 @@ class ClientService extends EventTarget {
   ) {
     if (event.kind === kinds.RelayList) {
       logger.info('[DetermineTargetRelays] Determining target relays for relay list event', {
-        pubkey: event.pubkey?.substring(0, 8),
+        pubkey: event.pubkey,
         hasSpecifiedRelays: !!specifiedRelayUrls?.length,
         specifiedRelayCount: specifiedRelayUrls?.length ?? 0,
         hasAdditionalRelays: !!additionalRelayUrls?.length,
@@ -273,7 +273,7 @@ class ClientService extends EventTarget {
           spellRelayList = await this.fetchRelayList(event.pubkey)
         } catch (err) {
           logger.warn('[DetermineTargetRelays] fetchRelayList failed for spell', {
-            pubkey: event.pubkey?.substring(0, 8),
+            pubkey: event.pubkey,
             error: err instanceof Error ? err.message : String(err)
           })
           spellRelayList = { write: [], read: [], originalRelays: [] }
@@ -351,7 +351,7 @@ class ClientService extends EventTarget {
 
       if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
         logger.debug('[DetermineTargetRelays] Fetching user relay list for event publication', {
-          pubkey: event.pubkey?.substring(0, 8),
+          pubkey: event.pubkey,
           kind: event.kind
         })
       }
@@ -360,7 +360,7 @@ class ClientService extends EventTarget {
         relayList = await this.fetchRelayList(event.pubkey)
       } catch (err) {
         logger.warn('[DetermineTargetRelays] fetchRelayList failed, using fallback relays', {
-          pubkey: event.pubkey?.substring(0, 8),
+          pubkey: event.pubkey,
           error: err instanceof Error ? err.message : String(err)
         })
         relayList = { write: [], read: [], originalRelays: [] }
@@ -1788,18 +1788,18 @@ class ClientService extends EventTarget {
     // Deduplicate concurrent requests for the same pubkey's relay list
     const existingRequest = this.relayListRequestCache.get(pubkey)
     if (existingRequest) {
-      logger.debug('[FetchRelayList] Using cached in-flight request', { pubkey: pubkey.substring(0, 8) })
+      logger.debug('[FetchRelayList] Using cached in-flight request', { pubkey })
       return existingRequest
     }
     
-    logger.debug('[FetchRelayList] Starting fetch', { pubkey: pubkey.substring(0, 8) })
+    logger.debug('[FetchRelayList] Starting fetch', { pubkey })
     const requestPromise = (async () => {
       try {
         const startTime = Date.now()
         const [relayList] = await this.fetchRelayLists([pubkey])
         const duration = Date.now() - startTime
         logger.debug('[FetchRelayList] Fetch completed', {
-          pubkey: pubkey.substring(0, 8),
+          pubkey,
           duration: `${duration}ms`,
           hasRelayList: !!relayList,
           writeCount: relayList?.write?.length ?? 0,
@@ -1808,7 +1808,7 @@ class ClientService extends EventTarget {
         return relayList
       } catch (error) {
         logger.error('[FetchRelayList] Fetch failed', {
-          pubkey: pubkey.substring(0, 8),
+          pubkey,
           error: error instanceof Error ? error.message : String(error)
         })
         throw error
