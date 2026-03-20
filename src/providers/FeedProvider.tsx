@@ -174,7 +174,7 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
       // Wait for favoriteRelays to be initialized (should have at least default relays)
       // If favoriteRelays is empty, it might not be initialized yet, so wait
       if (favoriteRelays.length === 0 && !pubkey) {
-        // For anonymous users, favoriteRelays should be initialized from BIG_RELAY_URLS
+        // For anonymous users, favoriteRelays should be initialized from FAST_READ_RELAY_URLS
         // If it's still empty, something is wrong, but we'll use defaults
         logger.debug('FeedProvider: favoriteRelays is empty, using defaults')
       }

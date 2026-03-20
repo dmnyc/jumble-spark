@@ -1,7 +1,7 @@
 import { Favicon } from '@/components/Favicon'
 import NormalFeed from '@/components/NormalFeed'
 import { Button } from '@/components/ui/button'
-import { BIG_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { toProfileList } from '@/lib/link'
@@ -79,7 +79,7 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
       setSubRequests([
         {
           filter: { '#t': [hashtag], ...(kinds.length > 0 ? { kinds } : {}) },
-          urls: BIG_RELAY_URLS
+          urls: FAST_READ_RELAY_URLS
         }
       ])
       // Set controls for hashtag subscribe button - check subscription status
@@ -118,7 +118,7 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
           {
             filter: { '#I': [externalContentId], ...(kinds.length > 0 ? { kinds } : {}) },
             urls: Array.from(new Set([
-              ...BIG_RELAY_URLS.map(url => normalizeUrl(url) || url),
+              ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url),
               ...(relayList?.write || []).map(url => normalizeUrl(url) || url)
             ]))
           }
@@ -176,7 +176,7 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
           setSubRequests([
             {
               filter,
-              urls: BIG_RELAY_URLS
+              urls: FAST_READ_RELAY_URLS
             }
           ])
         }

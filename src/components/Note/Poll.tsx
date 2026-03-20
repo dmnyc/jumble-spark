@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { BIG_RELAY_URLS, POLL_TYPE } from '@/constants'
+import { FAST_READ_RELAY_URLS, POLL_TYPE } from '@/constants'
 import { useFetchPollResults } from '@/hooks/useFetchPollResults'
 import { createPollResponseDraftEvent } from '@/lib/draft-event'
 import { getPollMetadataFromEvent } from '@/lib/event-metadata'
@@ -266,7 +266,7 @@ async function ensurePollRelays(_creator: string, poll: { relayUrls: string[] })
   const relays = poll.relayUrls.slice(0, 4)
   // Privacy: Use defaults instead of fetching creator's relays
   if (!relays.length) {
-    relays.push(...BIG_RELAY_URLS.slice(0, 4))
+    relays.push(...FAST_READ_RELAY_URLS.slice(0, 4))
   }
   return relays
 }

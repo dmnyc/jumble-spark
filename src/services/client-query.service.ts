@@ -421,8 +421,8 @@ export class QueryService {
   ): Promise<NEvent[]> {
     let relays = Array.from(new Set(urls))
     if (relays.length === 0) {
-      const { BIG_RELAY_URLS } = await import('@/constants')
-      relays = [...BIG_RELAY_URLS]
+      const { FAST_READ_RELAY_URLS } = await import('@/constants')
+      relays = [...FAST_READ_RELAY_URLS]
     }
     const filters = Array.isArray(filter) ? filter : [filter]
     const hasKind1 = filters.some((f) => f.kinds && (Array.isArray(f.kinds) ? f.kinds.includes(1) : f.kinds === 1))

@@ -11,7 +11,7 @@ import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
-import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
 import { eventService, queryService } from '@/services/client.service'
 import { nip66Service } from '@/services/nip66.service'
@@ -84,7 +84,6 @@ export function useMenuActions({
       ...currentBrowsingRelayUrls.map(url => normalizeUrl(url) || url),
       ...favoriteRelays.map(url => normalizeUrl(url) || url),
       ...relaySets.flatMap(set => set.relayUrls.map(url => normalizeUrl(url) || url)),
-      ...BIG_RELAY_URLS.map(url => normalizeUrl(url) || url),
       ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url),
       ...FAST_WRITE_RELAY_URLS.map(url => normalizeUrl(url) || url)
     ].filter(Boolean) as string[]
@@ -115,7 +114,7 @@ export function useMenuActions({
         const allRelays = [
           ...(currentBrowsingRelayUrls || []),
           ...(favoriteRelays || []),
-          ...BIG_RELAY_URLS,
+          ...FAST_READ_RELAY_URLS,
           ...FAST_READ_RELAY_URLS,
           ...FAST_WRITE_RELAY_URLS
         ]
@@ -159,7 +158,7 @@ export function useMenuActions({
       const allRelays = [
         ...(currentBrowsingRelayUrls || []),
         ...(favoriteRelays || []),
-        ...BIG_RELAY_URLS,
+        ...FAST_READ_RELAY_URLS,
         ...FAST_READ_RELAY_URLS,
         ...FAST_WRITE_RELAY_URLS
       ]

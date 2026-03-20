@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS, POLL_TYPE } from '@/constants'
+import { FAST_READ_RELAY_URLS, POLL_TYPE } from '@/constants'
 import { TEmoji, TPollType, TRelayList, TRelaySet, TPaymentInfo, TProfile } from '@/types'
 import { Event, kinds } from 'nostr-tools'
 import { buildATag } from './draft-event'
@@ -12,7 +12,7 @@ import logger from '@/lib/logger'
 
 export function getRelayListFromEvent(event?: Event | null, blockedRelays?: string[]) {
   if (!event) {
-    return { write: BIG_RELAY_URLS, read: BIG_RELAY_URLS, originalRelays: [] }
+    return { write: FAST_READ_RELAY_URLS, read: FAST_READ_RELAY_URLS, originalRelays: [] }
   }
 
   const torBrowserDetected = isTorBrowser()
@@ -48,11 +48,11 @@ export function getRelayListFromEvent(event?: Event | null, blockedRelays?: stri
     }
   })
 
-  // If there are too many relays, use the default BIG_RELAY_URLS
+  // If there are too many relays, use the default FAST_READ_RELAY_URLS
   // Because they don't know anything about relays, their settings cannot be trusted
   return {
-    write: relayList.write.length && relayList.write.length <= 8 ? relayList.write : BIG_RELAY_URLS,
-    read: relayList.read.length && relayList.write.length <= 8 ? relayList.read : BIG_RELAY_URLS,
+    write: relayList.write.length && relayList.write.length <= 8 ? relayList.write : FAST_READ_RELAY_URLS,
+    read: relayList.read.length && relayList.write.length <= 8 ? relayList.read : FAST_READ_RELAY_URLS,
     originalRelays: relayList.originalRelays
   }
 }

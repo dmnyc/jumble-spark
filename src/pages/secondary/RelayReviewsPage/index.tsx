@@ -1,5 +1,5 @@
 import NoteList from '@/components/NoteList'
-import { BIG_RELAY_URLS, ExtendedKind } from '@/constants'
+import { FAST_READ_RELAY_URLS, ExtendedKind } from '@/constants'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
 import { forwardRef, useMemo } from 'react'
@@ -24,7 +24,7 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
         showKinds={[ExtendedKind.RELAY_REVIEW]}
         subRequests={[
           {
-            urls: [normalizedUrl, ...BIG_RELAY_URLS],
+            urls: [normalizedUrl, ...FAST_READ_RELAY_URLS],
             filter: { '#d': [normalizedUrl] }
           }
         ]}

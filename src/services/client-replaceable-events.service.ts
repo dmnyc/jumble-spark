@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS, ExtendedKind, PROFILE_FETCH_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, ExtendedKind, PROFILE_FETCH_RELAY_URLS } from '@/constants'
 import { kinds, nip19 } from 'nostr-tools'
 import type { Event as NEvent, Filter } from 'nostr-tools'
 import DataLoader from 'dataloader'
@@ -10,6 +10,7 @@ import { TProfile } from '@/types'
 import { LRUCache } from 'lru-cache'
 import indexedDb from './indexed-db.service'
 import type { QueryService } from './client-query.service'
+import { isReplaceableEvent, getReplaceableCoordinateFromEvent } from '@/lib/event'
 
 export class ReplaceableEventService {
   private queryService: QueryService
@@ -17,6 +18,18 @@ export class ReplaceableEventService {
   private followingFavoriteRelaysCache = new LRUCache<string, Promise<[string, string[]][]>>({
     max: 50,
     ttl: 1000 * 60 * 60
+  })
+  // In-memory cache for profiles - instant access, no IndexedDB blocking
+  private profileMemoryCache = new LRUCache<string, NEvent>({
+    max: 1000, // Cache up to 1000 profiles in memory
+    ttl: 1000 * 60 * 30, // 30 minutes TTL
+    updateAgeOnGet: true // Refresh TTL on access
+  })
+  // In-memory cache for all replaceable events - fast access
+  private replaceableEventMemoryCache = new LRUCache<string, NEvent>({
+    max: 2000, // Cache up to 2000 events in memory
+    ttl: 1000 * 60 * 30, // 30 minutes TTL
+    updateAgeOnGet: true
   })
   private replaceableEventFromBigRelaysDataloader: DataLoader<
     { pubkey: string; kind: number },
@@ -58,42 +71,163 @@ export class ReplaceableEventService {
 
   /**
    * Fetch replaceable event (profile, relay list, etc.)
+   * Always checks in-memory cache FIRST (instant), then IndexedDB, then fetches from relays
    */
   async fetchReplaceableEvent(pubkey: string, kind: number, d?: string): Promise<NEvent | undefined> {
-    if (d) {
-      const event = await this.replaceableEventDataLoader.load({ pubkey, kind, d })
-      return event || undefined
+    const cacheKey = d ? `${kind}:${pubkey}:${d}` : `${kind}:${pubkey}`
+    
+    // 1. Check in-memory cache FIRST - instant return, no async overhead
+    const memoryCached = this.replaceableEventMemoryCache.get(cacheKey)
+    if (memoryCached) {
+      // Check tombstone in background (non-blocking)
+      this.checkTombstoneAndUpdateCache(memoryCached, kind).catch(() => {})
+      // Fetch in background to update cache if newer version exists
+      this.refreshInBackground(pubkey, kind, d).catch(() => {})
+      return memoryCached
     }
-    const event = await this.replaceableEventFromBigRelaysDataloader.load({ pubkey, kind })
-    return event || undefined
+    
+    // 2. Check IndexedDB (async but faster than network)
+    try {
+      const indexedDbCached = await indexedDb.getReplaceableEvent(pubkey, kind, d)
+      if (indexedDbCached) {
+        // Check tombstone (non-blocking - check in background)
+        const tombstoneKey = isReplaceableEvent(kind) 
+          ? getReplaceableCoordinateFromEvent(indexedDbCached)
+          : indexedDbCached.id
+        // Check tombstone in background, don't block
+        indexedDb.isTombstoned(tombstoneKey).then(isTombstoned => {
+          if (isTombstoned) {
+            // Remove from caches if tombstoned
+            this.replaceableEventMemoryCache.delete(cacheKey)
+          } else {
+            // Add to memory cache for next time
+            this.replaceableEventMemoryCache.set(cacheKey, indexedDbCached)
+          }
+        }).catch(() => {})
+        
+        // Fetch in background to update cache if newer version exists
+        this.refreshInBackground(pubkey, kind, d).catch(() => {})
+        return indexedDbCached
+      }
+    } catch (error) {
+      // IndexedDB error - continue to network fetch
+    }
+    
+    // 3. Not in cache, fetch from network
+    const event = d
+      ? await this.replaceableEventDataLoader.load({ pubkey, kind, d })
+      : await this.replaceableEventFromBigRelaysDataloader.load({ pubkey, kind })
+    
+    if (event) {
+      // Add to memory cache for instant access next time
+      this.replaceableEventMemoryCache.set(cacheKey, event)
+      return event
+    }
+    
+    return undefined
+  }
+  
+  /**
+   * Check tombstone and update cache (non-blocking background operation)
+   */
+  private async checkTombstoneAndUpdateCache(event: NEvent, kind: number): Promise<void> {
+    const tombstoneKey = isReplaceableEvent(kind) 
+      ? getReplaceableCoordinateFromEvent(event)
+      : event.id
+    const isTombstoned = await indexedDb.isTombstoned(tombstoneKey)
+    if (isTombstoned) {
+      const cacheKey = isReplaceableEvent(kind)
+        ? `${kind}:${event.pubkey}`
+        : `${kind}:${event.pubkey}:${event.id}`
+      this.replaceableEventMemoryCache.delete(cacheKey)
+    }
+  }
+  
+  /**
+   * Refresh event in background (non-blocking)
+   */
+  private async refreshInBackground(pubkey: string, kind: number, d?: string): Promise<void> {
+    try {
+      if (d) {
+        await this.replaceableEventDataLoader.load({ pubkey, kind, d })
+      } else {
+        const event = await this.replaceableEventFromBigRelaysDataloader.load({ pubkey, kind })
+        if (event) {
+          const cacheKey = `${kind}:${pubkey}`
+          this.replaceableEventMemoryCache.set(cacheKey, event)
+        }
+      }
+    } catch {
+      // Ignore errors in background refresh
+    }
   }
 
   /**
-   * Batch fetch replaceable events from big relays
+   * Batch fetch replaceable events from profile fetch relays
+   * Optimized: checks memory cache first (instant), then IndexedDB, then network
    */
-  async fetchReplaceableEventsFromBigRelays(pubkeys: string[], kind: number): Promise<(NEvent | undefined)[]> {
-    const events = await indexedDb.getManyReplaceableEvents(pubkeys, kind)
-    const nonExistingPubkeyIndexMap = new Map<string, number>()
+  async fetchReplaceableEventsFromProfileFetchRelays(pubkeys: string[], kind: number): Promise<(NEvent | undefined)[]> {
+    // First check memory cache (instant)
+    const memoryCached: (NEvent | undefined)[] = []
+    const memoryMisses: { pubkey: string; index: number }[] = []
+    
     pubkeys.forEach((pubkey, i) => {
-      if (events[i] === undefined) {
-        nonExistingPubkeyIndexMap.set(pubkey, i)
+      const cacheKey = `${kind}:${pubkey}`
+      const cached = this.replaceableEventMemoryCache.get(cacheKey)
+      if (cached) {
+        memoryCached[i] = cached
+      } else {
+        memoryMisses.push({ pubkey, index: i })
       }
     })
-    const newEvents = await this.replaceableEventFromBigRelaysDataloader.loadMany(
-      Array.from(nonExistingPubkeyIndexMap.keys()).map((pubkey) => ({ pubkey, kind }))
-    )
-    newEvents.forEach((event, idx) => {
-      if (event && !(event instanceof Error)) {
-        const pubkey = Array.from(nonExistingPubkeyIndexMap.keys())[idx]
-        if (pubkey) {
-          const index = nonExistingPubkeyIndexMap.get(pubkey)
+    
+    // For memory misses, check IndexedDB in parallel
+    const indexedDbPromises = memoryMisses.map(async ({ pubkey, index }) => {
+      try {
+        const event = await indexedDb.getReplaceableEvent(pubkey, kind)
+        if (event) {
+          // Add to memory cache
+          const cacheKey = `${kind}:${pubkey}`
+          this.replaceableEventMemoryCache.set(cacheKey, event)
+          if (kind === kinds.Metadata) {
+            this.profileMemoryCache.set(pubkey, event)
+          }
+          memoryCached[index] = event
+          return { index, event }
+        }
+      } catch {
+        // Ignore errors
+      }
+      return null
+    })
+    
+    await Promise.allSettled(indexedDbPromises)
+    
+    // Find what's still missing and fetch from network
+    const stillMissing = memoryMisses.filter(({ index }) => memoryCached[index] === undefined)
+    if (stillMissing.length > 0) {
+      const newEvents = await this.replaceableEventFromBigRelaysDataloader.loadMany(
+        stillMissing.map(({ pubkey }) => ({ pubkey, kind }))
+      )
+      newEvents.forEach((event, idx) => {
+        if (event && !(event instanceof Error)) {
+          const { index } = stillMissing[idx]!
           if (index !== undefined) {
-            events[index] = event ?? undefined
+            memoryCached[index] = event ?? undefined
+            // Add to memory cache
+            if (event) {
+              const cacheKey = `${kind}:${stillMissing[idx]!.pubkey}`
+              this.replaceableEventMemoryCache.set(cacheKey, event)
+              if (kind === kinds.Metadata) {
+                this.profileMemoryCache.set(stillMissing[idx]!.pubkey, event)
+              }
+            }
           }
         }
-      }
-    })
-    return events.map(e => e ?? undefined)
+      })
+    }
+    
+    return memoryCached
   }
 
   /**
@@ -109,6 +243,28 @@ export class ReplaceableEventService {
   clearCaches(): void {
     this.replaceableEventFromBigRelaysDataloader.clearAll()
     this.replaceableEventDataLoader.clearAll()
+    this.replaceableEventMemoryCache.clear()
+    this.profileMemoryCache.clear()
+  }
+  
+  /**
+   * Pre-load profiles into memory cache for instant access
+   */
+  async preloadProfiles(pubkeys: string[]): Promise<void> {
+    // Load from IndexedDB in parallel
+    const promises = pubkeys.map(async (pubkey) => {
+      try {
+        const event = await indexedDb.getReplaceableEvent(pubkey, kinds.Metadata)
+        if (event) {
+          const cacheKey = `${kinds.Metadata}:${pubkey}`
+          this.replaceableEventMemoryCache.set(cacheKey, event)
+          this.profileMemoryCache.set(pubkey, event)
+        }
+      } catch {
+        // Ignore errors
+      }
+    })
+    await Promise.allSettled(promises)
   }
 
   /**
@@ -128,14 +284,21 @@ export class ReplaceableEventService {
     const eventsMap = new Map<string, NEvent>()
     await Promise.allSettled(
       Array.from(groups.entries()).map(async ([kind, pubkeys]) => {
+        // Use more relays in parallel for better performance
+        // Browsers can handle many concurrent subscriptions, so we use all available relays
         let relayUrls: string[]
         if (kind === kinds.Metadata || kind === kinds.RelayList) {
-          const base = Array.from(new Set([...BIG_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS]))
+          // Combine all available relays for profiles and relay lists
+          const base = Array.from(new Set([...FAST_READ_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS]))
           // TODO: Inject relay list service to get user's relays
           relayUrls = base
         } else {
-          relayUrls = BIG_RELAY_URLS
+          // Use all big relays for other replaceable events
+          relayUrls = FAST_READ_RELAY_URLS
         }
+        
+        // Use all relays in parallel - browsers can handle many concurrent subscriptions
+        // The QueryService manages per-relay concurrency limits to avoid overloading individual relays
         
         const events = await this.queryService.query(relayUrls, {
           authors: pubkeys,
@@ -147,10 +310,25 @@ export class ReplaceableEventService {
         })
 
         for (const event of events) {
+          // Check tombstone in background (non-blocking)
+          const tombstoneKey = isReplaceableEvent(event.kind)
+            ? getReplaceableCoordinateFromEvent(event)
+            : event.id
+          // Don't block on tombstone check - do it in background
+          indexedDb.isTombstoned(tombstoneKey).then(isTombstoned => {
+            if (isTombstoned) {
+              const cacheKey = `${event.kind}:${event.pubkey}`
+              this.replaceableEventMemoryCache.delete(cacheKey)
+            }
+          }).catch(() => {})
+          
           const key = `${event.pubkey}:${event.kind}`
           const existing = eventsMap.get(key)
           if (!existing || existing.created_at < event.created_at) {
             eventsMap.set(key, event)
+            // Add to memory cache
+            const cacheKey = `${event.kind}:${event.pubkey}`
+            this.replaceableEventMemoryCache.set(cacheKey, event)
           }
         }
       })
@@ -160,6 +338,12 @@ export class ReplaceableEventService {
       const key = `${pubkey}:${kind}`
       const event = eventsMap.get(key)
       if (event) {
+        // Add to memory cache for instant access
+        const cacheKey = `${kind}:${pubkey}`
+        this.replaceableEventMemoryCache.set(cacheKey, event)
+        if (kind === kinds.Metadata) {
+          this.profileMemoryCache.set(pubkey, event)
+        }
         indexedDb.putReplaceableEvent(event)
         return event
       } else {
@@ -189,7 +373,7 @@ export class ReplaceableEventService {
       Array.from(groups.entries()).map(async ([, items]) => {
         const { kind, d } = items[0]!
         const pubkeys = items.map(item => item.pubkey)
-        const relayUrls = BIG_RELAY_URLS
+        const relayUrls = FAST_READ_RELAY_URLS
 
         const filter: Filter = {
           authors: pubkeys,
@@ -206,10 +390,25 @@ export class ReplaceableEventService {
         })
 
         for (const event of events) {
+          // Check tombstone in background (non-blocking)
+          const tombstoneKey = isReplaceableEvent(event.kind)
+            ? getReplaceableCoordinateFromEvent(event)
+            : event.id
+          // Don't block on tombstone check - do it in background
+          indexedDb.isTombstoned(tombstoneKey).then(isTombstoned => {
+            if (isTombstoned) {
+              const cacheKey = `${event.kind}:${event.pubkey}:${d ?? ''}`
+              this.replaceableEventMemoryCache.delete(cacheKey)
+            }
+          }).catch(() => {})
+          
           const eventKey = `${event.pubkey}:${event.kind}:${d ?? ''}`
           const existing = eventsMap.get(eventKey)
           if (!existing || existing.created_at < event.created_at) {
             eventsMap.set(eventKey, event)
+            // Add to memory cache
+            const cacheKey = `${event.kind}:${event.pubkey}:${d ?? ''}`
+            this.replaceableEventMemoryCache.set(cacheKey, event)
           }
         }
       })
@@ -219,6 +418,12 @@ export class ReplaceableEventService {
       const eventKey = `${pubkey}:${kind}:${d ?? ''}`
       const event = eventsMap.get(eventKey)
       if (event) {
+        // Add to memory cache for instant access
+        const cacheKey = `${kind}:${pubkey}:${d ?? ''}`
+        this.replaceableEventMemoryCache.set(cacheKey, event)
+        if (kind === kinds.Metadata) {
+          this.profileMemoryCache.set(pubkey, event)
+        }
         indexedDb.putReplaceableEvent(event)
         return event
       } else {
@@ -354,7 +559,7 @@ export class ReplaceableEventService {
   async fetchProfilesForPubkeys(pubkeys: string[]): Promise<TProfile[]> {
     const deduped = Array.from(new Set(pubkeys.filter((p) => p && p.length === 64)))
     if (deduped.length === 0) return []
-    const events = await this.fetchReplaceableEventsFromBigRelays(deduped, kinds.Metadata)
+    const events = await this.fetchReplaceableEventsFromProfileFetchRelays(deduped, kinds.Metadata)
     const profiles: TProfile[] = []
     for (let i = 0; i < deduped.length; i++) {
       const ev = events[i]
@@ -485,7 +690,7 @@ export class ReplaceableEventService {
 
   private async _fetchFollowingFavoriteRelays(pubkey: string): Promise<[string, string[]][]> {
     const followings = await this.fetchFollowings(pubkey)
-    const favoriteRelaysEvents = await this.fetchReplaceableEventsFromBigRelays(
+    const favoriteRelaysEvents = await this.fetchReplaceableEventsFromProfileFetchRelays(
       followings.slice(0, 100),
       ExtendedKind.FAVORITE_RELAYS
     )

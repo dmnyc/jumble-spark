@@ -1,5 +1,5 @@
 import LoginDialog from '@/components/LoginDialog'
-import { BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS } from '@/constants'
 import {
   buildAltTag,
   buildClientTag,
@@ -374,11 +374,11 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       }
 
       const [relayListEvents, cacheRelayListEvents] = await Promise.all([
-        queryService.fetchEvents(BIG_RELAY_URLS, {
+        queryService.fetchEvents(FAST_READ_RELAY_URLS, {
           kinds: [kinds.RelayList],
           authors: [account.pubkey]
         }),
-        queryService.fetchEvents(BIG_RELAY_URLS, {
+        queryService.fetchEvents(FAST_READ_RELAY_URLS, {
           kinds: [ExtendedKind.CACHE_RELAYS],
           authors: [account.pubkey]
         })
@@ -771,12 +771,12 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
 
   const setupNewUser = async (signer: ISigner) => {
     await Promise.allSettled([
-      client.publishEvent(BIG_RELAY_URLS, await signer.signEvent(createFollowListDraftEvent([]))),
-      client.publishEvent(BIG_RELAY_URLS, await signer.signEvent(createMuteListDraftEvent([]))),
+      client.publishEvent(FAST_READ_RELAY_URLS, await signer.signEvent(createFollowListDraftEvent([]))),
+      client.publishEvent(FAST_READ_RELAY_URLS, await signer.signEvent(createMuteListDraftEvent([]))),
       client.publishEvent(
-        BIG_RELAY_URLS,
+        FAST_READ_RELAY_URLS,
         await signer.signEvent(
-          createRelayListDraftEvent(BIG_RELAY_URLS.map((url) => ({ url, scope: 'both' })))
+          createRelayListDraftEvent(FAST_READ_RELAY_URLS.map((url) => ({ url, scope: 'both' })))
         )
       )
     ])

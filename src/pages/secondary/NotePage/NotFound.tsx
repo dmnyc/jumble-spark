@@ -1,6 +1,6 @@
 import ClientSelect from '@/components/ClientSelect'
 import { Button } from '@/components/ui/button'
-import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import client from '@/services/client.service'
 import { AlertCircle, Search } from 'lucide-react'
@@ -27,10 +27,10 @@ export default function NotFound({
     if (!bech32Id) return
 
     const getExternalRelays = async () => {
-      // Get all relays that have already been tried (BIG_RELAY_URLS + FAST_READ_RELAY_URLS)
+      // Get all relays that have already been tried (FAST_READ_RELAY_URLS)
       // These are the relays used in the initial fetch
       const alreadyTriedRelaysSet = new Set<string>()
-      ;[...BIG_RELAY_URLS, ...FAST_READ_RELAY_URLS].forEach(url => {
+      ;[...FAST_READ_RELAY_URLS].forEach(url => {
         const normalized = normalizeUrl(url)
         if (normalized) alreadyTriedRelaysSet.add(normalized)
       })

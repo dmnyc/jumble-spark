@@ -102,11 +102,13 @@ const NotificationList = forwardRef(
     (event: NostrEvent) => {
       if (event.pubkey === pubkey) return
       setNotifications((oldEvents) => {
-        const index = oldEvents.findIndex((oldEvent) => compareEvents(oldEvent, event) <= 0)
-        if (index !== -1 && oldEvents[index].id === event.id) {
-          return oldEvents
+        // Check if event already exists
+        const existingIndex = oldEvents.findIndex((oldEvent) => oldEvent.id === event.id)
+        if (existingIndex !== -1) {
+          return oldEvents // Already exists, don't update
         }
-
+        
+        const index = oldEvents.findIndex((oldEvent) => compareEvents(oldEvent, event) <= 0)
         noteStatsService.updateNoteStatsByEvents([event])
         if (index === -1) {
           return [...oldEvents, event]
@@ -176,9 +178,9 @@ const NotificationList = forwardRef(
           onEvents: (events, eosed) => {
             if (events.length > 0) {
               setNotifications(events.filter((event) => event.pubkey !== pubkey))
-              setLoading(false)
             }
             if (eosed) {
+              setLoading(false)
               setUntil(events.length > 0 ? events[events.length - 1].created_at - 1 : undefined)
               noteStatsService.updateNoteStatsByEvents(events)
             }
@@ -227,6 +229,23 @@ const NotificationList = forwardRef(
     setVisibleNotifications(notifications.slice(0, showCount))
   }, [notifications, showCount])
 
+  // Use refs to avoid infinite loops from dependency changes
+  const notificationsRef = useRef(notifications)
+  const showCountRef = useRef(showCount)
+  const loadingRef = useRef(loading)
+  
+  useEffect(() => {
+    notificationsRef.current = notifications
+  }, [notifications])
+  
+  useEffect(() => {
+    showCountRef.current = showCount
+  }, [showCount])
+  
+  useEffect(() => {
+    loadingRef.current = loading
+  }, [loading])
+
   useEffect(() => {
     const options = {
       root: null,
@@ -235,31 +254,39 @@ const NotificationList = forwardRef(
     }
 
     const loadMore = async () => {
-      if (showCount < notifications.length) {
+      // Use refs to avoid dependency on notifications/showCount/loading
+      const currentNotifications = notificationsRef.current
+      const currentShowCount = showCountRef.current
+      const currentLoading = loadingRef.current
+
+      if (currentShowCount < currentNotifications.length) {
         setShowCount((count) => count + SHOW_COUNT)
         // preload more
-        if (notifications.length - showCount > LIMIT / 2) {
+        if (currentNotifications.length - currentShowCount > LIMIT / 2) {
           return
         }
       }
 
-      if (!pubkey || !timelineKey || !until || loading) return
+      if (!pubkey || !timelineKey || !until || currentLoading) return
       setLoading(true)
-      const newNotifications = await client.loadMoreTimeline(timelineKey, until, LIMIT)
-      setLoading(false)
-      if (newNotifications.length === 0) {
-        setUntil(undefined)
-        return
-      }
+      try {
+        const newNotifications = await client.loadMoreTimeline(timelineKey, until, LIMIT)
+        if (newNotifications.length === 0) {
+          setUntil(undefined)
+          return
+        }
 
-      if (newNotifications.length > 0) {
-        setNotifications((oldNotifications) => [
-          ...oldNotifications,
-          ...newNotifications.filter((event) => event.pubkey !== pubkey)
-        ])
-      }
+        if (newNotifications.length > 0) {
+          setNotifications((oldNotifications) => [
+            ...oldNotifications,
+            ...newNotifications.filter((event) => event.pubkey !== pubkey)
+          ])
+        }
 
-      setUntil(newNotifications[newNotifications.length - 1].created_at - 1)
+        setUntil(newNotifications[newNotifications.length - 1].created_at - 1)
+      } finally {
+        setLoading(false)
+      }
     }
 
     const observerInstance = new IntersectionObserver((entries) => {
@@ -279,7 +306,7 @@ const NotificationList = forwardRef(
         observerInstance.unobserve(currentBottomRef)
       }
     }
-  }, [pubkey, timelineKey, until, loading, showCount, notifications])
+  }, [pubkey, timelineKey, until]) // Removed notifications, showCount, loading to prevent infinite loops
 
   const refresh = () => {
     topRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' })

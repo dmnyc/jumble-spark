@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, KIND_1_BLOCKED_RELAY_URLS, NIP66_DISCOVERY_RELAY_URLS, PROFILE_RELAY_URLS, READ_ONLY_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, KIND_1_BLOCKED_RELAY_URLS, NIP66_DISCOVERY_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, READ_ONLY_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 
 /** NIP-01 filter keys only; NIP-50 adds `search` which non-searchable relays reject. */
 function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
@@ -126,7 +126,7 @@ class ClientService extends EventTarget {
   /** NIP-66: fetch relay discovery events (30166) in background to supplement search/NIP support. */
   private async fetchNip66RelayDiscovery(): Promise<void> {
     try {
-      const discoveryRelays = Array.from(new Set([...BIG_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
+      const discoveryRelays = Array.from(new Set([...FAST_READ_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
       const events = await this.queryService.query(
         discoveryRelays,
         { kinds: [ExtendedKind.RELAY_DISCOVERY] },
@@ -147,7 +147,7 @@ class ClientService extends EventTarget {
    * filter by #d so we get the newest report for this relay and can show monitor (author) info.
    */
   async fetchNip66DiscoveryForRelay(relayUrl: string): Promise<void> {
-    const discoveryRelays = Array.from(new Set([...BIG_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
+    const discoveryRelays = Array.from(new Set([...FAST_READ_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
     const dTag = normalizeUrl(relayUrl) || relayUrl
     const shortForm = simplifyUrl(dTag)
     const dValues = dTag !== shortForm ? [dTag, shortForm] : [dTag]
@@ -177,7 +177,7 @@ class ClientService extends EventTarget {
    * Determine which relays to publish an event to.
    * Fallbacks (used when user relay list is empty or fetch fails):
    * - General events (reactions, notes, etc.): FAST_WRITE_RELAY_URLS
-   * - Relay list / cache relays / contacts: BIG_RELAY_URLS + PROFILE_RELAY_URLS (added to additional)
+   * - Relay list / cache relays / contacts: FAST_READ_RELAY_URLS + PROFILE_RELAY_URLS (added to additional)
    * - Favorite relays: FAST_WRITE_RELAY_URLS (added to additional)
    * - Report events: FAST_WRITE_RELAY_URLS when no user/seen relays
    */
@@ -331,11 +331,10 @@ class ClientService extends EventTarget {
           ExtendedKind.RELAY_REVIEW
         ].includes(event.kind)
       ) {
-        _additionalRelayUrls.push(...BIG_RELAY_URLS, ...PROFILE_RELAY_URLS)
-        logger.debug('[DetermineTargetRelays] Relay list event detected, adding BIG_RELAY_URLS and PROFILE_RELAY_URLS', {
+        _additionalRelayUrls.push(...PROFILE_FETCH_RELAY_URLS)
+        logger.debug('[DetermineTargetRelays] Relay list event detected, adding PROFILE_FETCH_RELAY_URLS', {
           kind: event.kind,
-          bigRelays: BIG_RELAY_URLS,
-          profileRelays: PROFILE_RELAY_URLS,
+          profileFetchRelays: PROFILE_FETCH_RELAY_URLS,
           additionalRelayCount: _additionalRelayUrls.length
         })
       } else if (event.kind === ExtendedKind.FAVORITE_RELAYS) {
@@ -347,7 +346,7 @@ class ClientService extends EventTarget {
           additionalRelayCount: _additionalRelayUrls.length
         })
       } else if (event.kind === ExtendedKind.RSS_FEED_LIST) {
-        _additionalRelayUrls.push(...FAST_WRITE_RELAY_URLS, ...PROFILE_RELAY_URLS)
+        _additionalRelayUrls.push(...FAST_WRITE_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS)
       }
 
       if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
@@ -466,7 +465,7 @@ class ClientService extends EventTarget {
     presetStriked: string[]
   } {
     const presetSet = new Set<string>()
-    for (const u of [...FAST_WRITE_RELAY_URLS, ...BIG_RELAY_URLS]) {
+    for (const u of [...FAST_WRITE_RELAY_URLS, ...FAST_READ_RELAY_URLS]) {
       const n = normalizeUrl(u) || u
       if (n) presetSet.add(n)
     }
@@ -1388,7 +1387,7 @@ class ClientService extends EventTarget {
     } = {}
   ) {
     let relays = Array.from(new Set(urls))
-    if (relays.length === 0) relays = [...BIG_RELAY_URLS]
+    if (relays.length === 0) relays = [...FAST_READ_RELAY_URLS]
     const filters = Array.isArray(filter) ? filter : [filter]
     const hasKind1 = filters.some((f) => f.kinds && (Array.isArray(f.kinds) ? f.kinds.includes(1) : f.kinds === 1))
     if (hasKind1 && KIND_1_BLOCKED_RELAY_URLS.length > 0) {
@@ -1442,7 +1441,7 @@ class ClientService extends EventTarget {
 
   /**
    * Fetch a single event by id (hex, note1, nevent1, naddr1).
-   * Relay order: (1) session/DataLoader cache (2) buildInitialRelayList (user's FAST_READ + favorite + read) or BIG_RELAY_URLS
+   * Relay order: (1) session/DataLoader cache (2) buildInitialRelayList (user's FAST_READ + favorite + read) or FAST_READ_RELAY_URLS
    * (3) for nevent/naddr: bech32 relay hints + author's read (inbox) + author's write (outbox) from kind 10002
    * (4) if still missing and filter has authors: author's read+write again in tryHarderToFetchEvent
    * (5) SEARCHABLE_RELAY_URLS as final fallback. Author relays are used so embedded notes load from the author's relays.
@@ -1537,6 +1536,64 @@ class ClientService extends EventTarget {
    * (2) local index, (3) relay search on SEARCHABLE_RELAY_URLS (same as search page).
    * Returns cached results immediately, then streams relay results via callback.
    */
+  /**
+   * Fetch deletion events (kind 5) and update tombstone list
+   * This should be called during cache warmup to remove deleted events from cache
+   */
+  async fetchDeletionEvents(relayUrls: string[] = []): Promise<void> {
+    // Use all available relays if none specified
+    const relays = relayUrls.length > 0 
+      ? relayUrls 
+      : Array.from(new Set([...PROFILE_FETCH_RELAY_URLS]))
+    
+    logger.info('[ClientService] Fetching deletion events', { profileFetchRelays: PROFILE_FETCH_RELAY_URLS, relayCount: relays.length })
+    
+    try {
+      // Fetch latest 100 deletion events
+      const deletionEvents = await this.queryService.query(relays, {
+        kinds: [kinds.EventDeletion],
+        limit: 100
+      }, undefined, {
+        replaceableRace: true,
+        eoseTimeout: 500,
+        globalTimeout: 5000
+      })
+      
+      logger.debug('[ClientService] Fetched deletion events', { count: deletionEvents.length })
+      
+      // Process each deletion event and add to tombstone list
+      for (const deletionEvent of deletionEvents) {
+        // Deletion events have 'e' tags for non-replaceable events or 'a' tags for replaceable events
+        const eTag = deletionEvent.tags.find(tag => tag[0] === 'e')
+        const aTag = deletionEvent.tags.find(tag => tag[0] === 'a')
+        const kTag = deletionEvent.tags.find(tag => tag[0] === 'k')
+        
+        if (eTag && eTag[1]) {
+          // Non-replaceable event - use event ID
+          await indexedDb.addTombstone(eTag[1])
+        } else if (aTag && aTag[1]) {
+          // Replaceable event - a tag format is "kind:pubkey:d" which is already the coordinate
+          await indexedDb.addTombstone(aTag[1])
+        } else if (kTag && kTag[1] && deletionEvent.pubkey) {
+          // Fallback: if we have kind and pubkey, construct coordinate
+          const kind = parseInt(kTag[1], 10)
+          if (!isNaN(kind)) {
+            const coordinate = `${kind}:${deletionEvent.pubkey}`
+            await indexedDb.addTombstone(coordinate)
+          }
+        }
+      }
+      
+      // Remove tombstoned events from cache
+      const removed = await indexedDb.removeTombstonedFromCache()
+      if (removed > 0) {
+        logger.info('[ClientService] Removed tombstoned events from cache', { count: removed })
+      }
+    } catch (error) {
+      logger.warn('[ClientService] Failed to fetch deletion events', { error })
+    }
+  }
+
   async searchNpubsForMention(
     query: string,
     limit: number = 100,
@@ -1774,9 +1831,9 @@ class ClientService extends EventTarget {
     )
     
     // Then fetch from relays (will update cache if newer)
-    const relayEvents = await this.replaceableEventService.fetchReplaceableEventsFromBigRelays(pubkeys, kinds.RelayList)
+    const relayEvents = await this.replaceableEventService.fetchReplaceableEventsFromProfileFetchRelays(pubkeys, kinds.RelayList)
     
-    // Fetch cache relays from multiple sources: BIG_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, and user's inboxes/outboxes
+    // Fetch cache relays from multiple sources: FAST_READ_RELAY_URLS, PROFILE_RELAY_URLS, and user's inboxes/outboxes
     const cacheRelayEvents = await this.fetchCacheRelayEventsFromMultipleSources(pubkeys, relayEvents, storedRelayEvents)
 
     return pubkeys.map((_pubkey, index) => {
@@ -1829,14 +1886,14 @@ class ClientService extends EventTarget {
         if (storedCacheEvent) {
           const cacheRelayList = getRelayListFromEvent(storedCacheEvent)
           return {
-            write: cacheRelayList.write.length > 0 ? cacheRelayList.write : BIG_RELAY_URLS,
-            read: cacheRelayList.read.length > 0 ? cacheRelayList.read : BIG_RELAY_URLS,
+            write: cacheRelayList.write.length > 0 ? cacheRelayList.write : PROFILE_FETCH_RELAY_URLS,
+            read: cacheRelayList.read.length > 0 ? cacheRelayList.read : PROFILE_FETCH_RELAY_URLS,
             originalRelays: cacheRelayList.originalRelays
           }
         }
         return {
-          write: BIG_RELAY_URLS,
-          read: BIG_RELAY_URLS,
+          write: PROFILE_FETCH_RELAY_URLS,
+          read: PROFILE_FETCH_RELAY_URLS,
           originalRelays: []
         }
       }
@@ -1851,7 +1908,6 @@ class ClientService extends EventTarget {
 
   /**
    * Fetch cache relay events (kind 10432) from multiple sources:
-   * - BIG_RELAY_URLS
    * - PROFILE_FETCH_RELAY_URLS
    * - User's inboxes (read relays from kind 10002)
    * - User's outboxes (write relays from kind 10002)
@@ -1873,8 +1929,8 @@ class ClientService extends EventTarget {
       return storedCacheRelayEvents
     }
 
-    // Fetch from BIG_RELAY_URLS and PROFILE_FETCH_RELAY_URLS
-    const cacheRelayEvents = await this.replaceableEventService.fetchReplaceableEventsFromBigRelays(
+    // Fetch from PROFILE_FETCH_RELAY_URLS
+    const cacheRelayEvents = await this.replaceableEventService.fetchReplaceableEventsFromProfileFetchRelays(
       pubkeysToFetch,
       ExtendedKind.CACHE_RELAYS
     )
@@ -1995,10 +2051,10 @@ class ClientService extends EventTarget {
     // If many websocket connections are initiated simultaneously, it will be
     // very slow on Safari (for unknown reason)
     if (isSafari()) {
-      let urls = BIG_RELAY_URLS
+      let urls = FAST_READ_RELAY_URLS
       if (myPubkey) {
         const relayList = await this.fetchRelayList(myPubkey)
-        urls = relayList.read.concat(BIG_RELAY_URLS).slice(0, 5)
+        urls = relayList.read.concat(FAST_READ_RELAY_URLS).slice(0, 5)
       }
       return [{ urls, filter: { authors: pubkeys } }]
     }

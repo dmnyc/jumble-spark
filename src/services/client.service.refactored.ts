@@ -11,7 +11,7 @@
  * This maintains backward compatibility while improving maintainability.
  */
 
-import { BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, KIND_1_BLOCKED_RELAY_URLS, NIP66_DISCOVERY_RELAY_URLS, PROFILE_RELAY_URLS, READ_ONLY_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, KIND_1_BLOCKED_RELAY_URLS, NIP66_DISCOVERY_RELAY_URLS, PROFILE_RELAY_URLS, READ_ONLY_RELAY_URLS } from '@/constants'
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { formatPubkey, isValidPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib/pubkey'
@@ -122,7 +122,7 @@ class ClientService extends EventTarget {
 
   private async fetchNip66RelayDiscovery(): Promise<void> {
     try {
-      const discoveryRelays = Array.from(new Set([...BIG_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
+      const discoveryRelays = Array.from(new Set([...FAST_READ_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
       const events = await this.queryService.query(
         discoveryRelays,
         { kinds: [ExtendedKind.RELAY_DISCOVERY] },
@@ -139,7 +139,7 @@ class ClientService extends EventTarget {
   }
 
   async fetchNip66DiscoveryForRelay(relayUrl: string): Promise<void> {
-    const discoveryRelays = Array.from(new Set([...BIG_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
+    const discoveryRelays = Array.from(new Set([...FAST_READ_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
     const dTag = normalizeUrl(relayUrl) || relayUrl
     const { simplifyUrl } = await import('@/lib/url')
     const shortForm = simplifyUrl(dTag)
@@ -818,7 +818,7 @@ class ClientService extends EventTarget {
           ExtendedKind.RELAY_REVIEW
         ].includes(event.kind)
       ) {
-        _additionalRelayUrls.push(...BIG_RELAY_URLS, ...PROFILE_RELAY_URLS)
+        _additionalRelayUrls.push(...FAST_READ_RELAY_URLS, ...PROFILE_RELAY_URLS)
       } else if (event.kind === ExtendedKind.FAVORITE_RELAYS) {
         _additionalRelayUrls.push(...FAST_WRITE_RELAY_URLS)
       } else if (event.kind === ExtendedKind.RSS_FEED_LIST) {

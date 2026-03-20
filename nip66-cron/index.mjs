@@ -30,40 +30,40 @@ const RELAY_MONITOR_ANNOUNCEMENT_KIND = 10166
 
 /**
  * Default URLs to run NIP-11 checks against (30166); always merged with the monitor’s kind 10002 unless overridden.
- * Union of relay presets in src/constants.ts: DEFAULT_FAVORITE_RELAYS, BIG_RELAY_URLS,
+ * Union of relay presets in src/constants.ts: DEFAULT_FAVORITE_RELAYS, FAST_READ_RELAY_URLS,
  * NIP66_DISCOVERY_RELAY_URLS, BOOKSTR_RELAY_URLS, READ_ONLY_RELAY_URLS, KIND_1_BLOCKED_RELAY_URLS,
  * FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, GIF_RELAY_URLS, SEARCHABLE_RELAY_URLS,
  * PROFILE_RELAY_URLS, DEFAULT_NOSTRCONNECT_RELAY — deduped, sorted.
  */
+// Deduplicated list of default relays to monitor (normalized URLs, first occurrence preserved)
 const DEFAULT_RELAYS_TO_MONITOR = [
-  'wss://aggr.nostr.land',
-  'wss://bucket.coracle.social',
-  'wss://freelay.sovbit.host',
-  'wss://nostr.sovbit.host',
-  'wss://hist.nostr.land',
-  'wss://nos.lol',
-  'wss://nostr.land',
-  'wss://nostr.mom',
-  'wss://nostr.wine',
-  'wss://relay.lumina.rocks',
-  'wss://greensoul.space',
-  'wss://nostr21.com',
+  'wss://theforest.nostr1.com',
   'wss://orly-relay.imwald.eu',
+  'wss://nostr.land',
+  'wss://thecitadel.nostr1.com',
+  'wss://relay.nostr.watch',
+  'wss://relaypag.es',
+  'wss://hist.nostr.land',
   'wss://profiles.nostr1.com',
   'wss://purplepag.es',
+  'wss://nostr.wine',
+  'wss://nostr21.com',
+  'wss://aggr.nostr.land',
   'wss://relay.damus.io',
-  'wss://relay.gifbuddy.lol',
-  'wss://relay.nostr.watch',
-  'wss://relay.nsec.app',
   'wss://relay.primal.net',
-  'wss://relay.snort.social',
-  'wss://relaypag.es',
+  'wss://nos.lol',
+  'wss://relay.gifbuddy.lol',
+  'wss://freelay.sovbit.host',
   'wss://search.nos.today',
-  'wss://thecitadel.nostr1.com',
-  'wss://theforest.nostr1.com',
-  'wss://christpill.nostr1.com',
+  'wss://relay.snort.social',
+  'wss://nostr.mom',
+  'wss://relay.noswhere.com',
+  'wss://relay.wikifreedia.xyz',
   'wss://nostr.einundzwanzig.space',
-  'relay.wikifreedia.xyz'
+  'wss://relay.lumina.rocks',
+  'wss://nostrelites.org',
+  'wss://relay.nsec.app',
+  'wss://bucket.coracle.social'
 ]
 
 /** Relays to publish 30166/10166 and to REQ kind 10002 from; broad enough for Imwald + NIP-66 discovery. */

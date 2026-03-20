@@ -2,7 +2,6 @@ import { getProfileFromEvent } from '@/lib/event-metadata'
 import { userIdToPubkey } from '@/lib/pubkey'
 import { useNostr } from '@/providers/NostrProvider'
 import { replaceableEventService } from '@/services/client.service'
-import indexedDb from '@/services/indexed-db.service'
 import { kinds } from 'nostr-tools'
 import { TProfile } from '@/types'
 import { useEffect, useState } from 'react'
@@ -30,22 +29,28 @@ export function useFetchProfile(id?: string, skipCache = false) {
     const run = async () => {
       setIsFetching(true)
       try {
-        // Get cached profile from IndexedDB
-        const cachedEvent = await indexedDb.getReplaceableEvent(pubkey, kinds.Metadata)
-        const cached = cachedEvent ? getProfileFromEvent(cachedEvent) : undefined
-        
-        // Fetch fresh profile
+        // fetchReplaceableEvent now checks in-memory cache first (instant), then IndexedDB, then network
+        // This is optimized for speed - memory cache is synchronous
         const profileEvent = await replaceableEventService.fetchReplaceableEvent(pubkey, kinds.Metadata)
-        const profile = profileEvent ? getProfileFromEvent(profileEvent) : undefined
         
         if (cancelled) return
         
-        if (cached) setProfile(cached)
-        if (profile) setProfile(profile)
+        if (profileEvent) {
+          const profile = getProfileFromEvent(profileEvent)
+          if (profile) {
+            setProfile(profile)
+            setIsFetching(false)
+            return // Return immediately with cached/fetched profile
+          }
+        }
+        
+        // If we get here, no profile was found
+        setIsFetching(false)
       } catch (err) {
-        if (!cancelled) setError(err as Error)
-      } finally {
-        if (!cancelled) setIsFetching(false)
+        if (!cancelled) {
+          setError(err as Error)
+          setIsFetching(false)
+        }
       }
     }
 

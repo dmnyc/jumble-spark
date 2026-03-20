@@ -7,7 +7,7 @@ import {
   CarouselNext,
   CarouselPrevious
 } from '@/components/ui/carousel'
-import { BIG_RELAY_URLS, ExtendedKind } from '@/constants'
+import { FAST_READ_RELAY_URLS, ExtendedKind } from '@/constants'
 import { compareEvents } from '@/lib/event'
 import { getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
 import { toRelayReviews } from '@/lib/link'
@@ -59,7 +59,7 @@ export default function RelayReviewsPreview({ relayUrl }: { relayUrl: string }) 
       if (pubkey) {
         filters.push({ kinds: [ExtendedKind.RELAY_REVIEW], authors: [pubkey], '#d': [relayUrl] })
       }
-      const events = await queryService.fetchEvents([relayUrl, ...BIG_RELAY_URLS], filters)
+      const events = await queryService.fetchEvents([relayUrl, ...FAST_READ_RELAY_URLS], filters)
 
       const pubkeySet = new Set<string>()
       const reviews: NostrEvent[] = []

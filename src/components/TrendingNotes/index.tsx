@@ -177,7 +177,7 @@ export default function TrendingNotes() {
         relays.push(...FAST_READ_RELAY_URLS)
       }
     } else {
-      // User is not logged in: use FAST_READ_RELAY_URLS (includes all BIG_RELAY_URLS)
+      // User is not logged in: use FAST_READ_RELAY_URLS (includes all FAST_READ_RELAY_URLS)
       relays.push(...FAST_READ_RELAY_URLS)
     }
 

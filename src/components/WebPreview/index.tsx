@@ -16,7 +16,7 @@ import { cleanUrl, isSafeMediaUrl } from '@/lib/url'
 import { tagNameEquals } from '@/lib/tag'
 import { queryService } from '@/services/client.service'
 import { Event } from 'nostr-tools'
-import { BIG_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS } from '@/constants'
 import { getImetaInfosFromEvent } from '@/lib/event'
 import MarkdownArticle from '../Note/MarkdownArticle/MarkdownArticle'
 import AsciidocArticle from '../Note/AsciidocArticle/AsciidocArticle'
@@ -271,7 +271,7 @@ export default function WebPreview({ url, className }: { url: string; className?
           return filter
         })
         
-        const events = await queryService.fetchEvents(BIG_RELAY_URLS, filters)
+        const events = await queryService.fetchEvents(FAST_READ_RELAY_URLS, filters)
         
         // Find all events with matching d-tag
         const matchingEvents = events.filter(event => {

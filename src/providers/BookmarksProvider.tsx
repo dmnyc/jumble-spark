@@ -1,7 +1,7 @@
 import { buildATag, buildETag, createBookmarkDraftEvent } from '@/lib/draft-event'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { normalizeUrl } from '@/lib/url'
-import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
 import { replaceableEventService } from '@/services/client.service'
@@ -37,7 +37,6 @@ export function BookmarksProvider({ children }: { children: React.ReactNode }) {
       ...(myRelayList.read || []), // User's inboxes (kind 10002)
       ...(myRelayList.write || []), // User's outboxes (kind 10002)
       ...(favoriteRelays || []), // User's favorite relays (kind 10012)
-      ...BIG_RELAY_URLS,         // Big relays
       ...FAST_READ_RELAY_URLS,   // Fast read relays
       ...FAST_WRITE_RELAY_URLS   // Fast write relays
     ]

@@ -444,7 +444,7 @@ export default function PublicationIndex({
   const buildComprehensiveRelayList = useCallback(async (
     additionalRelays: string[] = []
   ): Promise<string[]> => {
-    const { FAST_READ_RELAY_URLS, BIG_RELAY_URLS, SEARCHABLE_RELAY_URLS } = await import('@/constants')
+    const { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } = await import('@/constants')
     const relayUrls = new Set<string>()
     
     // Add FAST_READ_RELAY_URLS
@@ -492,8 +492,8 @@ export default function PublicationIndex({
       // Ignore if user relay list can't be fetched
     }
     
-    // Add BIG_RELAY_URLS as fallback
-    BIG_RELAY_URLS.forEach(url => {
+    // Add FAST_READ_RELAY_URLS as fallback
+    FAST_READ_RELAY_URLS.forEach(url => {
       const normalized = normalizeUrl(url)
       if (normalized) relayUrls.add(normalized)
     })

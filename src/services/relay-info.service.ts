@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS } from '@/constants'
 import { simplifyUrl } from '@/lib/url'
 import indexDb from '@/services/indexed-db.service'
 import { TAwesomeRelayCollection, TRelayInfo } from '@/types'
@@ -212,7 +212,7 @@ class RelayInfoService {
     }
 
     this.lastNip66PublishByUrl.set(key, now)
-    const urls = [relayInfo.url, ...BIG_RELAY_URLS.slice(0, 3)]
+    const urls = [relayInfo.url, ...FAST_READ_RELAY_URLS.slice(0, 3)]
     logger.info('NIP-66: publishing relay discovery (30166)', { url: relayInfo.url })
     client.publishEvent(urls, event).then((res) => {
       if (res.successCount > 0) {

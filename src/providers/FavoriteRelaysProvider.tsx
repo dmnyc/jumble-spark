@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS, DEFAULT_FAVORITE_RELAYS } from '@/constants'
+import { FAST_READ_RELAY_URLS, DEFAULT_FAVORITE_RELAYS } from '@/constants'
 import { createFavoriteRelaysDraftEvent, createBlockedRelaysDraftEvent, createRelaySetDraftEvent } from '@/lib/draft-event'
 import { getReplaceableEventIdentifier } from '@/lib/event'
 import { getRelaySetFromEvent } from '@/lib/event-metadata'
@@ -47,9 +47,9 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (!favoriteRelaysEvent) {
-      // For anonymous users (no login), only use relays from BIG_RELAY_URLS
+      // For anonymous users (no login), only use relays from FAST_READ_RELAY_URLS
       // Don't load potentially untrusted relays from local storage
-      const favoriteRelays: string[] = pubkey ? DEFAULT_FAVORITE_RELAYS : BIG_RELAY_URLS.slice()
+      const favoriteRelays: string[] = pubkey ? DEFAULT_FAVORITE_RELAYS : FAST_READ_RELAY_URLS.slice()
       
       if (pubkey) {
         // Only add stored relay sets if user is logged in
@@ -107,7 +107,7 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
 
       const normalizedRelays = [
         ...(relayList?.write ?? []).map(url => normalizeUrl(url) || url),
-        ...BIG_RELAY_URLS.map(url => normalizeUrl(url) || url)
+        ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url)
       ]
       const newRelaySetEvents = await queryService.fetchEvents(
         Array.from(new Set(normalizedRelays)).slice(0, 5),

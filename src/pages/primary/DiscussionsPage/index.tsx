@@ -9,7 +9,7 @@ import logger from '@/lib/logger'
 import { NostrEvent, Event as NostrEventType } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
 import { normalizeUrl } from '@/lib/url'
-import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
 import { queryService } from '@/services/client.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
@@ -365,7 +365,6 @@ const DiscussionsPage = forwardRef((_, ref) => {
       ...(myRelayList.read || []), // User's inboxes (kind 10002)
       ...(myRelayList.write || []), // User's outboxes (kind 10002)
       ...(favoriteRelays || []), // User's favorite relays (kind 10012)
-      ...BIG_RELAY_URLS,         // Big relays
       ...FAST_READ_RELAY_URLS,   // Fast read relays
       ...FAST_WRITE_RELAY_URLS   // Fast write relays
     ]

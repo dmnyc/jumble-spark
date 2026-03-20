@@ -3,7 +3,7 @@ import { tagNameEquals } from '@/lib/tag'
 import { TNip66RelayDiscovery, TRelayInfo } from '@/types'
 import type { Event } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
-import { isReplaceableEvent } from '@/lib/event'
+import { isReplaceableEvent, getReplaceableCoordinateFromEvent } from '@/lib/event'
 import logger from '@/lib/logger'
 
 type TValue<T = any> = {
@@ -46,11 +46,13 @@ export const StoreNames = {
   /** App settings (replaces in-memory/localStorage for persisted settings). Key: setting key, value: string. */
   SETTINGS: 'settings',
   /** NIP-A7 spell events (kind 777). Key: event id. */
-  SPELL_EVENTS: 'spellEvents'
+  SPELL_EVENTS: 'spellEvents',
+  /** Tombstone list for deleted events (kind 5). Key: event id or replaceable coordinate. */
+  TOMBSTONE_LIST: 'tombstoneList'
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 26
+const DB_VERSION = 27
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -225,6 +227,9 @@ class IndexedDbService {
           if (!db.objectStoreNames.contains(StoreNames.SPELL_EVENTS)) {
             db.createObjectStore(StoreNames.SPELL_EVENTS, { keyPath: 'key' })
           }
+          if (!db.objectStoreNames.contains(StoreNames.TOMBSTONE_LIST)) {
+            db.createObjectStore(StoreNames.TOMBSTONE_LIST, { keyPath: 'key' })
+          }
         }
       }
     );
@@ -271,6 +276,16 @@ class IndexedDbService {
   }
 
   async putReplaceableEvent(event: Event): Promise<Event> {
+    // Check if tombstoned before caching
+    const tombstoneKey = isReplaceableEvent(event.kind)
+      ? getReplaceableCoordinateFromEvent(event)
+      : event.id
+    const isTombstoned = await this.isTombstoned(tombstoneKey)
+    if (isTombstoned) {
+      logger.debug('[IndexedDB] Skipping tombstoned event', { tombstoneKey, eventId: event.id?.substring(0, 8) })
+      return Promise.reject(new Error('Event is tombstoned'))
+    }
+    
     // Remove relayStatuses before storing (it's metadata for logging, not part of the event)
     const cleanEvent = { ...event }
     delete (cleanEvent as any).relayStatuses
@@ -1916,6 +1931,141 @@ class IndexedDbService {
    */
   async setSpellFavoriteIds(ids: string[]): Promise<void> {
     await this.setSetting(IndexedDbService.SPELL_FAVORITE_IDS_KEY, JSON.stringify(ids))
+  }
+
+  /**
+   * Check if an event is tombstoned (deleted)
+   */
+  async isTombstoned(key: string): Promise<boolean> {
+    await this.initPromise
+    return new Promise((resolve) => {
+      if (!this.db) {
+        return resolve(false)
+      }
+      if (!this.db.objectStoreNames.contains(StoreNames.TOMBSTONE_LIST)) {
+        return resolve(false)
+      }
+      const transaction = this.db.transaction(StoreNames.TOMBSTONE_LIST, 'readonly')
+      const store = transaction.objectStore(StoreNames.TOMBSTONE_LIST)
+      const request = store.get(key)
+
+      request.onsuccess = () => {
+        const row = request.result as TValue | undefined
+        transaction.commit()
+        resolve(row !== undefined && row.value !== null)
+      }
+
+      request.onerror = () => {
+        transaction.commit()
+        resolve(false)
+      }
+    })
+  }
+
+  /**
+   * Add event to tombstone list (mark as deleted)
+   * Key format: event ID for non-replaceable events, or "kind:pubkey" or "kind:pubkey:d" for replaceable events
+   */
+  async addTombstone(key: string, deletedAt: number = Date.now()): Promise<void> {
+    await this.initPromise
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        return reject(new Error('Database not initialized'))
+      }
+      if (!this.db.objectStoreNames.contains(StoreNames.TOMBSTONE_LIST)) {
+        return reject(new Error('Tombstone store not found'))
+      }
+      const transaction = this.db.transaction(StoreNames.TOMBSTONE_LIST, 'readwrite')
+      const store = transaction.objectStore(StoreNames.TOMBSTONE_LIST)
+      const value = this.formatValue(key, { deletedAt })
+      const request = store.put(value)
+
+      request.onsuccess = () => {
+        transaction.commit()
+        resolve()
+      }
+
+      request.onerror = (event) => {
+        transaction.commit()
+        reject(idbEventToError(event))
+      }
+    })
+  }
+
+  /**
+   * Get all tombstoned keys
+   */
+  async getAllTombstones(): Promise<Set<string>> {
+    await this.initPromise
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        return resolve(new Set())
+      }
+      if (!this.db.objectStoreNames.contains(StoreNames.TOMBSTONE_LIST)) {
+        return resolve(new Set())
+      }
+      const transaction = this.db.transaction(StoreNames.TOMBSTONE_LIST, 'readonly')
+      const store = transaction.objectStore(StoreNames.TOMBSTONE_LIST)
+      const request = store.getAll()
+
+      request.onsuccess = () => {
+        const rows = request.result as TValue[]
+        const keys = new Set<string>()
+        for (const row of rows) {
+          if (row.value !== null) {
+            keys.add(row.key)
+          }
+        }
+        transaction.commit()
+        resolve(keys)
+      }
+
+      request.onerror = (event) => {
+        transaction.commit()
+        reject(idbEventToError(event))
+      }
+    })
+  }
+
+  /**
+   * Remove tombstoned events from cache (cleanup)
+   */
+  async removeTombstonedFromCache(): Promise<number> {
+    const tombstones = await this.getAllTombstones()
+    let removed = 0
+
+    for (const key of tombstones) {
+      // Parse key format: could be event id or "kind:pubkey" or "kind:pubkey:d" (replaceable coordinate)
+      // Or just event ID for non-replaceable events
+      const parts = key.split(':')
+      if (parts.length === 1) {
+        // Event ID - remove from publication store
+        try {
+          await this.deleteStoreItem(StoreNames.PUBLICATION_EVENTS, key)
+          removed++
+        } catch {
+          // Ignore errors
+        }
+      } else if (parts.length >= 2) {
+        // Replaceable event coordinate format: "kind:pubkey" or "kind:pubkey:d"
+        const kind = parseInt(parts[0]!, 10)
+        const pubkey = parts[1]!
+        const d = parts[2]
+        if (!isNaN(kind)) {
+          try {
+            const storeName = this.getStoreNameByKind(kind)
+            if (storeName) {
+              await this.deleteStoreItem(storeName, this.getReplaceableEventKey(pubkey, d))
+              removed++
+            }
+          } catch {
+            // Ignore errors
+          }
+        }
+      }
+    }
+
+    return removed
   }
 }
 

@@ -4,7 +4,7 @@
  * and no-op builders so relay-info and bootstrap can keep calling without branching.
  */
 
-import { BIG_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import { TRelayInfo } from '@/types'
 import { Event as NEvent, finalizeEvent } from 'nostr-tools'
@@ -97,7 +97,7 @@ export function publishMonitorAnnouncementOnce(): void {
   if (!event) return
   publishedAnnouncementThisSession = true
   logger.info('NIP-66: publishing monitor announcement (10166)')
-  client.publishEvent([...BIG_RELAY_URLS.slice(0, 4)], event).then((res) => {
+  client.publishEvent([...FAST_READ_RELAY_URLS.slice(0, 4)], event).then((res) => {
     if (res.successCount > 0) {
       logger.info('NIP-66: published monitor announcement (10166)', { successCount: res.successCount })
     }

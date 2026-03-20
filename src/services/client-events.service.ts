@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS } from '@/constants'
 import logger from '@/lib/logger'
 import type { Event as NEvent, Filter } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
@@ -221,9 +221,9 @@ export class EventService {
   ): Promise<NEvent | undefined> {
     if (!relayUrls.length && filter.authors?.length) {
       // Would need relay list service - for now use big relays
-      relayUrls = BIG_RELAY_URLS
+      relayUrls = FAST_READ_RELAY_URLS
     } else if (!relayUrls.length && !alreadyFetchedFromBigRelays) {
-      relayUrls = BIG_RELAY_URLS
+      relayUrls = FAST_READ_RELAY_URLS
     }
     if (!relayUrls.length) return undefined
 
@@ -240,8 +240,8 @@ export class EventService {
    * Private: Fetch events from big relays (batch)
    */
   private async fetchEventsFromBigRelays(ids: readonly string[]): Promise<(NEvent | undefined)[]> {
-    const initialRelays = BIG_RELAY_URLS
-    const relayUrls = initialRelays.length > 0 ? initialRelays : BIG_RELAY_URLS
+    const initialRelays = FAST_READ_RELAY_URLS
+    const relayUrls = initialRelays.length > 0 ? initialRelays : FAST_READ_RELAY_URLS
 
     const isSingleEventFetch = ids.length === 1
     const events = await this.queryService.query(relayUrls, {

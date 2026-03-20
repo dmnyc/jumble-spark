@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS, CODY_PUBKEY, JUMBLE_PUBKEY } from '@/constants'
+import { FAST_READ_RELAY_URLS, CODY_PUBKEY, JUMBLE_PUBKEY } from '@/constants'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { TProfile } from '@/types'
 import { init, launchPaymentModal } from '@getalby/bitcoin-connect-react'
@@ -58,7 +58,7 @@ class LightningService {
       })(),
       sender
         ? client.fetchRelayList(sender) // Keep using client for relay list merging
-        : Promise.resolve({ read: BIG_RELAY_URLS, write: BIG_RELAY_URLS })
+        : Promise.resolve({ read: FAST_READ_RELAY_URLS, write: FAST_READ_RELAY_URLS })
     ])
     if (!profile) {
       throw new Error('Recipient not found')
@@ -73,7 +73,7 @@ class LightningService {
       ...(event ? { event } : { pubkey: recipient }),
       amount,
       // Privacy: Only use sender's relays + defaults, not recipient's relays
-      relays: senderRelayList.write.slice(0, 4).concat(BIG_RELAY_URLS),
+      relays: senderRelayList.write.slice(0, 4).concat(FAST_READ_RELAY_URLS),
       comment
     })
     const zapRequest = await client.signer.signEvent(zapRequestDraft)
@@ -134,7 +134,7 @@ class LightningService {
           filter['#e'] = [event.id]
         }
         subCloser = client.subscribe(
-          senderRelayList.write.concat(BIG_RELAY_URLS).slice(0, 4),
+          senderRelayList.write.concat(FAST_READ_RELAY_URLS).slice(0, 4),
           filter,
           {
             onevent: (evt) => {
@@ -180,7 +180,7 @@ class LightningService {
       return this.recentSupportersCache
     }
     // Privacy: Use defaults instead of fetching CODY_PUBKEY's relays
-    const events = await queryService.fetchEvents(BIG_RELAY_URLS.slice(0, 4), {
+    const events = await queryService.fetchEvents(FAST_READ_RELAY_URLS.slice(0, 4), {
       authors: ['79f00d3f5a19ec806189fcab03c1be4ff81d18ee4f653c88fac41fe03570f432'], // alby
       kinds: [kinds.Zap],
       '#p': OFFICIAL_PUBKEYS,

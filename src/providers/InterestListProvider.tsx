@@ -1,7 +1,7 @@
 import { createInterestListDraftEvent } from '@/lib/draft-event'
 import { normalizeTopic } from '@/lib/discussion-topics'
 import { normalizeUrl } from '@/lib/url'
-import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
@@ -44,7 +44,6 @@ export function InterestListProvider({ children }: { children: React.ReactNode }
       ...(myRelayList.read || []), // User's inboxes (kind 10002)
       ...(myRelayList.write || []), // User's outboxes (kind 10002)
       ...(favoriteRelays || []), // User's favorite relays (kind 10012)
-      ...BIG_RELAY_URLS,         // Big relays
       ...FAST_READ_RELAY_URLS,   // Fast read relays
       ...FAST_WRITE_RELAY_URLS   // Fast write relays
     ]

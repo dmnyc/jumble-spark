@@ -84,20 +84,13 @@ export const FONT_SIZE = {
   LARGE: 'large'
 } as const
 
-export const BIG_RELAY_URLS = [
-  'wss://theforest.nostr1.com',
-  'wss://orly-relay.imwald.eu',
-  'wss://nostr.land',
-  'wss://thecitadel.nostr1.com',
-]
-
 /**
  * Random public relays (from NIP-66 lively list; write-tested monitors preferred) merged into the
  * publish relay picker. More candidates improve odds some accept open writes.
  */
 export const RANDOM_PUBLISH_RELAY_COUNT = 5
 
-/** Relays to query for NIP-66 relay monitoring events (30166), in addition to BIG_RELAY_URLS. */
+/** Relays to query for NIP-66 relay monitoring events (30166), in addition to FAST_READ_RELAY_URLS. */
 export const NIP66_DISCOVERY_RELAY_URLS = [
   'wss://thecitadel.nostr1.com',
   'wss://relay.nostr.watch',
@@ -128,7 +121,7 @@ export const FAST_READ_RELAY_URLS = [
   'wss://nostr.land',
   'wss://nostr21.com',
   'wss://thecitadel.nostr1.com',
-  'wss://aggr.nostr.land'
+  'wss://aggr.nostr.land',
 ]
 
 // Optimized relay list for write operations (no aggregator since it's read-only)
@@ -160,17 +153,23 @@ export const SEARCHABLE_RELAY_URLS = [
   'wss://relay.damus.io',
   'wss://relay.snort.social',
   'wss://nos.lol',
-  'wss://nostr.mom'
+  'wss://nostr.mom',
+  'wss://relay.noswhere.com',
+  'wss://relay.wikifreedia.xyz',
+  'wss://nostr.einundzwanzig.space',
+  'wss://relay.lumina.rocks',
+  'wss://nostrelites.org'
   ]
 
 export const PROFILE_RELAY_URLS = [
     'wss://nos.lol',
     'wss://relay.damus.io',
-    'wss://profiles.nostr1.com'
+    'wss://profiles.nostr1.com',
+    'wss://purplepag.es'
   ]
 
-// Combined relay URLs for profile fetching - includes both BIG_RELAY_URLS and SEARCHABLE_RELAY_URLS
-export const PROFILE_FETCH_RELAY_URLS = [...SEARCHABLE_RELAY_URLS, ...PROFILE_RELAY_URLS]
+// Combined relay URLs for profile fetching - includes both FAST_READ_RELAY_URLS and SEARCHABLE_RELAY_URLS
+export const PROFILE_FETCH_RELAY_URLS = [...SEARCHABLE_RELAY_URLS, ...FAST_READ_RELAY_URLS, ...PROFILE_RELAY_URLS]
 
 export const GROUP_METADATA_EVENT_KIND = 39000
 

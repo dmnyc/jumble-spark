@@ -1,5 +1,5 @@
 import { Skeleton } from '@/components/ui/skeleton'
-import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS, ExtendedKind } from '@/constants'
+import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS, ExtendedKind } from '@/constants'
 import { useFetchEvent } from '@/hooks'
 import { normalizeUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
@@ -137,7 +137,7 @@ function EmbeddedNoteNotFound({
   useEffect(() => {
     const getExternalRelays = async () => {
       const alreadyTriedRelaysSet = new Set<string>()
-      ;[...BIG_RELAY_URLS, ...FAST_READ_RELAY_URLS].forEach(url => {
+      ;[...FAST_READ_RELAY_URLS].forEach(url => {
         const normalized = normalizeUrl(url)
         if (normalized) alreadyTriedRelaysSet.add(normalized)
       })

@@ -3,7 +3,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { ExtendedKind } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
-import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
 import { queryService } from '@/services/client.service'
 import logger from '@/lib/logger'
@@ -38,7 +38,6 @@ export function GroupListProvider({ children }: { children: React.ReactNode }) {
       ...(myRelayList.read || []), // User's inboxes (kind 10002)
       ...(myRelayList.write || []), // User's outboxes (kind 10002)
       ...(favoriteRelays || []), // User's favorite relays (kind 10012)
-      ...BIG_RELAY_URLS,         // Big relays
       ...FAST_READ_RELAY_URLS    // Fast read relays
     ]
     
