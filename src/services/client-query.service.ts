@@ -129,7 +129,7 @@ export class QueryService {
     }
     
     const FIRST_RESULT_GRACE_MS = 1200
-    const REPLACEABLE_RACE_WAIT_MS = 2000
+    const REPLACEABLE_RACE_WAIT_MS = 1000 // Reduced from 2000ms for faster profile loading in feeds
 
     return await new Promise<NEvent[]>((resolve) => {
       const events: NEvent[] = []

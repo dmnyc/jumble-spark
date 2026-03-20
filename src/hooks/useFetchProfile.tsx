@@ -126,9 +126,15 @@ export function useFetchProfile(id?: string, skipCache = false) {
     
     // CRITICAL: Early exit if already processing this exact pubkey - prevents infinite loops
     // This check must happen FIRST, before any other logic
-    if (extractedPubkey && processingPubkeyRef.current === extractedPubkey) {
-      // Silently exit - no logging to reduce noise
-      return
+    // Set processingPubkeyRef IMMEDIATELY after extraction to prevent race conditions
+    if (extractedPubkey) {
+      if (processingPubkeyRef.current === extractedPubkey) {
+        // Silently exit - no logging to reduce noise
+        return
+      }
+      // Mark that we're processing this pubkey IMMEDIATELY to prevent concurrent runs
+      // We'll clear it later if we early exit for other reasons
+      processingPubkeyRef.current = extractedPubkey
     }
     
     // CRITICAL: Early exit if we already have a profile for this pubkey
@@ -152,13 +158,20 @@ export function useFetchProfile(id?: string, skipCache = false) {
     // CRITICAL: Early exit if we've already initialized this pubkey (even if profile is null)
     // This prevents re-fetching when we've already tried and failed
     // BUT: Allow retry if skipCache is true (user explicitly wants to refresh)
-    if (extractedPubkey && initializedPubkeysRef.current.has(extractedPubkey) && !profile && !skipCache) {
-      // Already tried and failed - don't retry unless explicitly requested
-      // Ensure fetching is false
-      if (isFetching) {
-        setIsFetching(false)
+    if (extractedPubkey && initializedPubkeysRef.current.has(extractedPubkey) && !profile) {
+      if (skipCache) {
+        // User wants to refresh - clear initialized flag to allow fresh fetch
+        initializedPubkeysRef.current.delete(extractedPubkey)
+        // Also clear run count to allow fresh attempt
+        effectRunCountRef.current.delete(extractedPubkey)
+      } else {
+        // Already tried and failed - don't retry unless explicitly requested
+        // Ensure fetching is false
+        if (isFetching) {
+          setIsFetching(false)
+        }
+        return
       }
-      return
     }
     
     // CRITICAL: Guard against infinite loops - limit effect runs per pubkey (reduced from 10 to 3)
@@ -247,29 +260,27 @@ export function useFetchProfile(id?: string, skipCache = false) {
     }
     
     // These checks are now done earlier in the effect (before incrementing run count)
-    // Keeping this as a safety check, but it should rarely be hit
-    if (processingPubkeyRef.current === extractedPubkey) {
-      logger.info('[useFetchProfile] Already processing this pubkey (safety check)', {
+    // Keeping this as a safety check, but it should rarely be hit now that we set processingPubkeyRef earlier
+    if (processingPubkeyRef.current !== extractedPubkey) {
+      // This should never happen now, but keep as safety check
+      logger.warn('[useFetchProfile] processingPubkeyRef mismatch (safety check)', {
         extractedPubkey,
         processingPubkey: processingPubkeyRef.current
       })
-      return
+      processingPubkeyRef.current = extractedPubkey
     }
     
     if (profile && profile.pubkey === extractedPubkey) {
       logger.info('[useFetchProfile] Already have profile for this pubkey (safety check)', {
         extractedPubkey
       })
-      processingPubkeyRef.current = extractedPubkey
       setIsFetching(false)
       effectRunCountRef.current.delete(extractedPubkey)
       return
     }
     
-    // CRITICAL: Mark that we're processing this pubkey IMMEDIATELY after validation
-    // This must happen before any state updates or async operations
-    // This prevents the effect from running again for the same pubkey
-    processingPubkeyRef.current = extractedPubkey
+    // processingPubkeyRef is already set earlier (right after extraction)
+    // No need to set it again here
     
     // CRITICAL: Only update pubkey state if it's actually different
     // Avoid state updates that could trigger re-renders and loops

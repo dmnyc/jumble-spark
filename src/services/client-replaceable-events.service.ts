@@ -160,8 +160,8 @@ export class ReplaceableEventService {
           kinds: [kind]
         }, undefined, {
           replaceableRace: true,
-          eoseTimeout: 200,
-          globalTimeout: 3000
+          eoseTimeout: 100, // Reduced from 200ms for faster early returns
+          globalTimeout: 2000 // Reduced from 3000ms to prevent long waits when many relays are slow
         })
         const queryTime = Date.now() - startTime
         logger.info('[ReplaceableEventService] Query completed', {
@@ -438,8 +438,8 @@ export class ReplaceableEventService {
           kinds: [kind]
         }, undefined, {
           replaceableRace: true,
-          eoseTimeout: 200,
-          globalTimeout: 3000
+          eoseTimeout: 100, // Reduced from 200ms for faster early returns
+          globalTimeout: 2000 // Reduced from 3000ms to prevent long waits when many relays are slow
         })
         logger.info('[ReplaceableEventService] Query completed for batch', {
           kind,
@@ -526,8 +526,8 @@ export class ReplaceableEventService {
 
         const events = await this.queryService.query(relayUrls, filter, undefined, {
           replaceableRace: true,
-          eoseTimeout: 200,
-          globalTimeout: 3000
+          eoseTimeout: 100, // Reduced from 200ms for faster early returns
+          globalTimeout: 2000 // Reduced from 3000ms to prevent long waits when many relays are slow
         })
 
         for (const event of events) {
@@ -719,68 +719,79 @@ export class ReplaceableEventService {
     }
     
     // Step 3: Comprehensive search across ALL available relays before giving up
-    // This includes: local relays, user inboxes/outboxes, fast read/write, searchable relays
-    logger.info('[ReplaceableEventService] Step 3: Profile not found, trying comprehensive relay list (all available relays)', {
-      pubkey
-    })
-    
-    try {
-      const userPubkey = client.pubkey
-      const comprehensiveRelays = await buildComprehensiveRelayList({
-        authorPubkey: pubkey,
-        userPubkey: userPubkey || undefined,
-        relayHints: relayHints.length > 0 ? relayHints : undefined,
-        includeUserOwnRelays: true, // Include user's read/write relays
-        includeProfileFetchRelays: true, // Include PROFILE_FETCH_RELAY_URLS
-        includeFastReadRelays: true, // Include FAST_READ_RELAY_URLS
-        includeFastWriteRelays: true, // Include FAST_WRITE_RELAY_URLS
-        includeSearchableRelays: true, // Include SEARCHABLE_RELAY_URLS
-        includeLocalRelays: true // Include local/cache relays
-      })
-      
-      logger.info('[ReplaceableEventService] Comprehensive relay list built', {
+    // OPTIMIZATION: Skip comprehensive search for batch profile fetches (when called from DataLoader)
+    // Comprehensive search is expensive (10s timeout) and should only be used for individual profile fetches
+    // when user explicitly navigates to a profile page. For feed rendering, missing profiles are acceptable.
+    // Only run comprehensive search if we have relay hints (suggesting user intent to find this specific profile)
+    if (relayHints.length > 0) {
+      logger.info('[ReplaceableEventService] Step 3: Profile not found, trying comprehensive relay list (all available relays)', {
         pubkey,
-        relayCount: comprehensiveRelays.length,
-        relays: comprehensiveRelays.slice(0, 10) // Log first 10 for debugging
+        hasRelayHints: relayHints.length > 0
       })
       
-      if (comprehensiveRelays.length > 0) {
-        // Query the comprehensive relay list
-        const startTime = Date.now()
-        const events = await this.queryService.query(comprehensiveRelays, {
-          authors: [pubkey],
-          kinds: [kinds.Metadata]
-        }, undefined, {
-          replaceableRace: true,
-          eoseTimeout: 500,
-          globalTimeout: 10000 // 10 second timeout for comprehensive search
+      try {
+        const userPubkey = client.pubkey
+        const comprehensiveRelays = await buildComprehensiveRelayList({
+          authorPubkey: pubkey,
+          userPubkey: userPubkey || undefined,
+          relayHints: relayHints.length > 0 ? relayHints : undefined,
+          includeUserOwnRelays: true, // Include user's read/write relays
+          includeFavoriteRelays: true, // Include user's favorite relays (kind 10012)
+          includeProfileFetchRelays: true, // Include PROFILE_FETCH_RELAY_URLS
+          includeFastReadRelays: true, // Include FAST_READ_RELAY_URLS
+          includeFastWriteRelays: true, // Include FAST_WRITE_RELAY_URLS
+          includeSearchableRelays: true, // Include SEARCHABLE_RELAY_URLS
+          includeLocalRelays: true // Include local/cache relays
         })
-        const queryTime = Date.now() - startTime
         
-        logger.info('[ReplaceableEventService] Comprehensive search completed', {
+        logger.info('[ReplaceableEventService] Comprehensive relay list built', {
           pubkey,
-          eventCount: events.length,
-          queryTime: `${queryTime}ms`,
-          relayCount: comprehensiveRelays.length
+          relayCount: comprehensiveRelays.length,
+          relays: comprehensiveRelays.slice(0, 10) // Log first 10 for debugging
         })
         
-        if (events.length > 0) {
-          const sortedEvents = events.sort((a, b) => b.created_at - a.created_at)
-          const profileEvent = sortedEvents[0]
-          logger.info('[ReplaceableEventService] Profile found via comprehensive search', {
-            pubkey,
-            eventId: profileEvent.id
+        if (comprehensiveRelays.length > 0) {
+          // Query the comprehensive relay list with reduced timeout for faster failure
+          const startTime = Date.now()
+          const events = await this.queryService.query(comprehensiveRelays, {
+            authors: [pubkey],
+            kinds: [kinds.Metadata]
+          }, undefined, {
+            replaceableRace: true,
+            eoseTimeout: 300, // Reduced from 500ms
+            globalTimeout: 5000 // Reduced from 10000ms to prevent 10s waits
           })
-          await this.indexProfile(profileEvent)
-          return profileEvent
+          const queryTime = Date.now() - startTime
+          
+          logger.info('[ReplaceableEventService] Comprehensive search completed', {
+            pubkey,
+            eventCount: events.length,
+            queryTime: `${queryTime}ms`,
+            relayCount: comprehensiveRelays.length
+          })
+          
+          if (events.length > 0) {
+            const sortedEvents = events.sort((a, b) => b.created_at - a.created_at)
+            const profileEvent = sortedEvents[0]
+            logger.info('[ReplaceableEventService] Profile found via comprehensive search', {
+              pubkey,
+              eventId: profileEvent.id
+            })
+            await this.indexProfile(profileEvent)
+            return profileEvent
+          }
         }
+      } catch (error) {
+        logger.error('[ReplaceableEventService] Comprehensive search failed', {
+          pubkey,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        // Continue to return undefined below
       }
-    } catch (error) {
-      logger.error('[ReplaceableEventService] Comprehensive search failed', {
-        pubkey,
-        error: error instanceof Error ? error.message : String(error)
+    } else {
+      logger.debug('[ReplaceableEventService] Skipping comprehensive search (no relay hints, likely batch fetch)', {
+        pubkey
       })
-      // Continue to return undefined below
     }
     
     logger.warn('[ReplaceableEventService] Profile not found after trying all relays (including comprehensive search)', {
@@ -954,10 +965,12 @@ export class ReplaceableEventService {
   /**
    * Fetch following favorite relays
    */
-  async fetchFollowingFavoriteRelays(pubkey: string): Promise<[string, string[]][]> {
-    const cached = this.followingFavoriteRelaysCache.get(pubkey)
-    if (cached) {
-      return cached
+  async fetchFollowingFavoriteRelays(pubkey: string, skipCache = false): Promise<[string, string[]][]> {
+    if (!skipCache) {
+      const cached = this.followingFavoriteRelaysCache.get(pubkey)
+      if (cached) {
+        return cached
+      }
     }
     const promise = this._fetchFollowingFavoriteRelays(pubkey)
     this.followingFavoriteRelaysCache.set(pubkey, promise)
@@ -966,28 +979,47 @@ export class ReplaceableEventService {
 
   private async _fetchFollowingFavoriteRelays(pubkey: string): Promise<[string, string[]][]> {
     const followings = await this.fetchFollowings(pubkey)
+    const followingsToProcess = followings.slice(0, 100)
     const favoriteRelaysEvents = await this.fetchReplaceableEventsFromProfileFetchRelays(
-      followings.slice(0, 100),
+      followingsToProcess,
       ExtendedKind.FAVORITE_RELAYS
     )
-    const result: [string, string[]][] = []
-    for (let i = 0; i < followings.length && i < favoriteRelaysEvents.length; i++) {
+    // Group by relay URL: Map<relayUrl, Set<pubkey>>
+    const relayToUsers = new Map<string, Set<string>>()
+    
+    // favoriteRelaysEvents[i] corresponds to followingsToProcess[i]
+    for (let i = 0; i < followingsToProcess.length && i < favoriteRelaysEvents.length; i++) {
       const event = favoriteRelaysEvents[i]
-      if (event) {
-        const relays: string[] = []
+      const followingPubkey = followingsToProcess[i]
+      if (event && followingPubkey) {
         event.tags.forEach(([tagName, tagValue]) => {
           if (tagName === 'relay' && tagValue) {
             const normalizedUrl = normalizeUrl(tagValue)
-            if (normalizedUrl && !relays.includes(normalizedUrl)) {
-              relays.push(normalizedUrl)
+            if (normalizedUrl) {
+              if (!relayToUsers.has(normalizedUrl)) {
+                relayToUsers.set(normalizedUrl, new Set())
+              }
+              relayToUsers.get(normalizedUrl)!.add(followingPubkey)
             }
           }
         })
-        if (relays.length > 0) {
-          result.push([followings[i]!, relays])
-        }
       }
     }
+    
+    // Convert to array format: [relayUrl, pubkeys[]]
+    const result: [string, string[]][] = []
+    for (const [relayUrl, pubkeys] of relayToUsers.entries()) {
+      result.push([relayUrl, Array.from(pubkeys)])
+    }
+    
+    logger.debug('[ReplaceableEventService] fetchFollowingFavoriteRelays completed', {
+      followingsCount: followings.length,
+      processedCount: followingsToProcess.length,
+      eventsFound: favoriteRelaysEvents.filter(e => e !== undefined).length,
+      uniqueRelays: result.length,
+      totalUsers: result.reduce((sum, [, users]) => sum + users.length, 0)
+    })
+    
     return result
   }
 }

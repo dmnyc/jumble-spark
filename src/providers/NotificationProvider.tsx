@@ -5,7 +5,7 @@ import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import client from '@/services/client.service'
 import { kinds, NostrEvent } from 'nostr-tools'
 import { SubCloser } from 'nostr-tools/abstract-pool'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useMemo } from 'react'
 import { useNostr } from './NostrProvider'
 
 /**
@@ -16,6 +16,30 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const { pubkey, relayList } = useNostr()
   const { favoriteRelays } = useFavoriteRelays()
   const notificationBufferRef = useRef<NostrEvent[]>([])
+  const retryCountRef = useRef(0)
+  const retryTimeoutIdRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Memoize relay URLs to prevent unnecessary re-subscriptions
+  // This creates stable references based on actual relay URLs, not object references
+  const userReadRelays = useMemo(() => {
+    const userRelayList = relayList || { read: [], write: [] }
+    return userRelayList.read || []
+  }, [relayList?.read?.join(',')]) // Compare by stringified array, not object reference
+
+  const userFavoriteRelays = useMemo(() => {
+    return favoriteRelays || []
+  }, [favoriteRelays?.join(',')]) // Compare by stringified array, not array reference
+
+  // Memoize the notification relays to prevent re-subscriptions when they haven't changed
+  const notificationRelays = useMemo(() => {
+    if (userReadRelays.length > 0) {
+      return userReadRelays.slice(0, 5)
+    } else if (userFavoriteRelays.length > 0) {
+      return userFavoriteRelays.slice(0, 5)
+    } else {
+      return FAST_READ_RELAY_URLS.slice(0, 5)
+    }
+  }, [userReadRelays, userFavoriteRelays])
 
   useEffect(() => {
     if (!pubkey) return
@@ -31,8 +55,17 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const topicSubCloserRef: {
       current: SubCloser | null
     } = { current: null }
+    const MAX_RETRIES = 5
+    // Reset retry count when effect runs (relays changed)
+    retryCountRef.current = 0
 
     const subscribe = async () => {
+      // Clear any pending retries
+      if (retryTimeoutIdRef.current) {
+        clearTimeout(retryTimeoutIdRef.current)
+        retryTimeoutIdRef.current = null
+      }
+
       if (subCloserRef.current) {
         subCloserRef.current.close()
         subCloserRef.current = null
@@ -45,27 +78,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
       try {
         let eosed = false
-        const userRelayList = relayList || { read: [], write: [] }
-        const userReadRelays = userRelayList.read || []
-        const userFavoriteRelays = favoriteRelays || []
+        // Reset retry count on successful subscription attempt
+        retryCountRef.current = 0
 
-        let notificationRelays: string[] = []
-
-        if (userReadRelays.length > 0) {
-          notificationRelays = userReadRelays.slice(0, 5)
-          logger.component('NotificationProvider', 'Using user read relays', {
-            count: notificationRelays.length,
-            relays: notificationRelays.slice(0, 3)
-          })
-        } else if (userFavoriteRelays.length > 0) {
-          notificationRelays = userFavoriteRelays.slice(0, 5)
-          logger.component('NotificationProvider', 'Using user favorite relays', {
-            count: notificationRelays.length,
-            relays: notificationRelays.slice(0, 3)
-          })
-        } else {
-          notificationRelays = FAST_READ_RELAY_URLS.slice(0, 5)
-          logger.component('NotificationProvider', 'Using fast read relays fallback', {
+        if (notificationRelays.length > 0) {
+          logger.component('NotificationProvider', 'Using notification relays', {
             count: notificationRelays.length,
             relays: notificationRelays.slice(0, 3)
           })
@@ -153,13 +170,17 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
                 return
               }
 
-              if (isMountedRef.current) {
-                setTimeout(() => {
+              if (isMountedRef.current && retryCountRef.current < MAX_RETRIES) {
+                retryCountRef.current++
+                const delay = Math.min(15_000 * retryCountRef.current, 60_000) // Exponential backoff, max 60s
+                logger.debug(`[NotificationProvider] Reconnecting after close (attempt ${retryCountRef.current}/${MAX_RETRIES})...`)
+                retryTimeoutIdRef.current = setTimeout(() => {
                   if (isMountedRef.current) {
-                    logger.debug('[NotificationProvider] Reconnecting after close...')
                     subscribe()
                   }
-                }, 15_000)
+                }, delay)
+              } else if (retryCountRef.current >= MAX_RETRIES) {
+                logger.error('[NotificationProvider] Max retries reached, stopping reconnection attempts')
               }
             }
           }
@@ -168,14 +189,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         subCloserRef.current = subCloser
         return subCloser
       } catch (error) {
-        logger.error('Subscription error', { error })
+        logger.error('Subscription error', { error, retryCount: retryCountRef.current })
 
-        if (isMountedRef.current) {
-          setTimeout(() => {
+        if (isMountedRef.current && retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current++
+          const delay = Math.min(5_000 * retryCountRef.current, 30_000) // Exponential backoff, max 30s
+          retryTimeoutIdRef.current = setTimeout(() => {
             if (isMountedRef.current) {
               subscribe()
             }
-          }, 5_000)
+          }, delay)
+        } else if (retryCountRef.current >= MAX_RETRIES) {
+          logger.error('[NotificationProvider] Max retries reached, stopping subscription attempts')
         }
         return null
       }
@@ -185,6 +210,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     return () => {
       clearTimeout(deferredReset)
+      if (retryTimeoutIdRef.current) {
+        clearTimeout(retryTimeoutIdRef.current)
+        retryTimeoutIdRef.current = null
+      }
+      retryCountRef.current = 0 // Reset retry count on cleanup
       isMountedRef.current = false
       if (subCloserRef.current) {
         subCloserRef.current.close()
@@ -195,7 +225,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         topicSubCloserRef.current = null
       }
     }
-  }, [pubkey, relayList, favoriteRelays])
+  }, [pubkey, notificationRelays.join(',')]) // Use memoized notificationRelays instead of relayList/favoriteRelays
 
   return <>{children}</>
 }

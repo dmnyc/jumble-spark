@@ -40,6 +40,8 @@ export interface RelayListBuilderOptions {
   blockedRelays?: string[]
   /** Whether to include local relays from kind 10432 */
   includeLocalRelays?: boolean
+  /** Whether to include user's favorite relays (kind 10012) */
+  includeFavoriteRelays?: boolean
 }
 
 /**
@@ -58,7 +60,8 @@ export async function buildComprehensiveRelayList(options: RelayListBuilderOptio
     includeFastWriteRelays = false,
     includeSearchableRelays = false,
     blockedRelays = [],
-    includeLocalRelays = true
+    includeLocalRelays = true,
+    includeFavoriteRelays = false
   } = options
 
   const relayUrls = new Set<string>()
@@ -150,10 +153,26 @@ export async function buildComprehensiveRelayList(options: RelayListBuilderOptio
         localRelays.forEach(addRelay)
       }
       
+      // Include favorite relays (kind 10012) if requested
+      let favoriteRelaysCount = 0
+      if (includeFavoriteRelays) {
+        try {
+          const favoriteRelays = await client.fetchFavoriteRelays(userPubkey)
+          favoriteRelays.forEach(addRelay)
+          favoriteRelaysCount = favoriteRelays.length
+          logger.debug('[RelayListBuilder] Added user favorite relays', {
+            count: favoriteRelaysCount
+          })
+        } catch (error) {
+          logger.debug('[RelayListBuilder] Failed to fetch user favorite relays', { error })
+        }
+      }
+      
       logger.debug('[RelayListBuilder] Added user own relays', {
         read: userRelayList ? (userRelayList.read || []).length : 0,
         write: userRelayList ? (userRelayList.write || []).length : 0,
-        local: includeLocalRelays ? (await getCacheRelayUrls(userPubkey)).length : 0
+        local: includeLocalRelays ? (await getCacheRelayUrls(userPubkey)).length : 0,
+        favorite: favoriteRelaysCount
       })
     } catch (error) {
       logger.debug('[RelayListBuilder] Failed to fetch user relay list', { error })
