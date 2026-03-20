@@ -6,15 +6,50 @@ import relayInfoService from '@/services/relay-info.service'
 import { TAwesomeRelayCollection } from '@/types'
 import { useEffect, useState } from 'react'
 import RelaySimpleInfo, { RelaySimpleInfoSkeleton } from '../RelaySimpleInfo'
+import logger from '@/lib/logger'
 
 export default function Explore() {
   const [collections, setCollections] = useState<TAwesomeRelayCollection[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    relayInfoService.getAwesomeRelayCollections().then(setCollections)
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    
+    // Add timeout to prevent hanging forever
+    timeoutId = setTimeout(() => {
+      if (!cancelled) {
+        logger.warn('[Explore] Timeout loading relay collections after 10 seconds')
+        setError('Timeout loading relay collections')
+        setCollections([]) // Set empty array to stop showing skeletons
+      }
+    }, 10000) // 10 second timeout
+    
+    logger.debug('[Explore] Fetching awesome relay collections')
+    relayInfoService.getAwesomeRelayCollections()
+      .then((data) => {
+        if (!cancelled) {
+          if (timeoutId) clearTimeout(timeoutId)
+          logger.debug('[Explore] Loaded collections', { count: data?.length || 0 })
+          setCollections(data || [])
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          if (timeoutId) clearTimeout(timeoutId)
+          logger.error('[Explore] Error loading collections', { error: err })
+          setError(err instanceof Error ? err.message : 'Failed to load relay collections')
+          setCollections([]) // Set empty array to stop showing skeletons
+        }
+      })
+    
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
   }, [])
 
-  if (!collections) {
+  if (collections === null) {
     return (
       <div>
         <div className="p-4 max-md:border-b">
@@ -23,6 +58,38 @@ export default function Explore() {
         <div className="grid md:px-4 md:grid-cols-2 md:gap-2">
           <RelaySimpleInfoSkeleton className="h-auto px-4 py-3 md:rounded-lg md:border" />
         </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-4">
+        <div className="text-red-500 mb-2">Error: {error}</div>
+        <button 
+          onClick={() => {
+            setCollections(null)
+            setError(null)
+            // Trigger reload
+            relayInfoService.getAwesomeRelayCollections()
+              .then(setCollections)
+              .catch((err) => {
+                setError(err instanceof Error ? err.message : 'Failed to load')
+                setCollections([])
+              })
+          }}
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  if (collections.length === 0) {
+    return (
+      <div className="p-4 text-center text-muted-foreground">
+        No relay collections available
       </div>
     )
   }

@@ -1211,10 +1211,11 @@ class ClientService extends EventTarget {
       }
     }
     
-    // CRITICAL FIX: If no cached events (or all were too old), use a recent timestamp
-    // This prevents the feed from showing 15+ hour old events when relays are slow
-    if (!since && needSort) {
-      // Default to last 24 hours if no recent cached events
+    // CRITICAL FIX: Only set since parameter if caching is enabled
+    // When useCache is false, we want to stream raw from relays without time restrictions
+    // This allows relay feeds to show all available events, not just recent ones
+    if (!since && needSort && useCache) {
+      // Default to last 24 hours if no recent cached events (only when caching is enabled)
       // This ensures we get recent content even if relays are slow
       const oneDayAgo = dayjs().subtract(24, 'hours').unix()
       since = oneDayAgo

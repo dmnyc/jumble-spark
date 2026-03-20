@@ -218,12 +218,6 @@ const NoteList = forwardRef(
         setHasMore(true)
         consecutiveEmptyRef.current = 0 // Reset counter on refresh
 
-        if (showKinds.length === 0) {
-          setLoading(false)
-          setHasMore(false)
-          return () => {}
-        }
-
         const { closer, timelineKey } = await client.subscribeTimeline(
           subRequests.map(({ urls, filter }) => ({
             urls,
@@ -231,7 +225,8 @@ const NoteList = forwardRef(
               ? { ...filter, limit: filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT) }
               : {
                   ...filter,
-                  kinds: showKinds,
+                  // If showKinds is empty, default to kind 1 (ShortTextNote) only
+                  kinds: showKinds.length > 0 ? showKinds : [kinds.ShortTextNote],
                   limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
                 }
           })),
