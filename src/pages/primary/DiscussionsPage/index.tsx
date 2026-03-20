@@ -420,7 +420,7 @@ const DiscussionsPage = forwardRef((_, ref) => {
       const discussionThreads = await queryService.fetchEvents(allRelays, [
         {
           kinds: [11], // ExtendedKind.DISCUSSION
-          limit: 100
+          limit: 500 // Increased from 100 to load more threads per request
         }
       ])
       
@@ -455,15 +455,15 @@ const DiscussionsPage = forwardRef((_, ref) => {
           {
             kinds: [1111], // ExtendedKind.COMMENT
             '#e': allThreadIdsArray,
-            limit: 100
+            limit: 500 // Increased from 100 to load more comments per request
           }
         ]) : Promise.resolve([]),
         allThreadIdsArray.length > 0 ? queryService.fetchEvents(allRelays, [
           {
             kinds: [kinds.Reaction],
             '#e': allThreadIdsArray,
-              limit: 100
-            }
+            limit: 500 // Increased from 100 to load more reactions per request
+          }
         ]) : Promise.resolve([])
       ])
       
@@ -638,10 +638,19 @@ const DiscussionsPage = forwardRef((_, ref) => {
       logger.debug('[DiscussionsPage] Updated UI with', categorizedEventMap.size, 'threads (merged from cache and new fetch)')
       
     } catch (error) {
-      logger.error('[DiscussionsPage] Error fetching events:', error)
+      // Get cached data for error logging (if available)
+      const cachedDataForError = discussionFeedCache.getCachedDiscussionsList()
+      logger.error('[DiscussionsPage] Error fetching events:', error, {
+        hasCachedData,
+        cachedThreadCount: cachedDataForError?.eventMap.size || 0
+      })
       // If we had cached data and fetch failed, at least we have something to show
       if (!hasCachedData) {
         setLoading(false)
+      }
+      // Log specific relay errors if available
+      if (error instanceof Error && error.message) {
+        logger.warn('[DiscussionsPage] Fetch error details:', error.message)
       }
     } finally {
       if (!hasCachedData || forceRefresh) {

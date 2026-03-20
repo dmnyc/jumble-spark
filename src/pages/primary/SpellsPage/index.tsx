@@ -255,9 +255,11 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
               closer()
               spellCatalogCloserRef.current = null
             },
-            onNew: () => {}
+            onNew: () => {} // Not needed
           },
-          { needSort: true }
+          {
+            useCache: false // NO CACHING - stream raw from relays
+          }
         )
         if (cancelled) {
           closer()

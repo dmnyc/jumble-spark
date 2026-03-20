@@ -43,8 +43,8 @@ export class ReplaceableEventService {
     >(
       this.replaceableEventFromBigRelaysBatchLoadFn.bind(this),
       {
-        batchScheduleFn: (callback) => setTimeout(callback, 50),
-        maxBatchSize: 500,
+        batchScheduleFn: (callback) => setTimeout(callback, 100), // Increased from 50ms to 100ms to better batch rapid scrolling
+        maxBatchSize: 200, // Reduced from 500 to prevent overwhelming the system during rapid scrolling
         cacheKeyFn: ({ pubkey, kind }) => `${pubkey}:${kind}`
       }
     )
@@ -314,10 +314,18 @@ export class ReplaceableEventService {
   private async replaceableEventFromBigRelaysBatchLoadFn(
     params: readonly { pubkey: string; kind: number }[]
   ): Promise<(NEvent | null)[]> {
-    logger.info('[ReplaceableEventService] Batch load function called', {
-      paramCount: params.length,
-      pubkeys: params.map(p => p.pubkey.substring(0, 8))
-    })
+    // CRITICAL: Reduce logging during rapid scrolling - only log large batches
+    if (params.length > 50) {
+      logger.info('[ReplaceableEventService] Large batch load function called', {
+        paramCount: params.length,
+        kind: params[0]?.kind
+      })
+    } else {
+      logger.debug('[ReplaceableEventService] Batch load function called', {
+        paramCount: params.length,
+        kind: params[0]?.kind
+      })
+    }
     
     // Step 1: Batch check IndexedDB for all requested events
     const groups = new Map<number, string[]>()
@@ -338,7 +346,8 @@ export class ReplaceableEventService {
         try {
           // Use batched IndexedDB query
           const indexedDbEvents = await indexedDb.getManyReplaceableEvents(pubkeys, kind)
-          logger.info('[ReplaceableEventService] IndexedDB batch query completed', {
+          // Only log at debug level to reduce noise during rapid scrolling
+          logger.debug('[ReplaceableEventService] IndexedDB batch query completed', {
             kind,
             pubkeyCount: pubkeys.length,
             foundCount: indexedDbEvents.filter(e => e !== null && e !== undefined).length
@@ -382,16 +391,24 @@ export class ReplaceableEventService {
     
     // Step 2: Only fetch missing events from network
     if (missingParams.length === 0) {
-      logger.info('[ReplaceableEventService] All events found in IndexedDB, skipping network fetch', {
+      logger.debug('[ReplaceableEventService] All events found in IndexedDB, skipping network fetch', {
         totalCount: params.length
       })
       return results
     }
     
-    logger.info('[ReplaceableEventService] Fetching missing events from network', {
-      missingCount: missingParams.length,
-      totalCount: params.length
-    })
+    // Only log at info level for large batches
+    if (missingParams.length > 50) {
+      logger.info('[ReplaceableEventService] Fetching missing events from network', {
+        missingCount: missingParams.length,
+        totalCount: params.length
+      })
+    } else {
+      logger.debug('[ReplaceableEventService] Fetching missing events from network', {
+        missingCount: missingParams.length,
+        totalCount: params.length
+      })
+    }
     
     // Group missing params by kind for network fetch
     const missingGroups = new Map<number, { pubkey: string; index: number }[]>()
@@ -408,31 +425,27 @@ export class ReplaceableEventService {
         // ALWAYS use comprehensive relay list: author's outboxes + user's inboxes + defaults
         // For profiles/metadata: includes user's own relays (read/write/local) + PROFILE_FETCH_RELAY_URLS
         // For each pubkey, build comprehensive relay list
-        logger.info('[ReplaceableEventService] Building relay lists for batch', {
-          kind,
-          pubkeyCount: pubkeys.length
-        })
-        
         // CRITICAL FIX: For batch fetches, use default relays instead of fetching relay lists for each author
         // Fetching relay lists for hundreds of authors causes infinite loops and browser crashes
         // Use PROFILE_FETCH_RELAY_URLS + FAST_READ_RELAY_URLS for profiles, or FAST_READ_RELAY_URLS for other kinds
         const relayUrls = kind === kinds.Metadata
           ? Array.from(new Set([...PROFILE_FETCH_RELAY_URLS, ...FAST_READ_RELAY_URLS]))
           : [...FAST_READ_RELAY_URLS]
-        logger.info('[ReplaceableEventService] Using comprehensive relay list', {
-          pubkeyCount: pubkeys.length,
-          totalRelayCount: relayUrls.length,
-          kind,
-          relays: relayUrls.slice(0, 5) // Show first 5 for debugging
-        })
         
-        // Use all relays in parallel - browsers can handle many concurrent subscriptions
-        // The QueryService manages per-relay concurrency limits to avoid overloading individual relays
-        logger.info('[ReplaceableEventService] Starting query for batch', {
-          kind,
-          pubkeyCount: pubkeys.length,
-          relayCount: relayUrls.length
-        })
+        // Only log at info level for large batches
+        if (pubkeys.length > 50) {
+          logger.info('[ReplaceableEventService] Starting query for large batch', {
+            kind,
+            pubkeyCount: pubkeys.length,
+            relayCount: relayUrls.length
+          })
+        } else {
+          logger.debug('[ReplaceableEventService] Starting query for batch', {
+            kind,
+            pubkeyCount: pubkeys.length,
+            relayCount: relayUrls.length
+          })
+        }
         const events = await this.queryService.query(relayUrls, {
           authors: pubkeys,
           kinds: [kind]
@@ -441,11 +454,74 @@ export class ReplaceableEventService {
           eoseTimeout: 100, // Reduced from 200ms for faster early returns
           globalTimeout: 2000 // Reduced from 3000ms to prevent long waits when many relays are slow
         })
-        logger.info('[ReplaceableEventService] Query completed for batch', {
-          kind,
-          pubkeyCount: pubkeys.length,
-          eventCount: events.length
-        })
+        // Only log at info level for large batches or if many events found
+        if (pubkeys.length > 50 || events.length > 100) {
+          logger.info('[ReplaceableEventService] Query completed for batch', {
+            kind,
+            pubkeyCount: pubkeys.length,
+            eventCount: events.length
+          })
+        } else {
+          logger.debug('[ReplaceableEventService] Query completed for batch', {
+            kind,
+            pubkeyCount: pubkeys.length,
+            eventCount: events.length
+          })
+        }
+        
+        // CRITICAL: Limit the number of events processed to prevent memory issues during rapid scrolling
+        // If we have too many events, only process the most recent ones per pubkey
+        if (events.length > 1000) {
+          logger.warn('[ReplaceableEventService] Large batch detected, limiting processing', {
+            kind,
+            eventCount: events.length,
+            pubkeyCount: pubkeys.length
+          })
+          // Group by pubkey and keep only the most recent event per pubkey
+          const eventsByPubkey = new Map<string, NEvent>()
+          for (const event of events) {
+            const key = `${event.pubkey}:${event.kind}`
+            const existing = eventsByPubkey.get(key)
+            if (!existing || existing.created_at < event.created_at) {
+              eventsByPubkey.set(key, event)
+            }
+          }
+          // Convert back to array, but limit to reasonable size
+          const limitedEvents = Array.from(eventsByPubkey.values()).slice(0, 500)
+          logger.info('[ReplaceableEventService] Limited batch size', {
+            originalCount: events.length,
+            limitedCount: limitedEvents.length
+          })
+          // Use limited events for processing
+          for (const event of limitedEvents) {
+            const key = `${event.pubkey}:${event.kind}`
+            const existing = eventsMap.get(key)
+            if (!existing || existing.created_at < event.created_at) {
+              eventsMap.set(key, event)
+              // Update results array for this event
+              const itemIndex = missingItems.findIndex(item => item.pubkey === event.pubkey)
+              if (itemIndex >= 0) {
+                const paramIndex = missingItems[itemIndex]!.index
+                results[paramIndex] = event
+              }
+            }
+          }
+        } else {
+          // Normal processing for smaller batches
+          for (const event of events) {
+            const key = `${event.pubkey}:${event.kind}`
+            const existing = eventsMap.get(key)
+            if (!existing || existing.created_at < event.created_at) {
+              eventsMap.set(key, event)
+              // Update results array for this event
+              const itemIndex = missingItems.findIndex(item => item.pubkey === event.pubkey)
+              if (itemIndex >= 0) {
+                const paramIndex = missingItems[itemIndex]!.index
+                results[paramIndex] = event
+              }
+            }
+          }
+        }
         
         // Log when no events are found (helps debug relay failures)
         if (kind === kinds.Metadata && events.length === 0 && pubkeys.length > 0) {
@@ -456,19 +532,6 @@ export class ReplaceableEventService {
           })
         }
 
-        for (const event of events) {
-          const key = `${event.pubkey}:${event.kind}`
-          const existing = eventsMap.get(key)
-          if (!existing || existing.created_at < event.created_at) {
-            eventsMap.set(key, event)
-            // Update results array for this event
-            const itemIndex = missingItems.findIndex(item => item.pubkey === event.pubkey)
-            if (itemIndex >= 0) {
-              const paramIndex = missingItems[itemIndex]!.index
-              results[paramIndex] = event
-            }
-          }
-        }
       })
     )
     
@@ -485,12 +548,20 @@ export class ReplaceableEventService {
       })
     )
     
-    logger.info('[ReplaceableEventService] Batch load function completed', {
-      paramCount: params.length,
-      foundCount: results.filter(r => r !== null).length,
-      indexedDbCount: params.length - missingParams.length,
-      networkCount: missingParams.length
-    })
+    // Only log at info level for large batches
+    if (params.length > 50) {
+      logger.info('[ReplaceableEventService] Batch load function completed', {
+        paramCount: params.length,
+        foundCount: results.filter(r => r !== null).length,
+        indexedDbCount: params.length - missingParams.length,
+        networkCount: missingParams.length
+      })
+    } else {
+      logger.debug('[ReplaceableEventService] Batch load function completed', {
+        paramCount: params.length,
+        foundCount: results.filter(r => r !== null).length
+      })
+    }
     return results
   }
 

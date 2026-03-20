@@ -90,6 +90,9 @@ export default function QuoteList({ event, className }: { event: Event; classNam
               [event, ...oldEvents].sort((a, b) => b.created_at - a.created_at)
             )
           }
+        },
+        {
+          useCache: false // NO CACHING - stream raw from relays
         }
       )
       setTimelineKey(timelineKey)

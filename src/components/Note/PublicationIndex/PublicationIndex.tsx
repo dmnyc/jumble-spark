@@ -537,7 +537,7 @@ export default function PublicationIndex({
           },
           onNew: () => {} // Not needed for one-time fetch
         },
-        { needSort: false }
+        { needSort: false, useCache: false } // NO CACHING - stream raw from relays
       )
       
       // Wait for up to 10 seconds for events to arrive or eosed

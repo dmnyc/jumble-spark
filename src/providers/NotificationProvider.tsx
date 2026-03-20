@@ -107,15 +107,23 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
               if (evt.pubkey !== pubkey) {
                 const prev = notificationBufferRef.current
                 if (!discussionEosed) {
-                  notificationBufferRef.current = [evt, ...prev]
+                  // Before EOSE: just buffer events, limit size
+                  if (prev.length < 100) {
+                    notificationBufferRef.current = [evt, ...prev]
+                  }
                   return
                 }
                 if (prev.length && compareEvents(prev[0], evt) >= 0) {
                   return
                 }
 
+                // Limit buffer size to prevent memory issues
+                if (prev.length >= 50) {
+                  notificationBufferRef.current = [evt, ...prev.slice(0, 49)]
+                } else {
+                  notificationBufferRef.current = [evt, ...prev]
+                }
                 client.emitNewEvent(evt)
-                notificationBufferRef.current = [evt, ...prev]
               }
             }
           }
@@ -145,24 +153,38 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             oneose: (e) => {
               if (e) {
                 eosed = e
-                notificationBufferRef.current = [
-                  ...notificationBufferRef.current.sort((a, b) => compareEvents(b, a))
-                ]
+                // Don't sort on every EOSE - sorting is expensive and buffer is already maintained in order
+                // Only sort if buffer is getting large and out of order
+                if (notificationBufferRef.current.length > 100) {
+                  notificationBufferRef.current = [
+                    ...notificationBufferRef.current.sort((a, b) => compareEvents(b, a))
+                  ]
+                }
               }
             },
             onevent: (evt) => {
               if (evt.pubkey !== pubkey) {
                 const prev = notificationBufferRef.current
                 if (!eosed) {
-                  notificationBufferRef.current = [evt, ...prev]
+                  // Before EOSE: just buffer events, don't emit yet
+                  // Limit buffer size to prevent memory issues
+                  if (prev.length < 100) {
+                    notificationBufferRef.current = [evt, ...prev]
+                  }
                   return
                 }
+                // After EOSE: only emit if it's newer than the most recent event
                 if (prev.length && compareEvents(prev[0], evt) >= 0) {
                   return
                 }
 
+                // Limit buffer size to prevent memory issues
+                if (prev.length >= 50) {
+                  notificationBufferRef.current = [evt, ...prev.slice(0, 49)]
+                } else {
+                  notificationBufferRef.current = [evt, ...prev]
+                }
                 client.emitNewEvent(evt)
-                notificationBufferRef.current = [evt, ...prev]
               }
             },
             onAllClose: (reasons) => {

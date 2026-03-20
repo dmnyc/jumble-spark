@@ -842,10 +842,12 @@ class ClientService extends EventTarget {
     },
     {
       startLogin,
-      needSort = true
+      needSort = true,
+      useCache = false
     }: {
       startLogin?: () => void
       needSort?: boolean
+      useCache?: boolean
     } = {}
   ) {
     const newEventIdSet = new Set<string>()
@@ -889,7 +891,7 @@ class ClientService extends EventTarget {
             },
             onClose
           },
-          { startLogin, needSort }
+          { startLogin, needSort, useCache }
         )
       })
     )
@@ -907,6 +909,29 @@ class ClientService extends EventTarget {
       },
       timelineKey: key
     }
+  }
+
+  /**
+   * Check if a timeline has more events available (either cached or from network)
+   */
+  hasMoreTimelineEvents(key: string, until: number): boolean {
+    const timeline = this.timelines[key]
+    if (!timeline) return false
+
+    if (Array.isArray(timeline)) {
+      // For multiple timelines, check if any has more events
+      return timeline.some((subKey) => {
+        const subTimeline = this.timelines[subKey]
+        if (!subTimeline || Array.isArray(subTimeline)) return false
+        const { refs } = subTimeline
+        // Check if there are refs with created_at <= until that we haven't loaded
+        return refs.some(([, createdAt]) => createdAt <= until)
+      })
+    }
+
+    const { refs } = timeline
+    // Check if there are refs with created_at <= until that we haven't loaded
+    return refs.some(([, createdAt]) => createdAt <= until)
   }
 
   async loadMoreTimeline(key: string, until: number, limit: number) {
@@ -1146,10 +1171,12 @@ class ClientService extends EventTarget {
     },
     {
       startLogin,
-      needSort = true
+      needSort = true,
+      useCache = false
     }: {
       startLogin?: () => void
       needSort?: boolean
+      useCache?: boolean
     } = {}
   ) {
     const relays = Array.from(new Set(urls))
@@ -1157,14 +1184,40 @@ class ClientService extends EventTarget {
     const timeline = this.timelines[key]
     let cachedEvents: NEvent[] = []
     let since: number | undefined
-    if (timeline && !Array.isArray(timeline) && timeline.refs.length && needSort) {
+    // CRITICAL: Only use cache if explicitly enabled (for profile timelines)
+    // Main feeds (home, notifications) should always fetch fresh from relays
+    if (useCache && timeline && !Array.isArray(timeline) && timeline.refs.length && needSort) {
       cachedEvents = (
         await Promise.all(timeline.refs.slice(0, filter.limit).map(([id]) => this.eventService.fetchEvent(id)))
       ).filter((evt): evt is NEvent => !!evt)
       if (cachedEvents.length) {
-        onEvents([...cachedEvents], false)
-        since = cachedEvents[0].created_at + 1
+        // Sort cached events by newest first
+        cachedEvents.sort((a, b) => b.created_at - a.created_at)
+        
+        // CRITICAL FIX: Filter out very old cached events (older than 24 hours)
+        // This prevents showing 15+ hour old events when the cache is stale
+        const oneDayAgo = dayjs().subtract(24, 'hours').unix()
+        const recentCachedEvents = cachedEvents.filter(evt => evt.created_at >= oneDayAgo)
+        
+        if (recentCachedEvents.length > 0) {
+          // Only show cached events if they're recent
+          onEvents([...recentCachedEvents], false)
+          // Use the NEWEST cached event's timestamp + 1 to fetch only newer events
+          since = recentCachedEvents[0].created_at + 1
+        } else {
+          // All cached events are too old, ignore them and start fresh
+          cachedEvents = []
+        }
       }
+    }
+    
+    // CRITICAL FIX: If no cached events (or all were too old), use a recent timestamp
+    // This prevents the feed from showing 15+ hour old events when relays are slow
+    if (!since && needSort) {
+      // Default to last 24 hours if no recent cached events
+      // This ensures we get recent content even if relays are slow
+      const oneDayAgo = dayjs().subtract(24, 'hours').unix()
+      since = oneDayAgo
     }
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -1178,7 +1231,8 @@ class ClientService extends EventTarget {
     const deliverProgressive = () => {
       if (eosedAt || events.length === 0) return
       const snap = [...events].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
-      onEvents(needSort ? snap.concat(cachedEvents).slice(0, filter.limit) : snap, false)
+      // Only include cached events if caching is enabled
+      onEvents(needSort && useCache ? snap.concat(cachedEvents).slice(0, filter.limit) : snap, false)
     }
     const subCloser = this.subscribe(relays, since ? { ...filter, since } : filter, {
       startLogin,
@@ -1204,6 +1258,9 @@ class ClientService extends EventTarget {
           onNew(evt)
         }
 
+        // Only update timeline cache if caching is enabled
+        if (!useCache) return
+        
         const timeline = that.timelines[key]
         if (!timeline || Array.isArray(timeline) || !timeline.refs.length) {
           return
@@ -1241,35 +1298,43 @@ class ClientService extends EventTarget {
         }
         if (!eosed) {
           events = events.sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
-          return onEvents([...events.concat(cachedEvents).slice(0, filter.limit)], false)
+          // Only include cached events if caching is enabled
+          return onEvents([...(useCache ? events.concat(cachedEvents).slice(0, filter.limit) : events)], false)
         }
 
         events = events.sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
-        const timeline = that.timelines[key]
-        // no cache yet
-        if (!timeline || Array.isArray(timeline) || !timeline.refs.length) {
-          that.timelines[key] = {
-            refs: events.map((evt) => [evt.id, evt.created_at]),
-            filter,
-            urls
+        
+        // Only update timeline cache if caching is enabled
+        if (useCache) {
+          const timeline = that.timelines[key]
+          // no cache yet
+          if (!timeline || Array.isArray(timeline) || !timeline.refs.length) {
+            that.timelines[key] = {
+              refs: events.map((evt) => [evt.id, evt.created_at]),
+              filter,
+              urls
+            }
+            return onEvents([...events], true)
           }
-          return onEvents([...events], true)
-        }
 
-        // Prevent concurrent requests from duplicating the same event
-        const firstRefCreatedAt = timeline.refs[0][1]
-        const newRefs = events
-          .filter((evt) => evt.created_at > firstRefCreatedAt)
-          .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
+          // Prevent concurrent requests from duplicating the same event
+          const firstRefCreatedAt = timeline.refs[0][1]
+          const newRefs = events
+            .filter((evt) => evt.created_at > firstRefCreatedAt)
+            .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
 
-        if (events.length >= filter.limit) {
-          // if new refs are more than limit, means old refs are too old, replace them
-          timeline.refs = newRefs
-          onEvents([...events], true)
+          if (events.length >= filter.limit) {
+            // if new refs are more than limit, means old refs are too old, replace them
+            timeline.refs = newRefs
+            onEvents([...events], true)
+          } else {
+            // merge new refs with old refs
+            timeline.refs = newRefs.concat(timeline.refs)
+            onEvents([...events.concat(cachedEvents).slice(0, filter.limit)], true)
+          }
         } else {
-          // merge new refs with old refs
-          timeline.refs = newRefs.concat(timeline.refs)
-          onEvents([...events.concat(cachedEvents).slice(0, filter.limit)], true)
+          // No caching - just return events directly
+          onEvents([...events], true)
         }
       },
       onclose: onClose

@@ -24,8 +24,8 @@ import PullToRefresh from 'react-simple-pull-to-refresh'
 import { NotificationItem } from './NotificationItem'
 import { NotificationSkeleton } from './NotificationItem/Notification'
 import { isTouchDevice } from '@/lib/utils'
-const LIMIT = 100
-const SHOW_COUNT = 30
+const LIMIT = 500 // Increased from 100 to load more notifications per request
+const SHOW_COUNT = 50 // Increased from 30 to show more notifications at once
 
 const NotificationList = forwardRef(
   (
@@ -52,6 +52,7 @@ const NotificationList = forwardRef(
   const supportTouch = useMemo(() => isTouchDevice(), [])
   const topRef = useRef<HTMLDivElement | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const consecutiveEmptyRef = useRef(0) // Track consecutive empty results to prevent premature stopping
   const filterKinds = useMemo(() => {
     switch (notificationType) {
       case 'mentions':
@@ -98,6 +99,21 @@ const NotificationList = forwardRef(
     setShowCount(SHOW_COUNT)
   }, [notificationType])
 
+  // Batch stats updates to avoid calling updateNoteStatsByEvents for every single event
+  const pendingStatsEventsRef = useRef<NostrEvent[]>([])
+  const statsBatchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  const flushStatsBatch = useCallback(() => {
+    if (pendingStatsEventsRef.current.length > 0) {
+      noteStatsService.updateNoteStatsByEvents(pendingStatsEventsRef.current)
+      pendingStatsEventsRef.current = []
+    }
+    if (statsBatchTimeoutRef.current) {
+      clearTimeout(statsBatchTimeoutRef.current)
+      statsBatchTimeoutRef.current = null
+    }
+  }, [])
+
   const handleNewEvent = useCallback(
     (event: NostrEvent) => {
       if (event.pubkey === pubkey) return
@@ -109,14 +125,20 @@ const NotificationList = forwardRef(
         }
         
         const index = oldEvents.findIndex((oldEvent) => compareEvents(oldEvent, event) <= 0)
-        noteStatsService.updateNoteStatsByEvents([event])
+        
+        // Batch stats updates instead of calling for each event
+        pendingStatsEventsRef.current.push(event)
+        if (!statsBatchTimeoutRef.current) {
+          statsBatchTimeoutRef.current = setTimeout(flushStatsBatch, 500) // Batch every 500ms
+        }
+        
         if (index === -1) {
           return [...oldEvents, event]
         }
         return [...oldEvents.slice(0, index), event, ...oldEvents.slice(index)]
       })
     },
-    [pubkey]
+    [pubkey, flushStatsBatch]
   )
 
   useEffect(() => {
@@ -182,12 +204,19 @@ const NotificationList = forwardRef(
             if (eosed) {
               setLoading(false)
               setUntil(events.length > 0 ? events[events.length - 1].created_at - 1 : undefined)
-              noteStatsService.updateNoteStatsByEvents(events)
+              // Batch stats update for initial load - only process events that don't have stats yet
+              // This avoids redundant processing since updateNoteStatsByEvents is idempotent but still expensive
+              if (events.length > 0) {
+                noteStatsService.updateNoteStatsByEvents(events)
+              }
             }
           },
           onNew: (event) => {
             handleNewEvent(event)
           }
+        },
+        {
+          useCache: false // Notifications should always fetch fresh from relays, not use cache
         }
       )
       setTimelineKey(timelineKey)
@@ -197,8 +226,15 @@ const NotificationList = forwardRef(
     const promise = init()
     return () => {
       promise.then((closer) => closer?.())
+      // Clean up stats batch timeout on unmount
+      if (statsBatchTimeoutRef.current) {
+        clearTimeout(statsBatchTimeoutRef.current)
+        statsBatchTimeoutRef.current = null
+      }
+      flushStatsBatch() // Flush any pending stats updates
+      consecutiveEmptyRef.current = 0 // Reset counter on refresh
     }
-  }, [pubkey, refreshCount, filterKinds, current])
+  }, [pubkey, refreshCount, filterKinds, current, flushStatsBatch])
 
   useEffect(() => {
     if (!active || !pubkey) return
@@ -260,10 +296,19 @@ const NotificationList = forwardRef(
       const currentLoading = loadingRef.current
 
       if (currentShowCount < currentNotifications.length) {
-        setShowCount((count) => count + SHOW_COUNT)
-        // preload more
-        if (currentNotifications.length - currentShowCount > LIMIT / 2) {
+        // Show more aggressively: increase by SHOW_COUNT, but also check if we should show even more
+        const remaining = currentNotifications.length - currentShowCount
+        const increment = Math.min(SHOW_COUNT * 2, remaining) // Show up to 2x SHOW_COUNT if available
+        setShowCount((count) => count + increment)
+        // Only preload more if we have plenty cached (more than 3/4 of LIMIT)
+        // BUT: Always try to load more if we have very few notifications (might be due to filtering)
+        if (currentNotifications.length - currentShowCount > LIMIT * 0.75 && currentNotifications.length >= 50) {
           return
+        }
+        // If we have very few notifications, always try to load more (might be aggressive filtering)
+        if (currentNotifications.length < 50) {
+          // Continue to loadMore below even if we have cached notifications
+          // This ensures we keep loading when filtering is aggressive
         }
       }
 
@@ -271,10 +316,40 @@ const NotificationList = forwardRef(
       setLoading(true)
       try {
         const newNotifications = await client.loadMoreTimeline(timelineKey, until, LIMIT)
+        // CRITICAL FIX: Don't stop immediately on empty results - might be temporary relay issues
+        // Only stop if we've tried many times with no results
         if (newNotifications.length === 0) {
-          setUntil(undefined)
+          // Check if timeline has more cached refs that we haven't loaded yet
+          const hasMoreCached = client.hasMoreTimelineEvents?.(timelineKey, until) ?? false
+          if (hasMoreCached) {
+            // There are more cached notifications, keep trying
+            consecutiveEmptyRef.current = 0 // Reset counter when we have cached events
+            setLoading(false)
+            // Retry after a short delay to allow IndexedDB to catch up
+            setTimeout(() => {
+              if (until) {
+                loadMore()
+              }
+            }, 300)
+            return
+          }
+          // No cached notifications and network returned empty
+          // Be patient - don't stop too early, especially when we have few notifications
+          consecutiveEmptyRef.current += 1
+          // Only stop after MANY consecutive empty results (similar to NoteList)
+          if (consecutiveEmptyRef.current >= 20) {
+            // After 20 consecutive empty results, assume we've reached the end
+            setUntil(undefined)
+            setLoading(false)
+            return
+          }
+          // Otherwise, keep trying on next scroll
+          setLoading(false)
           return
         }
+
+        // Reset consecutive empty counter on success
+        consecutiveEmptyRef.current = 0
 
         if (newNotifications.length > 0) {
           setNotifications((oldNotifications) => [
@@ -284,6 +359,14 @@ const NotificationList = forwardRef(
         }
 
         setUntil(newNotifications[newNotifications.length - 1].created_at - 1)
+      } catch (error) {
+        // On error, don't stop immediately - might be temporary network issue
+        logger.error('[NotificationList] Error loading more notifications', { error })
+        consecutiveEmptyRef.current += 1
+        // Only stop after MANY consecutive errors - be very patient with network issues
+        if (consecutiveEmptyRef.current >= 25) {
+          setUntil(undefined)
+        }
       } finally {
         setLoading(false)
       }
@@ -310,6 +393,7 @@ const NotificationList = forwardRef(
 
   const refresh = () => {
     topRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' })
+    consecutiveEmptyRef.current = 0 // Reset counter on refresh
     setTimeout(() => {
       setRefreshCount((count) => count + 1)
     }, 500)

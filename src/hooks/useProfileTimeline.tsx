@@ -199,7 +199,7 @@ export function useProfileTimeline({
               })
             }
           },
-          { needSort: true }
+          { needSort: true, useCache: false } // NO CACHING - stream raw from relays
         )
 
         subscriptionRef.current = () => closer()
