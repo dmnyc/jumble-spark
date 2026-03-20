@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
-import client from '@/services/client.service'
+import { eventService } from '@/services/client.service'
 import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
 import logger from '@/lib/logger'
 import { Check } from 'lucide-react'
@@ -160,7 +160,7 @@ export async function extractMentions(content: string, parentEvent?: Event) {
       } else if (type === 'npub') {
         addToSet(pubkeys, data)
       } else if (['nevent', 'note'].includes(type)) {
-        const event = await client.fetchEvent(id)
+        const event = await eventService.fetchEvent(id)
         if (event) {
           addToSet(pubkeys, event.pubkey)
         }

@@ -3,7 +3,7 @@ import { ExtendedKind } from '@/constants'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
-import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 import { NostrEvent } from 'nostr-tools'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -260,7 +260,7 @@ export default function TrendingNotes() {
           logger.debug('[TrendingNotes] Processing batch', Math.floor(i/batchSize) + 1, 'of', Math.ceil(relays.length/batchSize), 'relays:', batch)
           const batchPromises = batch.map(async (relay) => {
             try {
-              const events = await client.fetchEvents([relay], {
+              const events = await queryService.fetchEvents([relay], {
                 kinds: [1, 11, 30023, 9802, 20, 21, 22],
                 since: twentyFourHoursAgo,
                 limit: 200
@@ -436,7 +436,7 @@ export default function TrendingNotes() {
               { kinds: calendarKinds, '#p': [pubkey], limit: 100 }
             ]
           : [{ kinds: calendarKinds, limit: 200 }]
-        const events = await client.fetchEvents(relays, filters, {
+        const events = await queryService.fetchEvents(relays, filters, {
           eoseTimeout: 8000,
           globalTimeout: 20000
         })

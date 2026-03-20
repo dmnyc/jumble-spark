@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Event } from 'nostr-tools'
 import { parseBookWikilink, extractBookMetadata, BookReference } from '@/lib/bookstr-parser'
 import client from '@/services/client.service'
+import { macroService } from '@/services/client.service'
 import { ExtendedKind } from '@/constants'
 import { Loader2, AlertCircle, ExternalLink } from 'lucide-react'
 import {
@@ -564,7 +565,7 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
             const normalizedBook = ref.book.toLowerCase().replace(/\s+/g, '-')
             const fetchPromises = versionsToFetch.length > 0
               ? versionsToFetch.map(version => 
-                  client.fetchBookstrEvents({
+                  macroService.fetchMacroEvents({
                     type: bookType,
                     book: normalizedBook,
                     chapter: ref.chapter,
@@ -573,7 +574,7 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
                   })
                 )
               : [
-                  client.fetchBookstrEvents({
+                  macroService.fetchMacroEvents({
                     type: bookType,
                     book: normalizedBook,
                     chapter: ref.chapter,
@@ -640,7 +641,7 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
           let versionsToFetchFinal = versionsToFetch
           if (versionsToFetchFinal.length === 0) {
             // First, try to find any version for this book/chapter/verse
-            const allEvents = await client.fetchBookstrEvents({
+            const allEvents = await macroService.fetchMacroEvents({
               type: bookType,
               book: normalizedBook,
               chapter: ref.chapter,
@@ -700,7 +701,7 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
           const allVersions = new Set<string>()
 
           for (const version of versionsToFetchFinal) {
-            const events = await client.fetchBookstrEvents({
+            const events = await macroService.fetchMacroEvents({
               type: bookType,
               book: normalizedBook,
               chapter: ref.chapter,
@@ -1180,7 +1181,7 @@ function VersionSelector({ section, selectedVersion, onVersionChange }: VersionS
       try {
         // Query for all versions of this book/chapter/verse
         const normalizedBook = section.reference.book.toLowerCase().replace(/\s+/g, '-')
-        const allEvents = await client.fetchBookstrEvents({
+        const allEvents = await macroService.fetchMacroEvents({
           type: 'bible',
           book: normalizedBook,
           chapter: section.reference.chapter,

@@ -32,6 +32,7 @@ import { toNoteList } from '@/lib/link'
 import { parseAdvancedSearch } from '@/lib/search-parser'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
+import { replaceableEventService } from '@/services/client.service'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -401,7 +402,7 @@ export default function Profile({ id }: { id?: string }) {
     const forceUpdateCache = async () => {
       await Promise.all([
         client.forceUpdateRelayListEvent(profile.pubkey),
-        client.fetchProfile(profile.pubkey, true)
+        replaceableEventService.fetchReplaceableEvent(profile.pubkey, kinds.Metadata)
       ])
     }
     forceUpdateCache()

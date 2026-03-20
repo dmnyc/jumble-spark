@@ -32,7 +32,7 @@ class CustomEmojiService {
     const emojiSetEvents = await client.fetchEmojiSetEvents(emojiSetPointers)
     await Promise.allSettled(
       emojiSetEvents.map(async (event) => {
-        if (!event || event instanceof Error) return
+        if (!event || (event as any) instanceof Error) return
 
         await this.addEmojisToIndex(getEmojisFromEvent(event))
       })

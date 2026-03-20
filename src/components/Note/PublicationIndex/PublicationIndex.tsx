@@ -7,6 +7,7 @@ import AsciidocArticle from '../AsciidocArticle/AsciidocArticle'
 import MarkdownArticle from '../MarkdownArticle/MarkdownArticle'
 import { generateBech32IdFromATag } from '@/lib/tag'
 import client from '@/services/client.service'
+import { eventService, queryService, replaceableEventService } from '@/services/client.service'
 import logger from '@/lib/logger'
 import { Button } from '@/components/ui/button'
 import { RefreshCw, ArrowUp } from 'lucide-react'
@@ -556,7 +557,7 @@ export default function PublicationIndex({
     } catch (subError) {
       logger.warn(`[PublicationIndex] Subscription error for ${logPrefix}, falling back to fetchEvents:`, subError)
       // Fallback to regular fetchEvents if subscription fails
-      const events = await client.fetchEvents(relayUrls, [filter])
+      const events = await queryService.fetchEvents(relayUrls, [filter])
       if (events.length > 0) {
         logger.debug(`[PublicationIndex] Found event via ${logPrefix} fetchEvents fallback`)
         return events[0]
@@ -648,9 +649,9 @@ export default function PublicationIndex({
             } else {
               // For non-naddr (nevent/note), try fetchEvent first, then force retry
               if (isRetry) {
-                fetchedEvent = await client.fetchEventForceRetry(bech32Id)
+                fetchedEvent = await eventService.fetchEvent(bech32Id)
               } else {
-                fetchedEvent = await client.fetchEvent(bech32Id)
+                fetchedEvent = await eventService.fetchEvent(bech32Id)
               }
             }
             
@@ -683,7 +684,7 @@ export default function PublicationIndex({
           // Also check if it's a replaceable event (check by pubkey and kind if we have them)
           if (!fetchedEvent && ref.kind && ref.pubkey && isReplaceableEvent(ref.kind)) {
             try {
-              const replaceableEvent = await indexedDb.getReplaceableEvent(ref.pubkey, ref.kind)
+              const replaceableEvent = await replaceableEventService.fetchReplaceableEvent(ref.pubkey, ref.kind)
               if (replaceableEvent && replaceableEvent.id === hexId) {
                 fetchedEvent = replaceableEvent
                 logger.debug('[PublicationIndex] Loaded from indexedDb replaceable cache by event ID:', ref.eventId)
@@ -704,7 +705,7 @@ export default function PublicationIndex({
           } else {
             // ref.eventId is bech32 or invalid; client.fetchEvent decodes bech32 and builds correct filter internally
             try {
-              fetchedEvent = await client.fetchEvent(ref.eventId)
+              fetchedEvent = await eventService.fetchEvent(ref.eventId)
             } catch (err) {
               logger.debug('[PublicationIndex] fetchEvent failed for ref.eventId:', ref.eventId, err)
             }

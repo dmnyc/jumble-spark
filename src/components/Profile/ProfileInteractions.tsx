@@ -4,7 +4,7 @@ import { ExtendedKind } from '@/constants'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { Event, kinds } from 'nostr-tools'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState, useRef, useCallback } from 'react'
-import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 import { FAST_READ_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import { useZap } from '@/providers/ZapProvider'
@@ -80,7 +80,7 @@ const ProfileInteractions = forwardRef<
         const filters: any[] = []
         
         // Get profilePubkey's notes to find replies to them
-        const profileNotes = await client.fetchEvents(relayUrls, [{
+        const profileNotes = await queryService.fetchEvents(relayUrls, [{
           authors: [profilePubkey],
           kinds: [kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.POLL, ExtendedKind.DISCUSSION],
           limit: 100
@@ -115,7 +115,7 @@ const ProfileInteractions = forwardRef<
         })
         
         // Get accountPubkey's notes to find replies from profilePubkey
-        const accountNotes = await client.fetchEvents(relayUrls, [{
+        const accountNotes = await queryService.fetchEvents(relayUrls, [{
           authors: [accountPubkey],
           kinds: [kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.POLL, ExtendedKind.DISCUSSION],
           limit: 100
@@ -149,7 +149,7 @@ const ProfileInteractions = forwardRef<
           limit: 100
         })
         
-        const allEvents = await client.fetchEvents(relayUrls, filters)
+        const allEvents = await queryService.fetchEvents(relayUrls, filters)
         
         // Deduplicate and filter
         const seenIds = new Set<string>()

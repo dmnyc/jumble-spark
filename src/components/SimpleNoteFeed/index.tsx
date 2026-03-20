@@ -86,7 +86,8 @@ const SimpleNoteFeed = forwardRef<
       
       // Fetch events
       logger.component('SimpleNoteFeed', 'Calling client.fetchEvents')
-      const fetchedEvents = await client.fetchEvents(allRelays, [filter])
+      const { queryService } = await import('@/services/client.service')
+      const fetchedEvents = await queryService.fetchEvents(allRelays, [filter])
       
       logger.component('SimpleNoteFeed', 'Fetched events', { count: fetchedEvents.length })
       

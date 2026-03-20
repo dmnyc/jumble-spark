@@ -453,6 +453,44 @@ class IndexedDbService {
     })
   }
 
+  /**
+   * Get the timestamp when a replaceable event was cached in IndexedDB
+   */
+  async getReplaceableEventCachedAt(
+    pubkey: string,
+    kind: number,
+    d?: string
+  ): Promise<number | undefined> {
+    const storeName = this.getStoreNameByKind(kind)
+    if (!storeName) {
+      return Promise.resolve(undefined)
+    }
+    await this.initPromise
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        return resolve(undefined)
+      }
+      if (!this.db.objectStoreNames.contains(storeName)) {
+        return resolve(undefined)
+      }
+      const transaction = this.db.transaction(storeName, 'readonly')
+      const store = transaction.objectStore(storeName)
+      const key = this.getReplaceableEventKey(pubkey, d)
+      const request = store.get(key)
+
+      request.onsuccess = () => {
+        const row = request.result as TValue<Event> | undefined
+        transaction.commit()
+        resolve(row?.addedAt)
+      }
+
+      request.onerror = (event) => {
+        transaction.commit()
+        reject(event)
+      }
+    })
+  }
+
   async getManyReplaceableEvents(
     pubkeys: readonly string[],
     kind: number

@@ -13,6 +13,7 @@ import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
+import { eventService, queryService } from '@/services/client.service'
 import { nip66Service } from '@/services/nip66.service'
 import { Bell, BellOff, Code, Copy, Link, SatelliteDish, Trash2, TriangleAlert, Pin, FileDown, Globe, BookOpen, MessageCircle, Send, Video } from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
@@ -128,7 +129,7 @@ export function useMenuActions({
         // Try to fetch pin list event from comprehensive relay list first
         let pinListEvent = null
         try {
-          const pinListEvents = await client.fetchEvents(comprehensiveRelays, {
+          const pinListEvents = await queryService.fetchEvents(comprehensiveRelays, {
             authors: [pubkey],
             kinds: [10001], // Pin list kind
             limit: 1
@@ -172,7 +173,7 @@ export function useMenuActions({
       // Try to fetch pin list event from comprehensive relay list first
       let pinListEvent = null
       try {
-        const pinListEvents = await client.fetchEvents(comprehensiveRelays, {
+        const pinListEvents = await queryService.fetchEvents(comprehensiveRelays, {
           authors: [pubkey],
           kinds: [10001], // Pin list kind
           limit: 1
@@ -255,7 +256,7 @@ export function useMenuActions({
     const rootEventId = getRootEventHexId(event)
     if (rootEventId) {
       // Fetch the root event to check if it's a discussion
-      client.fetchEvent(rootEventId).then(rootEvent => {
+      eventService.fetchEvent(rootEventId).then(rootEvent => {
         if (rootEvent && rootEvent.kind === ExtendedKind.DISCUSSION) {
           setIsReplyToDiscussion(true)
         }
@@ -519,7 +520,7 @@ export function useMenuActions({
               const aTag = ['a', coordinate, tag[2] || '', tag[3] || '']
               const bech32Id = generateBech32IdFromATag(aTag)
               if (bech32Id) {
-                const fetchedEvent = await client.fetchEvent(bech32Id)
+                const fetchedEvent = await eventService.fetchEvent(bech32Id)
                 return fetchedEvent
               }
               return null

@@ -11,6 +11,7 @@ import { kinds } from 'nostr-tools'
 import { normalizeUrl } from '@/lib/url'
 import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
 import { DISCUSSION_TOPICS } from './discussionTopics'
 import ThreadCard from './ThreadCard'
@@ -417,7 +418,7 @@ const DiscussionsPage = forwardRef((_, ref) => {
       logger.debug('[DiscussionsPage] Using relays:', allRelays.slice(0, 10), '... (total:', allRelays.length, ')')
       
       // Step 1: Fetch all discussion threads (kind 11)
-      const discussionThreads = await client.fetchEvents(allRelays, [
+      const discussionThreads = await queryService.fetchEvents(allRelays, [
         {
           kinds: [11], // ExtendedKind.DISCUSSION
           limit: 100
@@ -451,14 +452,14 @@ const DiscussionsPage = forwardRef((_, ref) => {
       const allThreadIdsArray = Array.from(allThreadIds)
       
       const [comments, reactions] = await Promise.all([
-        allThreadIdsArray.length > 0 ? client.fetchEvents(allRelays, [
+        allThreadIdsArray.length > 0 ? queryService.fetchEvents(allRelays, [
           {
             kinds: [1111], // ExtendedKind.COMMENT
             '#e': allThreadIdsArray,
             limit: 100
           }
         ]) : Promise.resolve([]),
-        allThreadIdsArray.length > 0 ? client.fetchEvents(allRelays, [
+        allThreadIdsArray.length > 0 ? queryService.fetchEvents(allRelays, [
           {
             kinds: [kinds.Reaction],
             '#e': allThreadIdsArray,

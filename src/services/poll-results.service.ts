@@ -3,7 +3,7 @@ import { getPollResponseFromEvent } from '@/lib/event-metadata'
 import DataLoader from 'dataloader'
 import dayjs from 'dayjs'
 import { Filter } from 'nostr-tools'
-import client from './client.service'
+import { queryService } from './client.service'
 
 export type TPollResults = {
   totalVotes: number
@@ -119,7 +119,7 @@ class PollResultsService {
       }
     }
 
-    const responseEvents = await client.fetchEvents(relays, filter)
+    const responseEvents = await queryService.fetchEvents(relays, filter)
 
     results.updatedAt = dayjs().unix()
 

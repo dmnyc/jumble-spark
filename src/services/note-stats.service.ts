@@ -4,7 +4,7 @@ import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { getEmojiInfosFromEmojiTags, tagNameEquals } from '@/lib/tag'
 import { normalizeUrl } from '@/lib/url'
-import client from '@/services/client.service'
+import { eventService } from '@/services/client.service'
 import { TEmoji } from '@/types'
 import dayjs from 'dayjs'
 import { Event, Filter, kinds } from 'nostr-tools'
@@ -101,7 +101,7 @@ class NoteStatsService {
     
     try {
       // Get the event from cache or fetch it
-      const event = await this.getEventById(eventId)
+      const event = await eventService.fetchEvent(eventId)
       if (!event) {
         logger.debug('[NoteStats] Event not found:', eventId.substring(0, 8))
         return
@@ -125,7 +125,8 @@ class NoteStatsService {
       const events: Event[] = []
       logger.debug('[NoteStats] Fetching stats for event', event.id.substring(0, 8), 'from', finalRelayUrls.length, 'relays')
       
-      await client.fetchEvents(finalRelayUrls, filters, {
+      const { queryService } = await import('@/services/client.service')
+      await queryService.fetchEvents(finalRelayUrls, filters, {
         onevent: (evt) => {
           this.updateNoteStatsByEvents([evt], event.pubkey)
           events.push(evt)
@@ -192,11 +193,6 @@ class NoteStatsService {
     return filters
   }
 
-  private async getEventById(eventId: string): Promise<Event | null> {
-    // Fetch the event
-    const event = await client.fetchEvent(eventId)
-    return event || null
-  }
 
   subscribeNoteStats(noteId: string, callback: () => void) {
     let set = this.noteStatsSubscribers.get(noteId)

@@ -22,7 +22,7 @@ import { isWebsocketUrl, simplifyUrl } from '@/lib/url'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 import { TRelaySet } from '@/types'
 import { CloudDownload } from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
@@ -93,7 +93,7 @@ function RemoteRelaySets({ close }: { close?: () => void }) {
 
     const init = async () => {
       setInitialed(false)
-      const events = await client.fetchEvents(
+      const events = await queryService.fetchEvents(
         (relayList?.write ?? []).concat(BIG_RELAY_URLS).slice(0, 4),
         {
           kinds: [kinds.Relaysets],

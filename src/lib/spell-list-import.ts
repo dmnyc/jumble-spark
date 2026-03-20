@@ -7,7 +7,7 @@ import { isValidPubkey } from '@/lib/pubkey'
 import { isWebsocketUrl, normalizeUrl } from '@/lib/url'
 import type { Event } from 'nostr-tools'
 import type { Filter } from 'nostr-tools'
-import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 
 const HEX64 = /^[0-9a-f]{64}$/i
 
@@ -180,8 +180,8 @@ export async function resolveSpellListATags(
       try {
         const events =
           relays.length > 0
-            ? await client.fetchEvents(relays, filter, { globalTimeout: 12_000 })
-            : await client.fetchEvents([], filter, { globalTimeout: 12_000 })
+            ? await queryService.fetchEvents(relays, filter, { globalTimeout: 12_000 })
+            : await queryService.fetchEvents([], filter, { globalTimeout: 12_000 })
         if (!events.length) {
           notices.push(`listImportATagNotFound:${at.slice(0, 48)}`)
           return

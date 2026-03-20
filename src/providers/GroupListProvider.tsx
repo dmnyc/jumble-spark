@@ -5,6 +5,7 @@ import { ExtendedKind } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 import logger from '@/lib/logger'
 
 interface GroupListContextType {
@@ -63,7 +64,7 @@ export function GroupListProvider({ children }: { children: React.ReactNode }) {
       const allRelays = await buildComprehensiveRelayList()
       
       // Fetch group list event (kind 10009)
-      const groupListEvents = await client.fetchEvents(allRelays, [
+      const groupListEvents = await queryService.fetchEvents(allRelays, [
         {
           kinds: [ExtendedKind.GROUP_LIST],
           authors: [accountPubkey],

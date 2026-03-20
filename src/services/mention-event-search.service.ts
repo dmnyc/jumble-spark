@@ -5,6 +5,7 @@
 
 import { ExtendedKind, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { kinds, type Event as NEvent } from 'nostr-tools'
+import { eventService, queryService } from './client.service'
 import client from './client.service'
 import indexedDb from './indexed-db.service'
 
@@ -64,7 +65,7 @@ export async function searchEventsForPicker(
     out.push(evt)
   }
 
-  const fromSession = client.getSessionEventsMatchingSearch(q, limit, kindsList)
+  const fromSession = eventService.getSessionEventsMatchingSearch(q, limit, kindsList)
   fromSession.forEach(addUnique)
   if (out.length >= limit) return out.slice(0, limit)
 
@@ -72,7 +73,7 @@ export async function searchEventsForPicker(
   fromIdb.forEach(addUnique)
   if (out.length >= limit) return out.slice(0, limit)
 
-  const fromRelays = await client.fetchEvents(
+  const fromRelays = await queryService.fetchEvents(
     SEARCHABLE_RELAY_URLS,
     { kinds: kindsList, search: q, limit: limit - out.length },
     { eoseTimeout: 5000, globalTimeout: 8000 }
@@ -94,10 +95,12 @@ export async function searchNotesForPicker(
 /**
  * Search for npubs for @-mentions. Uses same pattern as note search: cache (follow + local index) then relays.
  * Delegates to client which already does follow-list → local index → relay search.
+ * Supports incremental updates via onUpdate callback for faster UI updates.
  */
 export async function searchNpubsForMention(
   query: string,
-  limit: number = DEFAULT_NPUBS_LIMIT
+  limit: number = DEFAULT_NPUBS_LIMIT,
+  onUpdate?: (npubs: string[]) => void
 ): Promise<string[]> {
-  return client.searchNpubsForMention(query, limit)
+  return client.searchNpubsForMention(query, limit, onUpdate)
 }

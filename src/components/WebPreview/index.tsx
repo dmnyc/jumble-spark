@@ -14,7 +14,7 @@ import Image from '../Image'
 import Username from '../Username'
 import { cleanUrl, isSafeMediaUrl } from '@/lib/url'
 import { tagNameEquals } from '@/lib/tag'
-import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 import { Event } from 'nostr-tools'
 import { BIG_RELAY_URLS } from '@/constants'
 import { getImetaInfosFromEvent } from '@/lib/event'
@@ -271,7 +271,7 @@ export default function WebPreview({ url, className }: { url: string; className?
           return filter
         })
         
-        const events = await client.fetchEvents(BIG_RELAY_URLS, filters)
+        const events = await queryService.fetchEvents(BIG_RELAY_URLS, filters)
         
         // Find all events with matching d-tag
         const matchingEvents = events.filter(event => {

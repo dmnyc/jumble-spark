@@ -15,7 +15,7 @@ import { cn, isTouchDevice } from '@/lib/utils'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
-import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 import { WheelGesturesPlugin } from 'embla-carousel-wheel-gestures'
 import { Filter, NostrEvent } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
@@ -59,9 +59,7 @@ export default function RelayReviewsPreview({ relayUrl }: { relayUrl: string }) 
       if (pubkey) {
         filters.push({ kinds: [ExtendedKind.RELAY_REVIEW], authors: [pubkey], '#d': [relayUrl] })
       }
-      const events = await client.fetchEvents([relayUrl, ...BIG_RELAY_URLS], filters, {
-        cache: true
-      })
+      const events = await queryService.fetchEvents([relayUrl, ...BIG_RELAY_URLS], filters)
 
       const pubkeySet = new Set<string>()
       const reviews: NostrEvent[] = []

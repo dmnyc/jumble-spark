@@ -1,5 +1,6 @@
 import { getPubkeysFromPTags } from '@/lib/tag'
-import client from '@/services/client.service'
+import { replaceableEventService } from '@/services/client.service'
+import { kinds } from 'nostr-tools'
 import { Event } from 'nostr-tools'
 import { useEffect, useState } from 'react'
 
@@ -14,7 +15,7 @@ export function useFetchFollowings(pubkey?: string | null) {
         setIsFetching(true)
         if (!pubkey) return
 
-        const event = await client.fetchFollowListEvent(pubkey)
+        const event = await replaceableEventService.fetchReplaceableEvent(pubkey, kinds.Contacts) ?? null
         if (!event) return
 
         setFollowListEvent(event)

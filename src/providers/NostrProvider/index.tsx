@@ -15,6 +15,7 @@ import { normalizeUrl } from '@/lib/url'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import client from '@/services/client.service'
+import { queryService, replaceableEventService } from '@/services/client.service'
 import customEmojiService from '@/services/custom-emoji.service'
 import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
@@ -335,7 +336,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         })
         
         // Fetch in background - don't block initialization
-        client.fetchEvents(FAST_WRITE_RELAY_URLS.concat(PROFILE_RELAY_URLS), {
+        queryService.fetchEvents(FAST_WRITE_RELAY_URLS.concat(PROFILE_RELAY_URLS), {
           kinds: [ExtendedKind.RSS_FEED_LIST],
           authors: [account.pubkey],
           limit: 1
@@ -373,11 +374,11 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       }
 
       const [relayListEvents, cacheRelayListEvents] = await Promise.all([
-        client.fetchEvents(BIG_RELAY_URLS, {
+        queryService.fetchEvents(BIG_RELAY_URLS, {
           kinds: [kinds.RelayList],
           authors: [account.pubkey]
         }),
-        client.fetchEvents(BIG_RELAY_URLS, {
+        queryService.fetchEvents(BIG_RELAY_URLS, {
           kinds: [ExtendedKind.CACHE_RELAYS],
           authors: [account.pubkey]
         })
@@ -396,7 +397,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         setCacheRelayListEvent(null)
       }
       // Fetch updated relay list (which merges both 10002 and 10432)
-      const mergedRelayList = await client.fetchRelayList(account.pubkey)
+      const mergedRelayList = await client.fetchRelayList(account.pubkey) // Keep using client for relay list merging
       setRelayList(mergedRelayList)
 
       // Note: Deletion event fetching is now handled locally by individual components
@@ -407,7 +408,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         ...PROFILE_FETCH_RELAY_URLS.map((url: string) => normalizeUrl(url) || url)
       ]
       const fetchRelays = Array.from(new Set(normalizedRelays)).slice(0, 8)
-      const events = await client.fetchEvents(fetchRelays, [
+      const events = await queryService.fetchEvents(fetchRelays, [
         {
           kinds: [
             kinds.Metadata,
@@ -528,7 +529,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     const initInteractions = async () => {
       const pubkey = account.pubkey
       const relayList = await client.fetchRelayList(pubkey)
-      const events = await client.fetchEvents(relayList.write.slice(0, 4), [
+      const events = await queryService.fetchEvents(relayList.write.slice(0, 4), [
         {
           authors: [pubkey],
           kinds: [kinds.Reaction, kinds.Repost],
@@ -860,7 +861,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (event.kind !== kinds.Application && event.pubkey !== account.pubkey) {
-      const eventAuthor = await client.fetchProfile(event.pubkey)
+      const profileEvent = await replaceableEventService.fetchReplaceableEvent(event.pubkey, kinds.Metadata)
+      const eventAuthor = profileEvent ? getProfileFromEvent(profileEvent) : undefined
       const result = confirm(
         t(
           'You are about to publish an event signed by [{{eventAuthorName}}]. You are currently logged in as [{{currentUsername}}]. Are you sure?',

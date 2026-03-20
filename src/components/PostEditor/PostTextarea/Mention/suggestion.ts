@@ -7,7 +7,7 @@ import type { Editor } from '@tiptap/core'
 import { ReactRenderer } from '@tiptap/react'
 import { SuggestionKeyDownProps } from '@tiptap/suggestion'
 import tippy, { GetReferenceClientRect, Instance, Props } from 'tippy.js'
-import MentionList, { MentionListHandle, MentionListProps } from './MentionList'
+import MentionList, { MentionListHandle, MentionListProps, type MentionListItem } from './MentionList'
 import { NEVENT_NADDR_PICKER_ID } from './constants'
 
 export { NEVENT_NADDR_PICKER_ID } from './constants'
@@ -18,6 +18,11 @@ const MENTION_EXTENSION_NAME = 'mention'
 const MENTION_CHAR = '@'
 
 export const OPEN_NEVENT_PICKER_EVENT = 'open-nevent-picker'
+
+// Shared state for incremental updates
+let currentComponent: ReactRenderer<MentionListHandle, MentionListProps> | undefined
+let currentQuery = ''
+let backgroundSearchController: AbortController | null = null
 
 /** Extend range.to to include any trailing word chars (handle, NIP-05) so the full @handle is replaced. Exported for nevent picker. */
 export function extendMentionRangeToEndOfWord(editor: Editor, range: { from: number; to: number }): number {
@@ -78,8 +83,27 @@ const suggestion = {
       const mode: PickerSearchMode = q === 'naddr' || q.startsWith('naddr') ? 'naddr' : 'nevent'
       return [{ id: NEVENT_NADDR_PICKER_ID, mode }]
     }
-    const result = await searchNpubsForMention(query, 20)
-    return result ?? []
+    
+    // Abort previous background search if query changed
+    if (currentQuery !== q && backgroundSearchController) {
+      backgroundSearchController.abort()
+      backgroundSearchController = null
+    }
+    currentQuery = q
+    
+    // Update component as results arrive (incremental updates)
+    const updateComponent = (npubs: string[]) => {
+      if (currentComponent && currentQuery === q) {
+        const items: MentionListItem[] = npubs
+        currentComponent.updateProps({ items })
+      }
+    }
+    
+    // Start search with callback - returns cached results immediately, then updates with relay results
+    backgroundSearchController = new AbortController()
+    const results = await searchNpubsForMention(query, 20, updateComponent)
+    
+    return results ?? []
   },
 
   render: () => {
@@ -113,6 +137,9 @@ const suggestion = {
           ...props,
           editor: props.editor
         })
+        
+        // Store component reference for incremental updates
+        currentComponent = component
 
         if (!props.clientRect) {
           return
@@ -161,6 +188,15 @@ const suggestion = {
         if (exited) return
         exited = true
         postEditor.isSuggestionPopupOpen = false
+        
+        // Abort background search
+        if (backgroundSearchController) {
+          backgroundSearchController.abort()
+          backgroundSearchController = null
+        }
+        currentComponent = undefined
+        currentQuery = ''
+        
         if (popup[0]) {
           popup[0].destroy()
           popup = []

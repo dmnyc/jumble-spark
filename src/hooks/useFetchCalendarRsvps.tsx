@@ -2,6 +2,7 @@ import { ExtendedKind } from '@/constants'
 import { getReplaceableCoordinateFromEvent } from '@/lib/event'
 import { isCalendarEventKind } from '@/lib/calendar-event'
 import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 import { useNostr } from '@/providers/NostrProvider'
 import { Event } from 'nostr-tools'
 import { useEffect, useState } from 'react'
@@ -64,7 +65,7 @@ export function useFetchCalendarRsvps(calendarEvent: Event | undefined) {
       .then((relayUrls: string[] | undefined) => {
         if (cancelled) return
         const urls = relayUrls?.length ? relayUrls : Array.from(baseUrls)
-        return client.fetchEvents(urls, {
+        return queryService.fetchEvents(urls, {
           kinds: [ExtendedKind.CALENDAR_EVENT_RSVP],
           '#a': [coordinate],
           limit: 200

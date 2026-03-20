@@ -1,4 +1,6 @@
-import client from '@/services/client.service'
+import { replaceableEventService } from '@/services/client.service'
+import { getPubkeysFromPTags } from '@/lib/tag'
+import { kinds } from 'nostr-tools'
 import storage from '@/services/local-storage.service'
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { useNostr } from './NostrProvider'
@@ -41,7 +43,8 @@ export function UserTrustProvider({ children }: { children: React.ReactNode }) {
     if (!currentPubkey) return
 
     const initWoT = async () => {
-      const followings = await client.fetchFollowings(currentPubkey)
+      const followListEvent = await replaceableEventService.fetchReplaceableEvent(currentPubkey, kinds.Contacts)
+      const followings = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
       followings.forEach((pubkey) => wotSet.add(pubkey))
 
       const batchSize = 20
@@ -49,7 +52,8 @@ export function UserTrustProvider({ children }: { children: React.ReactNode }) {
         const batch = followings.slice(i, i + batchSize)
         await Promise.allSettled(
           batch.map(async (pubkey) => {
-            const _followings = await client.fetchFollowings(pubkey)
+            const followListEvent = await replaceableEventService.fetchReplaceableEvent(pubkey, kinds.Contacts)
+            const _followings = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
             _followings.forEach((following) => {
               wotSet.add(following)
             })

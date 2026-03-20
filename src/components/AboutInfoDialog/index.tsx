@@ -4,7 +4,9 @@ import { CODY_PUBKEY, SILBERENGEL_PUBKEY } from '@/constants'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useState, useEffect } from 'react'
 import Username from '../Username'
-import client from '@/services/client.service'
+import { replaceableEventService } from '@/services/client.service'
+import { getProfileFromEvent } from '@/lib/event-metadata'
+import { kinds } from 'nostr-tools'
 
 export default function AboutInfoDialog({ children }: { children: React.ReactNode }) {
   const { isSmallScreen } = useScreenSize()
@@ -14,10 +16,12 @@ export default function AboutInfoDialog({ children }: { children: React.ReactNod
 
   useEffect(() => {
     const fetchProfiles = async () => {
-      const [codyProfile, silberengelProfile] = await Promise.all([
-        client.fetchProfile(CODY_PUBKEY),
-        client.fetchProfile(SILBERENGEL_PUBKEY)
+      const [codyProfileEvent, silberengelProfileEvent] = await Promise.all([
+        replaceableEventService.fetchReplaceableEvent(CODY_PUBKEY, kinds.Metadata),
+        replaceableEventService.fetchReplaceableEvent(SILBERENGEL_PUBKEY, kinds.Metadata)
       ])
+      const codyProfile = codyProfileEvent ? getProfileFromEvent(codyProfileEvent) : undefined
+      const silberengelProfile = silberengelProfileEvent ? getProfileFromEvent(silberengelProfileEvent) : undefined
       
       if (codyProfile?.lightningAddress) {
         setCodyLightning(codyProfile.lightningAddress)

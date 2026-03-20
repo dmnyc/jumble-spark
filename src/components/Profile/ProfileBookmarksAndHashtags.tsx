@@ -1,9 +1,10 @@
-import { Event } from 'nostr-tools'
+import { Event, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useState, forwardRef, useImperativeHandle } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
+import { queryService, replaceableEventService } from '@/services/client.service'
 import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
@@ -121,7 +122,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
       // Try to fetch bookmark list event from comprehensive relay list first
       let bookmarkList = null
       try {
-        const bookmarkListEvents = await client.fetchEvents(comprehensiveRelays, {
+        const bookmarkListEvents = await queryService.fetchEvents(comprehensiveRelays, {
           authors: [pubkey],
           kinds: [10003], // Bookmark list kind
           limit: 1
@@ -129,7 +130,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
         bookmarkList = bookmarkListEvents[0] || null
       } catch (error) {
         logger.component('ProfileBookmarksAndHashtags', 'Error fetching bookmark list from comprehensive relays, falling back to default method', { error: (error as Error).message })
-        bookmarkList = await client.fetchBookmarkListEvent(pubkey)
+        bookmarkList = await replaceableEventService.fetchReplaceableEvent(pubkey, kinds.BookmarkList) ?? null
       }
       
       // console.log('[ProfileBookmarksAndHashtags] Bookmark list event:', bookmarkList)
@@ -153,7 +154,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
         const eventPromises: Promise<Event[]>[] = []
         
         if (eventIds.length > 0) {
-          eventPromises.push(client.fetchEvents(comprehensiveRelays, {
+          eventPromises.push(queryService.fetchEvents(comprehensiveRelays, {
             ids: eventIds,
             limit: 100
           }))
@@ -179,7 +180,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
               filter['#d'] = [d]
             }
             
-            const events = await client.fetchEvents(comprehensiveRelays, [filter])
+            const events = await queryService.fetchEvents(comprehensiveRelays, [filter])
             return events[0] || null
           })
           
@@ -289,7 +290,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
       // Try to fetch interest list event from comprehensive relay list first
       let interestList = null
       try {
-        const interestListEvents = await client.fetchEvents(comprehensiveRelays, {
+        const interestListEvents = await queryService.fetchEvents(comprehensiveRelays, {
           authors: [pubkey],
           kinds: [10015], // Interest list kind
           limit: 1
@@ -297,7 +298,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
         interestList = interestListEvents[0] || null
       } catch (error) {
         logger.component('ProfileBookmarksAndHashtags', 'Error fetching interest list from comprehensive relays, falling back to default method', { error: (error as Error).message })
-        interestList = await client.fetchInterestListEvent(pubkey)
+        interestList = await replaceableEventService.fetchReplaceableEvent(pubkey, 10015) ?? null
       }
       
       // Only update interest list event if we're not doing a background update
@@ -316,7 +317,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
         if (hashtags.length > 0) {
           try {
             // Fetch recent events with these hashtags using the same comprehensive relay list
-            const events = await client.fetchEvents(comprehensiveRelays, {
+            const events = await queryService.fetchEvents(comprehensiveRelays, {
               kinds: [1], // Text notes
               '#t': hashtags,
               limit: 100
@@ -499,7 +500,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
       // Try to fetch pin list event from comprehensive relay list first
       let pinList = null
       try {
-        const pinListEvents = await client.fetchEvents(comprehensiveRelays, {
+        const pinListEvents = await queryService.fetchEvents(comprehensiveRelays, {
           authors: [pubkey],
           kinds: [10001], // Pin list kind
           limit: 1
@@ -508,7 +509,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
         logger.component('ProfileBookmarksAndHashtags', 'Found pin list event', { found: !!pinList })
       } catch (error) {
         logger.component('ProfileBookmarksAndHashtags', 'Error fetching pin list from comprehensive relays, falling back to default method', { error: (error as Error).message })
-        pinList = await client.fetchPinListEvent(pubkey)
+        pinList = await replaceableEventService.fetchReplaceableEvent(pubkey, 10001) ?? null
         logger.component('ProfileBookmarksAndHashtags', 'Fallback pin list event', { found: !!pinList })
       }
       
@@ -533,7 +534,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
         const eventPromises: Promise<Event[]>[] = []
         
         if (eventIds.length > 0) {
-          eventPromises.push(client.fetchEvents(comprehensiveRelays, {
+          eventPromises.push(queryService.fetchEvents(comprehensiveRelays, {
             ids: eventIds,
             limit: 100
           }))
@@ -559,7 +560,7 @@ const ProfileBookmarksAndHashtags = forwardRef<{ refresh: () => void }, {
               filter['#d'] = [d]
             }
             
-            const events = await client.fetchEvents(comprehensiveRelays, [filter])
+            const events = await queryService.fetchEvents(comprehensiveRelays, [filter])
             return events[0] || null
           })
           

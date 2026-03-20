@@ -12,7 +12,7 @@ import { getRootEventHexId } from '@/lib/event'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
-import client from '@/services/client.service'
+import { eventService } from '@/services/client.service'
 import noteStatsService from '@/services/note-stats.service'
 import { TEmoji } from '@/types'
 import { Loader, SmilePlus } from 'lucide-react'
@@ -49,7 +49,7 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
     const rootEventId = getRootEventHexId(event)
     if (rootEventId) {
       // Fetch the root event to check if it's a discussion
-      client.fetchEvent(rootEventId).then(rootEvent => {
+      eventService.fetchEvent(rootEventId).then(rootEvent => {
         if (rootEvent && rootEvent.kind === ExtendedKind.DISCUSSION) {
           setIsReplyToDiscussion(true)
         }
@@ -117,7 +117,7 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
             noteStatsService.removeLike(event.id, myReaction.id)
             
             // Fetch the actual reaction event
-            const reactionEvent = await client.fetchEvent(myReaction.id)
+            const reactionEvent = await eventService.fetchEvent(myReaction.id)
             if (reactionEvent) {
               // Create and publish a deletion request (kind 5)
               const deletionRequest = createDeletionRequestDraftEvent(reactionEvent)

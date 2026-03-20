@@ -4,6 +4,8 @@ import { normalizeUrl } from '@/lib/url'
 import { BIG_RELAY_URLS, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
+import { replaceableEventService } from '@/services/client.service'
+import { kinds } from 'nostr-tools'
 import { Event } from 'nostr-tools'
 import { createContext, useCallback, useContext } from 'react'
 import { useNostr } from './NostrProvider'
@@ -50,7 +52,7 @@ export function BookmarksProvider({ children }: { children: React.ReactNode }) {
   const addBookmark = async (event: Event) => {
     if (!accountPubkey) return
 
-    const bookmarkListEvent = await client.fetchBookmarkListEvent(accountPubkey)
+    const bookmarkListEvent = await replaceableEventService.fetchReplaceableEvent(accountPubkey, kinds.BookmarkList) ?? null
     const currentTags = bookmarkListEvent?.tags || []
     const isReplaceable = isReplaceableEvent(event.kind)
     const eventKey = isReplaceable ? getReplaceableCoordinateFromEvent(event) : event.id
@@ -83,7 +85,7 @@ export function BookmarksProvider({ children }: { children: React.ReactNode }) {
   const removeBookmark = async (event: Event) => {
     if (!accountPubkey) return
 
-    const bookmarkListEvent = await client.fetchBookmarkListEvent(accountPubkey)
+    const bookmarkListEvent = await replaceableEventService.fetchReplaceableEvent(accountPubkey, kinds.BookmarkList) ?? null
     if (!bookmarkListEvent) return
 
     const isReplaceable = isReplaceableEvent(event.kind)

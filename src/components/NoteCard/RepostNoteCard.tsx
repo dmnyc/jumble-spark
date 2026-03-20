@@ -3,6 +3,7 @@ import { tagNameEquals } from '@/lib/tag'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
 import client from '@/services/client.service'
+import { eventService } from '@/services/client.service'
 import { Event, kinds, nip19, verifyEvent } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
 import MainNoteCard from './MainNoteCard'
@@ -58,7 +59,7 @@ export default function RepostNoteCard({
           relays: relay ? [relay] : [],
           author: pubkey
         })
-        const targetEvent = await client.fetchEvent(targetEventId)
+        const targetEvent = await eventService.fetchEvent(targetEventId)
         if (targetEvent) {
           setTargetEvent(targetEvent)
         }

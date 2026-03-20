@@ -1,7 +1,9 @@
 import UserAvatar from '@/components/UserAvatar'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import client from '@/services/client.service'
+import { replaceableEventService } from '@/services/client.service'
+import { getPubkeysFromPTags } from '@/lib/tag'
+import { kinds } from 'nostr-tools'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -15,10 +17,12 @@ export default function FollowedBy({ pubkey }: { pubkey: string }) {
     if (!pubkey || !accountPubkey) return
 
     const init = async () => {
-      const followings = (await client.fetchFollowings(accountPubkey)).reverse()
+      const followListEvent = await replaceableEventService.fetchReplaceableEvent(accountPubkey, kinds.Contacts)
+      const followings = followListEvent ? getPubkeysFromPTags(followListEvent.tags).reverse() : []
       const followingsOfFollowings = await Promise.all(
         followings.map(async (following) => {
-          return client.fetchFollowings(following)
+          const followListEvent = await replaceableEventService.fetchReplaceableEvent(following, kinds.Contacts)
+          return followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
         })
       )
       const _followedBy: string[] = []

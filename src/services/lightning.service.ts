@@ -11,6 +11,8 @@ import { SubCloser } from 'nostr-tools/abstract-pool'
 import { makeZapRequest } from 'nostr-tools/nip57'
 import { utf8Decoder } from 'nostr-tools/utils'
 import client from './client.service'
+import { queryService, replaceableEventService } from './client.service'
+import { getProfileFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 
 export type TRecentSupporter = { pubkey: string; amount: number; comment?: string }
@@ -50,9 +52,12 @@ class LightningService {
 
     // Privacy: Only use current user's relays + defaults
     const [profile, senderRelayList] = await Promise.all([
-      client.fetchProfile(recipient, true),
+      (async () => {
+        const profileEvent = await replaceableEventService.fetchReplaceableEvent(recipient, kinds.Metadata)
+        return profileEvent ? getProfileFromEvent(profileEvent) : undefined
+      })(),
       sender
-        ? client.fetchRelayList(sender)
+        ? client.fetchRelayList(sender) // Keep using client for relay list merging
         : Promise.resolve({ read: BIG_RELAY_URLS, write: BIG_RELAY_URLS })
     ])
     if (!profile) {
@@ -175,7 +180,7 @@ class LightningService {
       return this.recentSupportersCache
     }
     // Privacy: Use defaults instead of fetching CODY_PUBKEY's relays
-    const events = await client.fetchEvents(BIG_RELAY_URLS.slice(0, 4), {
+    const events = await queryService.fetchEvents(BIG_RELAY_URLS.slice(0, 4), {
       authors: ['79f00d3f5a19ec806189fcab03c1be4ff81d18ee4f653c88fac41fe03570f432'], // alby
       kinds: [kinds.Zap],
       '#p': OFFICIAL_PUBKEYS,

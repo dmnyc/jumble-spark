@@ -2,6 +2,7 @@ import { Event, kinds } from 'nostr-tools'
 import { ExtendedKind, FAST_WRITE_RELAY_URLS, RANDOM_PUBLISH_RELAY_COUNT } from '@/constants'
 import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
 import client from '@/services/client.service'
+import { eventService } from '@/services/client.service'
 import { normalizeUrl, isLocalNetworkUrl } from '@/lib/url'
 import { TRelaySet, TRelayList } from '@/types'
 import logger from '@/lib/logger'
@@ -201,7 +202,7 @@ class RelaySelectionService {
       // If no cached relay list event, fetch from relays (which will also cache it)
       if (!relayListEvent) {
         try {
-          relayList = await client.fetchRelayList(pubkey)
+          relayList = await client.fetchRelayList(pubkey) // Keep using client for relay list merging
         } catch (error) {
           logger.warn('Failed to fetch relay list from relays', { error, pubkey })
           relayList = {
@@ -753,7 +754,7 @@ class RelaySelectionService {
               pubkeys.push(data)
             }
           } else if (['nevent', 'note'].includes(type)) {
-            const event = await client.fetchEvent(id)
+            const event = await eventService.fetchEvent(id)
             if (event && !pubkeys.includes(event.pubkey)) {
               pubkeys.push(event.pubkey)
             }

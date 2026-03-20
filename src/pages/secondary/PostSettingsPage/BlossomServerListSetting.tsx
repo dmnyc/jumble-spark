@@ -34,7 +34,7 @@ export default function BlossomServerListSetting() {
         return
       }
       const event = await client.fetchBlossomServerListEvent(pubkey)
-      setBlossomServerListEvent(event)
+      setBlossomServerListEvent(event ?? null)
     }
     init()
   }, [pubkey])

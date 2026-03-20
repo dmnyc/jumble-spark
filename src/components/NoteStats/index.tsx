@@ -6,7 +6,7 @@ import noteStatsService from '@/services/note-stats.service'
 import { ExtendedKind } from '@/constants'
 import { getRootEventHexId } from '@/lib/event'
 import { shouldHideInteractions } from '@/lib/event-filtering'
-import client from '@/services/client.service'
+import { eventService } from '@/services/client.service'
 import { Event } from 'nostr-tools'
 import { useEffect, useState, useMemo } from 'react'
 import BookmarkButton from '../BookmarkButton'
@@ -51,7 +51,7 @@ export default function NoteStats({
     const rootEventId = getRootEventHexId(event)
     if (rootEventId) {
       // Fetch the root event to check if it's a discussion
-      client.fetchEvent(rootEventId).then(rootEvent => {
+      eventService.fetchEvent(rootEventId).then(rootEvent => {
         if (rootEvent && rootEvent.kind === ExtendedKind.DISCUSSION) {
           setIsReplyToDiscussion(true)
         }

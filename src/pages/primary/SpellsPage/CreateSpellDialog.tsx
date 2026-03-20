@@ -20,7 +20,7 @@ import {
 } from '@/lib/spell-list-import'
 import { useNostr } from '@/providers/NostrProvider'
 import { showPublishingError, showSimplePublishSuccess } from '@/lib/publishing-feedback'
-import client from '@/services/client.service'
+import { eventService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import { getRelaysForSpellCatalogSync } from '@/services/spell.service'
 import { Info, Minus, Plus, X } from 'lucide-react'
@@ -336,7 +336,7 @@ export default function CreateSpellDialog({
     if (!q) return
     setManualListLoading(true)
     try {
-      const ev = await client.fetchEvent(q)
+      const ev = await eventService.fetchEvent(q)
       if (!ev) {
         setListImportNotices([t('listImportEventNotFound')])
         return

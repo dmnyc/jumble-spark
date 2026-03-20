@@ -1,5 +1,6 @@
 import { EMBEDDED_EVENT_REGEX, ExtendedKind, POLL_TYPE } from '@/constants'
 import client from '@/services/client.service'
+import { eventService } from '@/services/client.service'
 import customEmojiService from '@/services/custom-emoji.service'
 import mediaUpload from '@/services/media-upload.service'
 import { prefixNostrAddresses } from '@/lib/nostr-address'
@@ -1031,7 +1032,7 @@ async function extractRelatedEventIds(content: string, parentEvent?: Event) {
         rootETag = buildETagWithMarker(rootEventHexId, rootEventPubkey, hint, 'root')
       } else {
         const rootEventId = generateBech32IdFromETag(_rootETag)
-        const rootEvent = rootEventId ? await client.fetchEvent(rootEventId) : undefined
+        const rootEvent = rootEventId ? await eventService.fetchEvent(rootEventId) : undefined
         rootETag = rootEvent
           ? buildETagWithMarker(rootEvent.id, rootEvent.pubkey, hint, 'root')
           : buildETagWithMarker(rootEventHexId, rootEventPubkey, hint, 'root')

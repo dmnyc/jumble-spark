@@ -7,7 +7,7 @@ import { ExtendedKind, GIF_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import { kinds } from 'nostr-tools'
 import type { Event as NEvent } from 'nostr-tools'
-import client from './client.service'
+import { queryService } from './client.service'
 import indexedDb from './indexed-db.service'
 
 export interface GifMetadata {
@@ -219,12 +219,12 @@ export async function fetchGifs(
 
   // Two separate requests so kind 1063 isn't overwhelmed by the volume of kind 1/1111
   const [events1063, eventsNotes] = await Promise.all([
-    client.fetchEvents(
+        queryService.fetchEvents(
       dedupedUrls,
       { kinds: [ExtendedKind.FILE_METADATA], limit: Math.max(limit * 10, 200) },
       fetchOpts
     ),
-    client.fetchEvents(
+        queryService.fetchEvents(
       dedupedUrls,
       {
         kinds: [kinds.ShortTextNote, ExtendedKind.COMMENT],

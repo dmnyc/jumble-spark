@@ -20,6 +20,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useReply } from '@/providers/ReplyProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import client from '@/services/client.service'
+import { eventService, queryService } from '@/services/client.service'
 import noteStatsService from '@/services/note-stats.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
 import { Filter, Event as NEvent, kinds } from 'nostr-tools'
@@ -208,7 +209,7 @@ function ReplyNoteList({ index, event, sort = 'oldest' }: { index?: number; even
         } else {
           const rootEventId = generateBech32IdFromETag(rootETag)
           if (rootEventId) {
-            const rootEvent = await client.fetchEvent(rootEventId)
+            const rootEvent = await eventService.fetchEvent(rootEventId)
             if (rootEvent) {
               root = { type: 'E', id: rootEvent.id, pubkey: rootEvent.pubkey }
             }
@@ -351,7 +352,7 @@ function ReplyNoteList({ index, event, sort = 'oldest' }: { index?: number; even
           logger.debug('[ReplyNoteList] Using relays:', finalRelayUrls.length)
 
           // Use fetchEvents instead of subscribeTimeline for one-time fetching
-          const allReplies = await client.fetchEvents(finalRelayUrls, filters)
+          const allReplies = await queryService.fetchEvents(finalRelayUrls, filters)
           
           logger.debug('[ReplyNoteList] Fetched', allReplies.length, 'replies')
           

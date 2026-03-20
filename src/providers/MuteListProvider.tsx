@@ -1,7 +1,8 @@
 import { createMuteListDraftEvent } from '@/lib/draft-event'
 import { getPubkeysFromPTags } from '@/lib/tag'
-import client from '@/services/client.service'
+import { replaceableEventService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
+import { kinds } from 'nostr-tools'
 import dayjs from 'dayjs'
 import { Event } from 'nostr-tools'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
@@ -130,7 +131,7 @@ export function MuteListProvider({ children }: { children: React.ReactNode }) {
 
     setChanging(true)
     try {
-      const muteListEvent = await client.fetchMuteListEvent(accountPubkey)
+      const muteListEvent = await replaceableEventService.fetchReplaceableEvent(accountPubkey, kinds.Mutelist) ?? null
       checkMuteListEvent(muteListEvent)
       if (
         muteListEvent &&
@@ -154,7 +155,7 @@ export function MuteListProvider({ children }: { children: React.ReactNode }) {
 
     setChanging(true)
     try {
-      const muteListEvent = await client.fetchMuteListEvent(accountPubkey)
+      const muteListEvent = await replaceableEventService.fetchReplaceableEvent(accountPubkey, kinds.Mutelist) ?? null
       checkMuteListEvent(muteListEvent)
       const privateTags = muteListEvent ? await getPrivateTags(muteListEvent) : []
       if (privateTags.some(([tagName, tagValue]) => tagName === 'p' && tagValue === pubkey)) {
@@ -177,7 +178,7 @@ export function MuteListProvider({ children }: { children: React.ReactNode }) {
 
     setChanging(true)
     try {
-      const muteListEvent = await client.fetchMuteListEvent(accountPubkey)
+      const muteListEvent = await replaceableEventService.fetchReplaceableEvent(accountPubkey, kinds.Mutelist) ?? null
       if (!muteListEvent) return
 
       const privateTags = await getPrivateTags(muteListEvent)
@@ -202,7 +203,7 @@ export function MuteListProvider({ children }: { children: React.ReactNode }) {
 
     setChanging(true)
     try {
-      const muteListEvent = await client.fetchMuteListEvent(accountPubkey)
+      const muteListEvent = await replaceableEventService.fetchReplaceableEvent(accountPubkey, kinds.Mutelist) ?? null
       if (!muteListEvent) return
 
       const privateTags = await getPrivateTags(muteListEvent)
@@ -229,7 +230,7 @@ export function MuteListProvider({ children }: { children: React.ReactNode }) {
 
     setChanging(true)
     try {
-      const muteListEvent = await client.fetchMuteListEvent(accountPubkey)
+      const muteListEvent = await replaceableEventService.fetchReplaceableEvent(accountPubkey, kinds.Mutelist) ?? null
       if (!muteListEvent) return
 
       const newTags = muteListEvent.tags.filter((tag) => tag[0] !== 'p' || tag[1] !== pubkey)

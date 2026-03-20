@@ -3,7 +3,9 @@ import { getLightningAddressFromProfile } from '@/lib/lightning'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useZap } from '@/providers/ZapProvider'
-import client from '@/services/client.service'
+import { replaceableEventService } from '@/services/client.service'
+import { getProfileFromEvent } from '@/lib/event-metadata'
+import { kinds } from 'nostr-tools'
 import lightning from '@/services/lightning.service'
 import noteStatsService from '@/services/note-stats.service'
 import { Loader, Zap } from 'lucide-react'
@@ -32,7 +34,8 @@ export default function ZapButton({ event, hideCount = false }: { event: Event; 
   const isLongPressRef = useRef(false)
 
   useEffect(() => {
-    client.fetchProfile(event.pubkey).then((profile) => {
+    replaceableEventService.fetchReplaceableEvent(event.pubkey, kinds.Metadata).then((profileEvent) => {
+      const profile = profileEvent ? getProfileFromEvent(profileEvent) : undefined
       if (!profile) return
       if (pubkey === profile.pubkey) return
       const lightningAddress = getLightningAddressFromProfile(profile)

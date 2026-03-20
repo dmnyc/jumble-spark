@@ -4,7 +4,7 @@ import { getReplaceableEventIdentifier } from '@/lib/event'
 import { getRelaySetFromEvent } from '@/lib/event-metadata'
 import { randomString } from '@/lib/random'
 import { isWebsocketUrl, normalizeUrl } from '@/lib/url'
-import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import { TRelaySet } from '@/types'
@@ -109,7 +109,7 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
         ...(relayList?.write ?? []).map(url => normalizeUrl(url) || url),
         ...BIG_RELAY_URLS.map(url => normalizeUrl(url) || url)
       ]
-      const newRelaySetEvents = await client.fetchEvents(
+      const newRelaySetEvents = await queryService.fetchEvents(
         Array.from(new Set(normalizedRelays)).slice(0, 5),
         {
           kinds: [kinds.Relaysets],

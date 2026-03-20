@@ -1,6 +1,7 @@
 import { createFollowListDraftEvent } from '@/lib/draft-event'
 import { getPubkeysFromPTags } from '@/lib/tag'
-import client from '@/services/client.service'
+import { replaceableEventService } from '@/services/client.service'
+import { kinds } from 'nostr-tools'
 import { createContext, useContext, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from './NostrProvider'
@@ -32,7 +33,7 @@ export function FollowListProvider({ children }: { children: React.ReactNode }) 
   const follow = async (pubkey: string) => {
     if (!accountPubkey) return
 
-    const followListEvent = await client.fetchFollowListEvent(accountPubkey)
+    const followListEvent = await replaceableEventService.fetchReplaceableEvent(accountPubkey, kinds.Contacts) ?? null
     if (!followListEvent) {
       const result = confirm(t('FollowListNotFoundConfirmation'))
 
@@ -51,7 +52,7 @@ export function FollowListProvider({ children }: { children: React.ReactNode }) 
   const unfollow = async (pubkey: string) => {
     if (!accountPubkey) return
 
-    const followListEvent = await client.fetchFollowListEvent(accountPubkey)
+    const followListEvent = await replaceableEventService.fetchReplaceableEvent(accountPubkey, kinds.Contacts) ?? null
     if (!followListEvent) return
 
     const newFollowListDraftEvent = createFollowListDraftEvent(

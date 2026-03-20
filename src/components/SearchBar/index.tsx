@@ -2,6 +2,7 @@ import SearchInput from '@/components/SearchInput'
 import { useSearchProfiles } from '@/hooks'
 import { toNote, toNoteList } from '@/lib/link'
 import client from '@/services/client.service'
+import { eventService } from '@/services/client.service'
 import { randomString } from '@/lib/random'
 import { normalizeUrl } from '@/lib/url'
 import { normalizeToDTag } from '@/lib/search-parser'
@@ -92,7 +93,7 @@ const SearchBar = forwardRef<
 
     if (params.type === 'note') {
       // Prime event cache so note page finds it without re-fetch
-      client.fetchEvent(params.search).then((ev) => { if (ev) client.addEventToCache(ev) }).catch(() => {})
+      eventService.fetchEvent(params.search).then((ev) => { if (ev) eventService.addEventToCache(ev) }).catch(() => {})
       navigateToNote(toNote(params.search))
     } else if (params.type === 'hashtag') {
       navigateToHashtag(toNoteList({ hashtag: params.search }))

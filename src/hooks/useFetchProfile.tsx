@@ -1,6 +1,9 @@
+import { getProfileFromEvent } from '@/lib/event-metadata'
 import { userIdToPubkey } from '@/lib/pubkey'
 import { useNostr } from '@/providers/NostrProvider'
-import client from '@/services/client.service'
+import { replaceableEventService } from '@/services/client.service'
+import indexedDb from '@/services/indexed-db.service'
+import { kinds } from 'nostr-tools'
 import { TProfile } from '@/types'
 import { useEffect, useState } from 'react'
 
@@ -27,16 +30,20 @@ export function useFetchProfile(id?: string, skipCache = false) {
     const run = async () => {
       setIsFetching(true)
       try {
-        const [cachedResult, fetchResult] = await Promise.allSettled([
-          client.getProfileFromIndexedDB(id),
-          client.fetchProfile(id, skipCache)
-        ])
+        // Get cached profile from IndexedDB
+        const cachedEvent = await indexedDb.getReplaceableEvent(pubkey, kinds.Metadata)
+        const cached = cachedEvent ? getProfileFromEvent(cachedEvent) : undefined
+        
+        // Fetch fresh profile
+        const profileEvent = await replaceableEventService.fetchReplaceableEvent(pubkey, kinds.Metadata)
+        const profile = profileEvent ? getProfileFromEvent(profileEvent) : undefined
+        
         if (cancelled) return
-        const cached = cachedResult.status === 'fulfilled' ? cachedResult.value : undefined
-        const profile = fetchResult.status === 'fulfilled' ? fetchResult.value : undefined
+        
         if (cached) setProfile(cached)
         if (profile) setProfile(profile)
-        if (fetchResult.status === 'rejected' && !cancelled) setError(fetchResult.reason as Error)
+      } catch (err) {
+        if (!cancelled) setError(err as Error)
       } finally {
         if (!cancelled) setIsFetching(false)
       }
@@ -46,7 +53,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, skipCache])
 
   useEffect(() => {
     if (currentAccountProfile && pubkey === currentAccountProfile.pubkey) {

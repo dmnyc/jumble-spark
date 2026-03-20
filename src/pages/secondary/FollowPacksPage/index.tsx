@@ -9,7 +9,7 @@ import { Event } from 'nostr-tools'
 import { useEffect, useMemo, useState, forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import client from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 import { FAST_READ_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import { Users } from 'lucide-react'
@@ -38,7 +38,7 @@ const FollowPacksPage = forwardRef<HTMLDivElement, { index?: number; hideTitleba
         const relayUrls = FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url)
         
         // Fetch kind 39089 events (starter packs)
-        const events = await client.fetchEvents(relayUrls, [{
+        const events = await queryService.fetchEvents(relayUrls, [{
           kinds: [39089],
           limit: 100
         }])

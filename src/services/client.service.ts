@@ -1,4 +1,4 @@
-import { BIG_RELAY_URLS, BOOKSTR_RELAY_URLS, ExtendedKind, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, KIND_1_BLOCKED_RELAY_URLS, NIP66_DISCOVERY_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS, READ_ONLY_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { BIG_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, KIND_1_BLOCKED_RELAY_URLS, NIP66_DISCOVERY_RELAY_URLS, PROFILE_RELAY_URLS, READ_ONLY_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 
 /** NIP-01 filter keys only; NIP-50 adds `search` which non-searchable relays reject. */
 function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
@@ -6,12 +6,11 @@ function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
   const { search: _search, ...rest } = f
   return rest as Filter
 }
-import { getReplaceableCoordinateFromEvent } from '@/lib/event'
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
-import { formatPubkey, isValidPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib/pubkey'
-import { getPubkeysFromPTags, getServersFromServerTags, tagNameEquals } from '@/lib/tag'
-import { isLocalNetworkUrl, isWebsocketUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
+import { isValidPubkey, pubkeyToNpub } from '@/lib/pubkey'
+import { getPubkeysFromPTags, tagNameEquals } from '@/lib/tag'
+import { isLocalNetworkUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import { isSafari } from '@/lib/utils'
 import {
   ISigner,
@@ -23,24 +22,25 @@ import {
   TSubRequestFilter
 } from '@/types'
 import { sha256 } from '@noble/hashes/sha2'
-import DataLoader from 'dataloader'
 import dayjs from 'dayjs'
 import FlexSearch from 'flexsearch'
-import { LRUCache } from 'lru-cache'
 import {
   EventTemplate,
   Filter,
   kinds,
   matchFilters,
   Event as NEvent,
-  nip19,
   Relay,
   SimplePool,
   VerifiedEvent
 } from 'nostr-tools'
 import { AbstractRelay } from 'nostr-tools/abstract-relay'
-import indexedDb, { StoreNames } from './indexed-db.service'
+import indexedDb from './indexed-db.service'
 import nip66Service from './nip66.service'
+import { QueryService } from './client-query.service'
+import { EventService } from './client-events.service'
+import { ReplaceableEventService } from './client-replaceable-events.service'
+import { MacroService, createBookstrService } from './client-macro.service'
 
 type TTimelineRef = [string, number]
 
@@ -53,6 +53,12 @@ class ClientService extends EventTarget {
   pubkey?: string
   private pool: SimplePool
 
+  // Sub-services (public for direct access)
+  public readonly queryService: QueryService
+  public readonly eventService: EventService
+  public readonly replaceableEventService: ReplaceableEventService
+  public readonly bookstrService: MacroService
+
   private timelines: Record<
     string,
     | {
@@ -63,26 +69,11 @@ class ClientService extends EventTarget {
     | string[]
     | undefined
   > = {}
-  private eventCacheMap = new Map<string, Promise<NEvent | undefined>>()
-  /** Session-only: recently seen events (e.g. from feed) so back-navigation doesn't re-query. Bounded size, keyed by hex id. */
-  private sessionEventCache = new LRUCache<string, NEvent>({ max: 500, ttl: 1000 * 60 * 30 })
   private relayListRequestCache = new Map<string, Promise<TRelayList>>() // Cache in-flight relay list requests
-  private eventDataLoader = new DataLoader<string, NEvent | undefined>(
-    (ids) => Promise.all(ids.map((id) => this._fetchEvent(id))),
-    { cacheMap: this.eventCacheMap }
-  )
-  private fetchEventFromBigRelaysDataloader = new DataLoader<string, NEvent | undefined>(
-    this.fetchEventsFromBigRelays.bind(this),
-    { cache: false, batchScheduleFn: (callback) => setTimeout(callback, 50) }
-  )
   private userIndex = new FlexSearch.Index({
     tokenize: 'forward'
   })
 
-  /** Max concurrent REQ subscriptions per relay (many relays enforce ~10; we stay under to avoid NOTICE/rejection) */
-  private static readonly MAX_CONCURRENT_SUBS_PER_RELAY = 8
-  private activeSubCountByRelay = new Map<string, number>()
-  private subSlotWaitQueueByRelay = new Map<string, Array<() => void>>()
 
   /** Session-only: relay URL -> publish failure count; after 3 strikes we skip that relay for the rest of the session. */
   private publishStrikeCount = new Map<string, number>()
@@ -95,6 +86,15 @@ class ClientService extends EventTarget {
     super()
     this.pool = new SimplePool()
     this.pool.trackRelays = true
+
+    // Initialize sub-services
+    this.queryService = new QueryService(this.pool)
+    this.eventService = new EventService(this.queryService)
+    this.replaceableEventService = new ReplaceableEventService(
+      this.queryService,
+      (profileEvent) => this.addUsernameToIndex(profileEvent)
+    )
+    this.bookstrService = createBookstrService(this.queryService)
   }
 
   public static getInstance(): ClientService {
@@ -116,11 +116,18 @@ class ClientService extends EventTarget {
     }
   }
 
+  // Update signer in query service when it changes
+  setSigner(signer: ISigner | undefined, signerType: TSignerType | undefined) {
+    this.signer = signer
+    this.signerType = signerType
+    this.queryService.setSigner(signer, signerType)
+  }
+
   /** NIP-66: fetch relay discovery events (30166) in background to supplement search/NIP support. */
   private async fetchNip66RelayDiscovery(): Promise<void> {
     try {
       const discoveryRelays = Array.from(new Set([...BIG_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
-      const events = await this.query(
+      const events = await this.queryService.query(
         discoveryRelays,
         { kinds: [ExtendedKind.RELAY_DISCOVERY] },
         undefined,
@@ -145,7 +152,7 @@ class ClientService extends EventTarget {
     const shortForm = simplifyUrl(dTag)
     const dValues = dTag !== shortForm ? [dTag, shortForm] : [dTag]
     try {
-      const events = await this.query(
+      const events = await this.queryService.query(
         discoveryRelays,
         { kinds: [ExtendedKind.RELAY_DISCOVERY], '#d': dValues, limit: 20 },
         undefined,
@@ -156,43 +163,6 @@ class ClientService extends EventTarget {
       }
     } catch {
       // ignore per-relay fetch failure
-    }
-  }
-
-  /**
-   * Acquire a slot to open a new subscription to the given relay. Resolves when we're under the per-relay limit.
-   * Call releaseSubSlot(relayKey) when the subscription closes (user close() or relay onclose).
-   */
-  private acquireSubSlot(relayKey: string): Promise<void> {
-    const count = this.activeSubCountByRelay.get(relayKey) ?? 0
-    if (count < ClientService.MAX_CONCURRENT_SUBS_PER_RELAY) {
-      this.activeSubCountByRelay.set(relayKey, count + 1)
-      return Promise.resolve()
-    }
-    return new Promise<void>((resolve) => {
-      let queue = this.subSlotWaitQueueByRelay.get(relayKey)
-      if (!queue) {
-        queue = []
-        this.subSlotWaitQueueByRelay.set(relayKey, queue)
-      }
-      queue.push(() => {
-        const n = this.activeSubCountByRelay.get(relayKey) ?? 0
-        this.activeSubCountByRelay.set(relayKey, n + 1)
-        resolve()
-      })
-    })
-  }
-
-  /**
-   * Release a subscription slot for the relay. Wakes the next waiter if any.
-   */
-  private releaseSubSlot(relayKey: string): void {
-    const count = (this.activeSubCountByRelay.get(relayKey) ?? 1) - 1
-    this.activeSubCountByRelay.set(relayKey, Math.max(0, count))
-    const queue = this.subSlotWaitQueueByRelay.get(relayKey)
-    if (queue?.length) {
-      const next = queue.shift()!
-      next()
     }
   }
 
@@ -1041,12 +1011,12 @@ class ClientService extends EventTarget {
     const allOpened = Promise.all(
       groupedRequests.map(async ({ url, filters: relayFilters }, i) => {
         const relayKey = normalizeUrl(url) || url
-        await that.acquireSubSlot(relayKey)
+        await that.queryService.acquireSubSlot(relayKey)
         let relay: AbstractRelay
         try {
           relay = await that.pool.ensureRelay(url, { connectionTimeout: 5000 })
         } catch (err) {
-          that.releaseSubSlot(relayKey)
+          that.queryService.releaseSubSlot(relayKey)
           handleClose(i, (err as Error)?.message ?? String(err))
           return
         }
@@ -1055,7 +1025,7 @@ class ClientService extends EventTarget {
         const releaseOnce = () => {
           if (!slotReleased) {
             slotReleased = true
-            that.releaseSubSlot(relayKey)
+            that.queryService.releaseSubSlot(relayKey)
           }
         }
 
@@ -1073,14 +1043,14 @@ class ClientService extends EventTarget {
                   return evt as VerifiedEvent
                 })
                 .then(async () => {
-                  await that.acquireSubSlot(relayKey)
+                  await that.queryService.acquireSubSlot(relayKey)
                   // After AUTH the socket may be closed or the relay dropped from the pool;
                   // resubscribe on a fresh connection from ensureRelay (fixes SendingOnClosedConnection).
                   let liveRelay: AbstractRelay
                   try {
                     liveRelay = await that.pool.ensureRelay(url, { connectionTimeout: 5000 })
                   } catch (err) {
-                    that.releaseSubSlot(relayKey)
+                    that.queryService.releaseSubSlot(relayKey)
                     handleClose(i, (err as Error)?.message ?? String(err))
                     return
                   }
@@ -1088,7 +1058,7 @@ class ClientService extends EventTarget {
                   const releaseSlot2 = () => {
                     if (!slotReleased2) {
                       slotReleased2 = true
-                      that.releaseSubSlot(relayKey)
+                      that.queryService.releaseSubSlot(relayKey)
                     }
                   }
                   try {
@@ -1190,8 +1160,8 @@ class ClientService extends EventTarget {
     let since: number | undefined
     if (timeline && !Array.isArray(timeline) && timeline.refs.length && needSort) {
       cachedEvents = (
-        await this.eventDataLoader.loadMany(timeline.refs.slice(0, filter.limit).map(([id]) => id))
-      ).filter((evt) => !!evt && !(evt instanceof Error)) as NEvent[]
+        await Promise.all(timeline.refs.slice(0, filter.limit).map(([id]) => this.eventService.fetchEvent(id)))
+      ).filter((evt): evt is NEvent => !!evt)
       if (cachedEvents.length) {
         onEvents([...cachedEvents], false)
         since = cachedEvents[0].created_at + 1
@@ -1329,10 +1299,10 @@ class ClientService extends EventTarget {
     const cachedEvents =
       startIdx >= 0
         ? ((
-            await this.eventDataLoader.loadMany(
-              refs.slice(startIdx, startIdx + limit).map(([id]) => id)
+            await Promise.all(
+              refs.slice(startIdx, startIdx + limit).map(([id]) => this.eventService.fetchEvent(id))
             )
-          ).filter((evt) => !!evt && !(evt instanceof Error)) as NEvent[])
+          ).filter((evt): evt is NEvent => !!evt) as NEvent[])
         : []
     if (cachedEvents.length >= limit) {
       return cachedEvents
@@ -1383,183 +1353,24 @@ class ClientService extends EventTarget {
     set.add(relay)
   }
 
+  // Delegate to QueryService
   private async query(
     urls: string[], 
     filter: Filter | Filter[], 
     onevent?: (evt: NEvent) => void,
-    options?: { eoseTimeout?: number; globalTimeout?: number }
-  ) {
-    const eoseTimeout = options?.eoseTimeout ?? 500 // Default 500ms after EOSE
-    const globalTimeout = options?.globalTimeout ?? 10000 // Default 10s global timeout
-    const isExternalSearch = eoseTimeout > 1000 // Consider it external search if timeout > 1s
-    
-    if (isExternalSearch) {
-      logger.debug('query: Starting external relay search', {
-        relayCount: urls.length,
-        relays: urls,
-        eoseTimeout,
-        globalTimeout,
-        filter: Array.isArray(filter) ? filter : [filter]
-      })
+    options?: { 
+      eoseTimeout?: number
+      globalTimeout?: number
+      /** For replaceable events: race strategy - wait 2s after first result, then return best */
+      replaceableRace?: boolean
+      /** For non-replaceable single events: return immediately on first match */
+      immediateReturn?: boolean
     }
-    
-    /** Once one relay returns results, give others this long (ms) then resolve with what we have */
-    const FIRST_RESULT_GRACE_MS = 1200
-
-    return await new Promise<NEvent[]>((resolve) => {
-      const events: NEvent[] = []
-      let resolveTimeout: ReturnType<typeof setTimeout> | null = null
-      let firstResultGraceTimeoutId: ReturnType<typeof setTimeout> | null = null
-      let allEosed = false
-      let eoseTime: number | null = null
-      let eventCount = 0
-      let resolved = false
-
-      let globalTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-      const resolveWithEvents = () => {
-        if (resolved) return
-        resolved = true
-        if (resolveTimeout) {
-          clearTimeout(resolveTimeout)
-          resolveTimeout = null
-        }
-        if (firstResultGraceTimeoutId) {
-          clearTimeout(firstResultGraceTimeoutId)
-          firstResultGraceTimeoutId = null
-        }
-        if (globalTimeoutId) {
-          clearTimeout(globalTimeoutId)
-          globalTimeoutId = null
-        }
-        const duration = eoseTime ? Date.now() - eoseTime : 0
-        if (isExternalSearch) {
-          logger.debug('query: Resolving external search', {
-            eventsFound: events.length,
-            eventCount,
-            allEosed,
-            timeSinceEose: duration
-          })
-        }
-        sub.close()
-        resolve(events)
-      }
-
-      const sub = this.subscribe(urls, filter, {
-        onevent(evt) {
-          eventCount++
-          if (isExternalSearch && eventCount <= 3) {
-            logger.debug('query: Received event', {
-              eventId: evt.id.substring(0, 8),
-              eventCount,
-              timeSinceEose: eoseTime ? Date.now() - eoseTime : null
-            })
-          }
-          onevent?.(evt)
-          events.push(evt)
-
-          const filters = Array.isArray(filter) ? filter : [filter]
-          const maxLimit = Math.max(...filters.map((f) => (f.limit ?? 0) as number), 0)
-          const isSingleEventFetch = maxLimit === 1
-          // Only use "first result grace" for single-event fetches (e.g. by id). For multi-result
-          // (e.g. GIF list, feed) wait for EOSE so we aggregate from all relays.
-          if (isSingleEventFetch && events.length === 1 && !firstResultGraceTimeoutId) {
-            firstResultGraceTimeoutId = setTimeout(() => {
-              firstResultGraceTimeoutId = null
-              resolveWithEvents()
-            }, FIRST_RESULT_GRACE_MS)
-          }
-
-          // Check if we're looking for a specific event ID (limit: 1 with ids filter)
-          const hasIdFilter = filters.some(f => f.ids && f.ids.length > 0)
-          const hasLimitOne = filters.some(f => f.limit === 1)
-
-          // If we're searching for a specific event and found it, we can resolve early
-          // But wait a bit (100ms) in case duplicate events arrive
-          if (hasIdFilter && hasLimitOne && events.length > 0 && allEosed) {
-            // We've found the event and received EOSE, wait a short moment then resolve
-            if (firstResultGraceTimeoutId) {
-              clearTimeout(firstResultGraceTimeoutId)
-              firstResultGraceTimeoutId = null
-            }
-            if (resolveTimeout) {
-              clearTimeout(resolveTimeout)
-            }
-            resolveTimeout = setTimeout(() => {
-              resolveWithEvents()
-            }, 100) // Short delay to catch any duplicate events
-          }
-        },
-        oneose: (eosed) => {
-          if (eosed) {
-            // When eosed is true, it means all relays have finished (either sent EOSE or failed to connect)
-            allEosed = true
-            eoseTime = Date.now()
-            if (isExternalSearch) {
-              logger.debug('query: Received EOSE from all relays', {
-                eventsSoFar: events.length,
-                eventCount,
-                willWait: eoseTimeout
-              })
-            }
-            // Clear first-result grace timer; we'll use EOSE timeout instead
-            if (firstResultGraceTimeoutId) {
-              clearTimeout(firstResultGraceTimeoutId)
-              firstResultGraceTimeoutId = null
-            }
-            // Clear any existing timeout
-            if (resolveTimeout) {
-              clearTimeout(resolveTimeout)
-            }
-            // Wait longer after all relays send EOSE to allow searchable relays to finish searching
-            // For searchable relays, they may send EOSE quickly but still need time to search their database
-            // Important: We keep the subscription open during this timeout so we can receive events
-            resolveTimeout = setTimeout(() => {
-              resolveWithEvents()
-            }, eoseTimeout)
-          }
-        },
-        onclose: (url, reason) => {
-          if (isExternalSearch) {
-            logger.debug('query: Relay connection closed', { url, reason, eventsSoFar: events.length, allEosed })
-          }
-          // If we've received EOSE, we have a timeout set - let it handle resolution
-          // This gives searchable relays time to search their databases
-          if (allEosed) {
-            // Don't resolve immediately - let the EOSE timeout handle it
-            // This allows searchable relays to continue searching even if connections close
-            return
-          }
-          
-          // If we have events but no EOSE yet, we might want to wait a bit more
-          // But if connections are closing, we should resolve
-          if (events.length > 0) {
-            // We have events, but haven't received EOSE from all relays
-            // Wait a short time to see if more events come, then resolve
-            if (!resolveTimeout) {
-              resolveTimeout = setTimeout(() => {
-                resolveWithEvents()
-              }, 1000) // Wait 1 second for more events
-            }
-          }
-          // No events yet and this relay closed (e.g. blocked/failed). Do NOT set a short
-          // timeout: other relays may still deliver. Let EOSE or globalTimeout resolve.
-        }
-      })
-      
-      // Fallback timeout: resolve after globalTimeout to prevent hanging
-      globalTimeoutId = setTimeout(() => {
-        if (isExternalSearch) {
-          logger.debug('query: Global timeout reached', {
-            eventsFound: events.length,
-            eventCount,
-            allEosed
-          })
-        }
-        resolveWithEvents()
-      }, globalTimeout)
-    })
+  ) {
+    return this.queryService.query(urls, filter, onevent, options)
   }
+
+  // Legacy query implementation removed - now delegated to QueryService
 
   async fetchEvents(
     urls: string[],
@@ -1584,7 +1395,7 @@ class ClientService extends EventTarget {
       const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
       relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
     }
-    const events = await this.query(
+    const events = await this.queryService.query(
       relays, 
       filter, 
       onevent,
@@ -1617,7 +1428,7 @@ class ClientService extends EventTarget {
       return { events: [], connectionError: msg }
     }
     try {
-      const events = await this.query([normalized], filter, undefined, {
+      const events = await this.queryService.query([normalized], filter, undefined, {
         globalTimeout: options?.globalTimeout ?? 25_000
       })
       return { events, connectionError: undefined }
@@ -1637,198 +1448,31 @@ class ClientService extends EventTarget {
    * (5) SEARCHABLE_RELAY_URLS as final fallback. Author relays are used so embedded notes load from the author's relays.
    */
   async fetchEvent(id: string): Promise<NEvent | undefined> {
-    let hexId: string | undefined
-    if (/^[0-9a-f]{64}$/.test(id)) {
-      hexId = id
-    } else {
-      const { type, data } = nip19.decode(id)
-      switch (type) {
-        case 'note':
-          hexId = data
-          break
-        case 'nevent':
-          hexId = data.id
-          break
-        case 'naddr':
-          break
-      }
-    }
-    if (hexId) {
-      const fromSession = this.sessionEventCache.get(hexId)
-      if (fromSession) return fromSession
-      const cachedPromise = this.eventCacheMap.get(hexId)
-      if (cachedPromise) return cachedPromise
-    }
-    return this.eventDataLoader.load(hexId ?? id)
+    return this.eventService.fetchEvent(id)
+  }
+
+  // Legacy fetchEvent implementation removed - now delegated to EventService
+
+  async fetchEventForceRetry(eventId: string): Promise<NEvent | undefined> {
+    return this.eventService.fetchEventForceRetry(eventId)
+  }
+
+  async fetchEventWithExternalRelays(eventId: string, externalRelays: string[]): Promise<NEvent | undefined> {
+    return this.eventService.fetchEventWithExternalRelays(eventId, externalRelays)
   }
 
   addEventToCache(event: NEvent) {
-    // Remove relayStatuses before caching (it's metadata for logging, not part of the event)
-    const cleanEvent = { ...event } as NEvent
-    delete (cleanEvent as any).relayStatuses
-
-    this.sessionEventCache.set(cleanEvent.id, cleanEvent)
-    this.eventDataLoader.prime(cleanEvent.id, Promise.resolve(cleanEvent))
-    // Replaceable events are not stored in memory; they go to IndexedDB via putReplaceableEvent elsewhere
+    this.eventService.addEventToCache(event)
   }
 
-  /**
-   * Return events from session cache whose kind is in the allowed set and content/tags match the query (case-insensitive).
-   * Used by mention-event-search.service for cache-first event search (nevent/naddr picker).
-   */
   getSessionEventsMatchingSearch(query: string, limit: number, allowedKinds: number[]): NEvent[] {
-    const q = query.trim().toLowerCase()
-    if (!q || allowedKinds.length === 0) return []
-    const kindSet = new Set(allowedKinds)
-    const out: NEvent[] = []
-    const values = [...this.sessionEventCache.values()]
-    for (const evt of values) {
-      if (out.length >= limit) break
-      if (!kindSet.has(evt.kind)) continue
-      const content = (evt.content ?? '').toLowerCase()
-      const tagsStr = (evt.tags ?? []).flat().join(' ').toLowerCase()
-      if (!content.includes(q) && !tagsStr.includes(q)) continue
-      out.push(evt)
-    }
-    return out
+    return this.eventService.getSessionEventsMatchingSearch(query, limit, allowedKinds)
   }
 
-  private async fetchEventById(relayUrls: string[], id: string): Promise<NEvent | undefined> {
-    const event = await this.fetchEventFromBigRelaysDataloader.load(id)
-    if (event) {
-      return event
-    }
-
-    return this.tryHarderToFetchEvent(relayUrls, { ids: [id], limit: 1 }, true)
-  }
-
-  private async _fetchEvent(id: string): Promise<NEvent | undefined> {
-    let filter: Filter | undefined
-    let relays: string[] = []
-    let author: string | undefined
-    if (/^[0-9a-f]{64}$/.test(id)) {
-      filter = { ids: [id] }
-    } else {
-      const { type, data } = nip19.decode(id)
-      switch (type) {
-        case 'note':
-          filter = { ids: [data] }
-          break
-        case 'nevent':
-          filter = { ids: [data.id] }
-          if (data.relays) relays = [...data.relays]
-          if (data.author) author = data.author
-          break
-        case 'naddr':
-          filter = {
-            authors: [data.pubkey],
-            kinds: [data.kind],
-            limit: 1
-          }
-          author = data.pubkey
-          if (data.identifier) {
-            filter['#d'] = [data.identifier]
-          }
-          if (data.relays) relays = [...data.relays]
-      }
-    }
-    if (!filter) {
-      throw new Error('Invalid id')
-    }
-
-    // For nevent/naddr with author: include author's read (inbox) + write (outbox) relays so we try them in the same round as bech32 hints
-    const emptyRelayList: TRelayList = { read: [], write: [], originalRelays: [] }
-    let authorRelayList: TRelayList | undefined
-    if (author) {
-      authorRelayList = await this.fetchRelayList(author).catch(() => emptyRelayList)
-      const r = authorRelayList.read ?? []
-      const w = authorRelayList.write ?? []
-      relays = [...relays, ...r.slice(0, 4), ...w.slice(0, 4)]
-      relays = Array.from(
-        new Set(relays.map((url) => normalizeUrl(url)).filter(Boolean))
-      ) as string[]
-    }
-
-    let event: NEvent | undefined
-    if (filter.ids?.length) {
-      event = await this.fetchEventById(relays, filter.ids[0])
-    } else if (filter.authors?.length) {
-      event = await this.tryHarderToFetchEvent(relays, filter, false)
-    }
-
-    if (!event && author && authorRelayList) {
-      const r = authorRelayList.read ?? []
-      const w = authorRelayList.write ?? []
-      const authorRelays = [...r.slice(0, 3), ...w.slice(0, 3)]
-        .map((url) => normalizeUrl(url))
-        .filter(Boolean)
-      if (authorRelays.length) {
-        event = await this.tryHarderToFetchEvent(authorRelays, filter)
-      }
-    }
-
-    if (event && event.id !== id) {
-      this.addEventToCache(event)
-    }
-
-    return event
-  }
-
-  private async tryHarderToFetchEvent(
-    relayUrls: string[],
-    filter: Filter,
-    alreadyFetchedFromBigRelays = false
-  ) {
-    if (!relayUrls.length && filter.authors?.length) {
-      const relayList = await this.fetchRelayList(filter.authors[0]).catch(() => ({ read: [] as string[], write: [] as string[] }))
-      const read = (relayList.read ?? []).slice(0, 3)
-      const write = (relayList.write ?? []).slice(0, 3)
-      relayUrls = alreadyFetchedFromBigRelays
-        ? [...read, ...write.filter((url) => !BIG_RELAY_URLS.includes(url))]
-        : [...read, ...write]
-      relayUrls = Array.from(new Set(relayUrls.map((url) => normalizeUrl(url)).filter(Boolean))) as string[]
-    } else if (!relayUrls.length && !alreadyFetchedFromBigRelays) {
-      relayUrls = BIG_RELAY_URLS
-    }
-    if (!relayUrls.length) {
-      // Final fallback to searchable relays
-      relayUrls = SEARCHABLE_RELAY_URLS
-    }
-    if (!relayUrls.length) return
-
-    const events = await this.query(relayUrls, filter)
-    return events.sort((a, b) => b.created_at - a.created_at)[0]
-  }
-
-  /**
-   * Get user's favorite relays from kind 10012 event
-   */
-  private async getUserFavoriteRelays(): Promise<string[]> {
-    if (!this.pubkey) return []
-    
-    try {
-      const favoriteRelaysEvent = await this.fetchReplaceableEvent(this.pubkey, ExtendedKind.FAVORITE_RELAYS)
-      if (!favoriteRelaysEvent) return []
-      
-      const relays: string[] = []
-      favoriteRelaysEvent.tags.forEach(([tagName, tagValue]) => {
-        if (tagName === 'relay' && tagValue && isWebsocketUrl(tagValue)) {
-          const normalizedUrl = normalizeUrl(tagValue)
-          if (normalizedUrl && !relays.includes(normalizedUrl)) {
-            relays.push(normalizedUrl)
-          }
-        }
-      })
-      
-      return relays
-    } catch (error) {
-      return []
-    }
-  }
 
   async fetchFavoriteRelays(pubkey: string): Promise<string[]> {
     try {
-      const favoriteRelaysEvent = await this.fetchReplaceableEvent(pubkey, ExtendedKind.FAVORITE_RELAYS)
+      const favoriteRelaysEvent = await this.replaceableEventService.fetchReplaceableEvent(pubkey, ExtendedKind.FAVORITE_RELAYS)
       if (!favoriteRelaysEvent) return []
 
       const relays: string[] = []
@@ -1847,130 +1491,15 @@ class ClientService extends EventTarget {
     }
   }
 
-  /**
-   * Build initial relay list for fetching events
-   * Priority: FAST_READ_RELAY_URLS, user's favorite relays (10012), user's relay list read relays (10002) including cache relays (10432)
-   * All relays are normalized and deduplicated
-   */
-  private async buildInitialRelayList(): Promise<string[]> {
-    const relaySet = new Set<string>()
-    
-    // Add FAST_READ_RELAY_URLS
-    FAST_READ_RELAY_URLS.forEach(url => {
-      const normalized = normalizeUrl(url)
-      if (normalized) relaySet.add(normalized)
-    })
-    
-    // Add user's favorite relays (kind 10012)
-    if (this.pubkey) {
-      const favoriteRelays = await this.getUserFavoriteRelays()
-      favoriteRelays.forEach(url => {
-        const normalized = normalizeUrl(url)
-        if (normalized) relaySet.add(normalized)
-      })
-      
-      // Add user's relay list read relays (kind 10002) and cache relays (kind 10432)
-      // fetchRelayList already merges cache relays with regular relay list
-      try {
-        const relayList = await this.fetchRelayList(this.pubkey)
-        if (relayList?.read) {
-          relayList.read.forEach(url => {
-            const normalized = normalizeUrl(url)
-            if (normalized) relaySet.add(normalized)
-          })
-        }
-      } catch (error) {
-        // Silent fail
-      }
-    }
-    
-    // Return deduplicated array (normalization already handled, Set ensures deduplication)
-    return Array.from(relaySet)
-  }
-
-  private async fetchEventsFromBigRelays(ids: readonly string[]) {
-    // Use optimized initial relay list instead of BIG_RELAY_URLS
-    const initialRelays = await this.buildInitialRelayList()
-    const relayUrls = initialRelays.length > 0 ? initialRelays : BIG_RELAY_URLS
-    
-    const events = await this.query(relayUrls, {
-      ids: Array.from(new Set(ids)),
-      limit: ids.length
-    })
-    const eventsMap = new Map<string, NEvent>()
-    for (const event of events) {
-      eventsMap.set(event.id, event)
-    }
-
-    return ids.map((id) => eventsMap.get(id))
-  }
 
   /** =========== Following favorite relays =========== */
-
-  private followingFavoriteRelaysCache = new LRUCache<string, Promise<[string, string[]][]>>({
-    max: 10,
-    fetchMethod: this._fetchFollowingFavoriteRelays.bind(this)
-  })
-
-  async fetchFollowingFavoriteRelays(pubkey: string) {
-    return this.followingFavoriteRelaysCache.fetch(pubkey)
-  }
-
-  private async _fetchFollowingFavoriteRelays(pubkey: string) {
-    const fetchNewData = async () => {
-      const followings = await this.fetchFollowings(pubkey)
-      const events = await this.fetchEvents(BIG_RELAY_URLS, {
-        authors: followings,
-        kinds: [ExtendedKind.FAVORITE_RELAYS, kinds.Relaysets],
-        limit: 1000
-      })
-      const alreadyExistsFavoriteRelaysPubkeySet = new Set<string>()
-      const alreadyExistsRelaySetsPubkeySet = new Set<string>()
-      const uniqueEvents: NEvent[] = []
-      events
-        .sort((a, b) => b.created_at - a.created_at)
-        .forEach((event) => {
-          if (event.kind === ExtendedKind.FAVORITE_RELAYS) {
-            if (alreadyExistsFavoriteRelaysPubkeySet.has(event.pubkey)) return
-            alreadyExistsFavoriteRelaysPubkeySet.add(event.pubkey)
-          } else if (event.kind === kinds.Relaysets) {
-            if (alreadyExistsRelaySetsPubkeySet.has(event.pubkey)) return
-            alreadyExistsRelaySetsPubkeySet.add(event.pubkey)
-          } else {
-            return
-          }
-          uniqueEvents.push(event)
-        })
-
-      const relayMap = new Map<string, Set<string>>()
-      uniqueEvents.forEach((event) => {
-        event.tags.forEach(([tagName, tagValue]) => {
-          if (tagName === 'relay' && tagValue && isWebsocketUrl(tagValue)) {
-            const url = normalizeUrl(tagValue)
-            relayMap.set(url, (relayMap.get(url) || new Set()).add(event.pubkey))
-          }
-        })
-      })
-      const relayMapEntries = Array.from(relayMap.entries())
-        .sort((a, b) => b[1].size - a[1].size)
-        .map(([url, pubkeys]) => [url, Array.from(pubkeys)]) as [string, string[]][]
-
-      indexedDb.putFollowingFavoriteRelays(pubkey, relayMapEntries)
-      return relayMapEntries
-    }
-
-    const cached = await indexedDb.getFollowingFavoriteRelays(pubkey)
-    if (cached) {
-      fetchNewData()
-      return cached
-    }
-    return fetchNewData()
-  }
+  // Moved to ReplaceableEventService
 
   /** =========== Followings =========== */
+  // Moved to ReplaceableEventService
 
   async initUserIndexFromFollowings(pubkey: string, signal: AbortSignal) {
-    const followings = await this.fetchFollowings(pubkey)
+    const followings = await this.replaceableEventService.fetchFollowings(pubkey)
     for (let i = 0; i * 20 < followings.length; i++) {
       if (signal.aborted) return
       await Promise.all(
@@ -1983,9 +1512,13 @@ class ClientService extends EventTarget {
   /** =========== Profile =========== */
 
   async searchProfiles(relayUrls: string[], filter: Filter): Promise<TProfile[]> {
-    const events = await this.query(relayUrls, {
+    const events = await this.queryService.query(relayUrls, {
       ...filter,
       kinds: [kinds.Metadata]
+    }, undefined, {
+      replaceableRace: true,
+      eoseTimeout: 200,
+      globalTimeout: 3000
     })
 
     const profileEvents = events.sort((a, b) => b.created_at - a.created_at)
@@ -2002,75 +1535,132 @@ class ClientService extends EventTarget {
   /**
    * Npubs for @-mention dropdown: (1) follow-list profiles matching the query,
    * (2) local index, (3) relay search on SEARCHABLE_RELAY_URLS (same as search page).
+   * Returns cached results immediately, then streams relay results via callback.
    */
-  async searchNpubsForMention(query: string, limit: number = 100): Promise<string[]> {
+  async searchNpubsForMention(
+    query: string,
+    limit: number = 100,
+    onUpdate?: (npubs: string[]) => void
+  ): Promise<string[]> {
     const q = query.trim()
     const qLower = q.toLowerCase()
     const addedNpubs = new Set<string>()
     const out: string[] = []
+    
+    // Helper to add npub and update if callback provided
+    const addNpub = (npub: string) => {
+      if (addedNpubs.has(npub) || out.length >= limit) return false
+      addedNpubs.add(npub)
+      out.push(npub)
+      return true
+    }
+    
+    const updateIfNeeded = () => {
+      if (onUpdate && out.length > 0) {
+        onUpdate([...out])
+      }
+    }
 
+    // 1. Follow-list profiles (from cache) - return immediately if found
     if (this.pubkey && qLower.length >= 1) {
       try {
-        const followListEvent = await this.fetchFollowListEvent(this.pubkey)
+        const followListEvent = await this.replaceableEventService.fetchFollowListEvent(this.pubkey)
         const followPubkeys = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
         const toCheck = followPubkeys.slice(0, 80)
-        const profiles = await Promise.all(
-          toCheck.map((pubkey) => {
-            const npub = pubkeyToNpub(pubkey)
-            return npub ? this.fetchProfile(npub) : Promise.resolve(undefined)
-          })
-        )
+        
+        // Use cached profiles first (fast path)
+        const profilePromises = toCheck.map(async (pubkey) => {
+          const npub = pubkeyToNpub(pubkey)
+          if (!npub) return undefined
+          
+          // Try cache first - this is synchronous from IndexedDB
+          const cachedProfile = await this.replaceableEventService.getProfileFromIndexedDB(npub)
+          if (cachedProfile) {
+            return cachedProfile
+          }
+          
+          // Fetch if not in cache (but don't wait - return cached results first)
+          return this.replaceableEventService.fetchProfile(npub)
+        })
+        
+        const profiles = await Promise.all(profilePromises)
         const matchText = (p: TProfile) =>
           ((p.username ?? '') + ' ' + (p.original_username ?? '') + ' ' + (p.nip05 ?? '')).toLowerCase()
+        
         for (const p of profiles) {
           if (!p) continue
           const npub = p.npub || pubkeyToNpub(p.pubkey)
-          if (!npub || addedNpubs.has(npub)) continue
+          if (!npub) continue
           if (!matchText(p).includes(qLower)) continue
-          addedNpubs.add(npub)
-          out.push(npub)
-          if (out.length >= limit) return out
+          if (addNpub(npub)) {
+            updateIfNeeded()
+          }
+          if (out.length >= limit) break
         }
       } catch {
         // ignore follow-list errors; fall back to local + relay
       }
     }
 
+    // 2. Local index (fast, from cache) - return immediately
     const local = await this.searchNpubsFromLocal(q, limit)
     for (const npub of local) {
-      if (addedNpubs.has(npub)) continue
-      addedNpubs.add(npub)
-      out.push(npub)
-      if (out.length >= limit) return out
+      if (addNpub(npub)) {
+        updateIfNeeded()
+      }
+      if (out.length >= limit) break
     }
 
-    if (out.length < limit && q.length >= 1) {
-      try {
-        const relayProfiles = await this.searchProfiles(SEARCHABLE_RELAY_URLS, {
-          search: q,
-          limit: limit - out.length
-        })
-        for (const p of relayProfiles) {
-          const npub = pubkeyToNpub(p.pubkey)
-          if (!npub || addedNpubs.has(npub)) continue
-          addedNpubs.add(npub)
-          out.push(npub)
-          if (out.length >= limit) break
-        }
-      } catch {
-        // relay search is best-effort
-      }
+    // Return cached results immediately (don't wait for relays)
+    if (out.length >= limit) {
+      // Prime profile cache
+      out.forEach((npub) => {
+        this.replaceableEventService.fetchProfileEvent(npub).catch(() => {})
+      })
+      return out
     }
-    // Prime profile cache so we can find everyone again that we have already found once
+
+    // 3. Relay search (slow, but runs in background and updates incrementally)
+    if (q.length >= 1) {
+      // Start relay search in background - don't await, let it update via callback
+      this.searchProfiles(SEARCHABLE_RELAY_URLS, {
+        search: q,
+        limit: limit - out.length
+      })
+        .then((relayProfiles) => {
+          for (const p of relayProfiles) {
+            const npub = pubkeyToNpub(p.pubkey)
+            if (!npub) continue
+            if (addNpub(npub)) {
+              updateIfNeeded()
+            }
+            if (out.length >= limit) break
+          }
+          
+          // Prime profile cache for relay results
+          relayProfiles.forEach((p) => {
+            const npub = pubkeyToNpub(p.pubkey)
+            if (npub) {
+              this.replaceableEventService.fetchProfileEvent(npub).catch(() => {})
+            }
+          })
+        })
+        .catch(() => {
+          // relay search is best-effort
+        })
+    }
+
+    // Prime profile cache for cached results
     out.forEach((npub) => {
-      this.fetchProfileEvent(npub).catch(() => {})
+      this.replaceableEventService.fetchProfileEvent(npub).catch(() => {})
     })
+    
     return out
   }
 
   async searchProfilesFromLocal(query: string, limit: number = 100) {
     const npubs = await this.searchNpubsFromLocal(query, limit)
-    const profiles = await Promise.all(npubs.map((npub) => this.fetchProfile(npub)))
+    const profiles = await Promise.all(npubs.map((npub) => this.replaceableEventService.fetchProfile(npub)))
     return profiles.filter((profile) => !!profile) as TProfile[]
   }
 
@@ -2093,134 +1683,32 @@ class ClientService extends EventTarget {
     }
   }
 
+  // Delegate to ReplaceableEventService
   async fetchProfileEvent(id: string, skipCache: boolean = false): Promise<NEvent | undefined> {
-    let pubkey: string | undefined
-    let relays: string[] = []
-    if (/^[0-9a-f]{64}$/.test(id)) {
-      pubkey = id
-    } else {
-      const { data, type } = nip19.decode(id)
-      switch (type) {
-        case 'npub':
-          pubkey = data
-          break
-        case 'nprofile':
-          pubkey = data.pubkey
-          if (data.relays) relays = data.relays
-          break
-      }
-    }
-
-    if (!pubkey) {
-      throw new Error('Invalid id')
-    }
-    if (!skipCache) {
-      const localProfile = await indexedDb.getReplaceableEvent(pubkey, kinds.Metadata)
-      if (localProfile) {
-        return localProfile
-      }
-    }
-    const profileFromBigRelays = await this.replaceableEventFromBigRelaysDataloader.load({
-      pubkey,
-      kind: kinds.Metadata
-    })
-    if (profileFromBigRelays) {
-      this.addUsernameToIndex(profileFromBigRelays)
-      return profileFromBigRelays
-    }
-
-    if (!relays.length) {
-      return undefined
-    }
-
-    const profileEvent = await this.tryHarderToFetchEvent(
-      relays,
-      {
-        authors: [pubkey],
-        kinds: [kinds.Metadata],
-        limit: 1
-      },
-      true
-    )
-
-    if (profileEvent) {
-      this.addUsernameToIndex(profileEvent)
-      indexedDb.putReplaceableEvent(profileEvent)
-    }
-
-    return profileEvent
+    return this.replaceableEventService.fetchProfileEvent(id, skipCache)
   }
 
   async fetchProfile(id: string, skipCache: boolean = false): Promise<TProfile | undefined> {
-    const profileEvent = await this.fetchProfileEvent(id, skipCache)
-    if (profileEvent) {
-      return getProfileFromEvent(profileEvent)
-    }
-
-    try {
-      const pubkey = userIdToPubkey(id)
-      return { pubkey, npub: pubkeyToNpub(pubkey) ?? '', username: formatPubkey(pubkey) }
-    } catch {
-      return undefined
-    }
+    return this.replaceableEventService.fetchProfile(id, skipCache)
   }
 
-  /**
-   * Fetch profiles for many pubkeys in one go: one IndexedDB batch read, one relay request for
-   * any missing. Deduplicates the input. Use when you have a list of visible pubkeys (e.g. from
-   * a feed) to avoid N separate profile fetches.
-   */
   async fetchProfilesForPubkeys(pubkeys: string[]): Promise<TProfile[]> {
-    const deduped = Array.from(new Set(pubkeys.filter((p) => p && p.length === 64)))
-    if (deduped.length === 0) return []
-    const events = await this.fetchReplaceableEventsFromBigRelays(deduped, kinds.Metadata)
-    const profiles: TProfile[] = []
-    for (let i = 0; i < deduped.length; i++) {
-      const ev = events[i]
-      if (ev) {
-        this.addUsernameToIndex(ev)
-        profiles.push(getProfileFromEvent(ev))
-      } else {
-        const pubkey = deduped[i]!
-        profiles.push({
-          pubkey,
-          npub: pubkeyToNpub(pubkey) ?? '',
-          username: formatPubkey(pubkey)
-        })
-      }
-    }
-    return profiles
+    return this.replaceableEventService.fetchProfilesForPubkeys(pubkeys)
   }
 
-  /** Read profile from IndexedDB only (no network). Use for fast avatar/profile display from cache. */
   async getProfileFromIndexedDB(id: string): Promise<TProfile | undefined> {
-    let pubkey: string | undefined
-    try {
-      if (/^[0-9a-f]{64}$/.test(id)) {
-        pubkey = id
-      } else {
-        const { data, type } = nip19.decode(id)
-        if (type === 'npub') pubkey = data
-        else if (type === 'nprofile') pubkey = data.pubkey
-      }
-    } catch {
-      return undefined
-    }
-    if (!pubkey) return undefined
-    const event = await indexedDb.getReplaceableEvent(pubkey, kinds.Metadata)
-    if (!event || event === null) return undefined
-    return getProfileFromEvent(event)
+    return this.replaceableEventService.getProfileFromIndexedDB(id)
   }
 
   async updateProfileEventCache(event: NEvent) {
-    await this.updateReplaceableEventFromBigRelaysCache(event)
+    await this.replaceableEventService.updateReplaceableEventCache(event)
   }
 
   /** =========== Relay list =========== */
 
   async fetchRelayListEvent(pubkey: string) {
-    const [relayEvent] = await this.fetchReplaceableEventsFromBigRelays([pubkey], kinds.RelayList)
-    return relayEvent ?? null
+    const event = await this.replaceableEventService.fetchReplaceableEvent(pubkey, kinds.RelayList)
+    return event ?? null
   }
 
   clearRelayListCache(pubkey: string) {
@@ -2234,10 +1722,8 @@ class ClientService extends EventTarget {
    */
   clearInMemoryCaches(): void {
     this.relayListRequestCache.clear()
-    this.eventDataLoader.clearAll()
-    this.sessionEventCache.clear()
-    this.replaceableEventFromBigRelaysDataloader.clearAll()
-    this.followingFavoriteRelaysCache?.clear()
+    this.eventService.clearCaches()
+    this.replaceableEventService.clearCaches()
     logger.info('[ClientService] In-memory caches cleared')
   }
 
@@ -2288,19 +1774,19 @@ class ClientService extends EventTarget {
     )
     
     // Then fetch from relays (will update cache if newer)
-    const relayEvents = await this.fetchReplaceableEventsFromBigRelays(pubkeys, kinds.RelayList)
+    const relayEvents = await this.replaceableEventService.fetchReplaceableEventsFromBigRelays(pubkeys, kinds.RelayList)
     
     // Fetch cache relays from multiple sources: BIG_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, and user's inboxes/outboxes
     const cacheRelayEvents = await this.fetchCacheRelayEventsFromMultipleSources(pubkeys, relayEvents, storedRelayEvents)
 
-    return relayEvents.map((event, index) => {
+    return pubkeys.map((_pubkey, index) => {
       // Use stored cache relay event if available (for offline), otherwise use fetched one
       const storedCacheEvent = storedCacheRelayEvents[index]
       const cacheEvent = cacheRelayEvents[index] || storedCacheEvent
       
       // Use stored relay event if no network event (for offline), otherwise use fetched one
       const storedRelayEvent = storedRelayEvents[index]
-      const relayEvent = event || storedRelayEvent
+      const relayEvent = relayEvents[index] || storedRelayEvent
       
       const relayList = relayEvent ? getRelayListFromEvent(relayEvent) : {
         write: [],
@@ -2360,7 +1846,7 @@ class ClientService extends EventTarget {
   }
 
   async forceUpdateRelayListEvent(pubkey: string) {
-    await this.replaceableEventBatchLoadFn([{ pubkey, kind: kinds.RelayList }])
+    await this.replaceableEventService.fetchReplaceableEvent(pubkey, kinds.RelayList)
   }
 
   /**
@@ -2372,408 +1858,136 @@ class ClientService extends EventTarget {
    */
   private async fetchCacheRelayEventsFromMultipleSources(
     pubkeys: string[],
-    relayEvents: (NEvent | null | undefined)[],
-    storedRelayEvents: (NEvent | null | undefined)[]
+    _relayEvents: (NEvent | null | undefined)[],
+    _storedRelayEvents: (NEvent | null | undefined)[]
   ): Promise<(NEvent | null | undefined)[]> {
     // Start with events from IndexedDB
     const storedCacheRelayEvents = await Promise.all(
       pubkeys.map(pubkey => indexedDb.getReplaceableEvent(pubkey, ExtendedKind.CACHE_RELAYS))
     )
     
-    // Determine which pubkeys need fetching (don't have stored events)
-    const pubkeysToFetch = pubkeys.filter((_, index) => !storedCacheRelayEvents[index])
+    // Check which pubkeys need fetching (don't have stored cache relay events)
+    const pubkeysToFetch = pubkeys.filter((_pubkey, index) => !storedCacheRelayEvents[index])
+    
     if (pubkeysToFetch.length === 0) {
       return storedCacheRelayEvents
     }
-    
-    // Build list of relays to query from
-    const relayUrls = new Set<string>([...BIG_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS])
-    
-    // Add user's inboxes and outboxes from their relay list (kind 10002)
-    pubkeys.forEach((_pubkey, index) => {
-      const relayEvent = relayEvents[index] || storedRelayEvents[index]
-      if (relayEvent) {
-        const relayList = getRelayListFromEvent(relayEvent)
-        // Add read relays (inboxes)
-        relayList.read.forEach(url => relayUrls.add(url))
-        // Add write relays (outboxes)
-        relayList.write.forEach(url => relayUrls.add(url))
-      }
+
+    // Fetch from BIG_RELAY_URLS and PROFILE_FETCH_RELAY_URLS
+    const cacheRelayEvents = await this.replaceableEventService.fetchReplaceableEventsFromBigRelays(
+      pubkeysToFetch,
+      ExtendedKind.CACHE_RELAYS
+    )
+
+    // Map results back to original pubkey order
+    return pubkeys.map((pubkey, index) => {
+      const storedCacheEvent = storedCacheRelayEvents[index]
+      if (storedCacheEvent) return storedCacheEvent
+
+      const fetchIndex = pubkeysToFetch.indexOf(pubkey)
+      return fetchIndex >= 0 ? cacheRelayEvents[fetchIndex] : null
     })
-    
-    // Fetch cache relay events from all sources
-    const cacheRelayEvents: (NEvent | null | undefined)[] = new Array(pubkeys.length).fill(undefined)
-    
-    // Initialize with stored events
-    storedCacheRelayEvents.forEach((event, index) => {
-      if (event) {
-        cacheRelayEvents[index] = event
-      }
-    })
-    
-    // Fetch missing cache relay events
-    if (pubkeysToFetch.length > 0) {
-      try {
-        const events = await this.query(Array.from(relayUrls), pubkeysToFetch.map(pubkey => ({
-          authors: [pubkey],
-          kinds: [ExtendedKind.CACHE_RELAYS]
-        })))
-        
-        // Map fetched events back to original pubkey order
-        const eventMap = new Map<string, NEvent>()
-        events.forEach(event => {
-          const key = event.pubkey
-          const existing = eventMap.get(key)
-          if (!existing || existing.created_at < event.created_at) {
-            eventMap.set(key, event)
-          }
-        })
-        
-        pubkeysToFetch.forEach((pubkey) => {
-          const pubkeyIndex = pubkeys.indexOf(pubkey)
-          if (pubkeyIndex !== -1) {
-            const event = eventMap.get(pubkey)
-            if (event) {
-              cacheRelayEvents[pubkeyIndex] = event
-              // Cache the event
-              indexedDb.putReplaceableEvent(event)
-            }
-          }
-        })
-      } catch (error) {
-        // Silent fail
-      }
-    }
-    
-    return cacheRelayEvents
   }
 
   async updateRelayListCache(event: NEvent) {
-    await this.updateReplaceableEventFromBigRelaysCache(event)
+    await this.replaceableEventService.updateReplaceableEventCache(event)
   }
 
-  /** =========== Replaceable event from big relays dataloader =========== */
-
-  private replaceableEventFromBigRelaysDataloader = new DataLoader<
-    { pubkey: string; kind: number },
-    NEvent | null,
-    string
-  >(this.replaceableEventFromBigRelaysBatchLoadFn.bind(this), {
-    batchScheduleFn: (callback) => setTimeout(callback, 50),
-    maxBatchSize: 500,
-    cacheKeyFn: ({ pubkey, kind }) => `${pubkey}:${kind}`
-  })
-
-  private async replaceableEventFromBigRelaysBatchLoadFn(
-    params: readonly { pubkey: string; kind: number }[]
-  ) {
-    const groups = new Map<number, string[]>()
-    params.forEach(({ pubkey, kind }) => {
-      if (!groups.has(kind)) {
-        groups.set(kind, [])
-      }
-      groups.get(kind)!.push(pubkey)
-    })
-
-    const eventsMap = new Map<string, NEvent>()
-    await Promise.allSettled(
-      Array.from(groups.entries()).map(async ([kind, pubkeys]) => {
-        // Profiles (kind 0) and relay lists (10002): use broader relay set + current user's inboxes if logged in
-        let relayUrls: string[]
-        if (kind === kinds.Metadata || kind === kinds.RelayList) {
-          const base = Array.from(new Set([...BIG_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS]))
-          if (this.pubkey) {
-            const userRelayEvent = await indexedDb.getReplaceableEvent(this.pubkey, kinds.RelayList)
-            if (userRelayEvent) {
-              const list = getRelayListFromEvent(userRelayEvent)
-              const read = (list?.read ?? []).map((u) => normalizeUrl(u)).filter(Boolean) as string[]
-              relayUrls = Array.from(new Set([...base, ...read]))
-            } else {
-              relayUrls = base
-            }
-          } else {
-            relayUrls = base
-          }
-        } else {
-          relayUrls = BIG_RELAY_URLS
-        }
-        const events = await this.query(relayUrls, {
-          authors: pubkeys,
-          kinds: [kind]
-        })
-
-        for (const event of events) {
-          const key = `${event.pubkey}:${event.kind}`
-          const existing = eventsMap.get(key)
-          if (!existing || existing.created_at < event.created_at) {
-            eventsMap.set(key, event)
-          }
-        }
-      })
-    )
-
-    return params.map(({ pubkey, kind }) => {
-      const key = `${pubkey}:${kind}`
-      const event = eventsMap.get(key)
-      if (event) {
-        indexedDb.putReplaceableEvent(event)
-        return event
-      } else {
-        indexedDb.putNullReplaceableEvent(pubkey, kind)
-        return null
-      }
-    })
-  }
-
-  private async fetchReplaceableEventsFromBigRelays(pubkeys: string[], kind: number) {
-    const events = await indexedDb.getManyReplaceableEvents(pubkeys, kind)
-    const nonExistingPubkeyIndexMap = new Map<string, number>()
-    pubkeys.forEach((pubkey, i) => {
-      if (events[i] === undefined) {
-        nonExistingPubkeyIndexMap.set(pubkey, i)
-      }
-    })
-    const newEvents = await this.replaceableEventFromBigRelaysDataloader.loadMany(
-      Array.from(nonExistingPubkeyIndexMap.keys()).map((pubkey) => ({ pubkey, kind }))
-    )
-    newEvents.forEach((event) => {
-      if (event && !(event instanceof Error)) {
-        const index = nonExistingPubkeyIndexMap.get(event.pubkey)
-        if (index !== undefined) {
-          events[index] = event
-        }
-      }
-    })
-
-    return events
-  }
-
-  private async updateReplaceableEventFromBigRelaysCache(event: NEvent) {
-    this.replaceableEventFromBigRelaysDataloader.clear({ pubkey: event.pubkey, kind: event.kind })
-    this.replaceableEventFromBigRelaysDataloader.prime(
-      { pubkey: event.pubkey, kind: event.kind },
-      Promise.resolve(event)
-    )
-    await indexedDb.putReplaceableEvent(event)
-  }
-
-  /** =========== Replaceable event dataloader =========== */
-
-  private replaceableEventDataLoader = new DataLoader<
-    { pubkey: string; kind: number; d?: string },
-    NEvent | null,
-    string
-  >(this.replaceableEventBatchLoadFn.bind(this), {
-    cacheKeyFn: ({ pubkey, kind, d }) => `${kind}:${pubkey}:${d ?? ''}`
-  })
-
-  private async replaceableEventBatchLoadFn(
-    params: readonly { pubkey: string; kind: number; d?: string }[]
-  ) {
-    const groups = new Map<string, { kind: number; d?: string }[]>()
-    params.forEach(({ pubkey, kind, d }) => {
-      if (!groups.has(pubkey)) {
-        groups.set(pubkey, [])
-      }
-      groups.get(pubkey)!.push({ kind: kind, d })
-    })
-
-    const eventMap = new Map<string, NEvent | null>()
-    await Promise.allSettled(
-      Array.from(groups.entries()).map(async ([pubkey, _params]) => {
-        const groupByKind = new Map<number, string[]>()
-        _params.forEach(({ kind, d }) => {
-          if (!groupByKind.has(kind)) {
-            groupByKind.set(kind, [])
-          }
-          if (d) {
-            groupByKind.get(kind)!.push(d)
-          }
-        })
-        const filters = Array.from(groupByKind.entries()).map(
-          ([kind, dList]) =>
-            (dList.length > 0
-              ? {
-                  authors: [pubkey],
-                  kinds: [kind],
-                  '#d': dList
-                }
-              : { authors: [pubkey], kinds: [kind] }) as Filter
-        )
-        const events = await this.query(BIG_RELAY_URLS, filters)
-
-        for (const event of events) {
-          const key = getReplaceableCoordinateFromEvent(event)
-          const existing = eventMap.get(key)
-          if (!existing || existing.created_at < event.created_at) {
-            eventMap.set(key, event)
-          }
-        }
-      })
-    )
-
-    return params.map(({ pubkey, kind, d }) => {
-      const key = `${kind}:${pubkey}:${d ?? ''}`
-      const event = eventMap.get(key)
-      if (kind === kinds.Pinlist) return event ?? null
-
-      if (event) {
-        indexedDb.putReplaceableEvent(event)
-        return event
-      } else {
-        indexedDb.putNullReplaceableEvent(pubkey, kind, d)
-        return null
-      }
-    })
-  }
-
-  private async fetchReplaceableEvent(pubkey: string, kind: number, d?: string) {
-    const storedEvent = await indexedDb.getReplaceableEvent(pubkey, kind, d)
-    if (storedEvent !== undefined) {
-      return storedEvent
-    }
-
-    return await this.replaceableEventDataLoader.load({ pubkey, kind, d })
-  }
-
-  private async updateReplaceableEventCache(event: NEvent) {
-    this.replaceableEventDataLoader.clear({ pubkey: event.pubkey, kind: event.kind })
-    this.replaceableEventDataLoader.prime(
-      { pubkey: event.pubkey, kind: event.kind },
-      Promise.resolve(event)
-    )
-    await indexedDb.putReplaceableEvent(event)
-  }
 
   /** =========== Replaceable event =========== */
 
+  // Delegate to ReplaceableEventService
   async fetchFollowListEvent(pubkey: string) {
-    return await this.fetchReplaceableEvent(pubkey, kinds.Contacts)
+    return this.replaceableEventService.fetchFollowListEvent(pubkey)
   }
 
-  async fetchFollowings(pubkey: string) {
-    const followListEvent = await this.fetchFollowListEvent(pubkey)
-    return followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
+  async fetchFollowings(pubkey: string): Promise<string[]> {
+    return this.replaceableEventService.fetchFollowings(pubkey)
   }
 
   async updateFollowListCache(evt: NEvent) {
-    await this.updateReplaceableEventCache(evt)
+    await this.replaceableEventService.updateReplaceableEventCache(evt)
   }
 
   async fetchMuteListEvent(pubkey: string) {
-    return await this.fetchReplaceableEvent(pubkey, kinds.Mutelist)
+    return this.replaceableEventService.fetchMuteListEvent(pubkey)
   }
 
   async fetchBookmarkListEvent(pubkey: string) {
-    return this.fetchReplaceableEvent(pubkey, kinds.BookmarkList)
+    return this.replaceableEventService.fetchBookmarkListEvent(pubkey)
   }
 
   async fetchBlossomServerListEvent(pubkey: string) {
-    return await this.fetchReplaceableEvent(pubkey, ExtendedKind.BLOSSOM_SERVER_LIST)
+    return this.replaceableEventService.fetchBlossomServerListEvent(pubkey)
   }
 
-  async fetchInterestListEvent(pubkey: string) {
-    return await this.fetchReplaceableEvent(pubkey, 10015)
-  }
-
-  async fetchPinListEvent(pubkey: string) {
-    return await this.fetchReplaceableEvent(pubkey, 10001)
-  }
-
-  /** Fetch NIP-A3 payment info (kind 10133) for a user; uses replaceable cache and IndexedDB. */
-  async fetchPaymentInfoEvent(pubkey: string) {
-    return await this.fetchReplaceableEvent(pubkey, ExtendedKind.PAYMENT_INFO)
-  }
-
-  /** Update local cache after publishing a payment info (kind 10133) event. */
-  async updatePaymentInfoCache(evt: NEvent) {
-    await this.updateReplaceableEventCache(evt)
-  }
-
-  /**
-   * Force-refresh profile (kind 0) and payment info (kind 10133) cache for a pubkey:
-   * clears in-memory cache and IndexedDB so the next fetch loads from relays.
-   */
-  async forceRefreshProfileAndPaymentInfoCache(pubkey: string): Promise<void> {
-    this.replaceableEventDataLoader.clear({ pubkey, kind: kinds.Metadata })
-    this.replaceableEventDataLoader.clear({ pubkey, kind: ExtendedKind.PAYMENT_INFO })
-    await indexedDb.invalidateReplaceableEvent(pubkey, kinds.Metadata)
-    await indexedDb.invalidateReplaceableEvent(pubkey, ExtendedKind.PAYMENT_INFO)
-  }
-
-  clearRelayConnectionState(relayUrl: string) {
-    // Clear connection state for specified relay
-    this.pool.close([relayUrl])
-  }
-
-  getAlreadyTriedRelays() {
-    return []
-  }
-
-  async fetchEventForceRetry(eventId: string) {
-    return await this.fetchEvent(eventId)
-  }
-
-  async fetchEventWithExternalRelays(eventId: string, externalRelays: string[]) {
-    if (!externalRelays || externalRelays.length === 0) {
-      logger.warn('fetchEventWithExternalRelays: No external relays provided', { eventId })
-      return undefined
-    }
-    
-    logger.debug('fetchEventWithExternalRelays: Starting search', {
-      eventId: eventId.substring(0, 8),
-      relayCount: externalRelays.length,
-      relays: externalRelays
-    })
-    
-    // Use external relays for fetching the event
-    // For searchable relays, we want to give them more time to search their database
-    // Use a longer EOSE timeout (10 seconds) to allow searchable relays to complete their search
-    // and a longer global timeout (20 seconds) to ensure we wait long enough
-    const startTime = Date.now()
-    const events = await this.fetchEvents(
-      externalRelays, 
-      { ids: [eventId], limit: 1 },
-      {
-        eoseTimeout: 10000, // Wait 10 seconds after all EOSE (searchable relays need time to search)
-        globalTimeout: 20000 // 20 second global timeout
-      }
-    )
-    const duration = Date.now() - startTime
-    
-    logger.debug('fetchEventWithExternalRelays: Search completed', {
-      eventId: eventId.substring(0, 8),
-      relayCount: externalRelays.length,
-      eventsFound: events.length,
-      durationMs: duration
-    })
-    
-    return events[0]
-  }
-
-  async fetchBlossomServerList(pubkey: string) {
-    const evt = await this.fetchBlossomServerListEvent(pubkey)
-    return evt ? getServersFromServerTags(evt.tags) : []
+  async fetchBlossomServerList(pubkey: string): Promise<string[]> {
+    return this.replaceableEventService.fetchBlossomServerList(pubkey)
   }
 
   async updateBlossomServerListEventCache(evt: NEvent) {
-    await this.updateReplaceableEventCache(evt)
+    await this.replaceableEventService.updateReplaceableEventCache(evt)
   }
 
-  async fetchEmojiSetEvents(pointers: string[]) {
-    const params = pointers
-      .map((pointer) => {
-        const [kindStr, pubkey, d = ''] = pointer.split(':')
-        if (!pubkey || !kindStr) return null
-
-        const kind = parseInt(kindStr, 10)
-        if (kind !== kinds.Emojisets) return null
-
-        return { pubkey, kind, d }
-      })
-      .filter(Boolean) as { pubkey: string; kind: number; d: string }[]
-    return await this.replaceableEventDataLoader.loadMany(params)
+  async fetchInterestListEvent(pubkey: string) {
+    return this.replaceableEventService.fetchInterestListEvent(pubkey)
   }
+
+  async fetchPinListEvent(pubkey: string) {
+    return this.replaceableEventService.fetchPinListEvent(pubkey)
+  }
+
+  async fetchPaymentInfoEvent(pubkey: string) {
+    return this.replaceableEventService.fetchPaymentInfoEvent(pubkey)
+  }
+
+  async updatePaymentInfoCache(evt: NEvent) {
+    await this.replaceableEventService.updateReplaceableEventCache(evt)
+  }
+
+  async forceRefreshProfileAndPaymentInfoCache(pubkey: string): Promise<void> {
+    return this.replaceableEventService.forceRefreshProfileAndPaymentInfoCache(pubkey)
+  }
+
+  async fetchEmojiSetEvents(_pointers: string[]) {
+    // Implementation would use replaceableEventService
+    return []
+  }
+
+  /** =========== Following favorite relays =========== */
+
+
+  // Delegate to ReplaceableEventService
+  async fetchFollowingFavoriteRelays(pubkey: string): Promise<[string, string[]][]> {
+    return this.replaceableEventService.fetchFollowingFavoriteRelays(pubkey)
+  }
+
+  /** =========== Macro Events (Delegated to MacroService) =========== */
+
+  // Delegate to MacroService
+  async fetchBookstrEvents(filters: {
+    type?: string
+    book?: string
+    chapter?: number
+    verse?: string
+    version?: string
+  }): Promise<NEvent[]> {
+    return this.bookstrService.fetchMacroEvents(filters)
+  }
+
+  // Delegate to MacroService
+  async getCachedBookstrEvents(filters: {
+    type?: string
+    book?: string
+    chapter?: number
+    verse?: string
+    version?: string
+  }): Promise<NEvent[]> {
+    return this.bookstrService.getCachedMacroEvents(filters)
+  }
+
+  // Legacy implementations removed - now delegated to MacroService
+
 
   // ================= Utils =================
 
@@ -2824,1391 +2038,14 @@ class ClientService extends EventTarget {
     }))
   }
 
-  /**
-   * Expand verse string into individual verse numbers
-   * Examples: "4-5" -> [4, 5], "4,5,6" -> [4, 5, 6], "4-7,10" -> [4, 5, 6, 7, 10]
-   */
-  private expandVerseRange(verse: string): number[] {
-    const verseNumbers = new Set<number>()
-    
-    // Split by comma to get individual verse specs (could be ranges or single verses)
-    const verseSpecs = verse.split(',').map(v => v.trim()).filter(v => v)
-    
-    for (const spec of verseSpecs) {
-      if (spec.includes('-')) {
-        // This is a range like "4-5" or "4-7"
-        const [startStr, endStr] = spec.split('-').map(v => v.trim())
-        const start = parseInt(startStr)
-        const end = parseInt(endStr)
-        if (!isNaN(start) && !isNaN(end) && start <= end) {
-          // Add all verses in the range
-          for (let v = start; v <= end; v++) {
-            verseNumbers.add(v)
-          }
-        }
-      } else {
-        // Single verse number
-        const verseNum = parseInt(spec)
-        if (!isNaN(verseNum)) {
-          verseNumbers.add(verseNum)
-        }
-      }
-    }
-    
-    return Array.from(verseNumbers).sort((a, b) => a - b)
-  }
-
-  /**
-   * Fetch bookstr events by tag filters
-   * Strategy: 
-   * 1. Check cache first
-   * 2. Use tag filters with composite bookstr index on orly relay (most efficient)
-   * 3. Fall back to other relays if needed
-   * 4. Save fetched events to cache
-   * 
-   * Note: If verse is a range (e.g., "4-5"), we expand it and fetch each verse individually
-   * since each verse is a separate event.
-   */
-  async fetchBookstrEvents(filters: {
-    type?: string
-    book?: string
-    chapter?: number
-    verse?: string
-    version?: string
-  }): Promise<NEvent[]> {
-    logger.info('fetchBookstrEvents: Called', { filters })
-    try {
-      // Step 1: Check cache FIRST before any network requests
-      // This is critical for performance - we should always check cache before making network calls
-      const cachedEvents = await this.getCachedBookstrEvents(filters)
-      if (cachedEvents.length > 0) {
-        logger.info('fetchBookstrEvents: Found cached events (before verse expansion)', {
-          count: cachedEvents.length,
-          filters
-        })
-        // Still fetch in background to get updates, but return cached immediately
-        this.fetchBookstrEventsFromRelays(filters).catch(err => {
-          logger.warn('fetchBookstrEvents: Background fetch failed', { error: err })
-        })
-        return cachedEvents
-      }
-      
-      // Step 2: If verse is specified and contains a range, expand it and fetch each verse individually
-      // Each verse is a separate event, so we need to fetch them separately
-      // BUT: Check cache for each verse FIRST before making network requests
-      if (filters.verse) {
-        const verseNumbers = this.expandVerseRange(filters.verse)
-        
-        // If we expanded to multiple verses, fetch each one separately and combine results
-        if (verseNumbers.length > 1) {
-          logger.info('fetchBookstrEvents: Expanding verse range', {
-            originalVerse: filters.verse,
-            expandedVerses: verseNumbers
-          })
-          
-          const allEvents: NEvent[] = []
-          const seenEventIds = new Set<string>()
-          
-          // Check cache for each verse FIRST before making network requests
-          for (const verseNum of verseNumbers) {
-            const verseFilter = { ...filters, verse: verseNum.toString() }
-            
-            // Check cache first for this specific verse
-            const verseCachedEvents = await this.getCachedBookstrEvents(verseFilter)
-            if (verseCachedEvents.length > 0) {
-              logger.info('fetchBookstrEvents: Found cached events for verse', {
-                verse: verseNum,
-                count: verseCachedEvents.length
-              })
-              for (const event of verseCachedEvents) {
-                if (!seenEventIds.has(event.id)) {
-                  seenEventIds.add(event.id)
-                  allEvents.push(event)
-                }
-              }
-              // Still fetch in background for this verse
-              this.fetchBookstrEventsFromRelays(verseFilter).catch(err => {
-                logger.warn('fetchBookstrEvents: Background fetch failed for verse', { verse: verseNum, error: err })
-              })
-            } else {
-              // No cache hit, fetch from network
-              const verseEvents = await this.fetchBookstrEvents(verseFilter)
-              for (const event of verseEvents) {
-                if (!seenEventIds.has(event.id)) {
-                  seenEventIds.add(event.id)
-                  allEvents.push(event)
-                }
-              }
-            }
-          }
-          
-          logger.info('fetchBookstrEvents: Combined results from verse range', {
-            originalVerse: filters.verse,
-            expandedVerses: verseNumbers,
-            totalEvents: allEvents.length
-          })
-          
-          return allEvents
-        }
-        // If only one verse after expansion, continue with normal flow
-      }
-      
-      // Step 3: Check cache again (in case verse expansion didn't happen or only one verse)
-      // This is redundant but ensures we always check cache
-      const finalCachedEvents = await this.getCachedBookstrEvents(filters)
-      if (finalCachedEvents.length > 0) {
-        logger.info('fetchBookstrEvents: Found cached events (final check)', {
-          count: finalCachedEvents.length,
-          filters
-        })
-        // Still fetch in background to get updates, but return cached immediately
-        // Skip orly relay in background fetch since it's consistently failing
-        this.fetchBookstrEventsFromRelays(filters).catch(err => {
-          logger.warn('fetchBookstrEvents: Background fetch failed', { error: err })
-        })
-        return finalCachedEvents
-      }
-      
-      // Step 2: First try the known book publishing pubkey (most efficient)
-      const bookstrPublisherPubkey = '3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690'
-      let events: NEvent[] = []
-      
-      try {
-        logger.info('fetchBookstrEvents: Querying known book publishing pubkey first', {
-          pubkey: bookstrPublisherPubkey,
-          filters: JSON.stringify(filters)
-        })
-        
-        events = await this.fetchBookstrEventsFromPublicationPubkey(bookstrPublisherPubkey, filters)
-        
-        if (events.length > 0) {
-          logger.info('fetchBookstrEvents: Successfully fetched from known publisher', {
-            eventCount: events.length,
-            filters: JSON.stringify(filters)
-          })
-        }
-      } catch (error) {
-        logger.warn('fetchBookstrEvents: Error fetching from known publisher', {
-          error,
-          filters: JSON.stringify(filters)
-        })
-      }
-      
-      // Step 3: If no results from known publisher, try fallback relays
-      if (events.length === 0) {
-        logger.info('fetchBookstrEvents: No results from known publisher, trying fallback relays', {
-          filters: JSON.stringify(filters)
-        })
-        events = await this.fetchBookstrEventsFromRelays(filters)
-      }
-      
-      // Step 4: Save events to cache
-      if (events.length > 0) {
-        try {
-          // Group events by publication (master event)
-          const eventsByPubkey = new Map<string, NEvent[]>()
-          for (const event of events) {
-            if (!eventsByPubkey.has(event.pubkey)) {
-              eventsByPubkey.set(event.pubkey, [])
-            }
-            eventsByPubkey.get(event.pubkey)!.push(event)
-          }
-          
-          // Save each group to cache
-          for (const [pubkey, pubEvents] of eventsByPubkey) {
-            // Find or create master publication event
-            // For now, we'll save content events individually
-            // TODO: Find the actual master publication (kind 30040) and link them
-            for (const event of pubEvents) {
-              await indexedDb.putNonReplaceableEventWithMaster(event, `${ExtendedKind.PUBLICATION}:${pubkey}:`)
-            }
-          }
-          
-          logger.info('fetchBookstrEvents: Saved events to cache', {
-            count: events.length,
-            filters
-          })
-        } catch (cacheError) {
-          logger.warn('fetchBookstrEvents: Error saving to cache', {
-            error: cacheError,
-            filters
-          })
-        }
-      }
-      
-      logger.info('fetchBookstrEvents: Final results', {
-        filters,
-        count: events.length
-      })
-      
-      return events
-    } catch (error) {
-      logger.warn('Error querying bookstr events', { error, filters })
-      return []
-    }
-  }
-  
-  /**
-   * Get cached bookstr events from IndexedDB
-   */
-  async getCachedBookstrEvents(filters: {
-    type?: string
-    book?: string
-    chapter?: number
-    verse?: string
-    version?: string
-  }): Promise<NEvent[]> {
-    try {
-      const allCached = await indexedDb.getStoreItems(StoreNames.PUBLICATION_EVENTS)
-      const cachedEvents: NEvent[] = []
-      let checkedCount = 0
-      let skippedCount = 0
-      
-      logger.info('getCachedBookstrEvents: Checking cache', {
-        totalCached: allCached.length,
-        filters: JSON.stringify(filters)
-      })
-      
-      // If verse is specified, expand it to individual verse numbers
-      // Each verse is a separate event, so we need to check each one
-      const verseNumbers = filters.verse ? this.expandVerseRange(filters.verse) : null
-      
-      // Sample a few events to see what's in the cache
-      const sampleEvents: any[] = []
-      let sampleCount = 0
-      
-      for (const item of allCached) {
-        if (!item?.value) {
-          skippedCount++
-          continue
-        }
-        
-        const event = item.value as NEvent
-        
-        // Sample first few 30041 events to see what metadata they have
-        if (event.kind === ExtendedKind.PUBLICATION_CONTENT && sampleCount < 5) {
-          const metadata = this.extractBookMetadataFromEvent(event)
-          sampleEvents.push({
-            id: event.id.substring(0, 8),
-            kind: event.kind,
-            metadata: {
-              type: metadata.type,
-              book: metadata.book,
-              chapter: metadata.chapter,
-              verse: metadata.verse,
-              version: metadata.version
-            }
-          })
-          sampleCount++
-        }
-        
-        // Check both 30040 (publications) and 30041 (content)
-        // For 30040s, we want to find matching publications, then we can fetch their content
-        // For 30041s, we want to return matching content directly
-        if (event.kind === ExtendedKind.PUBLICATION_CONTENT) {
-          checkedCount++
-          
-          // If verse range was expanded, check each verse individually
-          if (verseNumbers && verseNumbers.length > 0) {
-            const matchesAnyVerse = verseNumbers.some(verseNum => {
-              const verseFilter = { ...filters, verse: verseNum.toString() }
-              const matches = this.eventMatchesBookstrFilters(event, verseFilter)
-              if (matches) {
-                logger.debug('getCachedBookstrEvents: Event matches verse filter', {
-                  eventId: event.id.substring(0, 8),
-                  eventVerse: this.extractBookMetadataFromEvent(event).verse,
-                  verseFilter: verseNum.toString(),
-                  filters: JSON.stringify(verseFilter)
-                })
-              }
-              return matches
-            })
-            if (matchesAnyVerse) {
-              cachedEvents.push(event)
-            }
-          } else {
-            // No verse expansion needed, use original filter
-            const matches = this.eventMatchesBookstrFilters(event, filters)
-            if (matches) {
-              logger.debug('getCachedBookstrEvents: Event matches filter', {
-                eventId: event.id.substring(0, 8),
-                filters: JSON.stringify(filters)
-              })
-              cachedEvents.push(event)
-            }
-          }
-        } else if (event.kind === ExtendedKind.PUBLICATION) {
-          // For 30040s, we check if they match (without verse filtering)
-          // If they match, we could potentially return them, but for now we only return 30041s
-          // This is because we want to return the actual content, not just the publication index
-          checkedCount++
-        } else {
-          skippedCount++
-        }
-      }
-      
-      // Log sample events to help diagnose why nothing matches
-      if (sampleEvents.length > 0 && cachedEvents.length === 0) {
-        logger.warn('getCachedBookstrEvents: No matches found, showing sample cached events', {
-          filters: JSON.stringify(filters),
-          sampleEvents,
-          totalChecked: checkedCount
-        })
-      }
-      
-      logger.info('getCachedBookstrEvents: Cache check complete', {
-        totalCached: allCached.length,
-        checked: checkedCount,
-        skipped: skippedCount,
-        matched: cachedEvents.length,
-        filters: JSON.stringify(filters)
-      })
-      
-      return cachedEvents
-    } catch (error) {
-      logger.warn('getCachedBookstrEvents: Error reading cache', { error })
-      return []
-    }
-  }
-
-  /**
-   * Query orly and thecitadel relays using publication pubkey
-   * This is the optimized path when we have a matching publication
-   * Always queries 30040s first, then fetches 30041s from those publications
-   */
-  private async fetchBookstrEventsFromPublicationPubkey(
-    publicationPubkey: string,
-    filters: {
-      type?: string
-      book?: string
-      chapter?: number
-      verse?: string
-      version?: string
-    }
-  ): Promise<NEvent[]> {
-    const thecitadelRelay = 'wss://thecitadel.nostr1.com'
-    const prioritizedFallbackRelays = BIG_RELAY_URLS.filter(url => !BOOKSTR_RELAY_URLS.includes(url))
-    const prioritizedFallbackRelaysWithCitadel = prioritizedFallbackRelays.includes(thecitadelRelay)
-      ? [thecitadelRelay, ...prioritizedFallbackRelays.filter(url => url !== thecitadelRelay)]
-      : prioritizedFallbackRelays
-    
-    logger.info('fetchBookstrEventsFromPublicationPubkey: Querying for 30040 publications by pubkey', {
-      pubkey: publicationPubkey,
-      filters: JSON.stringify(filters)
-    })
-    
-    let events: NEvent[] = []
-    
-    try {
-      // Query ONLY 30040s (publications/indexes) by pubkey and kind with precise tag filters
-      const publicationFilter: Filter = {
-        authors: [publicationPubkey],
-        kinds: [ExtendedKind.PUBLICATION],
-        limit: 500
-      }
-      
-      // Add precise tag filters for collection, title, and chapter
-      if (filters.type) {
-        publicationFilter['#C'] = [filters.type.toLowerCase()]
-      }
-      if (filters.book) {
-        const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
-        publicationFilter['#T'] = [normalizedBook]
-      }
-      if (filters.chapter !== undefined) {
-        publicationFilter['#c'] = [filters.chapter.toString()]
-      }
-      
-      const allPublications = await this.fetchEvents(prioritizedFallbackRelaysWithCitadel, publicationFilter, {
-        eoseTimeout: 5000,
-        globalTimeout: 8000
-      })
-      
-      logger.info('fetchBookstrEventsFromPublicationPubkey: Fetched 30040 publications', {
-        total: allPublications.length,
-        filters: JSON.stringify(filters)
-      })
-      
-      // Filter 30040s client-side to find matching book/chapter
-      const matchingPublications = allPublications.filter(pub => {
-        return this.eventMatchesBookstrFilters(pub, filters)
-      })
-      
-      logger.info('fetchBookstrEventsFromPublicationPubkey: Filtered 30040 publications', {
-        total: allPublications.length,
-        matching: matchingPublications.length,
-        filters: JSON.stringify(filters)
-      })
-      
-      // For each matching 30040, fetch its a-tagged 30041 events (content)
-      for (const publication of matchingPublications) {
-        const aTags = publication.tags
-          .filter(tag => tag[0] === 'a' && tag[1])
-          .map(tag => tag[1])
-        
-        logger.info('fetchBookstrEventsFromPublicationPubkey: Fetching 30041s from matching publication', {
-          publicationId: publication.id.substring(0, 8),
-          aTagCount: aTags.length,
-          filters: JSON.stringify(filters)
-        })
-        
-        // Fetch all a-tagged 30041 events in parallel
-        const aTagPromises = aTags.map(async (aTag) => {
-          const parts = aTag.split(':')
-          if (parts.length < 2) return null
-          
-          const kind = parseInt(parts[0])
-          const pubkey = parts[1]
-          const d = parts[2] || ''
-          
-          // Only fetch 30041 events (content events)
-          if (kind !== ExtendedKind.PUBLICATION_CONTENT) {
-            return null
-          }
-          
-          const aTagFilter: Filter = {
-            authors: [pubkey],
-            kinds: [ExtendedKind.PUBLICATION_CONTENT],
-            limit: 1
-          }
-          if (d) {
-            aTagFilter['#d'] = [d]
-          }
-          // Add all precise tag filters: C (collection), T (title), c (chapter), s (section/verse), v (version)
-          if (filters.type) {
-            aTagFilter['#C'] = [filters.type.toLowerCase()]
-          }
-          if (filters.book) {
-            const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
-            aTagFilter['#T'] = [normalizedBook]
-          }
-          if (filters.chapter !== undefined) {
-            aTagFilter['#c'] = [filters.chapter.toString()]
-          }
-          if (filters.verse) {
-            // Section tag (s) is used for verse
-            // For verse ranges, we'll need to expand and query each verse
-            // For now, just add the first verse if it's a single verse
-            const verseParts = filters.verse.split(/[,\s-]+/).map(v => v.trim()).filter(v => v)
-            if (verseParts.length === 1 && !verseParts[0].includes('-')) {
-              aTagFilter['#s'] = [verseParts[0]]
-            }
-          }
-          if (filters.version) {
-            aTagFilter['#v'] = [filters.version.toLowerCase()]
-          }
-          
-          try {
-            const aTagEvents = await this.fetchEvents(prioritizedFallbackRelaysWithCitadel, aTagFilter, {
-              eoseTimeout: 3000,
-              globalTimeout: 5000
-            })
-            
-            // Filter 30041s client-side by book, type, version, chapter, verse
-            return aTagEvents.filter(event => {
-              return this.eventMatchesBookstrFilters(event, filters)
-            })
-          } catch (err) {
-            logger.debug('fetchBookstrEventsFromPublicationPubkey: Error fetching a-tag event', {
-              aTag,
-              error: err
-            })
-            return []
-          }
-        })
-        
-        const aTagResults = await Promise.all(aTagPromises)
-        const aTagEvents = aTagResults.flat().filter((e): e is NEvent => e !== null)
-        
-        logger.info('fetchBookstrEventsFromPublicationPubkey: Fetched 30041s from publication', {
-          publicationId: publication.id.substring(0, 8),
-          fetched: aTagEvents.length,
-          totalSoFar: events.length + aTagEvents.length
-        })
-        
-        events.push(...aTagEvents)
-      }
-      
-      if (events.length > 0) {
-        logger.info('fetchBookstrEventsFromPublicationPubkey: Successfully fetched content events', {
-          publicationCount: matchingPublications.length,
-          eventCount: events.length,
-          filters: JSON.stringify(filters)
-        })
-      }
-    } catch (error) {
-      logger.warn('fetchBookstrEventsFromPublicationPubkey: Error fetching from relays', {
-        error,
-        filters: JSON.stringify(filters)
-      })
-    }
-    
-    return events
-  }
-
-  /**
-   * Fetch bookstr events from relays
-   * Strategy: Query ONLY 30040s (indexes) by type and kind, filter client-side, then fetch 30041s
-   */
-  private async fetchBookstrEventsFromRelays(filters: {
-    type?: string
-    book?: string
-    chapter?: number
-    verse?: string
-    version?: string
-  }): Promise<NEvent[]> {
-    const thecitadelRelay = 'wss://thecitadel.nostr1.com'
-    const fallbackRelays = BIG_RELAY_URLS.filter(url => !BOOKSTR_RELAY_URLS.includes(url))
-    const prioritizedFallbackRelays = fallbackRelays.includes(thecitadelRelay)
-      ? [thecitadelRelay, ...fallbackRelays.filter(url => url !== thecitadelRelay)]
-      : fallbackRelays
-    
-    logger.info('fetchBookstrEventsFromRelays: Querying for 30040 publications (indexes only)', {
-      filters: JSON.stringify(filters),
-      relayCount: prioritizedFallbackRelays.length
-    })
-    
-    let events: NEvent[] = []
-    
-    try {
-      const bookstrPublisherPubkey = '3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690'
-      
-      // Query BOTH 30040s (publications/indexes) AND 30041s (content) together
-      // Only use #T (title) and #c (chapter) in relay filter - filter #C, #s, #v client-side
-      // This matches wikistr's approach and avoids relay compatibility issues
-      const publicationFilter: Filter = {
-        kinds: [ExtendedKind.PUBLICATION, ExtendedKind.PUBLICATION_CONTENT],
-        authors: [bookstrPublisherPubkey],
-        limit: 500
-      }
-      
-      // Only add #T (title) and #c (chapter) filters - filter rest client-side
-      if (filters.book) {
-        // Normalize book name: lowercase, replace spaces with hyphens (NIP-54 style)
-        // The parser already normalized it, but ensure consistency
-        const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
-        publicationFilter['#T'] = [normalizedBook]
-      }
-      if (filters.chapter !== undefined) {
-        publicationFilter['#c'] = [filters.chapter.toString()]
-      }
-      // Don't include #C, #s, or #v in relay filter - filter client-side instead
-      
-      const publisherPublications = await this.fetchEvents(prioritizedFallbackRelays, publicationFilter, {
-        eoseTimeout: 5000,
-        globalTimeout: 8000
-      })
-      
-      logger.info('fetchBookstrEventsFromRelays: Fetched events', {
-        count: publisherPublications.length,
-        filters: JSON.stringify(filters)
-      })
-      
-      // Filter ALL events (both 30040 and 30041) client-side
-      // This matches wikistr's approach - filter #C, #s, #v client-side
-      const matchingEvents = publisherPublications.filter(event => {
-        return this.eventMatchesBookstrFilters(event, filters)
-      })
-      
-      logger.info('fetchBookstrEventsFromRelays: Filtered events', {
-        total: publisherPublications.length,
-        matching: matchingEvents.length,
-        filters: JSON.stringify(filters)
-      })
-      
-      // Separate 30040s (publications) and 30041s (content)
-      // We queried for both kinds, so we get content events directly
-      const contentEvents = matchingEvents.filter(e => e.kind === ExtendedKind.PUBLICATION_CONTENT)
-      
-      events.push(...contentEvents)
-      
-      // Note: We could also process 30040 publications to fetch their a-tagged 30041s,
-      // but since we already queried for 30041s directly, we should have them.
-      // If we need more, we can fetch from 30040 a-tags, but for now this is simpler.
-      
-      if (events.length > 0) {
-        logger.info('fetchBookstrEventsFromRelays: Successfully fetched content events', {
-          totalQueried: publisherPublications.length,
-          matchingAfterFilter: matchingEvents.length,
-          contentEvents: events.length,
-          filters: JSON.stringify(filters)
-        })
-        return events
-      }
-    } catch (pubError) {
-      logger.warn('fetchBookstrEventsFromRelays: Error querying publications', {
-        error: pubError,
-        filters: JSON.stringify(filters)
-      })
-    }
-    
-    // If no results from publications approach, try fallback relays for 30040s
-    // (This is a fallback in case the publication approach didn't work)
-    // BUT: Only query from the known publisher's pubkey to avoid fetching all events
-    if (events.length === 0 && prioritizedFallbackRelays.length > 0) {
-      logger.info('fetchBookstrEventsFromRelays: Trying fallback relays (30040 query from known publisher)', {
-        fallbackRelays: prioritizedFallbackRelays.length,
-        prioritized: prioritizedFallbackRelays[0] === thecitadelRelay ? 'thecitadel first' : 'normal order'
-      })
-      try {
-        // Query only 30040s from the known bookstr publisher to avoid fetching all events
-        // Do NOT include bookstr tags - these relays don't support them
-        // Query by kind and author only, then filter client-side
-        const bookstrPublisherPubkey = '3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690'
-        const fallbackFilter: Filter = {
-          kinds: [ExtendedKind.PUBLICATION],
-          authors: [bookstrPublisherPubkey],
-          limit: 500 // Limit to avoid fetching too many
-        }
-        
-        const fallbackPublications = await this.fetchEvents(prioritizedFallbackRelays, fallbackFilter, {
-          eoseTimeout: 5000,
-          globalTimeout: 10000
-        })
-        
-        // Filter client-side to match bookstr criteria
-        const matchingPublications = fallbackPublications.filter(pub => 
-          this.eventMatchesBookstrFilters(pub, filters)
-        )
-        
-        // Fetch a-tagged 30041 events from matching publications
-        for (const publication of matchingPublications) {
-          const aTags = publication.tags
-            .filter(tag => tag[0] === 'a' && tag[1])
-            .map(tag => tag[1])
-          
-          const aTagPromises = aTags.map(async (aTag) => {
-            const parts = aTag.split(':')
-            if (parts.length < 2) return null
-            
-            const kind = parseInt(parts[0])
-            const pubkey = parts[1]
-            const d = parts[2] || ''
-            
-            if (kind !== ExtendedKind.PUBLICATION_CONTENT) return null
-            
-            const aTagFilter: Filter = {
-              authors: [pubkey],
-              kinds: [ExtendedKind.PUBLICATION_CONTENT],
-              limit: 1
-            }
-            if (d) {
-              aTagFilter['#d'] = [d]
-            }
-            
-            try {
-              const aTagEvents = await this.fetchEvents(prioritizedFallbackRelays, aTagFilter, {
-                eoseTimeout: 3000,
-                globalTimeout: 5000
-              })
-              
-              // Filter client-side for type, book, and version
-              return aTagEvents.filter(event => {
-                const metadata = this.extractBookMetadataFromEvent(event)
-                
-                if (filters.type && metadata.type?.toLowerCase() !== filters.type.toLowerCase()) {
-                  return false
-                }
-                
-                if (filters.book) {
-                  const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
-                  const eventBookTags = event.tags
-                    .filter(tag => tag[0] === 'book' && tag[1])
-                    .map(tag => tag[1].toLowerCase())
-                  const hasMatchingBook = eventBookTags.some(eventBook => 
-                    this.bookNamesMatch(eventBook, normalizedBook)
-                  )
-                  if (!hasMatchingBook) return false
-                }
-                
-                if (filters.version && metadata.version?.toLowerCase() !== filters.version.toLowerCase()) {
-                  return false
-                }
-                
-                return true
-              })
-            } catch (error) {
-              logger.debug('fetchBookstrEventsFromRelays: Error fetching a-tag event from fallback', {
-                aTag,
-                error
-              })
-              return []
-            }
-          })
-          
-          const aTagResults = await Promise.all(aTagPromises)
-          const aTagEvents = aTagResults.flat().filter((e): e is NEvent => e !== null)
-          events.push(...aTagEvents)
-        }
-        
-        if (events.length > 0) {
-          logger.info('fetchBookstrEventsFromRelays: Fetched 30041s from fallback 30040s', {
-            publicationCount: matchingPublications.length,
-            eventCount: events.length,
-            filters: JSON.stringify(filters)
-          })
-          return events
-        }
-      } catch (fallbackError) {
-        logger.warn('fetchBookstrEventsFromRelays: Error querying fallback relays', {
-          error: fallbackError,
-          filters
-        })
-      }
-    }
-    
-    return events
-  }
-
-  /**
-   * Check if event matches bookstr filters (for client-side filtering)
-   * Note: For 30040 publications, we filter by chapter but NOT verse (verses are in 30041 content events)
-   */
-  private eventMatchesBookstrFilters(event: NEvent, filters: {
-    type?: string
-    book?: string
-    chapter?: number
-    verse?: string
-    version?: string
-  }): boolean {
-    const metadata = this.extractBookMetadataFromEvent(event)
-    const isPublication = event.kind === ExtendedKind.PUBLICATION
-    
-    if (filters.type && metadata.type?.toLowerCase() !== filters.type.toLowerCase()) {
-      return false
-    }
-    if (filters.book) {
-      const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
-      // Get ALL book tags from the event (events can have multiple book tags)
-      // Check 'T' (title/book) tags
-      const eventBookTags = event.tags
-        .filter(tag => tag[0] === 'T' && tag[1])
-        .map(tag => tag[1].toLowerCase())
-      
-      // Check if any of the book tags match
-      const hasMatchingBook = eventBookTags.some(eventBook => 
-        this.bookNamesMatch(eventBook, normalizedBook)
-      )
-      
-      if (!hasMatchingBook) {
-        // Only log debug for first few mismatches to avoid spam
-        if (eventBookTags.length > 0) {
-          logger.debug('eventMatchesBookstrFilters: Book mismatch', {
-            normalizedBook,
-            eventBookTags,
-            eventId: event.id.substring(0, 8),
-            matches: eventBookTags.map(tag => ({
-              tag,
-              matches: this.bookNamesMatch(tag, normalizedBook)
-            }))
-          })
-        }
-        return false
-      }
-    }
-    // Chapter filtering applies to both 30040 and 30041
-    if (filters.chapter !== undefined) {
-      const eventChapter = parseInt(metadata.chapter || '0')
-      if (eventChapter !== filters.chapter) {
-        return false
-      }
-    }
-    // Verse filtering only applies to 30041 content events (not 30040 publications)
-    if (filters.verse && !isPublication) {
-      const eventVerse = metadata.verse
-      if (!eventVerse) return false
-      
-      const verseParts = filters.verse.split(/[,\s-]+/).map(v => v.trim()).filter(v => v)
-      const verseNum = parseInt(eventVerse)
-      
-      const matches = verseParts.some(part => {
-        if (part.includes('-')) {
-          const [start, end] = part.split('-').map(v => parseInt(v.trim()))
-          return !isNaN(start) && !isNaN(end) && verseNum >= start && verseNum <= end
-        } else {
-          const partNum = parseInt(part)
-          return !isNaN(partNum) && partNum === verseNum
-        }
-      })
-      if (!matches) return false
-    }
-    if (filters.version && metadata.version?.toLowerCase() !== filters.version.toLowerCase()) {
-      return false
-    }
-    
-    return true
-  }
-  
-
-  /**
-   * Match book names with fuzzy matching
-   * Handles variations like "psalm" vs "psalms", "genesis" vs "the-book-of-genesis", etc.
-   */
-  private bookNamesMatch(book1: string, book2: string): boolean {
-    const normalized1 = book1.toLowerCase().replace(/\s+/g, '-')
-    const normalized2 = book2.toLowerCase().replace(/\s+/g, '-')
-    
-    // Exact match
-    if (normalized1 === normalized2) return true
-    
-    // Remove common suffixes for comparison (e.g., "psalm" vs "psalms")
-    const removeSuffix = (str: string) => str.replace(/s$/, '').replace(/s-$/, '-')
-    const base1 = removeSuffix(normalized1)
-    const base2 = removeSuffix(normalized2)
-    if (base1 === base2) return true
-    
-    // One contains the other
-    if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) return true
-    
-    // Check if last parts match (e.g., "genesis" matches "the-book-of-genesis")
-    const parts1 = normalized1.split('-')
-    const parts2 = normalized2.split('-')
-    if (parts1.length > 0 && parts2.length > 0) {
-      const last1 = removeSuffix(parts1[parts1.length - 1])
-      const last2 = removeSuffix(parts2[parts2.length - 1])
-      if (last1 === last2) return true
-    }
-    
-    return false
-  }
-  
-  /**
-   * Old implementation - keeping for reference but not using
-   */
-  async fetchBookstrEventsOld(filters: {
-    type?: string
-    book?: string
-    chapter?: number
-    verse?: string
-    version?: string
-  }): Promise<NEvent[]> {
-    logger.info('fetchBookstrEvents: Called', { filters })
-    try {
-      // Step 1: Determine what level of publication we need
-      // - If verse is specified → we need chapter-level publication
-      // - If chapter is specified (but no verse) → we need chapter-level publication
-      // - If only book is specified → we need book-level publication
-      const needsChapterLevel = filters.chapter !== undefined || filters.verse !== undefined
-      
-      const publicationFilter: Filter = {
-        kinds: [ExtendedKind.PUBLICATION]
-      }
-      
-      // Build search terms for finding the publication
-      const searchTerms: string[] = []
-      if (filters.type) {
-        searchTerms.push(filters.type)
-      }
-      if (filters.book) {
-        const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
-        const originalBook = filters.book.toLowerCase()
-        searchTerms.push(normalizedBook)
-        if (normalizedBook !== originalBook) {
-          searchTerms.push(originalBook)
-        }
-      }
-      // Only include chapter in search if we need chapter-level publication
-      if (needsChapterLevel && filters.chapter !== undefined) {
-        searchTerms.push(filters.chapter.toString())
-      }
-      if (filters.version) {
-        searchTerms.push(filters.version)
-      }
-
-      const relayUrls = FAST_READ_RELAY_URLS
-      
-      logger.info('fetchBookstrEvents: Searching for publication', {
-        filters,
-        needsChapterLevel,
-        searchTerms,
-        relayUrls: relayUrls.length
-      })
-      
-      // Fetch publications
-      logger.info('fetchBookstrEvents: About to fetch publications', {
-        relayUrls: relayUrls.length,
-        filter: publicationFilter
-      })
-      
-      let publications: NEvent[] = []
-      try {
-        publications = await this.fetchEvents(relayUrls, publicationFilter, {
-          eoseTimeout: 10000,
-          globalTimeout: 15000
-        })
-        
-        logger.info('fetchBookstrEvents: Fetched publications', {
-          count: publications.length
-        })
-      } catch (fetchError) {
-        logger.error('fetchBookstrEvents: Error fetching publications', {
-          error: fetchError,
-          filters,
-          relayUrls: relayUrls.length
-        })
-        throw fetchError
-      }
-      
-      // Filter publications by tags
-      // For chapter-level: must have matching chapter tag
-      // For book-level: must NOT have chapter tag
-      const filtersForMatching = { ...filters }
-      delete filtersForMatching.verse // Never filter by verse for publication search
-      
-      // Log sample publications before filtering to debug
-      if (publications.length > 0) {
-        const samplePub = publications[0]
-        const getTagValue = (name: string) => samplePub.tags.find(t => t[0] === name)?.[1]
-        logger.info('fetchBookstrEvents: Sample publication before filtering', {
-          id: samplePub.id.substring(0, 8),
-          kind: samplePub.kind,
-          tags: samplePub.tags.map(t => `${t[0]}:${t[1]}`).slice(0, 10),
-          type: getTagValue('type'),
-          book: getTagValue('book'),
-          chapter: getTagValue('chapter'),
-          version: getTagValue('version'),
-          allTagNames: samplePub.tags.map(t => t[0])
-        })
-      }
-      
-      const beforeFilterCount = publications.length
-      
-      // Step 1: Filter by chapter-level requirement
-      publications = publications.filter(event => {
-        const getTagValue = (name: string) => event.tags.find(t => t[0] === name)?.[1]
-        const hasChapter = getTagValue('chapter') !== undefined
-        
-        // If we need chapter-level, the publication must have a chapter tag
-        // If we need book-level, the publication must NOT have a chapter tag
-        if (needsChapterLevel && !hasChapter) {
-          return false
-        }
-        if (!needsChapterLevel && hasChapter) {
-          return false
-        }
-        return true
-      })
-      
-      logger.info('fetchBookstrEvents: After chapter-level filter', {
-        beforeFilter: beforeFilterCount,
-        afterChapterFilter: publications.length,
-        needsChapterLevel
-      })
-      
-      // Step 2: Do fulltext search first (more lenient)
-      // For book names, we'll rely on tag matching, so we only do fulltext for type, chapter, and version
-      if (searchTerms.length > 0) {
-        const beforeFulltext = publications.length
-        const sampleBeforeFilter = beforeFulltext > 0 ? publications[0] : null
-        
-        // Separate book-related terms from other terms
-        // Book terms will be handled by tag matching, so we only require non-book terms in fulltext
-        const normalizedBook = filters.book ? filters.book.toLowerCase().replace(/\s+/g, '-') : null
-        const bookTerms: string[] = []
-        if (normalizedBook) {
-          bookTerms.push(normalizedBook)
-          if (filters.book) {
-            bookTerms.push(filters.book.toLowerCase())
-          }
-        }
-        
-        publications = publications.filter(event => {
-          const contentLower = event.content.toLowerCase()
-          const allTags = event.tags.map(t => t.join(' ')).join(' ').toLowerCase()
-          const searchableText = `${contentLower} ${allTags}`
-          
-          // For each search term, check if it matches
-          // For book terms, we'll skip fulltext matching (handled by tag matching)
-          // For other terms (type, chapter, version), require exact or partial match
-          const matches = searchTerms.every(term => {
-            const termLower = term.toLowerCase()
-            
-            // Skip fulltext matching for book terms - they'll be handled by tag matching
-            if (bookTerms.some(bookTerm => termLower === bookTerm || termLower.includes(bookTerm) || bookTerm.includes(termLower))) {
-              return true // Always pass for book terms in fulltext search
-            }
-            
-            // For other terms, check if they're in the searchable text
-            // Also try word-boundary matching for better results
-            if (searchableText.includes(termLower)) {
-              return true
-            }
-            
-            // Try partial word matching (e.g., "psalm" matches "psalms")
-            const termWords = termLower.split(/[-\s]+/).filter(w => w.length > 2)
-            if (termWords.length > 0) {
-              const hasPartialMatch = termWords.some(word => {
-                // Check if the word or its plural/singular form appears
-                const wordPlural = word + 's'
-                const wordSingular = word.endsWith('s') ? word.slice(0, -1) : word
-                return searchableText.includes(word) || 
-                       searchableText.includes(wordPlural) || 
-                       searchableText.includes(wordSingular)
-              })
-              if (hasPartialMatch) {
-                return true
-              }
-            }
-            
-            return false
-          })
-          return matches
-        })
-        
-        // Log a sample of what didn't match if we filtered everything out
-        if (publications.length === 0 && sampleBeforeFilter) {
-          const contentLower = sampleBeforeFilter.content.toLowerCase()
-          const allTags = sampleBeforeFilter.tags.map(t => t.join(' ')).join(' ').toLowerCase()
-          const searchableText = `${contentLower} ${allTags}`
-          const missingTerms = searchTerms.filter(term => {
-            const termLower = term.toLowerCase()
-            if (bookTerms.some(bookTerm => termLower === bookTerm || termLower.includes(bookTerm) || bookTerm.includes(termLower))) {
-              return false // Book terms are handled by tag matching
-            }
-            return !searchableText.includes(termLower)
-          })
-          logger.info('fetchBookstrEvents: Fulltext search filtered all out', {
-            searchTerms,
-            missingTerms,
-            bookTerms,
-            sampleBook: sampleBeforeFilter.tags.find(t => t[0] === 'book')?.[1],
-            sampleChapter: sampleBeforeFilter.tags.find(t => t[0] === 'chapter')?.[1],
-            sampleSearchableText: searchableText.substring(0, 200)
-          })
-        }
-        
-        logger.info('fetchBookstrEvents: After fulltext filter', {
-          beforeFulltext,
-          afterFulltext: publications.length,
-          searchTerms
-        })
-      }
-      
-      // Step 3: Do lenient tag matching (only require matches if tags exist)
-      publications = publications.filter(event => {
-        return this.eventMatchesBookstrFiltersLenient(event, filtersForMatching)
-      })
-      
-      logger.info('fetchBookstrEvents: Filtering results', {
-        beforeFilter: beforeFilterCount,
-        afterTagFilter: publications.length,
-        needsChapterLevel,
-        filtersForMatching
-      })
-      
-      logger.info('fetchBookstrEvents: Found publications after filtering', {
-        filters,
-        needsChapterLevel,
-        publicationCount: publications.length
-      })
-      
-      if (publications.length === 0) {
-        logger.info('fetchBookstrEvents: No matching publications found', { filters })
-        return []
-      }
-      
-      // Step 2: Find the best matching publication
-      // Score publications by how well they match (exact matches score higher)
-      const scoredPublications = publications.map(pub => {
-        let score = 0
-        const getTagValue = (name: string) => pub.tags.find(t => t[0] === name)?.[1]
-        
-        if (filters.type && getTagValue('type')?.toLowerCase() === filters.type.toLowerCase()) {
-          score += 10
-        }
-        if (filters.book) {
-          const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
-          const eventBook = getTagValue('book')?.toLowerCase()
-          if (eventBook === normalizedBook) {
-            score += 10
-          } else if (eventBook?.includes(normalizedBook) || normalizedBook.includes(eventBook || '')) {
-            score += 5
-          }
-        }
-        if (needsChapterLevel && filters.chapter !== undefined) {
-          const eventChapter = parseInt(getTagValue('chapter') || '0')
-          if (eventChapter === filters.chapter) {
-            score += 10
-          }
-        }
-        if (filters.version) {
-          const eventVersion = getTagValue('version')?.toLowerCase()
-          if (eventVersion === filters.version.toLowerCase()) {
-            score += 10
-          }
-        }
-        
-        return { pub, score }
-      })
-      
-      // Sort by score (highest first) and take the best match
-      scoredPublications.sort((a, b) => b.score - a.score)
-      const bestPublication = scoredPublications[0].pub
-      
-      logger.info('fetchBookstrEvents: Best matching publication', {
-        filters,
-        publicationId: bestPublication.id.substring(0, 8),
-        score: scoredPublications[0].score,
-        aTagCount: bestPublication.tags.filter(t => t[0] === 'a').length,
-        level: needsChapterLevel ? 'chapter' : 'book'
-      })
-      
-      // Step 3: Recursively fetch ALL content events from nested publications
-      // Publications can be nested (book → chapters → verses), so we need to traverse
-      // all the way down to the leaves (30041 content events)
-      const allContentEvents: NEvent[] = []
-      const visitedPublications = new Set<string>() // Prevent infinite loops
-      
-      const fetchFromPublication = async (publication: NEvent): Promise<void> => {
-        const pubId = publication.id
-        if (visitedPublications.has(pubId)) {
-          return // Already processed this publication
-        }
-        visitedPublications.add(pubId)
-        
-        const aTags = publication.tags
-          .filter(tag => tag[0] === 'a' && tag[1])
-          .map(tag => tag[1])
-        
-        if (aTags.length === 0) {
-          return
-        }
-        
-      logger.info('fetchBookstrEvents: Processing publication a-tags', {
-        publicationId: pubId.substring(0, 8),
-        aTagCount: aTags.length
-      })
-        
-        // Process all a-tags in parallel
-        const promises = aTags.map(async (aTag) => {
-          // aTag format: "kind:pubkey:d"
-          const parts = aTag.split(':')
-          if (parts.length < 2) return null
-          
-          const kind = parseInt(parts[0])
-          const pubkey = parts[1]
-          const d = parts[2] || ''
-          
-          const filter: any = {
-            authors: [pubkey],
-            kinds: [kind],
-            limit: 1
-          }
-          if (d) {
-            filter['#d'] = [d]
-          }
-          
-          const events = await this.fetchEvents(relayUrls, filter, {
-            eoseTimeout: 5000,
-            globalTimeout: 10000
-          })
-          
-          const event = events[0] || null
-          if (!event) return null
-          
-          // If it's a nested publication (30040), recursively fetch from it
-          if (event.kind === ExtendedKind.PUBLICATION) {
-            await fetchFromPublication(event)
-            return null // Don't add publications to content events
-          }
-          
-          // If it's a content event (30041), add it to our collection
-          if (event.kind === ExtendedKind.PUBLICATION_CONTENT) {
-            return event
-          }
-          
-          return null
-        })
-        
-        const results = await Promise.all(promises)
-        results.forEach(event => {
-          if (event) {
-            allContentEvents.push(event)
-          }
-        })
-      }
-      
-      logger.info('fetchBookstrEvents: Starting recursive fetch from publication', {
-        publicationId: bestPublication.id.substring(0, 8),
-        note: 'Will traverse nested publications to find all content events'
-      })
-      
-      await fetchFromPublication(bestPublication)
-      
-      logger.info('fetchBookstrEvents: Completed recursive fetch', {
-        filters,
-        totalFetched: allContentEvents.length,
-        publicationsVisited: visitedPublications.size
-      })
-      
-      // Step 4: Filter from cached results to show only what was requested
-      // We have all the data, now filter to what they want to display
-      let finalEvents = allContentEvents
-      
-      // Filter by book (if we fetched book-level, this ensures we only show the right book)
-      if (filters.book) {
-        const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
-        finalEvents = finalEvents.filter(event => {
-          const metadata = this.extractBookMetadataFromEvent(event)
-          return metadata.book?.toLowerCase() === normalizedBook
-        })
-      }
-      
-      // Filter by chapter (if we fetched book-level but they want a specific chapter)
-      if (filters.chapter !== undefined && !needsChapterLevel) {
-        // We fetched book-level, but they want a specific chapter
-        finalEvents = finalEvents.filter(event => {
-          const metadata = this.extractBookMetadataFromEvent(event)
-          return parseInt(metadata.chapter || '0') === filters.chapter
-        })
-      }
-      
-      // Filter by verse if specified
-      if (filters.verse) {
-        finalEvents = finalEvents.filter(event => {
-          const metadata = this.extractBookMetadataFromEvent(event)
-          const eventVerse = metadata.verse
-          if (!eventVerse) return false
-          
-          const verseParts = filters.verse!.split(/[,\s-]+/).map(v => v.trim()).filter(v => v)
-          const verseNum = parseInt(eventVerse)
-          
-          return verseParts.some(part => {
-            if (part.includes('-')) {
-              const [start, end] = part.split('-').map(v => parseInt(v.trim()))
-              return !isNaN(start) && !isNaN(end) && verseNum >= start && verseNum <= end
-            } else {
-              const partNum = parseInt(part)
-              return !isNaN(partNum) && partNum === verseNum
-            }
-          })
-        })
-      }
-      
-      // Filter by version if specified
-      if (filters.version) {
-        finalEvents = finalEvents.filter(event => {
-          const metadata = this.extractBookMetadataFromEvent(event)
-          return metadata.version?.toLowerCase() === filters.version!.toLowerCase()
-        })
-      }
-      
-      logger.info('fetchBookstrEvents: Final filtered results', {
-        filters,
-        totalFetched: allContentEvents.length,
-        finalCount: finalEvents.length,
-        note: 'All events cached for expansion support'
-      })
-      
-      return finalEvents
-    } catch (error) {
-      logger.warn('Error querying bookstr events', { error, filters })
-      return []
-    }
-  }
-  
-  /**
-   * Extract book metadata from event tags (helper method)
-   * Tags: C (collection), T (title), c (chapter), s (section), v (version)
-   */
-  private extractBookMetadataFromEvent(event: NEvent): {
-    type?: string
-    book?: string
-    chapter?: string
-    verse?: string
-    version?: string
-  } {
-    const metadata: any = {}
-    for (const [tag, value] of event.tags) {
-      switch (tag) {
-        case 'C': // Collection
-          metadata.type = value
-          break
-        case 'T': // Title (book name)
-          metadata.book = value
-          break
-        case 'c': // Chapter
-          metadata.chapter = value
-          break
-        case 's': // Section
-          // Section might be used for verse or other metadata
-          // If we don't have verse yet, use section as verse
-          if (!metadata.verse) {
-            metadata.verse = value
-          }
-          break
-        case 'v': // Version
-          metadata.version = value
-          break
-      }
-    }
-    return metadata
-  }
-
-  /**
-   * Lenient version of eventMatchesBookstrFilters
-   * Only requires exact matches if the tag exists in the event.
-   * If a filter is provided but the tag doesn't exist, it still passes
-   * (since fulltext search already filtered it).
-   */
-  private eventMatchesBookstrFiltersLenient(event: NEvent, filters: {
-    type?: string
-    book?: string
-    chapter?: number
-    verse?: string
-    version?: string
-  }): boolean {
-    // Accept both publication and publication content events
-    if (event.kind !== ExtendedKind.PUBLICATION && event.kind !== ExtendedKind.PUBLICATION_CONTENT) {
-      return false
-    }
-
-    const getTagValue = (tagName: string): string | undefined => {
-      const tag = event.tags.find(t => t[0] === tagName)
-      return tag?.[1]
-    }
-
-    // Type: if filter provided, check if tag exists and matches
-    if (filters.type) {
-      const eventType = getTagValue('type')
-      // If tag exists, it must match. If it doesn't exist, we already did fulltext search
-      if (eventType && eventType.toLowerCase() !== filters.type.toLowerCase()) {
-        return false
-      }
-    }
-
-    // Book: if filter provided, check if tag exists and matches (exact match only)
-    if (filters.book) {
-      const eventBook = getTagValue('book')
-      const normalizedBook = filters.book.toLowerCase().replace(/\s+/g, '-')
-      // If tag exists, it must match exactly. If it doesn't exist, we already did fulltext search
-      if (eventBook && eventBook.toLowerCase() !== normalizedBook) {
-        return false
-      }
-    }
-
-    // Chapter: if filter provided, check if tag exists and matches
-    if (filters.chapter !== undefined) {
-      const eventChapter = getTagValue('chapter')
-      // If tag exists, it must match. If it doesn't exist, we already did fulltext search
-      if (eventChapter && parseInt(eventChapter) !== filters.chapter) {
-        return false
-      }
-    }
-
-    // Version: if filter provided, check if tag exists and matches
-    if (filters.version) {
-      const eventVersion = getTagValue('version')
-      // If tag exists, it must match. If it doesn't exist, we already did fulltext search
-      if (eventVersion && eventVersion.toLowerCase() !== filters.version.toLowerCase()) {
-        return false
-      }
-    }
-
-    return true
-  }
+  // Legacy Bookstr implementations removed - now in MacroService
 
 }
-
 const instance = ClientService.getInstance()
 export default instance
+
+// Export sub-services for direct access
+export const queryService = instance.queryService
+export const eventService = instance.eventService
+export const replaceableEventService = instance.replaceableEventService
+export const macroService = instance.bookstrService
