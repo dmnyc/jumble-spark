@@ -105,7 +105,8 @@ export default function LatestFromFollowsSection() {
 
   const [postsByPubkey, setPostsByPubkey] = useState<Map<string, NostrEvent[]>>(() => new Map())
   const [batchBusy, setBatchBusy] = useState(false)
-  const [sectionOpen, setSectionOpen] = useState(true)
+  /** Search page: start collapsed so the bar doesn’t push the search field; data still prefetches in the background. */
+  const [sectionOpen, setSectionOpen] = useState(false)
   const abortedRef = useRef(false)
 
   const followPubkeys = pubkey ? (loggedInFollowPubkeys ?? []) : guestFollowPubkeys
@@ -260,9 +261,14 @@ export default function LatestFromFollowsSection() {
   }
 
   return (
-    <Collapsible open={sectionOpen} onOpenChange={setSectionOpen} className="mb-6 min-w-0">
+    <Collapsible open={sectionOpen} onOpenChange={setSectionOpen} className="min-w-0">
       <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/80 bg-muted/15 px-3 py-2.5 text-left hover:bg-muted/25">
-        <span className="text-base font-semibold">{heading}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="text-base font-semibold">{heading}</span>
+          {batchBusy && postsByPubkey.size === 0 ? (
+            <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+          ) : null}
+        </span>
         <ChevronDown
           className={cn('size-5 shrink-0 text-muted-foreground transition-transform', sectionOpen && 'rotate-180')}
         />

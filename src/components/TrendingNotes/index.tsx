@@ -1,5 +1,7 @@
 import NoteCard, { NoteCardLoadingSkeleton } from '@/components/NoteCard'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
+import { cn } from '@/lib/utils'
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import { queryService } from '@/services/client.service'
@@ -13,6 +15,7 @@ import noteStatsService from '@/services/note-stats.service'
 import { FAST_READ_RELAY_URLS } from '@/constants'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
+import { ChevronDown, Loader2 } from 'lucide-react'
 
 const SHOW_COUNT = 25
 const CACHE_DURATION = 30 * 60 * 1000 // 30 minutes
@@ -26,7 +29,9 @@ let isInitializing = false
 
 type SortOrder = 'newest' | 'oldest' | 'most-popular' | 'least-popular'
 
-export default function TrendingNotes() {
+export type TrendingNotesVariant = 'page' | 'searchAccordion'
+
+export default function TrendingNotes({ variant = 'page' }: { variant?: TrendingNotesVariant }) {
   const { t } = useTranslation()
   const { isEventDeleted } = useDeletedEvent()
   const { hideUntrustedNotes, isUserTrusted } = useUserTrust()
@@ -37,6 +42,7 @@ export default function TrendingNotes() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('most-popular')
   const [cacheEvents, setCacheEvents] = useState<NostrEvent[]>([])
   const [cacheLoading, setCacheLoading] = useState(false)
+  const [accordionOpen, setAccordionOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const trendingRelaySource = useMemo<'favorites' | 'default'>(() => {
@@ -294,65 +300,68 @@ export default function TrendingNotes() {
       ? t('Trending on Your Favorite Relays')
       : t('Trending on the Default Relays')
 
-  return (
-    <div className="min-h-screen">
-      <div className="sticky top-12 z-30 border-b bg-background">
-        <div className="px-4 pb-3 pt-3">
-          <h2 className="text-lg font-bold leading-tight">{headerTitle}</h2>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
-          <span className="text-xs text-muted-foreground">{t('Sort')}:</span>
-          <div className="flex flex-wrap gap-1">
-            <button
-              type="button"
-              onClick={() => setSortOrder('newest')}
-              className={`rounded px-2 py-1 text-xs transition-colors ${
-                sortOrder === 'newest'
-                  ? 'bg-secondary text-secondary-foreground'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {t('newest')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSortOrder('oldest')}
-              className={`rounded px-2 py-1 text-xs transition-colors ${
-                sortOrder === 'oldest'
-                  ? 'bg-secondary text-secondary-foreground'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {t('oldest')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSortOrder('most-popular')}
-              className={`rounded px-2 py-1 text-xs transition-colors ${
-                sortOrder === 'most-popular'
-                  ? 'bg-secondary text-secondary-foreground'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {t('most popular')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSortOrder('least-popular')}
-              className={`rounded px-2 py-1 text-xs transition-colors ${
-                sortOrder === 'least-popular'
-                  ? 'bg-secondary text-secondary-foreground'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {t('least popular')}
-            </button>
-          </div>
-        </div>
+  const sortToolbar = (
+    <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+      <span className="text-xs text-muted-foreground">{t('Sort')}:</span>
+      <div className="flex flex-wrap gap-1">
+        <button
+          type="button"
+          onClick={() => setSortOrder('newest')}
+          className={`rounded px-2 py-1 text-xs transition-colors ${
+            sortOrder === 'newest'
+              ? 'bg-secondary text-secondary-foreground'
+              : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          {t('newest')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSortOrder('oldest')}
+          className={`rounded px-2 py-1 text-xs transition-colors ${
+            sortOrder === 'oldest'
+              ? 'bg-secondary text-secondary-foreground'
+              : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          {t('oldest')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSortOrder('most-popular')}
+          className={`rounded px-2 py-1 text-xs transition-colors ${
+            sortOrder === 'most-popular'
+              ? 'bg-secondary text-secondary-foreground'
+              : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          {t('most popular')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSortOrder('least-popular')}
+          className={`rounded px-2 py-1 text-xs transition-colors ${
+            sortOrder === 'least-popular'
+              ? 'bg-secondary text-secondary-foreground'
+              : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          {t('least popular')}
+        </button>
       </div>
+    </div>
+  )
 
+  const notesBody = (
+    <>
       {cacheLoading && cacheEvents.length === 0 ? (
-        <div className="mt-8 text-center text-sm text-muted-foreground">
+        <div
+          className={
+            variant === 'searchAccordion'
+              ? 'px-4 py-6 text-center text-sm text-muted-foreground'
+              : 'mt-8 text-center text-sm text-muted-foreground'
+          }
+        >
           {t('Loading trending notes from your relays...')}
         </div>
       ) : null}
@@ -376,6 +385,45 @@ export default function TrendingNotes() {
       ) : (
         <div className="mt-2 text-center text-sm text-muted-foreground">{t('no more notes')}</div>
       )}
+    </>
+  )
+
+  if (variant === 'searchAccordion') {
+    return (
+      <Collapsible open={accordionOpen} onOpenChange={setAccordionOpen} className="min-w-0">
+        <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/80 bg-muted/15 px-3 py-2.5 text-left hover:bg-muted/25">
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="text-base font-semibold leading-tight">{headerTitle}</span>
+            {cacheLoading && cacheEvents.length === 0 ? (
+              <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+            ) : null}
+          </span>
+          <ChevronDown
+            className={cn(
+              'size-5 shrink-0 text-muted-foreground transition-transform',
+              accordionOpen && 'rotate-180'
+            )}
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="overflow-hidden">
+          <div className="mt-2 rounded-lg border border-border/60 bg-background">
+            <div className="border-b border-border/60 bg-muted/10">{sortToolbar}</div>
+            {notesBody}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    )
+  }
+
+  return (
+    <div className="min-h-screen">
+      <div className="sticky top-12 z-30 border-b bg-background">
+        <div className="px-4 pb-3 pt-3">
+          <h2 className="text-lg font-bold leading-tight">{headerTitle}</h2>
+        </div>
+        {sortToolbar}
+      </div>
+      {notesBody}
     </div>
   )
 }

@@ -125,9 +125,14 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
           </div>
         </div>
         <div className="h-4"></div>
-        {!searchParams && <LatestFromFollowsSection />}
-        <div className="text-xl font-semibold mb-4">Trending Notes</div>
-        <SearchResult searchParams={searchParams} />
+        {searchParams ? (
+          <SearchResult searchParams={searchParams} />
+        ) : (
+          <div className="mb-4 min-w-0 space-y-2">
+            <LatestFromFollowsSection />
+            <SearchResult searchParams={null} />
+          </div>
+        )}
       </div>
     </SecondaryPageLayout>
   )

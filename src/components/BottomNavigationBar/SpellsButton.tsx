@@ -1,14 +1,21 @@
-import { usePrimaryPage } from '@/PageManager'
+import { usePrimaryPage, usePrimaryNoteView } from '@/PageManager'
 import { Wand2 } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'
 
 export default function SpellsButton() {
   const { navigate, current, display } = usePrimaryPage()
+  const { primaryViewType, setPrimaryNoteView } = usePrimaryNoteView()
 
   return (
     <BottomNavigationBarItem
-      active={current === 'spells' && display}
-      onClick={() => navigate('spells')}
+      active={current === 'spells' && display && primaryViewType === null}
+      onClick={() => {
+        if (primaryViewType !== null) {
+          setPrimaryNoteView(null)
+        } else {
+          navigate('spells')
+        }
+      }}
     >
       <Wand2 />
     </BottomNavigationBarItem>

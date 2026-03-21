@@ -26,8 +26,9 @@ const getAppVersion = () => {
 }
 
 /**
- * React Fast Refresh can remount provider children without NostrProvider (e.g. after editing pages),
- * causing `useNostr must be used within a NostrProvider`. Full page reload keeps the tree consistent.
+ * React Fast Refresh can remount provider children without matching context after editing providers
+ * or pages. Full page reload keeps the tree consistent. `nostr-context.tsx` fixes duplicate Nostr
+ * `createContext` identity across HMR for most cases.
  */
 function fullReloadOnProvidersAndPages(): Plugin {
   return {

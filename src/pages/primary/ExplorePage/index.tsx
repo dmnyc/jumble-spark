@@ -72,7 +72,7 @@ const ExplorePage = forwardRef((_, ref) => {
   // Listen for tab restoration from PageManager
   useEffect(() => {
     const handleRestore = (e: CustomEvent<{ page: string; tab: string }>) => {
-      if (e.detail.page === 'home' && e.detail.tab) {
+      if (e.detail.page === 'explore' && e.detail.tab) {
         setTab(normalizeHomeTab(e.detail.tab))
       }
     }
@@ -83,7 +83,7 @@ const ExplorePage = forwardRef((_, ref) => {
   return (
     <PrimaryPageLayout
       ref={ref}
-      pageName="home"
+      pageName="explore"
       titlebar={<ExplorePageTitlebar />}
       subHeader={
         <Tabs
@@ -97,7 +97,7 @@ const ExplorePage = forwardRef((_, ref) => {
             setTab(next as TExploreTabs)
             window.dispatchEvent(
               new CustomEvent('pageTabChanged', {
-                detail: { page: 'home', tab: next }
+                detail: { page: 'explore', tab: next }
               })
             )
           }}

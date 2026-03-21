@@ -69,8 +69,14 @@ const SearchPage = forwardRef((_, ref) => {
           </div>
         </div>
         <div className="h-4"></div>
-        {!searchParams && <LatestFromFollowsSection />}
-        <SearchResult searchParams={searchParams} />
+        {searchParams ? (
+          <SearchResult searchParams={searchParams} />
+        ) : (
+          <div className="mb-4 min-w-0 space-y-2">
+            <LatestFromFollowsSection />
+            <SearchResult searchParams={null} />
+          </div>
+        )}
       </div>
     </PrimaryPageLayout>
   )

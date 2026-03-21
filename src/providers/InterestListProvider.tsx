@@ -7,7 +7,7 @@ import client from '@/services/client.service'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useNostr } from './NostrProvider'
+import { useNostr } from '@/providers/nostr-context'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
 
 type TInterestListContext = {

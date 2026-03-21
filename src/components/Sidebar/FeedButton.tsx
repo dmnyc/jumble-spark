@@ -1,5 +1,5 @@
 import { usePrimaryPage, usePrimaryNoteView } from '@/PageManager'
-import { Newspaper } from 'lucide-react'
+import { Compass } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import SidebarItem from './SidebarItem'
 
@@ -10,11 +10,11 @@ export default function FeedButton() {
 
   return (
     <SidebarItem
-      title={t('Feed')}
-      onClick={() => navigate('feed')}
-      active={display && current === 'feed' && primaryViewType === null}
+      title={t('Explore')}
+      onClick={() => navigate('explore')}
+      active={display && current === 'explore' && primaryViewType === null}
     >
-      <Newspaper strokeWidth={3} />
+      <Compass strokeWidth={3} />
     </SidebarItem>
   )
 }

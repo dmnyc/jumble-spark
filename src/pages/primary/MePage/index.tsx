@@ -33,7 +33,7 @@ const MePage = forwardRef((_, ref) => {
     return (
       <PrimaryPageLayout
         ref={ref}
-        pageName="home"
+        pageName="me"
         titlebar={<MePageTitlebar />}
         hideTitlebarBottomBorder
       >
@@ -47,7 +47,7 @@ const MePage = forwardRef((_, ref) => {
   return (
     <PrimaryPageLayout
       ref={ref}
-      pageName="home"
+      pageName="me"
       titlebar={<MePageTitlebar />}
       hideTitlebarBottomBorder
     >

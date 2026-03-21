@@ -1,24 +1,31 @@
+import { cn } from '@/lib/utils'
 import { usePrimaryPage, usePrimaryNoteView } from '@/PageManager'
-import { Home } from 'lucide-react'
+import { Star } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'
 
+/** Favorites feed (primary “home” destination in the bar). */
 export default function HomeButton() {
   const { navigate, current, display } = usePrimaryPage()
   const { primaryViewType, setPrimaryNoteView } = usePrimaryNoteView()
 
+  const active = current === 'feed' && display && primaryViewType === null
+
   return (
     <BottomNavigationBarItem
-      active={current === 'home' && display && primaryViewType === null}
+      prominent
+      active={active}
       onClick={() => {
-        // If there's an overlay open, clear it first
         if (primaryViewType !== null) {
           setPrimaryNoteView(null)
         } else {
-          navigate('home')
+          navigate('feed')
         }
       }}
     >
-      <Home />
+      <Star
+        strokeWidth={active ? 2.4 : 2}
+        className={cn(active && 'fill-green-500/30 dark:fill-green-400/35')}
+      />
     </BottomNavigationBarItem>
   )
 }

@@ -87,7 +87,7 @@ type TStackItem = {
 }
 
 const PRIMARY_PAGE_REF_MAP = {
-  home: createRef<TPageRef>(),
+  explore: createRef<TPageRef>(),
   feed: createRef<TPageRef>(),
   me: createRef<TPageRef>(),
   profile: createRef<TPageRef>(),
@@ -101,9 +101,9 @@ const PRIMARY_PAGE_REF_MAP = {
 // Lazy function to create PRIMARY_PAGE_MAP to avoid circular dependency
 // This is only evaluated when called, not at module load time
 const getPrimaryPageMap = () => ({
-  home: (
+  explore: (
     <Suspense fallback={primaryPageLazyFallback}>
-      <ExplorePageLazy ref={PRIMARY_PAGE_REF_MAP.home} />
+      <ExplorePageLazy ref={PRIMARY_PAGE_REF_MAP.explore} />
     </Suspense>
   ),
   feed: (
@@ -169,8 +169,8 @@ function noteContextToPrimaryEntry(pageContext: string): { name: TPrimaryPageNam
   if (pageContext === 'discussions') {
     return { name: 'spells', props: { spell: 'discussions' } }
   }
-  if (pageContext === 'explore') {
-    return { name: 'home' }
+  if (pageContext === 'explore' || pageContext === 'home') {
+    return { name: 'explore' }
   }
   const map = getPrimaryPageMap()
   if (pageContext in map) {
@@ -241,7 +241,7 @@ export function useNoteDrawer() {
 // Helper function to build contextual note URL
 function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): string {
   // Pages that should preserve context in the URL
-  const contextualPages: TPrimaryPageName[] = ['search', 'profile', 'feed', 'spells', 'rss', 'home']
+  const contextualPages: TPrimaryPageName[] = ['search', 'profile', 'feed', 'spells', 'rss', 'explore']
   
   if (currentPage && contextualPages.includes(currentPage)) {
     return `/${currentPage}/notes/${noteId}`
@@ -254,8 +254,8 @@ function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): str
 function buildRelayUrl(relayUrl: string, currentPage: TPrimaryPageName | null): string {
   const encodedRelayUrl = encodeURIComponent(relayUrl)
   
-  if (currentPage === 'home') {
-    return `/home/relays/${encodedRelayUrl}`
+  if (currentPage === 'explore') {
+    return `/explore/relays/${encodedRelayUrl}`
   }
   
   return `/relays/${encodedRelayUrl}`
@@ -266,7 +266,8 @@ function buildPrimaryPageUrl(
   page: TPrimaryPageName,
   props?: { spell?: string } | Record<string, unknown> | null
 ): string {
-  if (page === 'home') return '/'
+  if (page === 'feed') return '/'
+  if (page === 'explore') return '/explore'
   if (page === 'spells') {
     const spell =
       props && typeof (props as { spell?: unknown }).spell === 'string'
@@ -287,8 +288,11 @@ function spellPropsFromSearch(search: string): { spell: string } | undefined {
 function restoredPrimaryBrowserUrl(pathname: string, fullUrlForQuery: string): string {
   const popSegments = pathname.split('/').filter(Boolean)
   const popFirstSeg = popSegments[0] ?? ''
-  if (popSegments.length === 0 || (popSegments.length === 1 && popFirstSeg === 'home')) {
+  if (popSegments.length === 0) {
     return '/'
+  }
+  if (popSegments.length === 1 && popFirstSeg === 'home') {
+    return '/explore'
   }
   if (popSegments.length === 1 && popFirstSeg === 'spells') {
     try {
@@ -674,13 +678,13 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
   // DEPRECATED: showRecommendedRelaysPanel removed - double-panel functionality disabled
-  const [currentPrimaryPage, setCurrentPrimaryPage] = useState<TPrimaryPageName>('home')
+  const [currentPrimaryPage, setCurrentPrimaryPage] = useState<TPrimaryPageName>('feed')
   const [primaryPages, setPrimaryPages] = useState<
     { name: TPrimaryPageName; element: ReactNode; props?: any }[]
   >([
     {
-      name: 'home',
-      element: getPrimaryPageMap().home
+      name: 'feed',
+      element: getPrimaryPageMap().feed
     }
   ])
   const [secondaryStack, setSecondaryStack] = useState<TStackItem[]>([])
@@ -892,13 +896,21 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
 
       if (isPrimaryPageUrl) {
         // This is a primary page - just navigate to it, don't push to secondary stack
-        const pageName =
-          segments.length === 0 || (segments.length === 1 && firstSeg === 'home') ? 'home' : firstSeg
+        const pageName: TPrimaryPageName | 'discussions' | null =
+          segments.length === 0
+            ? 'feed'
+            : firstSeg === 'home'
+              ? 'explore'
+              : firstSeg === 'discussions'
+                ? 'discussions'
+                : firstSeg in primaryMap
+                  ? (firstSeg as TPrimaryPageName)
+                  : null
         if (pageName === 'explore') {
-          navigatePrimaryPage('home')
+          navigatePrimaryPage('explore')
           requestAnimationFrame(() => {
             window.dispatchEvent(
-              new CustomEvent('restorePageTab', { detail: { page: 'home', tab: 'explore' } })
+              new CustomEvent('restorePageTab', { detail: { page: 'explore', tab: 'explore' } })
             )
           })
         } else if (pageName === 'discussions') {
@@ -906,7 +918,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         } else if (pageName === 'spells') {
           const spellProps = spellPropsFromSearch(window.location.search)
           navigatePrimaryPage('spells', spellProps)
-        } else if (pageName in primaryMap) {
+        } else if (pageName && pageName in primaryMap) {
           navigatePrimaryPage(pageName as TPrimaryPageName)
         }
         return
@@ -945,8 +957,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       const pathname: string = window.location.pathname
       
       // Handle dedicated paths for primary pages
-      if (pathname === '/' || pathname === '/home') {
-        navigatePrimaryPage('home')
+      if (pathname === '/') {
+        navigatePrimaryPage('feed')
+      } else if (pathname === '/home') {
+        navigatePrimaryPage('explore')
       } else {
         // Check if pathname matches a primary page name
         // First, check if it's a contextual note URL (e.g., /discussions/notes/...)
@@ -970,10 +984,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           return
         }
         if (pageName === 'explore') {
-          navigatePrimaryPage('home')
+          navigatePrimaryPage('explore')
           requestAnimationFrame(() => {
             window.dispatchEvent(
-              new CustomEvent('restorePageTab', { detail: { page: 'home', tab: 'explore' } })
+              new CustomEvent('restorePageTab', { detail: { page: 'explore', tab: 'explore' } })
             )
           })
           return

@@ -41,7 +41,7 @@ export default function SearchResult({ searchParams }: { searchParams: TSearchPa
   }, [pubkey, relayList, favoriteRelays, blockedRelays])
   
   if (!searchParams) {
-    return <TrendingNotes />
+    return <TrendingNotes variant="searchAccordion" />
   }
   if (searchParams.type === 'profile') {
     return <Profile id={searchParams.search} />
