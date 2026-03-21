@@ -33,7 +33,7 @@ const RssArticlePageLazy = lazy(() => import('./pages/secondary/RssArticlePage')
 
 const routeSuspenseFallback = null
 
-function SR(C: LazyExoticComponent<ComponentType<Record<string, unknown>>>): ReactElement {
+function SR(C: LazyExoticComponent<ComponentType<any>>): ReactElement {
   return (
     <Suspense fallback={routeSuspenseFallback}>
       <C />

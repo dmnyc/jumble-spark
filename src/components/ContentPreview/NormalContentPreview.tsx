@@ -8,11 +8,5 @@ export default function NormalContentPreview({
   event: Event
   className?: string
 }) {
-  return (
-    <Content
-      event={event}
-      content={event.content}
-      className={className}
-    />
-  )
+  return <Content content={event.content} className={className} />
 }
