@@ -4,12 +4,21 @@ import { useTranslation } from 'react-i18next'
 import ClientSelect from '../ClientSelect'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { ExtendedKind } from '@/constants'
+import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import { useMemo } from 'react'
 import EventViewer from './EventViewer'
 
 export default function UnknownNote({ event, className }: { event: Event; className?: string }) {
   const { t } = useTranslation()
   const bookMetadata = useMemo(() => extractBookMetadata(event), [event])
+  const displayEvent = useMemo(() => {
+    if (event.kind !== ExtendedKind.RSS_THREAD_ROOT) return event
+    const raw = getArticleUrlFromCommentITags(event)
+    if (!raw) return event
+    const c = canonicalizeRssArticleUrl(raw)
+    if (c === raw) return event
+    return { ...event, tags: [['i', c], ['I', c]] as Event['tags'] }
+  }, [event])
   const isBookstrEvent = (event.kind === ExtendedKind.PUBLICATION || event.kind === ExtendedKind.PUBLICATION_CONTENT) && !!bookMetadata.book
 
   const formatBookName = (book: string) => {
@@ -39,7 +48,7 @@ export default function UnknownNote({ event, className }: { event: Event; classN
         )}
         <ClientSelect event={event} />
       </div>
-      <EventViewer event={event} />
+      <EventViewer event={displayEvent} expandTagsTree />
     </div>
   )
 }

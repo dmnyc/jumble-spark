@@ -14,23 +14,13 @@ export default function IValue({ event, className }: { event: Event; className?:
   }, [event])
 
   if (!iValue) return null
+  // HTTP(S) article roots use WebPreview in MarkdownArticle; skip redundant line.
+  if (iValue.startsWith('http://') || iValue.startsWith('https://')) return null
 
   return (
     <div className={cn('truncate text-muted-foreground', className)}>
       {t('Comment on') + ' '}
-      {iValue.startsWith('http') ? (
-        <a
-          className="hover:text-foreground underline truncate"
-          href={iValue}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {iValue}
-        </a>
-      ) : (
-        <span>{iValue}</span>
-      )}
+      <span>{iValue}</span>
     </div>
   )
 }

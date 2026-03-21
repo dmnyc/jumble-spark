@@ -4,7 +4,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import rssFeedService, { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
 import { DEFAULT_RSS_FEEDS } from '@/constants'
 import RssFeedItem from '../RssFeedItem'
-import { Loader, AlertCircle, Search } from 'lucide-react'
+import { Loader, AlertCircle, Search, Plus } from 'lucide-react'
 import logger from '@/lib/logger'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
@@ -12,8 +12,86 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { Check, ChevronDown } from 'lucide-react'
+import { useSmartRssArticleNavigation } from '@/PageManager'
+import { normalizeHttpArticleUrl } from '@/lib/rss-article'
+
+function ManualRssUrlAddRow({ className }: { className?: string }) {
+  const { t } = useTranslation()
+  const { navigateToRssArticle } = useSmartRssArticleNavigation()
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState('')
+  const [error, setError] = useState('')
+
+  const submit = () => {
+    setError('')
+    const url = normalizeHttpArticleUrl(value)
+    if (!url) {
+      setError(t('Enter a valid http(s) URL'))
+      return
+    }
+    setOpen(false)
+    setValue('')
+    navigateToRssArticle(url)
+  }
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        className={className ?? 'w-full justify-start gap-2 text-muted-foreground border-dashed'}
+        onClick={() => setOpen(true)}
+      >
+        <Plus className="h-4 w-4 shrink-0" />
+        {t('+ Add a URL to this list')}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('Add a web URL')}</DialogTitle>
+            <DialogDescription>
+              {t('Open any https page in the side panel to reply, react, and discuss on Nostr.')}
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            placeholder="https://example.com/article"
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value)
+              setError('')
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                submit()
+              }
+            }}
+            autoFocus
+          />
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
+              {t('Cancel')}
+            </Button>
+            <Button type="button" onClick={submit}>
+              {t('Open')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
 
 export default function RssFeedList() {
   const { t } = useTranslation()
@@ -451,8 +529,9 @@ export default function RssFeedList() {
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12">
-        <p className="text-sm text-muted-foreground">{t('No RSS feed items available')}</p>
+      <div className="space-y-4 px-4 py-6">
+        <ManualRssUrlAddRow />
+        <p className="text-sm text-muted-foreground text-center">{t('No RSS feed items available')}</p>
       </div>
     )
   }
@@ -570,6 +649,7 @@ export default function RssFeedList() {
 
       {/* Content */}
       <div className="space-y-4 px-4 py-3">
+        <ManualRssUrlAddRow />
         {refreshing && (
           <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground border-b">
             <Loader className="h-4 w-4 animate-spin" />
@@ -588,7 +668,7 @@ export default function RssFeedList() {
         ) : (
           <>
             {displayedItems.map((item) => (
-              <RssFeedItem key={`${item.feedUrl}-${item.guid}`} item={item} compact={isCompactView} />
+              <RssFeedItem key={`${item.feedUrl}-${item.guid}`} item={item} layout={isCompactView ? 'list' : 'detail'} />
             ))}
             {/* Bottom ref for infinite scroll */}
             {displayedItems.length < filteredItems.length && (

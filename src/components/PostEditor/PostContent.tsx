@@ -36,6 +36,7 @@ import { isTouchDevice } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFeed } from '@/providers/FeedProvider'
 import { useReply } from '@/providers/ReplyProvider'
+import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
 import { normalizeUrl, cleanUrl } from '@/lib/url'
 import logger from '@/lib/logger'
 import postEditorCache from '@/services/post-editor-cache.service'
@@ -391,6 +392,16 @@ export default function PostContent({
     isPoll,
     parentEvent
   ])
+
+  const rssReplyExtraPreviewTags = useMemo((): string[][] | undefined => {
+    if (!parentEvent || parentEvent.kind !== ExtendedKind.RSS_THREAD_ROOT) return undefined
+    const raw =
+      parentEvent.tags.find((t) => t[0] === 'I')?.[1] ??
+      parentEvent.tags.find((t) => t[0] === 'i')?.[1]
+    if (!raw) return undefined
+    const c = canonicalizeRssArticleUrl(raw)
+    return [['i', c], ['I', c]]
+  }, [parentEvent])
 
   // Shared function to create draft event - used by both preview and posting
   const createDraftEvent = useCallback(async (cleanedText: string): Promise<any> => {
@@ -1996,6 +2007,7 @@ export default function PostContent({
           highlightData={isHighlight ? highlightData : undefined}
           pollCreateData={isPoll ? pollCreateData : undefined}
           getDraftEventJson={getDraftEventJson}
+          extraPreviewTags={rssReplyExtraPreviewTags}
           mediaImetaTags={mediaImetaTags}
           mediaUrl={mediaUrl}
           headerActions={

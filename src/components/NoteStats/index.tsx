@@ -44,6 +44,9 @@ export default function NoteStats({
   
   // Hide interaction counts if event is in quiet mode
   const hideInteractions = shouldHideInteractions(event)
+
+  /** Synthetic RSS article root: only reply + reactions (no boost/quote/zap). */
+  const isRssArticleRoot = event.kind === ExtendedKind.RSS_THREAD_ROOT
   
   useMemo(() => {
     if (isDiscussion) return // Already a discussion event
@@ -73,9 +76,9 @@ export default function NoteStats({
       <div className={cn('select-none', className)} data-note-stats onClick={(e) => e.stopPropagation()}>
         {displayTopZapsAndLikes && (
           <>
-            <TopZaps event={event} />
+            {!isRssArticleRoot && <TopZaps event={event} />}
             {/* Kind 11: LikeButton already shows ⬆️/⬇️; Likes row would duplicate those pills */}
-            {!isDiscussion && <Likes event={event} />}
+            {!isDiscussion && !isRssArticleRoot && <Likes event={event} />}
           </>
         )}
         <div
@@ -86,9 +89,11 @@ export default function NoteStats({
           )}
         >
           <ReplyButton event={event} hideCount={hideInteractions} />
-          {!isDiscussion && !isReplyToDiscussion && <RepostButton event={event} hideCount={hideInteractions} />}
+          {!isDiscussion && !isReplyToDiscussion && !isRssArticleRoot && (
+            <RepostButton event={event} hideCount={hideInteractions} />
+          )}
           <LikeButton event={event} hideCount={hideInteractions} />
-          <ZapButton event={event} hideCount={hideInteractions} />
+          {!isRssArticleRoot && <ZapButton event={event} hideCount={hideInteractions} />}
           <BookmarkButton event={event} />
           <SeenOnButton event={event} />
         </div>
@@ -100,8 +105,8 @@ export default function NoteStats({
     <div className={cn('select-none', className)} data-note-stats onClick={(e) => e.stopPropagation()}>
       {displayTopZapsAndLikes && (
         <>
-          <TopZaps event={event} />
-          {!isDiscussion && <Likes event={event} />}
+          {!isRssArticleRoot && <TopZaps event={event} />}
+          {!isDiscussion && !isRssArticleRoot && <Likes event={event} />}
         </>
       )}
       <div className="flex justify-between h-5 [&_svg]:size-4">
@@ -109,9 +114,11 @@ export default function NoteStats({
           className={cn('flex items-center', loading ? 'animate-pulse' : '')}
         >
           <ReplyButton event={event} hideCount={hideInteractions} />
-          {!isDiscussion && !isReplyToDiscussion && <RepostButton event={event} hideCount={hideInteractions} />}
+          {!isDiscussion && !isReplyToDiscussion && !isRssArticleRoot && (
+            <RepostButton event={event} hideCount={hideInteractions} />
+          )}
           <LikeButton event={event} hideCount={hideInteractions} />
-          <ZapButton event={event} hideCount={hideInteractions} />
+          {!isRssArticleRoot && <ZapButton event={event} hideCount={hideInteractions} />}
         </div>
         <div className="flex items-center">
           <BookmarkButton event={event} />

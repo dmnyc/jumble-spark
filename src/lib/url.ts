@@ -345,12 +345,24 @@ export function cleanUrl(url: string): string {
       'aff_id', 'affiliate_id', 'aff', 'ref_', 'refer',
       
       // Social media share tracking
-      'share', 'shared', 'sharesource'
+      'share', 'shared', 'sharesource',
+
+      // Mail Online / Associated Newspapers RSS (e.g. ?ns_mchannel=rss&ito=1490&ns_campaign=1490)
+      'ns_mchannel',
+      'ns_campaign',
+      'ito'
     ]
     
     // Remove all tracking parameters
     trackingParams.forEach(param => {
       parsedUrl.searchParams.delete(param)
+    })
+
+    // Other Mail-style campaign params (ns_*)
+    Array.from(parsedUrl.searchParams.keys()).forEach((key) => {
+      if (key.startsWith('ns_')) {
+        parsedUrl.searchParams.delete(key)
+      }
     })
     
     // Remove any parameter that starts with utm_

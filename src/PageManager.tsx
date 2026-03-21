@@ -40,6 +40,7 @@ import { useTranslation } from 'react-i18next'
 import { KeyboardShortcutsHelpProvider } from '@/components/KeyboardShortcutsHelp'
 import { normalizeUrl } from './lib/url'
 import modalManager from './services/modal-manager.service'
+import { decodeRssArticlePathSegment, encodeRssArticlePathSegment } from '@/lib/rss-article'
 import { routes } from './routes'
 import { useScreenSize } from './providers/ScreenSizeProvider'
 import { SecondaryPageContext, useSecondaryPage } from '@/contexts/secondary-page-context'
@@ -248,6 +249,27 @@ function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): str
   }
   
   return `/notes/${noteId}`
+}
+
+function buildRssArticleUrl(articleUrl: string, currentPage: TPrimaryPageName | null): string {
+  const key = encodeRssArticlePathSegment(articleUrl)
+  const contextualPages: TPrimaryPageName[] = ['search', 'profile', 'feed', 'spells', 'rss', 'explore']
+  if (currentPage && contextualPages.includes(currentPage)) {
+    return `/${currentPage}/rss-item/${key}`
+  }
+  return `/rss-item/${key}`
+}
+
+/** Open an RSS article in the secondary panel (same routing pattern as contextual note URLs). */
+export function useSmartRssArticleNavigation() {
+  const { push: pushSecondaryPage } = useSecondaryPage()
+  const { current: currentPrimaryPage } = usePrimaryPage()
+
+  const navigateToRssArticle = (articleUrl: string) => {
+    pushSecondaryPage(buildRssArticleUrl(articleUrl, currentPrimaryPage))
+  }
+
+  return { navigateToRssArticle }
 }
 
 // Helper function to build contextual relay URL
@@ -880,7 +902,60 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           }
         }
       }
-      
+
+      // RSS article in side panel: /{context}/rss-item/{key} or /rss-item/{key}
+      const contextualRssMatch = pathname.match(
+        /^\/(discussions|search|profile|home|feed|spells|explore|rss)\/rss-item\/([^/?#]+)/
+      )
+      const standardRssMatch = pathname.match(/^\/rss-item\/([^/?#]+)/)
+      const rssArticleKey = contextualRssMatch?.[2] ?? standardRssMatch?.[1]
+      if (rssArticleKey) {
+        let decodedArticleUrl = ''
+        try {
+          decodedArticleUrl = decodeRssArticlePathSegment(rssArticleKey)
+        } catch {
+          decodedArticleUrl = ''
+        }
+        if (decodedArticleUrl) {
+          const resolvedRss = contextualRssMatch
+            ? noteContextToPrimaryEntry(contextualRssMatch[1])
+            : null
+          const rssPrimaryEntry: { name: TPrimaryPageName; props?: object } = resolvedRss ?? {
+            name: 'rss'
+          }
+
+          const applyRssPrimary = () => {
+            setCurrentPrimaryPage(rssPrimaryEntry.name)
+            setPrimaryPages((prev) => mergePrimaryPageEntry(prev, rssPrimaryEntry))
+            setSavedPrimaryPage(rssPrimaryEntry.name)
+          }
+
+          if (isSmallScreen || panelMode === 'single') {
+            setTimeout(applyRssPrimary, 0)
+          } else {
+            applyRssPrimary()
+          }
+
+          const contextualRssUrl = buildRssArticleUrl(decodedArticleUrl, rssPrimaryEntry.name)
+
+          setSecondaryStack((prevStack) => {
+            if (isCurrentPage(prevStack, contextualRssUrl)) return prevStack
+
+            const { newStack, newItem } = pushNewPageToStack(
+              prevStack,
+              contextualRssUrl,
+              maxStackSize,
+              window.history.state?.index
+            )
+            if (newItem) {
+              window.history.replaceState({ index: newItem.index, url: contextualRssUrl }, '', contextualRssUrl)
+            }
+            return newStack
+          })
+          return
+        }
+      }
+
       // Check if this is a primary page URL - don't push primary pages to secondary stack
       const pathnameOnly = pathname.split('?')[0].split('#')[0]
       const segments = pathnameOnly.split('/').filter(Boolean)
@@ -1041,6 +1116,30 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           const spellProps = spellPropsFromSearch(window.location.search)
           setCurrentPrimaryPage('spells')
           setPrimaryPages((prev) => mergePrimaryPageEntry(prev, { name: 'spells', props: spellProps }))
+        }
+        // Contextual RSS article: align primary pane when using browser history
+        let rssPathSync = window.location.pathname.split('?')[0].split('#')[0]
+        try {
+          if (urlToCheck.startsWith('http://') || urlToCheck.startsWith('https://')) {
+            rssPathSync = new URL(urlToCheck).pathname
+          }
+        } catch {
+          /* keep pathname */
+        }
+        const ctxRssPop = rssPathSync.match(
+          /^\/(discussions|search|profile|home|feed|spells|explore|rss)\/rss-item\/([^/?#]+)/
+        )
+        if (ctxRssPop) {
+          const resolvedPop = noteContextToPrimaryEntry(ctxRssPop[1])
+          if (resolvedPop) {
+            setCurrentPrimaryPage(resolvedPop.name)
+            setPrimaryPages((prev) => mergePrimaryPageEntry(prev, resolvedPop))
+            setSavedPrimaryPage(resolvedPop.name)
+          }
+        } else if (/^\/rss-item\/[^/?#]+/.test(rssPathSync)) {
+          setCurrentPrimaryPage('rss')
+          setPrimaryPages((prev) => mergePrimaryPageEntry(prev, { name: 'rss' }))
+          setSavedPrimaryPage('rss')
         }
       }
       

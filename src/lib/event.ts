@@ -1,5 +1,6 @@
 import { CALENDAR_EVENT_KINDS, ExtendedKind } from '@/constants'
 import { EMBEDDED_MENTION_REGEX, NOSTR_EMBEDDED_NOTE_REGEX } from '@/lib/content-patterns'
+import { cleanUrl } from '@/lib/url'
 import client from '@/services/client.service'
 import { TImetaInfo } from '@/types'
 import { LRUCache } from 'lru-cache'
@@ -380,4 +381,14 @@ export function dedupeToLatestPerReplaceableCoordinate(events: Event[]): Event[]
     byKey.set(coord, getRetainedEvent(e, existing))
   }
   return [...byKey.values()]
+}
+
+/** External article URL from `i` / `I` tags (e.g. kind 1111 comments on web content). */
+export function getHttpUrlFromITags(event: Event): string | undefined {
+  const lower = event.tags.find((t) => t[0] === 'i')?.[1]?.trim()
+  const upper = event.tags.find((t) => t[0] === 'I')?.[1]?.trim()
+  const raw = lower ?? upper
+  if (!raw) return undefined
+  if (!raw.startsWith('http://') && !raw.startsWith('https://')) return undefined
+  return cleanUrl(raw) || raw
 }

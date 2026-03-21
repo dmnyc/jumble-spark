@@ -1,4 +1,5 @@
 import { ExtendedKind } from '@/constants'
+import { getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import {
   getParentETag,
   getReplaceableCoordinateFromEvent,
@@ -216,8 +217,16 @@ function ReplyNoteList({
 
   useEffect(() => {
     const fetchRootEvent = async () => {
+      if (event.kind === ExtendedKind.RSS_THREAD_ROOT) {
+        const url = event.tags.find((t) => t[0] === 'i' || t[0] === 'I')?.[1]
+        if (url) {
+          setRootInfo({ type: 'I', id: url })
+        }
+        return
+      }
+
       let root: TRootInfo
-      
+
       if (isReplaceableEvent(event.kind)) {
         root = {
           type: 'A',
@@ -251,9 +260,9 @@ function ReplyNoteList({
           const [, pubkey] = coordinate.split(':')
           root = { type: 'A', id: coordinate, eventId: event.id, pubkey, relay }
         }
-        const rootITag = event.tags.find(tagNameEquals('I'))
-        if (rootITag) {
-          root = { type: 'I', id: rootITag[1] }
+        const rootArticleUrl = getArticleUrlFromCommentITags(event)
+        if (rootArticleUrl) {
+          root = { type: 'I', id: rootArticleUrl }
         }
       }
       setRootInfo(root)
@@ -278,8 +287,12 @@ function ReplyNoteList({
     const handleEventPublished = (data: Event) => {
       const customEvent = data as CustomEvent<NEvent>
       const evt = customEvent.detail
-      const rootId = getRootEventHexId(evt)
-      if (rootId === rootInfo.id && isReplyNoteEvent(evt)) {
+      const articleThreadUrl = rootInfo.type === 'I' ? getArticleUrlFromCommentITags(evt) : undefined
+      const matchesThread =
+        rootInfo.type === 'I'
+          ? articleThreadUrl === rootInfo.id
+          : getRootEventHexId(evt) === rootInfo.id
+      if (matchesThread && isReplyNoteEvent(evt)) {
         onNewReply(evt)
       }
     }
@@ -378,6 +391,17 @@ function ReplyNoteList({
             if (rootInfo.relay) {
               finalRelayUrls.push(rootInfo.relay)
             }
+          } else if (rootInfo.type === 'I') {
+            filters.push({
+              '#i': [rootInfo.id],
+              kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
+              limit: LIMIT
+            })
+            filters.push({
+              '#I': [rootInfo.id],
+              kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
+              limit: LIMIT
+            })
           }
 
           // Use fetchEvents instead of subscribeTimeline for one-time fetching
@@ -518,7 +542,7 @@ function ReplyNoteList({
           const belongsToSameThread = rootInfo && (
             (rootInfo.type === 'E' && replyRootId === rootInfo.id) ||
             (rootInfo.type === 'A' && getRootATag(reply)?.[1] === rootInfo.id) ||
-            (rootInfo.type === 'I' && reply.tags.find(tagNameEquals('I'))?.[1] === rootInfo.id)
+            (rootInfo.type === 'I' && getArticleUrlFromCommentITags(reply) === rootInfo.id)
           )
           
           return (

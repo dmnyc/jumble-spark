@@ -1,4 +1,5 @@
 import { DEFAULT_RSS_FEEDS } from '@/constants'
+import { cleanUrl } from '@/lib/url'
 import logger from '@/lib/logger'
 import indexedDb from '@/services/indexed-db.service'
 
@@ -392,6 +393,10 @@ class RssFeedService {
           // If URL parsing fails, keep the original link
         }
       }
+      if (itemLink) {
+        const cleanedLink = cleanUrl(itemLink)
+        if (cleanedLink) itemLink = cleanedLink
+      }
       // For description, prefer content:encoded (WordPress full content) over description (truncated)
       // Check for content:encoded first, then fall back to description
       let itemDescription = ''
@@ -489,7 +494,11 @@ class RssFeedService {
       }
       const pubDateText = this.getTextContent(item, 'pubDate')
       const itemPubDate = this.parseDate(pubDateText)
-      const itemGuid = this.getTextContent(item, 'guid') || itemLink || ''
+      let itemGuid = this.getTextContent(item, 'guid') || itemLink || ''
+      if (itemGuid && (itemGuid.startsWith('http://') || itemGuid.startsWith('https://'))) {
+        const cleanedGuid = cleanUrl(itemGuid)
+        if (cleanedGuid) itemGuid = cleanedGuid
+      }
       
       // Log item parsing for debugging
       if (!itemPubDate && pubDateText) {
@@ -722,6 +731,10 @@ class RssFeedService {
           // If URL parsing fails, keep the original link
         }
       }
+      if (entryLink) {
+        const cleanedEntryLink = cleanUrl(entryLink)
+        if (cleanedEntryLink) entryLink = cleanedEntryLink
+      }
       // For content/summary, preserve HTML content
       let entryContent = this.getHtmlContent(entry, 'content') || this.getHtmlContent(entry, 'summary') || ''
       // Additional cleaning for Atom feeds (getHtmlContent already does basic cleaning)
@@ -734,7 +747,11 @@ class RssFeedService {
       }
       const entryPublished = this.getTextContent(entry, 'published') || this.getTextContent(entry, 'updated')
       const entryPubDate = this.parseDate(entryPublished)
-      const entryId = this.getTextContent(entry, 'id') || entryLink || ''
+      let entryId = this.getTextContent(entry, 'id') || entryLink || ''
+      if (entryId && (entryId.startsWith('http://') || entryId.startsWith('https://'))) {
+        const cleanedId = cleanUrl(entryId)
+        if (cleanedId) entryId = cleanedId
+      }
       
       // Extract enclosure/link elements for Atom feeds (Atom uses <link rel="enclosure">)
       let enclosure: RssFeedItemEnclosure | undefined

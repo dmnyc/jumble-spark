@@ -366,6 +366,17 @@ export default {
     Topics: 'Topics',
     'Open in a': 'Open in {{a}}',
     'Cannot handle event of kind k': 'Cannot handle event of kind {{k}}',
+    'Jumble Imwald synthetic event': 'Jumble Imwald synthetic event',
+    '+ Add a URL to this list': 'Add a URL to this list',
+    'Add a web URL': 'Add a web URL',
+    'Open any https page in the side panel to reply, react, and discuss on Nostr.':
+      'Open any https page in the side panel to reply, react, and discuss on Nostr.',
+    'Enter a valid http(s) URL': 'Enter a valid http(s) URL',
+    'Opened by URL — not from your RSS list. Nostr thread is still tied to this link.':
+      'Opened by URL — not from your RSS list. Nostr thread is still tied to this link.',
+    'Open in browser': 'Open in browser',
+    'Web page': 'Web page',
+    Open: 'Open',
     'Sorry! The note cannot be found 😔': 'Sorry! The note cannot be found 😔',
     'This user has been muted': 'This user has been muted',
     Wallet: 'Wallet',

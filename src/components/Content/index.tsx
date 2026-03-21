@@ -6,6 +6,7 @@ import logger from '@/lib/logger'
 import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { cn } from '@/lib/utils'
+import { getHttpUrlFromITags } from '@/lib/event'
 import { cleanUrl, isImage, isMedia, isAudio, isVideo } from '@/lib/url'
 import { TImetaInfo } from '@/types'
 import { Event } from 'nostr-tools'
@@ -74,7 +75,12 @@ export default function Content({
   mustLoadMedia?: boolean
 }) {
   const _content = event?.content ?? content
-  
+  const iArticleUrl = useMemo(() => (event ? getHttpUrlFromITags(event) : undefined), [event])
+  const iArticleCleaned = useMemo(
+    () => (iArticleUrl ? cleanUrl(iArticleUrl) || iArticleUrl : ''),
+    [iArticleUrl]
+  )
+
   // Use unified media extraction service
   const extractedMedia = useMediaExtraction(event, _content)
   
@@ -109,7 +115,7 @@ export default function Content({
         const url = node.data
         if ((url.startsWith('http://') || url.startsWith('https://')) && !isImage(url) && !isMedia(url) && !isYouTubeUrl(url)) {
           const cleaned = cleanUrl(url)
-          if (cleaned && !seenUrls.has(cleaned)) {
+          if (cleaned && !seenUrls.has(cleaned) && !(iArticleCleaned && cleaned === iArticleCleaned)) {
             links.push(cleaned)
             seenUrls.add(cleaned)
           }
@@ -118,7 +124,7 @@ export default function Content({
     })
     
     return links
-  }, [nodes])
+  }, [nodes, iArticleCleaned])
 
   // Extract YouTube URLs from r tags to render as players
   const youtubeUrlsFromTags = useMemo(() => {
@@ -189,13 +195,16 @@ export default function Content({
     }
   })
 
-  // If no nodes but we have media from tags, still render the media
+  // If no nodes but we have media from tags, still render the media (or i-tag article preview)
   if (!nodes || nodes.length === 0) {
-    // Check if we have any media to display
-    if (extractedMedia.images.length === 0 && extractedMedia.videos.length === 0 && extractedMedia.audio.length === 0) {
+    if (
+      extractedMedia.images.length === 0 &&
+      extractedMedia.videos.length === 0 &&
+      extractedMedia.audio.length === 0 &&
+      !iArticleUrl
+    ) {
       return null
     }
-    // If we have media, render it even without content nodes
   }
 
   // First pass: find which media appears in content (will be rendered in carousels or inline)
@@ -297,6 +306,11 @@ export default function Content({
   
   return (
     <div className={cn('text-wrap break-words whitespace-pre-wrap', className)}>
+      {iArticleUrl && (
+        <div className="mb-2 max-w-full">
+          <WebPreview url={iArticleUrl} className="w-full" />
+        </div>
+      )}
       {/* Render images that appear in content in a single carousel at the top */}
       {imagesInContent.length > 0 && (
         <ImageGallery
@@ -431,7 +445,10 @@ export default function Content({
               />
             )
           }
-          // Regular URL, not an image or media - show WebPreview
+          // Regular URL, not an image or media - show WebPreview (skip if same as i-tag article)
+          if (iArticleCleaned && cleanedUrl === iArticleCleaned) {
+            return null
+          }
           return <EmbeddedNormalUrl url={node.data} key={index} />
         }
         if (node.type === 'invoice') {

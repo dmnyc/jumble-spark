@@ -10,14 +10,18 @@ import ReplySort, { ReplySortOption } from './ReplySort'
 
 export default function NoteInteractions({
   pageIndex,
-  event
+  event,
+  showQuotes: showQuotesProp
 }: {
   pageIndex?: number
   event: Event
+  /** When set, overrides the default (quotes hidden for discussions only). */
+  showQuotes?: boolean
 }) {
   const { t } = useTranslation()
   const [replySort, setReplySort] = useState<ReplySortOption>('oldest')
   const isDiscussion = event.kind === ExtendedKind.DISCUSSION
+  const showQuotes = showQuotesProp ?? !isDiscussion
 
   // Hide interactions if event is in quiet mode
   if (shouldHideInteractions(event)) {
@@ -48,7 +52,7 @@ export default function NoteInteractions({
         index={pageIndex}
         event={event}
         sort={replySort}
-        showQuotes={!isDiscussion}
+        showQuotes={showQuotes}
       />
     </>
   )

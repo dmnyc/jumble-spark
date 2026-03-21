@@ -231,6 +231,8 @@ export const ExtendedKind = {
   CITATION_HARDCOPY: 32,
   CITATION_PROMPT: 33,
   RSS_FEED_LIST: 10895,
+  /** Client-only synthetic "parent" for RSS article threads; never published to relays */
+  RSS_THREAD_ROOT: 99999,
   // NIP-89 Application Handlers
   APPLICATION_HANDLER_RECOMMENDATION: 31989,
   APPLICATION_HANDLER_INFO: 31990,

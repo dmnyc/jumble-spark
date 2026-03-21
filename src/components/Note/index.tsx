@@ -1,7 +1,7 @@
 import { useSmartNoteNavigation } from '@/PageManager'
 import { ExtendedKind } from '@/constants'
 import { isRenderableNoteKind } from '@/lib/note-renderable-kinds'
-import { getParentBech32Id, isNsfwEvent } from '@/lib/event'
+import { getHttpUrlFromITags, getParentBech32Id, isNsfwEvent } from '@/lib/event'
 import { toNote } from '@/lib/link'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
@@ -11,9 +11,12 @@ import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import type { HighlightData } from '@/components/PostEditor/HighlightEditor'
 import { Event, kinds } from 'nostr-tools'
 import { useCallback, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { isRssThreadSyntheticParentEvent } from '@/lib/rss-article'
 import { CreateHighlightContext } from './CreateHighlightContext'
 import SelectionHighlightTrigger from './SelectionHighlightTrigger'
 import AudioPlayer from '../AudioPlayer'
+import WebPreview from '../WebPreview'
 import ClientTag from '../ClientTag'
 import { FormattedTimestamp } from '../FormattedTimestamp'
 import Nip05 from '../Nip05'
@@ -66,6 +69,7 @@ export default function Note({
   /** When viewing a kind-24 invite, use this to replace the embedded calendar with the full card (RSVP) in content */
   fullCalendarInvite?: { event: Event; naddr: string }
 }) {
+  const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigation()
   const { isSmallScreen } = useScreenSize()
   const parentEventId = useMemo(
@@ -197,8 +201,20 @@ export default function Note({
         <Poll className="mt-2" event={event} />
       </>
     )
-  } else if (event.kind === ExtendedKind.VOICE || event.kind === ExtendedKind.VOICE_COMMENT) {
+  } else if (event.kind === ExtendedKind.VOICE) {
     content = <AudioPlayer className="mt-2" src={event.content} />
+  } else if (event.kind === ExtendedKind.VOICE_COMMENT) {
+    const voiceArticleUrl = getHttpUrlFromITags(event)
+    content = (
+      <>
+        {voiceArticleUrl && (
+          <div className="mt-2 not-prose max-w-full">
+            <WebPreview url={voiceArticleUrl} className="w-full" />
+          </div>
+        )}
+        <AudioPlayer className="mt-2" src={event.content} />
+      </>
+    )
   } else if (event.kind === ExtendedKind.PICTURE) {
     content = <PictureNote className="mt-2" event={event} />
   } else if (event.kind === ExtendedKind.VIDEO || event.kind === ExtendedKind.SHORT_VIDEO) {
@@ -220,13 +236,15 @@ export default function Note({
     content = <Zap className="mt-2" event={event} />
   } else if (event.kind === ExtendedKind.FOLLOW_PACK) {
     content = <FollowPackPreview className="mt-2" event={event} />
-  } else if (event.kind === kinds.ShortTextNote || event.kind === ExtendedKind.COMMENT || event.kind === ExtendedKind.VOICE_COMMENT) {
+  } else if (event.kind === kinds.ShortTextNote || event.kind === ExtendedKind.COMMENT) {
     // Plain text notes use MarkdownArticle for proper markdown rendering
     content = <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
   } else {
     // Use MarkdownArticle for all other kinds
     content = <MarkdownArticle className="mt-2" event={event} />
   }
+
+  const isSyntheticRssParent = isRssThreadSyntheticParentEvent(event)
 
   const wrappedContent = isHighlightableKind ? (
     <SelectionHighlightTrigger event={event}>{content}</SelectionHighlightTrigger>
@@ -251,25 +269,56 @@ export default function Note({
       >
         <div className="flex justify-between items-start gap-2">
           <div className="flex items-center space-x-2 flex-1">
-            <UserAvatar userId={event.pubkey} size={size === 'small' ? 'medium' : 'normal'} />
-            <div className="flex-1 w-0">
-              <div className="flex gap-2 items-center">
-                <Username
-                  userId={event.pubkey}
-                  className={`font-semibold flex truncate ${size === 'small' ? 'text-sm' : ''}`}
-                  skeletonClassName={size === 'small' ? 'h-3' : 'h-4'}
-                />
-                <ClientTag event={event} />
-              </div>
-              <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                <Nip05 pubkey={event.pubkey} append="·" />
-                <FormattedTimestamp
-                  timestamp={event.created_at}
-                  className="shrink-0"
-                  short={isSmallScreen}
-                />
-              </div>
-            </div>
+            {isSyntheticRssParent ? (
+              <>
+                <div
+                  className={`shrink-0 rounded-full bg-muted overflow-hidden flex items-center justify-center ${
+                    size === 'small' ? 'w-9 h-9' : 'w-10 h-10'
+                  }`}
+                >
+                  <img
+                    src="/pwa-192x192.png"
+                    alt=""
+                    className="w-full h-full object-cover"
+                    width={size === 'small' ? 36 : 40}
+                    height={size === 'small' ? 36 : 40}
+                  />
+                </div>
+                <div className="flex-1 w-0">
+                  <div className="flex gap-2 items-center">
+                    <span
+                      data-username
+                      className={`font-semibold truncate text-foreground ${size === 'small' ? 'text-sm' : ''}`}
+                    >
+                      {t('Jumble Imwald synthetic event')}
+                    </span>
+                    <ClientTag event={event} />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <UserAvatar userId={event.pubkey} size={size === 'small' ? 'medium' : 'normal'} />
+                <div className="flex-1 w-0">
+                  <div className="flex gap-2 items-center">
+                    <Username
+                      userId={event.pubkey}
+                      className={`font-semibold flex truncate ${size === 'small' ? 'text-sm' : ''}`}
+                      skeletonClassName={size === 'small' ? 'h-3' : 'h-4'}
+                    />
+                    <ClientTag event={event} />
+                  </div>
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <Nip05 pubkey={event.pubkey} append="·" />
+                    <FormattedTimestamp
+                      timestamp={event.created_at}
+                      className="shrink-0"
+                      short={isSmallScreen}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {event.kind === ExtendedKind.DISCUSSION && (

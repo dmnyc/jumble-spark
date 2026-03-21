@@ -24,8 +24,15 @@ import {
   isProtectedEvent,
   isReplaceableEvent
 } from './event'
+import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
+import { cleanUrl } from '@/lib/url'
 import { randomString } from './random'
 import { generateBech32IdFromETag, tagNameEquals } from './tag'
+
+function canonicalizeHttpUrlForITags(url: string): string {
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return url
+  return canonicalizeRssArticleUrl(url)
+}
 
 const draftEventCache: Map<string, string> = new Map()
 
@@ -232,29 +239,42 @@ export async function createCommentDraftEvent(
     ...mentions.filter((pubkey) => pubkey !== parentEvent.pubkey).map((pubkey) => buildPTag(pubkey))
   )
 
-  if (rootCoordinateTag) {
-    tags.push(rootCoordinateTag)
-  } else if (rootEventId) {
-    tags.push(buildETag(rootEventId, rootPubkey, '', true))
+  const isRssArticleThreadRoot = parentEvent.kind === ExtendedKind.RSS_THREAD_ROOT
+  const rssArticleUrl = isRssArticleThreadRoot
+    ? rootUrl || parentEvent.tags.find((t) => t[0] === 'i' || t[0] === 'I')?.[1]
+    : undefined
+
+  if (isRssArticleThreadRoot) {
+    if (rssArticleUrl) {
+      const u = canonicalizeHttpUrlForITags(rssArticleUrl)
+      tags.push(buildITag(u, false), buildITag(u, true))
+    }
+  } else {
+    if (rootCoordinateTag) {
+      tags.push(rootCoordinateTag)
+    } else if (rootEventId) {
+      tags.push(buildETag(rootEventId, rootPubkey, '', true))
+    }
+    if (rootPubkey) {
+      tags.push(buildPTag(rootPubkey, true))
+    }
+    if (rootKind) {
+      tags.push(buildKTag(rootKind, true))
+    }
+    if (rootUrl) {
+      const u = canonicalizeHttpUrlForITags(rootUrl)
+      tags.push(buildITag(u, false), buildITag(u, true))
+    }
+    tags.push(
+      ...[
+        isReplaceableEvent(parentEvent.kind)
+          ? buildATag(parentEvent)
+          : buildETag(parentEvent.id, parentEvent.pubkey),
+        buildKTag(parentEvent.kind),
+        buildPTag(parentEvent.pubkey)
+      ]
+    )
   }
-  if (rootPubkey) {
-    tags.push(buildPTag(rootPubkey, true))
-  }
-  if (rootKind) {
-    tags.push(buildKTag(rootKind, true))
-  }
-  if (rootUrl) {
-    tags.push(buildITag(rootUrl, true))
-  }
-  tags.push(
-    ...[
-      isReplaceableEvent(parentEvent.kind)
-        ? buildATag(parentEvent)
-        : buildETag(parentEvent.id, parentEvent.pubkey),
-      buildKTag(parentEvent.kind),
-      buildPTag(parentEvent.pubkey)
-    ]
-  )
 
   if (options.isNsfw) {
     tags.push(buildNsfwTag())
@@ -1054,16 +1074,6 @@ async function extractRelatedEventIds(content: string, parentEvent?: Event) {
 async function extractCommentMentions(content: string, parentEvent: Event) {
   const quoteEventHexIds: string[] = []
   const quoteReplaceableCoordinates: string[] = []
-  const isComment = [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT].includes(parentEvent.kind)
-  const rootCoordinateTag = isComment
-    ? parentEvent.tags.find(tagNameEquals('A'))
-    : isReplaceableEvent(parentEvent.kind)
-      ? buildATag(parentEvent, true)
-      : undefined
-  const rootEventId = isComment ? parentEvent.tags.find(tagNameEquals('E'))?.[1] : parentEvent.id
-  const rootKind = isComment ? parentEvent.tags.find(tagNameEquals('K'))?.[1] : parentEvent.kind
-  const rootPubkey = isComment ? parentEvent.tags.find(tagNameEquals('P'))?.[1] : parentEvent.pubkey
-  const rootUrl = isComment ? parentEvent.tags.find(tagNameEquals('I'))?.[1] : undefined
 
   const addToSet = (arr: string[], item: string) => {
     if (!arr.includes(item)) arr.push(item)
@@ -1089,6 +1099,32 @@ async function extractCommentMentions(content: string, parentEvent: Event) {
     }
   }
 
+  if (parentEvent.kind === ExtendedKind.RSS_THREAD_ROOT) {
+    const url = parentEvent.tags.find((t) => t[0] === 'i' || t[0] === 'I')?.[1]
+    return {
+      quoteEventHexIds,
+      quoteReplaceableCoordinates,
+      rootEventId: undefined,
+      rootCoordinateTag: undefined,
+      rootKind: undefined,
+      rootPubkey: undefined,
+      rootUrl: url
+    }
+  }
+
+  const isComment = [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT].includes(parentEvent.kind)
+  const rootCoordinateTag = isComment
+    ? parentEvent.tags.find(tagNameEquals('A'))
+    : isReplaceableEvent(parentEvent.kind)
+      ? buildATag(parentEvent, true)
+      : undefined
+  const rootEventId = isComment ? parentEvent.tags.find(tagNameEquals('E'))?.[1] : parentEvent.id
+  const rootKind = isComment ? parentEvent.tags.find(tagNameEquals('K'))?.[1] : parentEvent.kind
+  const rootPubkey = isComment ? parentEvent.tags.find(tagNameEquals('P'))?.[1] : parentEvent.pubkey
+  const rootUrl = isComment
+    ? parentEvent.tags.find((t) => t[0] === 'I' || t[0] === 'i')?.[1]
+    : undefined
+
   return {
     quoteEventHexIds,
     quoteReplaceableCoordinates,
@@ -1096,8 +1132,7 @@ async function extractCommentMentions(content: string, parentEvent: Event) {
     rootCoordinateTag,
     rootKind,
     rootPubkey,
-    rootUrl,
-    parentEvent
+    rootUrl
   }
 }
 
@@ -1371,8 +1406,8 @@ export async function createHighlightDraftEvent(
       }
     }
   } else if (sourceType === 'url') {
-    // Add r-tag with 'source' attribute
-    tags.push(['r', sourceValue, 'source'])
+    const trimmed = sourceValue.trim()
+    tags.push(['r', cleanUrl(trimmed) || trimmed, 'source'])
   }
 
   // Add context tag if provided (the full text/quote that the highlight is from)
@@ -1512,30 +1547,43 @@ export async function createVoiceCommentDraftEvent(
   tags.push(
     ...mentions.filter((pubkey) => pubkey !== parentEvent.pubkey).map((pubkey) => buildPTag(pubkey))
   )
-  
-  if (rootCoordinateTag) {
-    tags.push(rootCoordinateTag)
-  } else if (rootEventId) {
-    tags.push(buildETag(rootEventId, rootPubkey, '', true))
+
+  const isRssArticleThreadRootVoice = parentEvent.kind === ExtendedKind.RSS_THREAD_ROOT
+  const rssArticleUrlVoice = isRssArticleThreadRootVoice
+    ? rootUrl || parentEvent.tags.find((t) => t[0] === 'i' || t[0] === 'I')?.[1]
+    : undefined
+
+  if (isRssArticleThreadRootVoice) {
+    if (rssArticleUrlVoice) {
+      const u = canonicalizeHttpUrlForITags(rssArticleUrlVoice)
+      tags.push(buildITag(u, false), buildITag(u, true))
+    }
+  } else {
+    if (rootCoordinateTag) {
+      tags.push(rootCoordinateTag)
+    } else if (rootEventId) {
+      tags.push(buildETag(rootEventId, rootPubkey, '', true))
+    }
+    if (rootPubkey) {
+      tags.push(buildPTag(rootPubkey, true))
+    }
+    if (rootKind) {
+      tags.push(buildKTag(rootKind, true))
+    }
+    if (rootUrl) {
+      const u = canonicalizeHttpUrlForITags(rootUrl)
+      tags.push(buildITag(u, false), buildITag(u, true))
+    }
+    tags.push(
+      ...[
+        isReplaceableEvent(parentEvent.kind)
+          ? buildATag(parentEvent)
+          : buildETag(parentEvent.id, parentEvent.pubkey),
+        buildKTag(parentEvent.kind),
+        buildPTag(parentEvent.pubkey)
+      ]
+    )
   }
-  if (rootPubkey) {
-    tags.push(buildPTag(rootPubkey, true))
-  }
-  if (rootKind) {
-    tags.push(buildKTag(rootKind, true))
-  }
-  if (rootUrl) {
-    tags.push(buildITag(rootUrl, true))
-  }
-  tags.push(
-    ...[
-      isReplaceableEvent(parentEvent.kind)
-        ? buildATag(parentEvent)
-        : buildETag(parentEvent.id, parentEvent.pubkey),
-      buildKTag(parentEvent.kind),
-      buildPTag(parentEvent.pubkey)
-    ]
-  )
   
   if (options.isNsfw) {
     tags.push(buildNsfwTag())

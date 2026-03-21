@@ -1,3 +1,4 @@
+import { getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import { getParentATag, getParentETag, getRootATag, getRootETag } from '@/lib/event'
 import { Event } from 'nostr-tools'
 import { createContext, useCallback, useContext, useState } from 'react'
@@ -37,6 +38,11 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
         const rootATag = getRootATag(reply)
         if (rootATag) {
           rootId = rootATag[1]
+        } else {
+          const articleUrl = getArticleUrlFromCommentITags(reply)
+          if (articleUrl) {
+            rootId = articleUrl
+          }
         }
       }
       if (rootId) {

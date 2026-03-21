@@ -8,28 +8,40 @@ import { Copy, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import logger from '@/lib/logger'
 import { cn } from '@/lib/utils'
+import { isRssThreadSyntheticParentEvent } from '@/lib/rss-article'
+import { isValidPubkey } from '@/lib/pubkey'
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 
-export default function EventViewer({ event, className }: { event: Event; className?: string }) {
+function isAllZeroPlaceholderPubkey(pk: string): boolean {
+  return isValidPubkey(pk) && /^0+$/.test(pk)
+}
+
+export default function EventViewer({
+  event,
+  className,
+  /** When true, `event.tags` and nested tag rows render expanded (no collapse). */
+  expandTagsTree = false
+}: {
+  event: Event
+  className?: string
+  expandTagsTree?: boolean
+}) {
   const { t } = useTranslation()
   const [copiedJson, setCopiedJson] = useState(false)
   const [copiedNevent, setCopiedNevent] = useState(false)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(['root']))
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const nevent = useMemo(
     () => nip19.neventEncode({ id: event.id, author: event.pubkey, kind: event.kind }),
     [event.id, event.pubkey, event.kind]
   )
 
-  const toggle = (key: string) => {
+  const setKeyExpanded = (key: string, open: boolean) => {
     setExpanded((prev) => {
       const next = new Set(prev)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
+      if (open) next.add(key)
+      else next.delete(key)
       return next
     })
   }
@@ -72,11 +84,36 @@ export default function EventViewer({ event, className }: { event: Event; classN
       return <span className="text-blue-600 dark:text-blue-400">{String(value)}</span>
     }
     if (Array.isArray(value)) {
+      const tagsTreeAlwaysOpen =
+        expandTagsTree && (key === 'tags' || key.startsWith('tags['))
+      if (tagsTreeAlwaysOpen) {
+        return (
+          <div className={cn('ml-2', depth > 0 && 'border-l border-border/50 pl-2')}>
+            <div className="text-xs text-muted-foreground mb-1">
+              Array ({value.length})
+            </div>
+            <div className="ml-4">
+              {value.map((item, idx) => (
+                <div key={idx} className="mb-1">
+                  <span className="text-muted-foreground text-xs">[{idx}]</span>{' '}
+                  {renderValue(item, `${key}[${idx}]`, depth + 1)}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      }
       const isExpanded = expanded.has(key)
       return (
         <div className={cn('ml-2', depth > 0 && 'border-l border-border/50 pl-2')}>
-          <Collapsible open={isExpanded} onOpenChange={() => toggle(key)}>
-            <CollapsibleTrigger className="flex items-center gap-1 text-sm hover:text-foreground">
+          <Collapsible
+            open={isExpanded}
+            onOpenChange={(open) => setKeyExpanded(key, open)}
+          >
+            <CollapsibleTrigger
+              type="button"
+              className="flex items-center gap-1 text-sm hover:text-foreground"
+            >
               {isExpanded ? (
                 <ChevronDown className="h-3 w-3" />
               ) : (
@@ -102,8 +139,14 @@ export default function EventViewer({ event, className }: { event: Event; classN
       const entries = Object.entries(value)
       return (
         <div className={cn('ml-2', depth > 0 && 'border-l border-border/50 pl-2')}>
-          <Collapsible open={isExpanded} onOpenChange={() => toggle(key)}>
-            <CollapsibleTrigger className="flex items-center gap-1 text-sm hover:text-foreground">
+          <Collapsible
+            open={isExpanded}
+            onOpenChange={(open) => setKeyExpanded(key, open)}
+          >
+            <CollapsibleTrigger
+              type="button"
+              className="flex items-center gap-1 text-sm hover:text-foreground"
+            >
               {isExpanded ? (
                 <ChevronDown className="h-3 w-3" />
               ) : (
@@ -128,6 +171,10 @@ export default function EventViewer({ event, className }: { event: Event; classN
   }
 
   const createdAtFormatted = dayjs(event.created_at * 1000).format('LLL')
+  const pubkey = event.pubkey ?? ''
+  const hidePubkeyRow = isRssThreadSyntheticParentEvent(event)
+  const showAuthorBadge =
+    !hidePubkeyRow && isValidPubkey(pubkey) && !isAllZeroPlaceholderPubkey(pubkey)
 
   return (
     <div className={cn('border rounded-lg p-4 bg-muted/30', className)}>
@@ -145,13 +192,30 @@ export default function EventViewer({ event, className }: { event: Event; classN
             {copiedNevent ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           </Button>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-purple-600 dark:text-purple-400 font-medium shrink-0">pubkey</span>
-          <div className="flex items-center gap-1.5">
-            <UserAvatar userId={event.pubkey} size="xSmall" />
-            <Username userId={event.pubkey} className="font-normal" skeletonClassName="h-4" />
+        {!hidePubkeyRow && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-purple-600 dark:text-purple-400 font-medium shrink-0">pubkey</span>
+            {showAuthorBadge ? (
+              <div className="flex items-center gap-1.5 min-w-0">
+                <UserAvatar userId={pubkey} size="xSmall" />
+                <Username
+                  userId={pubkey}
+                  className="font-normal min-w-0"
+                  skeletonClassName="h-4"
+                  withoutSkeleton
+                />
+              </div>
+            ) : (
+              <span className="text-muted-foreground text-xs break-all">
+                {!pubkey
+                  ? t('Missing pubkey')
+                  : isAllZeroPlaceholderPubkey(pubkey)
+                    ? t('Synthetic event (no author)')
+                    : pubkey}
+              </span>
+            )}
           </div>
-        </div>
+        )}
         <div>
           <span className="text-purple-600 dark:text-purple-400 font-medium">kind</span>{' '}
           {renderValue(event.kind, 'kind')}

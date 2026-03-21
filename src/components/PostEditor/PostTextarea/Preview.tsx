@@ -67,7 +67,15 @@ export default function Preview({
       if (kind === kinds.Highlights && highlightData) {
         // Add source tag
         if (highlightData.sourceType === 'url') {
-          highlightTags.push(['r', highlightData.sourceValue, 'source'])
+          try {
+            highlightTags.push([
+              'r',
+              cleanUrl(highlightData.sourceValue) || highlightData.sourceValue,
+              'source'
+            ])
+          } catch {
+            highlightTags.push(['r', highlightData.sourceValue, 'source'])
+          }
         } else if (highlightData.sourceType === 'nostr') {
           // For preview, we'll use a simple e-tag with the source value
           // The actual tag building happens in createHighlightDraftEvent

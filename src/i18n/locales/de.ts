@@ -373,6 +373,17 @@ export default {
     Topics: 'Themen',
     'Open in a': 'Öffnen in {{a}}',
     'Cannot handle event of kind k': 'Ereignis des Typs {{k}} kann nicht verarbeitet werden',
+    'Jumble Imwald synthetic event': 'Jumble Imwald – synthetisches Ereignis',
+    '+ Add a URL to this list': 'URL zur Liste hinzufügen',
+    'Add a web URL': 'Web-URL hinzufügen',
+    'Open any https page in the side panel to reply, react, and discuss on Nostr.':
+      'Beliebige https-Seite im Seitenpanel öffnen, um auf Nostr zu antworten, zu reagieren und zu diskutieren.',
+    'Enter a valid http(s) URL': 'Bitte eine gültige http(s)-URL eingeben',
+    'Opened by URL — not from your RSS list. Nostr thread is still tied to this link.':
+      'Per URL geöffnet — nicht aus deiner RSS-Liste. Der Nostr-Thread hängt weiter an diesem Link.',
+    'Open in browser': 'Im Browser öffnen',
+    'Web page': 'Webseite',
+    Open: 'Öffnen',
     'Sorry! The note cannot be found 😔': 'Entschuldigung! Die Notiz wurde nicht gefunden 😔',
     'This user has been muted': 'Dieser Benutzer wurde stummgeschaltet',
     Wallet: 'Wallet',

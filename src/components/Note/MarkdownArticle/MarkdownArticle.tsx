@@ -9,7 +9,7 @@ import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
 import { toNoteList } from '@/lib/link'
 import { useMediaExtraction } from '@/hooks'
 import { cleanUrl, isImage, isMedia, isVideo, isAudio, isWebsocketUrl } from '@/lib/url'
-import { getImetaInfosFromEvent } from '@/lib/event'
+import { getHttpUrlFromITags, getImetaInfosFromEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import Emoji from '@/components/Emoji'
 import { ExtendedKind, WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
@@ -428,9 +428,23 @@ function parseMarkdownContent(
     emojiInfos?: TEmoji[]
     /** When viewing a kind-24 invite, render full calendar card with RSVP instead of EmbeddedNote for this naddr */
     fullCalendarInvite?: { naddr: string; event: Event }
+    /** If set, a standalone markdown link to this cleaned URL renders as inline link (OG shown separately). */
+    suppressStandaloneWebPreviewForCleanedUrl?: string
   }
 ): { nodes: React.ReactNode[]; hashtagsInContent: Set<string>; footnotes: Map<string, string>; citations: Array<{ id: string; type: string; citationId: string }> } {
-  const { eventPubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier, emojiInfos = [], fullCalendarInvite } = options
+  const {
+    eventPubkey,
+    imageIndexMap,
+    openLightbox,
+    navigateToHashtag,
+    navigateToRelay,
+    videoPosterMap,
+    imageThumbnailMap,
+    getImageIdentifier,
+    emojiInfos = [],
+    fullCalendarInvite,
+    suppressStandaloneWebPreviewForCleanedUrl
+  } = options
   const parts: React.ReactNode[] = []
   const hashtagsInContent = new Set<string>()
   const footnotes = new Map<string, string>()
@@ -1817,12 +1831,29 @@ function parseMarkdownContent(
       }
     } else if (pattern.type === 'markdown-link-standalone') {
       const { url } = pattern.data
-      // Standalone links render as WebPreview (OpenGraph card)
-      parts.push(
-        <div key={`webpreview-${patternIdx}`} className="my-2">
-          <WebPreview url={url} className="w-full" />
-        </div>
-      )
+      const cleanedStandalone = cleanUrl(url) || url
+      if (
+        suppressStandaloneWebPreviewForCleanedUrl &&
+        cleanedStandalone === suppressStandaloneWebPreviewForCleanedUrl
+      ) {
+        parts.push(
+          <a
+            key={`link-${patternIdx}`}
+            href={url}
+            className="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {url}
+          </a>
+        )
+      } else {
+        parts.push(
+          <div key={`webpreview-${patternIdx}`} className="my-2">
+            <WebPreview url={url} className="w-full" />
+          </div>
+        )
+      }
     } else if (pattern.type === 'markdown-link') {
       const { text, url } = pattern.data
       // Process the link text for inline formatting (bold, italic, etc.)
@@ -3198,7 +3229,12 @@ export default function MarkdownArticle({
   const { navigateToHashtag } = useSmartHashtagNavigation()
   const { navigateToRelay } = useSmartRelayNavigation()
   const metadata = useMemo(() => getLongFormArticleMetadataFromEvent(event), [event])
-  
+  const iArticleUrl = useMemo(() => getHttpUrlFromITags(event), [event])
+  const iArticleCleaned = useMemo(
+    () => (iArticleUrl ? cleanUrl(iArticleUrl) || iArticleUrl : ''),
+    [iArticleUrl]
+  )
+
   // Extract all media from event
   const extractedMedia = useMediaExtraction(event, event.content)
   
@@ -3470,12 +3506,14 @@ export default function MarkdownArticle({
   
   // Filter tag links to only show what's not in content (to avoid duplicate WebPreview cards)
   const leftoverTagLinks = useMemo(() => {
-    const contentLinksSet = new Set(contentLinks.map(link => cleanUrl(link)).filter(Boolean))
-    return tagLinks.filter(link => {
+    const contentLinksSet = new Set(contentLinks.map((link) => cleanUrl(link)).filter(Boolean))
+    return tagLinks.filter((link) => {
       const cleaned = cleanUrl(link)
-      return cleaned && !contentLinksSet.has(cleaned)
+      if (!cleaned) return false
+      if (iArticleCleaned && cleaned === iArticleCleaned) return false
+      return !contentLinksSet.has(cleaned)
     })
-  }, [tagLinks, contentLinks])
+  }, [tagLinks, contentLinks, iArticleCleaned])
   
   // Preprocess content to convert URLs to markdown syntax
   const preprocessedContent = useMemo(() => {
@@ -3546,11 +3584,25 @@ export default function MarkdownArticle({
       imageThumbnailMap,
       getImageIdentifier,
       emojiInfos,
-      fullCalendarInvite
+      fullCalendarInvite,
+      suppressStandaloneWebPreviewForCleanedUrl: iArticleCleaned || undefined
     })
     // Return nodes and hashtags (footnotes are already included in nodes)
     return { nodes: result.nodes, hashtagsInContent: result.hashtagsInContent }
-  }, [preprocessedContent, event.pubkey, imageIndexMap, openLightbox, navigateToHashtag, navigateToRelay, videoPosterMap, imageThumbnailMap, getImageIdentifier, emojiInfos, fullCalendarInvite])
+  }, [
+    preprocessedContent,
+    event.pubkey,
+    imageIndexMap,
+    openLightbox,
+    navigateToHashtag,
+    navigateToRelay,
+    videoPosterMap,
+    imageThumbnailMap,
+    getImageIdentifier,
+    emojiInfos,
+    fullCalendarInvite,
+    iArticleCleaned
+  ])
   
   // Filter metadata tags to only show what's not already in content
   const leftoverMetadataTags = useMemo(() => {
@@ -3645,6 +3697,11 @@ export default function MarkdownArticle({
         }
       `}</style>
       <div className={`prose prose-zinc max-w-none dark:prose-invert break-words overflow-wrap-anywhere ${className || ''}`}>
+        {iArticleUrl && (
+          <div className="not-prose mb-4 max-w-full">
+            <WebPreview url={iArticleUrl} className="w-full" />
+          </div>
+        )}
         {/* Metadata */}
                 {!hideMetadata && metadata.title && <h1 className="break-words">{metadata.title}</h1>}
                 {!hideMetadata && metadata.summary && (

@@ -29,6 +29,7 @@ const SettingsPageLazy = lazy(() => import('./pages/secondary/SettingsPage'))
 const TranslationPageLazy = lazy(() => import('./pages/secondary/TranslationPage'))
 const WalletPageLazy = lazy(() => import('./pages/secondary/WalletPage'))
 const FollowPacksRedirectLazy = lazy(() => import('./pages/secondary/FollowPacksRedirect'))
+const RssArticlePageLazy = lazy(() => import('./pages/secondary/RssArticlePage'))
 
 const routeSuspenseFallback = null
 
@@ -50,6 +51,14 @@ const ROUTES = [
   { path: '/home/notes/:id', element: SR(NotePageLazy) },
   { path: '/feed/notes/:id', element: SR(NotePageLazy) },
   { path: '/spells/notes/:id', element: SR(NotePageLazy) },
+  { path: '/rss-item/:articleKey', element: SR(RssArticlePageLazy) },
+  { path: '/rss/rss-item/:articleKey', element: SR(RssArticlePageLazy) },
+  { path: '/feed/rss-item/:articleKey', element: SR(RssArticlePageLazy) },
+  { path: '/search/rss-item/:articleKey', element: SR(RssArticlePageLazy) },
+  { path: '/profile/rss-item/:articleKey', element: SR(RssArticlePageLazy) },
+  { path: '/spells/rss-item/:articleKey', element: SR(RssArticlePageLazy) },
+  { path: '/explore/rss-item/:articleKey', element: SR(RssArticlePageLazy) },
+  { path: '/home/rss-item/:articleKey', element: SR(RssArticlePageLazy) },
   { path: '/users', element: SR(ProfileListPageLazy) },
   { path: '/users/:id', element: SR(ProfilePageLazy) },
   { path: '/users/:id/following', element: SR(FollowingListPageLazy) },

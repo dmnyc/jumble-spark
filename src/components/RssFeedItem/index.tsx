@@ -1,6 +1,6 @@
 import { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
 import { FormattedTimestamp } from '../FormattedTimestamp'
-import { ExternalLink, Highlighter, ChevronDown, ChevronUp } from 'lucide-react'
+import { ExternalLink, Highlighter } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import MediaPlayer from '@/components/MediaPlayer'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { useSmartRssArticleNavigation } from '@/PageManager'
 
 /**
  * Convert HTML to plain text by extracting text content and cleaning up whitespace
@@ -36,10 +37,22 @@ function htmlToPlainText(html: string): string {
   return text
 }
 
-export default function RssFeedItem({ item, className, compact = false }: { item: TRssFeedItem; className?: string; compact?: boolean }) {
+export default function RssFeedItem({
+  item,
+  className,
+  layout = 'detail'
+}: {
+  item: TRssFeedItem
+  className?: string
+  /** `list`: title row + actions (open full article in side panel). `detail`: full body (secondary panel). */
+  layout?: 'list' | 'detail'
+}) {
   const { t } = useTranslation()
   const { pubkey, checkLogin } = useNostr()
   const { isSmallScreen } = useScreenSize()
+  const { navigateToRssArticle } = useSmartRssArticleNavigation()
+  const isListLayout = layout === 'list'
+  const showFullBody = layout === 'detail'
   const [selectedText, setSelectedText] = useState('')
   const [highlightText, setHighlightText] = useState('') // Text to use in highlight editor
   const [showHighlightButton, setShowHighlightButton] = useState(false)
@@ -47,7 +60,6 @@ export default function RssFeedItem({ item, className, compact = false }: { item
   const [selectionPosition, setSelectionPosition] = useState<{ x: number; y: number } | null>(null)
   const [isPostEditorOpen, setIsPostEditorOpen] = useState(false)
   const [highlightData, setHighlightData] = useState<HighlightData | undefined>(undefined)
-  const [isExpanded, setIsExpanded] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const selectionTimeoutRef = useRef<NodeJS.Timeout>()
   const isSelectingRef = useRef(false)
@@ -426,11 +438,15 @@ export default function RssFeedItem({ item, className, compact = false }: { item
   // Format publication date
   const pubDateTimestamp = item.pubDate ? Math.floor(item.pubDate.getTime() / 1000) : null
 
-  // Check if content exceeds 400px height
+  // Check if content exceeds 400px height (detail layout only)
   const [needsCollapse, setNeedsCollapse] = useState(false)
+  const [longBodyExpanded, setLongBodyExpanded] = useState(false)
 
   useEffect(() => {
-    if (!contentRef.current || !descriptionHtml) return
+    if (isListLayout || !contentRef.current || !descriptionHtml) {
+      setNeedsCollapse(false)
+      return
+    }
 
     const checkHeight = () => {
       const element = contentRef.current
@@ -464,8 +480,7 @@ export default function RssFeedItem({ item, className, compact = false }: { item
 
     // Use ResizeObserver to detect when content changes
     const resizeObserver = new ResizeObserver(() => {
-      // Only check if not currently expanded (to avoid unnecessary checks)
-      if (!isExpanded) {
+      if (!longBodyExpanded) {
         checkHeight()
       }
     })
@@ -479,10 +494,31 @@ export default function RssFeedItem({ item, className, compact = false }: { item
       clearTimeout(timeoutId2)
       resizeObserver.disconnect()
     }
-  }, [descriptionHtml, isExpanded])
+  }, [descriptionHtml, longBodyExpanded, isListLayout])
 
   return (
-    <div className={`border rounded-lg bg-background p-4 space-y-3 overflow-hidden ${className || ''}`}>
+    <div
+      className={cn(
+        `border rounded-lg bg-background p-4 space-y-3 overflow-hidden ${className || ''}`,
+        isListLayout && 'cursor-pointer hover:bg-muted/40 transition-colors'
+      )}
+      onClick={
+        isListLayout
+          ? (e) => {
+              const target = e.target as HTMLElement
+              if (
+                target.closest('a') ||
+                target.closest('button') ||
+                target.closest('[role="dialog"]') ||
+                target.closest('.highlight-button-container')
+              ) {
+                return
+              }
+              navigateToRssArticle(item.link)
+            }
+          : undefined
+      }
+    >
       {/* Feed Header with Metadata */}
       <div className="flex items-start gap-3 pb-3 border-b">
         {/* Feed Image/Logo */}
@@ -520,23 +556,36 @@ export default function RssFeedItem({ item, className, compact = false }: { item
 
       {/* Title */}
       <div className="min-w-0">
-        <a
-          href={item.link}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(
-            "text-lg hover:text-primary transition-colors inline-flex items-center gap-2 break-words",
-            !compact || isExpanded ? "font-semibold" : ""
-          )}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <span className="break-words">{item.title}</span>
-          <ExternalLink className="h-4 w-4 shrink-0" />
-        </a>
+        {isListLayout ? (
+          <div className="text-lg font-medium break-words flex items-start gap-2">
+            <span className="break-words flex-1 min-w-0">{item.title}</span>
+            <a
+              href={item.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:text-primary/90 shrink-0 mt-0.5"
+              onClick={(e) => e.stopPropagation()}
+              title={t('Read full article')}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          </div>
+        ) : (
+          <a
+            href={item.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-lg font-semibold hover:text-primary transition-colors inline-flex items-center gap-2 break-words"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="break-words">{item.title}</span>
+            <ExternalLink className="h-4 w-4 shrink-0" />
+          </a>
+        )}
       </div>
 
-      {/* Compact view: Hide media and description when compact and not expanded */}
-      {!compact || isExpanded ? (
+      {/* List layout: body lives in the secondary panel */}
+      {showFullBody ? (
         <>
           {/* Media (Images) */}
           {item.media && item.media.length > 0 && (
@@ -600,7 +649,7 @@ export default function RssFeedItem({ item, className, compact = false }: { item
               ref={contentRef}
               className={cn(
                 'prose prose-sm dark:prose-invert max-w-none break-words rss-feed-content transition-all duration-200 overflow-wrap-anywhere',
-                needsCollapse && !isExpanded && 'max-h-[400px] overflow-hidden',
+                needsCollapse && !longBodyExpanded && 'max-h-[400px] overflow-hidden',
                 '[&_img]:max-w-full [&_img]:md:max-w-[400px] [&_img]:h-auto [&_img]:rounded-lg',
                 '[&_*]:max-w-full'
               )}
@@ -618,32 +667,25 @@ export default function RssFeedItem({ item, className, compact = false }: { item
             />
             
             {/* Gradient overlay when collapsed */}
-            {needsCollapse && !isExpanded && (
+            {needsCollapse && !longBodyExpanded && (
               <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-b from-transparent via-background/60 to-background pointer-events-none" />
             )}
             
-            {/* Collapse/Expand Button - Only show in full view */}
-            {!compact && needsCollapse && (
+            {showFullBody && needsCollapse && (
               <div className="flex justify-center mt-2 relative z-10">
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation()
-                    setIsExpanded(!isExpanded)
+                    setLongBodyExpanded((prev) => !prev)
                   }}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  {isExpanded ? (
-                    <>
-                      <ChevronUp className="h-4 w-4 mr-1" />
-                      {t('Show less')}
-                    </>
+                  {longBodyExpanded ? (
+                    t('Show less')
                   ) : (
-                    <>
-                      <ChevronDown className="h-4 w-4 mr-1" />
-                      {t('Show more')}
-                    </>
+                    t('Show more')
                   )}
                 </Button>
               </div>
@@ -716,8 +758,7 @@ export default function RssFeedItem({ item, className, compact = false }: { item
         </>
       ) : null}
 
-      {/* Link to original article and expand button */}
-      <div className="flex items-center justify-between gap-2 text-sm min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm min-w-0">
         <a
           href={item.link}
           target="_blank"
@@ -728,29 +769,6 @@ export default function RssFeedItem({ item, className, compact = false }: { item
           <span className="truncate">{t('Read full article')}</span>
           <ExternalLink className="h-3 w-3 shrink-0" />
         </a>
-        {compact && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation()
-              setIsExpanded(!isExpanded)
-            }}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            {isExpanded ? (
-              <>
-                <ChevronUp className="h-4 w-4 mr-1" />
-                {t('Show less')}
-              </>
-            ) : (
-              <>
-                <ChevronDown className="h-4 w-4 mr-1" />
-                {t('Expand')}
-              </>
-            )}
-          </Button>
-        )}
       </div>
 
       {/* Post Editor for highlights */}
