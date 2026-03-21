@@ -6,7 +6,7 @@ export default function KeyboardShortcutsHelpSidebarButton() {
   const { openHelp } = useKeyboardShortcutsHelp()
 
   return (
-    <SidebarItem title="shortcuts.title" onClick={openHelp}>
+    <SidebarItem title="help.title" onClick={openHelp}>
       <CircleHelp strokeWidth={2.5} />
     </SidebarItem>
   )

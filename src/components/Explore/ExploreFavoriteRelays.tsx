@@ -105,7 +105,7 @@ export default function ExploreFavoriteRelays() {
           <span className="text-xs text-muted-foreground">{t('Using app default relays')}</span>
         ) : null}
       </div>
-      <div className="flex gap-3 overflow-x-auto overflow-y-hidden pb-1 pt-0.5 [scrollbar-gutter:stable] snap-x snap-mandatory">
+      <div className="flex gap-3 overflow-x-auto overflow-y-hidden pb-4 pt-0.5 snap-x snap-mandatory [scrollbar-gutter:stable]">
         {urls.map((url) => (
           <div key={url} className="snap-start">
             <FavoriteRelayCard url={url} />

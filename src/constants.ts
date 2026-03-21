@@ -267,7 +267,7 @@ export const SUPPORTED_KINDS = [
   ExtendedKind.APPLICATION_HANDLER_INFO
 ]
 
-/** Kinds for profile feed and favorites-style feeds: supported kinds except reposts, publications, publication content, NIP-89 handlers. */
+/** Kinds for profile feed and favorites-style feeds: supported kinds except boosts (kind 6), publications, publication content, NIP-89 handlers. */
 export const PROFILE_FEED_KINDS = SUPPORTED_KINDS.filter(
   (k) =>
     k !== kinds.Repost &&

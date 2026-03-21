@@ -3,7 +3,7 @@ import {
   ExtendedKind,
   MEDIA_AUTO_LOAD_POLICY,
   NOTIFICATION_LIST_STYLE,
-  SUPPORTED_KINDS,
+  PROFILE_FEED_KINDS,
   StorageKey
 } from '@/constants'
 import { kinds } from 'nostr-tools'
@@ -223,15 +223,7 @@ class LocalStorageService {
 
     const showKindsStr = window.localStorage.getItem(StorageKey.SHOW_KINDS)
     if (!showKindsStr) {
-      // Default: show all supported kinds except reposts, publications, publication content, and NIP-89 handler kinds
-      this.showKinds = SUPPORTED_KINDS.filter(
-        kind =>
-          kind !== kinds.Repost &&
-          kind !== ExtendedKind.PUBLICATION &&
-          kind !== ExtendedKind.PUBLICATION_CONTENT &&
-          kind !== ExtendedKind.APPLICATION_HANDLER_RECOMMENDATION &&
-          kind !== ExtendedKind.APPLICATION_HANDLER_INFO
-      )
+      this.showKinds = [...PROFILE_FEED_KINDS]
     } else {
       const showKindsVersionStr = window.localStorage.getItem(StorageKey.SHOW_KINDS_VERSION)
       const showKindsVersion = showKindsVersionStr ? parseInt(showKindsVersionStr) : 0
@@ -243,7 +235,7 @@ class LocalStorageService {
         showKinds.push(ExtendedKind.ZAP_RECEIPT)
       }
       if (showKindsVersion < 3) {
-        // Remove reposts from existing users' filters
+        // Remove boosts (kind 6) from existing users' filters
         const repostIndex = showKinds.indexOf(kinds.Repost)
         if (repostIndex !== -1) {
           showKinds.splice(repostIndex, 1)
@@ -290,10 +282,19 @@ class LocalStorageService {
           showKinds.splice(nip89InfoIndex, 1)
         }
       }
+      if (showKindsVersion < 8) {
+        // Boosts (kind 6) and publications removed from feed filter UI — strip from saved preferences
+        for (let i = showKinds.length - 1; i >= 0; i--) {
+          const k = showKinds[i]
+          if (k === kinds.Repost || k === ExtendedKind.PUBLICATION) {
+            showKinds.splice(i, 1)
+          }
+        }
+      }
       this.showKinds = showKinds
     }
     this.persistSetting(StorageKey.SHOW_KINDS, JSON.stringify(this.showKinds))
-    this.persistSetting(StorageKey.SHOW_KINDS_VERSION, '7')
+    this.persistSetting(StorageKey.SHOW_KINDS_VERSION, '8')
 
     // Feed filter: kind 1 OPs, kind 1 replies, kind 1111 (migrate from legacy showRepliesAndComments if set)
     const showKind1OPsStr = window.localStorage.getItem(StorageKey.SHOW_KIND_1_OPs)

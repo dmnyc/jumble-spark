@@ -42,7 +42,7 @@ High-level changes versus a “stock” Jumble-style layout:
 
 ### Explore quality-of-life
 
-- **Relay URL search** in the Explore title bar: paste `wss://…` or a host, submit, and open the relay page with the same navigation as the relay cards. While typing, **suggestions** come from the **NIP-66 monitoring (public lively) list** on partial or full URL/host matches; you can still submit any URL the app does not know.
+- **Search for Relays** on Explore (below Favorite Relays): paste `wss://…` or a host, submit, and open the relay page with the same navigation as the relay cards. While typing, **suggestions** come from the **NIP-66 monitoring (public lively) list** on partial or full URL/host matches; you can still submit any URL the app does not know.
 
 ### Other
 

@@ -69,16 +69,16 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
             successCount: (evt as any).relayStatuses.filter((s: any) => s.success).length,
             totalCount: (evt as any).relayStatuses.length
           }, {
-            message: t('Repost published'),
+            message: t('Boost published'),
             duration: 4000
           })
         } else {
-          showSimplePublishSuccess(t('Repost published'))
+          showSimplePublishSuccess(t('Boost published'))
         }
         
         noteStatsService.updateNoteStatsByEvents([evt])
       } catch (error) {
-        logger.error('Repost failed', { error, eventId: event.id })
+        logger.error('Boost failed', { error, eventId: event.id })
       } finally {
         setReposting(false)
         clearTimeout(timer)
@@ -92,7 +92,7 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
         'flex gap-1 items-center enabled:hover:text-lime-500 px-3 h-full',
         hasReposted ? 'text-lime-500' : 'text-muted-foreground'
       )}
-      title={t('Repost')}
+      title={t('Boost')}
       onClick={() => {
         if (isSmallScreen) {
           setIsDrawerOpen(true)
@@ -120,7 +120,7 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
           <DrawerOverlay onClick={() => setIsDrawerOpen(false)} />
           <DrawerContent hideOverlay>
             <DrawerHeader className="sr-only">
-              <DrawerTitle>Repost</DrawerTitle>
+              <DrawerTitle>{t('Boost')}</DrawerTitle>
             </DrawerHeader>
             <div className="py-2">
               <Button
@@ -133,7 +133,7 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
                 className="w-full p-6 justify-start text-lg gap-4 [&_svg]:size-5"
                 variant="ghost"
               >
-                <Repeat /> {t('Repost')}
+                <Repeat /> {t('Boost')}
               </Button>
               <Button
                 onClick={(e) => {
@@ -168,7 +168,7 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
             }}
             disabled={!canRepost}
           >
-            <Repeat /> {t('Repost')}
+            <Repeat /> {t('Boost')}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={(e) => {

@@ -49,7 +49,7 @@ const ProfileFeed = forwardRef<{ refresh: () => void; getEvents?: () => Event[] 
       if (!kindValue || kindValue === 'all') return 'posts'
       const kindNum = parseInt(kindValue, 10)
       if (kindNum === kinds.ShortTextNote) return 'notes'
-      if (kindNum === kinds.Repost) return 'reposts'
+      if (kindNum === kinds.Repost) return 'boosts'
       if (kindNum === ExtendedKind.COMMENT) return 'comments'
       if (kindNum === ExtendedKind.DISCUSSION) return 'discussions'
       if (kindNum === ExtendedKind.POLL) return 'polls'

@@ -7,7 +7,6 @@ import HideUntrustedContentButton from '../HideUntrustedContentButton'
 import QuoteList from '../QuoteList'
 import ReactionList from '../ReactionList'
 import ReplyNoteList from '../ReplyNoteList'
-import RepostList from '../RepostList'
 import ZapList from '../ZapList'
 import { Tabs, TTabValue } from './Tabs'
 import ReplySort, { ReplySortOption } from './ReplySort'
@@ -40,8 +39,8 @@ export default function NoteInteractions({
     case 'reactions':
       list = <ReactionList event={event} />
       break
-    case 'reposts':
-      if (isDiscussion) return null // Hide reposts for discussions
+    case 'boosts':
+      if (isDiscussion) return null // Hide boosts for discussions
       list = <RepostList event={event} />
       break
     case 'zaps':
@@ -55,7 +54,7 @@ export default function NoteInteractions({
     <>
       <div className="flex items-center justify-between">
         <div className="flex-1 w-0">
-          <Tabs selectedTab={type} onTabChange={setType} hideRepostsAndQuotes={isDiscussion} />
+          <Tabs selectedTab={type} onTabChange={setType} hideBoostsAndQuotes={isDiscussion} />
         </div>
         <Separator orientation="vertical" className="h-6" />
         {type === 'replies' && isDiscussion && (

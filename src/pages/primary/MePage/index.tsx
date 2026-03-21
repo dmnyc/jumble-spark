@@ -16,7 +16,6 @@ import {
   ChevronRight,
   LogOut,
   Server,
-  Settings,
   UserRound,
   Wallet
 } from 'lucide-react'

@@ -11,7 +11,7 @@ import { toWallet } from '@/lib/link'
 import { formatPubkey, generateImageByPubkey, pubkeyToNpub, formatNpub } from '@/lib/pubkey'
 import { usePrimaryPage, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
-import { ArrowDownUp, LogIn, LogOut, MoreVertical, Wallet } from 'lucide-react'
+import { ArrowDownUp, LogIn, LogOut, MoreVertical, Settings, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import LoginDialog from '../LoginDialog'
@@ -77,6 +77,10 @@ function ProfileButton() {
           <DropdownMenuItem onClick={() => push(toWallet())}>
             <Wallet />
             {t('Wallet')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate('settings')}>
+            <Settings />
+            {t('Settings')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setLoginDialogOpen(true)}>

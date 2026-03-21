@@ -3,6 +3,7 @@ import { ExtendedKind } from '@/constants'
 import ContentPreview from '@/components/ContentPreview'
 import client from '@/services/client.service'
 import Note from '@/components/Note'
+import NoteBoostBadges from '@/components/NoteBoostBadges'
 import NoteInteractions from '@/components/NoteInteractions'
 import NoteStats from '@/components/NoteStats'
 import UserAvatar from '@/components/UserAvatar'
@@ -160,8 +161,8 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
         return 'Note: Calendar Event'
       case 9735: // ExtendedKind.ZAP_RECEIPT
         return 'Note: Zap Receipt'
-      case 6: // kinds.Repost
-        return 'Note: Repost'
+      case 6: // kinds.Repost (Nostr boost)
+        return 'Note: Boost'
       case 7: // kinds.Reaction
         return 'Note: Reaction'
       case 1111: // ExtendedKind.COMMENT

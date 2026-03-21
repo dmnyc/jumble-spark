@@ -18,7 +18,7 @@ export default function PrimaryPageSidebar() {
   if (isSmallScreen) return null
 
   return (
-    <div className="w-16 xl:w-52 flex flex-col pb-2 pt-4 px-2 xl:pl-4 xl:pr-6 justify-between h-full shrink-0">
+    <div className="w-[4.8rem] xl:w-[15.6rem] flex flex-col pb-2 pt-4 px-2 xl:pl-4 xl:pr-6 justify-between h-full shrink-0">
       <div className="space-y-2">
         <div className="px-3 xl:px-4 mb-6 w-full">
           <Icon className="xl:hidden" />

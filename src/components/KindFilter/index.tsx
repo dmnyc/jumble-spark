@@ -16,9 +16,7 @@ const KIND_1 = kinds.ShortTextNote
 const KIND_1111 = ExtendedKind.COMMENT
 
 const KIND_FILTER_OPTIONS = [
-  { kindGroup: [kinds.Repost], label: 'Reposts' },
   { kindGroup: [kinds.LongFormArticle], label: 'Articles' },
-  { kindGroup: [ExtendedKind.PUBLICATION], label: 'Publications' },
   { kindGroup: [ExtendedKind.WIKI_ARTICLE, ExtendedKind.WIKI_ARTICLE_MARKDOWN], label: 'Wiki Articles' },
   { kindGroup: [kinds.Highlights], label: 'Highlights' },
   { kindGroup: [ExtendedKind.POLL], label: 'Polls' },
@@ -212,7 +210,13 @@ export default function KindFilter({
           variant="secondary"
           onClick={() => {
             setTemporaryShowKinds(
-              SUPPORTED_KINDS.filter((k) => k !== kinds.Repost && k !== KIND_1 && k !== KIND_1111)
+              SUPPORTED_KINDS.filter(
+                (k) =>
+                  k !== kinds.Repost &&
+                  k !== ExtendedKind.PUBLICATION &&
+                  k !== KIND_1 &&
+                  k !== KIND_1111
+              )
             )
             setTemporaryShowKind1OPs(true)
             setTemporaryShowKind1Replies(true)

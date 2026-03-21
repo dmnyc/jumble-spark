@@ -4,7 +4,7 @@ import { Settings } from 'lucide-react'
 import { forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
-const SettingsPrimaryPage = forwardRef<HTMLDivElement>((_, ref) => {
+const SettingsPrimaryPage = forwardRef((_, ref) => {
   const { t } = useTranslation()
 
   return (

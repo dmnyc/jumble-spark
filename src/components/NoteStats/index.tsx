@@ -38,7 +38,7 @@ export default function NoteStats({
   const { favoriteRelays } = useFavoriteRelays()
   const [loading, setLoading] = useState(false)
   
-  // Hide repost button for discussion events and replies to discussions
+  // Hide boost button for discussion events and replies to discussions
   const isDiscussion = event.kind === ExtendedKind.DISCUSSION
   const [isReplyToDiscussion, setIsReplyToDiscussion] = useState(false)
   

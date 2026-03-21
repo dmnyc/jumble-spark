@@ -26,7 +26,7 @@ export function RepostNotification({ notification }: { notification: Event }) {
       sender={notification.pubkey}
       sentAt={notification.created_at}
       targetEvent={event}
-      description={t('reposted your note')}
+      description={t('boosted your note')}
     />
   )
 }

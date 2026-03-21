@@ -2,11 +2,10 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 import { useRef, useEffect, useState } from 'react'
 
-export type TTabValue = 'replies' | 'quotes' | 'reactions' | 'reposts' | 'zaps'
+export type TTabValue = 'replies' | 'quotes' | 'reactions' | 'zaps'
 const TABS = [
   { value: 'replies', label: 'Replies' },
   { value: 'zaps', label: 'Zaps' },
-  { value: 'reposts', label: 'Reposts' },
   { value: 'reactions', label: 'Reactions' },
   { value: 'quotes', label: 'Quotes' }
 ] as { value: TTabValue; label: string }[]
@@ -14,20 +13,21 @@ const TABS = [
 export function Tabs({
   selectedTab,
   onTabChange,
-  hideRepostsAndQuotes = false
+  hideQuotesForDiscussion = false
 }: {
   selectedTab: TTabValue
   onTabChange: (tab: TTabValue) => void
-  hideRepostsAndQuotes?: boolean
+  /** Hide the quotes tab on discussion threads */
+  hideQuotesForDiscussion?: boolean
 }) {
   const { t } = useTranslation()
   const tabRefs = useRef<(HTMLDivElement | null)[]>([])
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [indicatorStyle, setIndicatorStyle] = useState({ width: 0, left: 0, top: 0 })
 
-  // Filter tabs based on hideRepostsAndQuotes
-  const visibleTabs = hideRepostsAndQuotes 
-    ? TABS.filter(tab => tab.value !== 'reposts' && tab.value !== 'quotes')
+  // Filter tabs based on hideBoostsAndQuotes
+  const visibleTabs = hideBoostsAndQuotes
+    ? TABS.filter((tab) => tab.value !== 'boosts' && tab.value !== 'quotes')
     : TABS
 
   useEffect(() => {

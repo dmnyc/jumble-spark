@@ -109,6 +109,7 @@ const ExplorePage = forwardRef((_, ref) => {
         {tab === 'explore' && (
           <>
             <ExploreFavoriteRelays />
+            <ExploreRelaySearchSection />
             <Explore />
           </>
         )}
@@ -121,6 +122,33 @@ ExplorePage.displayName = 'ExplorePage'
 export default ExplorePage
 
 function ExplorePageTitlebar() {
+  const { t } = useTranslation()
+
+  return (
+    <div className="flex h-full min-w-0 w-full items-center justify-between gap-2 px-2 py-1 sm:pl-3 sm:pr-2">
+      <div className="flex shrink-0 items-center gap-2">
+        <Compass className="size-5 shrink-0" />
+        <div className="text-lg font-semibold">{t('Explore')}</div>
+      </div>
+      <Button
+        variant="ghost"
+        size="titlebar-icon"
+        className="relative w-fit shrink-0 px-3"
+        onClick={() => {
+          window.open(
+            'https://github.com/CodyTseng/awesome-nostr-relays/issues/new?template=add-relay.md',
+            '_blank'
+          )
+        }}
+      >
+        <Plus size={16} />
+        {t('Submit Relay')}
+      </Button>
+    </div>
+  )
+}
+
+function ExploreRelaySearchSection() {
   const { t } = useTranslation()
   const { navigateToRelay } = useSmartRelayNavigation()
   const [relayQuery, setRelayQuery] = useState('')
@@ -175,35 +203,58 @@ function ExplorePageTitlebar() {
   }
 
   return (
-    <div className="flex h-full min-w-0 w-full flex-wrap items-center justify-between gap-2 gap-y-2 px-2 py-1 sm:pl-3 sm:pr-2">
-      <div className="flex shrink-0 items-center gap-2">
-        <Compass className="size-5 shrink-0" />
-        <div className="text-lg font-semibold">{t('Explore')}</div>
-      </div>
-      <div className="relative min-w-0 max-w-xl flex-1 basis-full sm:basis-64">
+    <section className="min-w-0 px-2 pb-4 pt-0" aria-label={t('Search for Relays')}>
+      <h2 className="mb-2 px-2 text-base font-semibold tracking-tight">{t('Search for Relays')}</h2>
+      <div className="max-w-xl px-2">
         <form className="flex items-center gap-1.5" onSubmit={onSubmitRelay}>
-          <Input
-            type="text"
-            inputMode="url"
-            autoComplete="off"
-            placeholder={t('Relay URL…')}
-            className="h-9 min-w-0 flex-1 font-mono text-sm"
-            value={relayQuery}
-            onChange={(e) => setRelayQuery(e.target.value)}
-            aria-label={t('Relay URL…')}
-            aria-autocomplete="list"
-            aria-expanded={suggestOpen && relaySuggestions.length > 0}
-            aria-controls="explore-relay-suggestions"
-            role="combobox"
-            onFocus={() => {
-              clearBlurTimer()
-              setSuggestOpen(true)
-            }}
-            onBlur={() => {
-              clearBlurTimer()
-              blurCloseTimer.current = setTimeout(() => setSuggestOpen(false), 200)
-            }}
-          />
+          <div className="relative min-w-0 flex-1">
+            <Input
+              type="text"
+              inputMode="url"
+              autoComplete="off"
+              placeholder={t('Relay URL…')}
+              className="h-9 w-full font-mono text-sm"
+              value={relayQuery}
+              onChange={(e) => setRelayQuery(e.target.value)}
+              aria-label={t('Relay URL…')}
+              aria-autocomplete="list"
+              aria-expanded={suggestOpen && relaySuggestions.length > 0}
+              aria-controls="explore-relay-suggestions"
+              role="combobox"
+              onFocus={() => {
+                clearBlurTimer()
+                setSuggestOpen(true)
+              }}
+              onBlur={() => {
+                clearBlurTimer()
+                blurCloseTimer.current = setTimeout(() => setSuggestOpen(false), 200)
+              }}
+            />
+            {suggestOpen && relaySuggestions.length > 0 ? (
+              <ul
+                id="explore-relay-suggestions"
+                role="listbox"
+                className={cn(
+                  'absolute inset-x-0 top-full z-50 mt-1 max-h-60 overflow-auto rounded-md border bg-popover py-1 text-popover-foreground shadow-md'
+                )}
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {relaySuggestions.map((url) => (
+                  <li key={url} role="presentation">
+                    <button
+                      type="button"
+                      role="option"
+                      className="flex w-full flex-col items-stretch gap-0.5 px-3 py-2 text-left text-sm hover:bg-accent focus:bg-accent focus:outline-none"
+                      onClick={() => openRelayAndReset(url)}
+                    >
+                      <span className="truncate font-mono">{simplifyUrl(url)}</span>
+                      <span className="truncate text-xs text-muted-foreground">{url}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
           <Button
             type="submit"
             variant="secondary"
@@ -214,45 +265,7 @@ function ExplorePageTitlebar() {
             <ArrowRight className="size-4" />
           </Button>
         </form>
-        {suggestOpen && relaySuggestions.length > 0 ? (
-          <ul
-            id="explore-relay-suggestions"
-            role="listbox"
-            className={cn(
-              'absolute left-0 right-12 top-full z-50 mt-1 max-h-60 overflow-auto rounded-md border bg-popover py-1 text-popover-foreground shadow-md'
-            )}
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            {relaySuggestions.map((url) => (
-              <li key={url} role="presentation">
-                <button
-                  type="button"
-                  role="option"
-                  className="flex w-full flex-col items-stretch gap-0.5 px-3 py-2 text-left text-sm hover:bg-accent focus:bg-accent focus:outline-none"
-                  onClick={() => openRelayAndReset(url)}
-                >
-                  <span className="truncate font-mono">{simplifyUrl(url)}</span>
-                  <span className="truncate text-xs text-muted-foreground">{url}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
       </div>
-      <Button
-        variant="ghost"
-        size="titlebar-icon"
-        className="relative w-fit shrink-0 px-3"
-        onClick={() => {
-          window.open(
-            'https://github.com/CodyTseng/awesome-nostr-relays/issues/new?template=add-relay.md',
-            '_blank'
-          )
-        }}
-      >
-        <Plus size={16} />
-        {t('Submit Relay')}
-      </Button>
-    </div>
+    </section>
   )
 }

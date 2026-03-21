@@ -74,7 +74,7 @@ export default function RepostList({ event }: { event: Event }) {
       <div ref={bottomRef} />
 
       <div className="text-sm mt-2 text-center text-muted-foreground">
-        {filteredReposts.length > 0 ? t('No more reposts') : t('No reposts yet')}
+        {filteredReposts.length > 0 ? t('No more boosts') : t('No boosts yet')}
       </div>
     </div>
   )
