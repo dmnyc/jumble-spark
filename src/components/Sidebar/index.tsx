@@ -6,13 +6,12 @@ import KeyboardShortcutsHelpSidebarButton from './KeyboardShortcutsHelpSidebarBu
 import DiscussionsButton from './DiscussionsButton'
 import RelaysButton from './ExploreButton'
 import HomeButton from './HomeButton'
-import NotificationsButton from './NotificationButton'
+import NotificationButton from './NotificationButton'
 import PostButton from './PostButton'
-import ProfileButton from './ProfileButton'
 import RssButton from './RssButton'
-import SpellsButton from './SpellsButton'
 import SearchButton from './SearchButton'
 import SettingsButton from './SettingsButton'
+import SpellsButton from './SpellsButton'
 import PaneModeToggle from './PaneModeToggle'
 import storage from '@/services/local-storage.service'
 
@@ -36,11 +35,10 @@ export default function PrimaryPageSidebar() {
         <HomeButton />
         <RelaysButton />
         <DiscussionsButton />
-        <NotificationsButton />
+        <NotificationButton />
         <SearchButton />
-        <ProfileButton />
-        {showRssFeed && <RssButton />}
         <SpellsButton />
+        {showRssFeed && <RssButton />}
         <SettingsButton />
         <PostButton />
       </div>

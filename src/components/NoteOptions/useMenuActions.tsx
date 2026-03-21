@@ -612,9 +612,10 @@ export function useMenuActions({
         label: t('Share with Jumble'),
         onClick: () => {
           const noteId = getNoteBech32Id(event)
-          // Only include context for discussions page, use plain /notes/{id} for others
-          const path = currentPrimaryPage === 'discussions'
-            ? `/discussions/notes/${noteId}`
+          // Contextual URL when on Spells (e.g. discussions faux-spell); plain /notes/{id} otherwise
+          const path =
+            currentPrimaryPage === 'spells'
+            ? `/spells/notes/${noteId}`
             : `/notes/${noteId}`
           const jumbleUrl = `https://jumble.imwald.eu${path}`
           navigator.clipboard.writeText(jumbleUrl)

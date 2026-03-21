@@ -22,7 +22,7 @@ import { Bell, BellOff, Copy, Ellipsis, MessageCircle, Send, Video, SatelliteDis
 import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Event, kinds } from 'nostr-tools'
+import { Event } from 'nostr-tools'
 
 export default function ProfileOptions({
   pubkey,

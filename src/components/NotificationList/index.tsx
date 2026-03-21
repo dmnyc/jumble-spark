@@ -37,8 +37,8 @@ const NotificationList = forwardRef(
     ref
   ) => {
   const { t } = useTranslation()
-  const { current, display } = usePrimaryPage()
-  const active = useMemo(() => current === 'notifications' && display, [current, display])
+  const { display } = usePrimaryPage()
+  const active = display
   const { pubkey, relayList } = useNostr()
   const { notificationListStyle } = useUserPreferences()
   const { favoriteRelays } = useFavoriteRelays()
@@ -142,8 +142,6 @@ const NotificationList = forwardRef(
   )
 
   useEffect(() => {
-    if (current !== 'notifications') return
-
     if (!pubkey) {
       setUntil(undefined)
       return
@@ -234,7 +232,7 @@ const NotificationList = forwardRef(
       flushStatsBatch() // Flush any pending stats updates
       consecutiveEmptyRef.current = 0 // Reset counter on refresh
     }
-  }, [pubkey, refreshCount, filterKinds, current, flushStatsBatch])
+  }, [pubkey, refreshCount, filterKinds, relayList, favoriteRelays, flushStatsBatch])
 
   useEffect(() => {
     if (!active || !pubkey) return

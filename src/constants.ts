@@ -267,6 +267,28 @@ export const SUPPORTED_KINDS = [
   ExtendedKind.APPLICATION_HANDLER_INFO
 ]
 
+/** Kinds for profile feed and favorites-style feeds: supported kinds except reposts, publications, publication content, NIP-89 handlers. */
+export const PROFILE_FEED_KINDS = SUPPORTED_KINDS.filter(
+  (k) =>
+    k !== kinds.Repost &&
+    k !== ExtendedKind.PUBLICATION &&
+    k !== ExtendedKind.PUBLICATION_CONTENT &&
+    k !== ExtendedKind.APPLICATION_HANDLER_RECOMMENDATION &&
+    k !== ExtendedKind.APPLICATION_HANDLER_INFO
+)
+
+/** Order for faux-spells in the feed / spell picker. */
+export const FAUX_SPELL_ORDER = [
+  'favorite-relays',
+  'notifications',
+  'discussions',
+  'following',
+  'media',
+  'interests',
+  'bookmarks',
+  'calendar'
+] as const
+
 export const URL_REGEX =
   /https?:\/\/[\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*]+(?:,[^\s.][\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*,]*)*[^\s.,;:'")\]}!?，。；："'！？】）](?=\.|,\s|$|[^\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*,])/giu
 export const WS_URL_REGEX =

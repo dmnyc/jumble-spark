@@ -1,18 +1,17 @@
-import { usePrimaryPage, usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import { Bell } from 'lucide-react'
 import SidebarItem from './SidebarItem'
 
-export default function NotificationsButton() {
+export default function NotificationButton() {
+  const { navigate } = usePrimaryPage()
   const { checkLogin } = useNostr()
-  const { navigate, current, display } = usePrimaryPage()
-  const { primaryViewType } = usePrimaryNoteView()
 
   return (
     <SidebarItem
-      title="Notifications"
-      onClick={() => checkLogin(() => navigate('notifications'))}
-      active={display && current === 'notifications' && primaryViewType === null}
+      title="notifications"
+      onClick={() => checkLogin(() => navigate('spells', { spell: 'notifications' }))}
+      active={false}
     >
       <Bell strokeWidth={3} />
     </SidebarItem>

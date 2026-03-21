@@ -29,7 +29,7 @@ const ROUTES = [
   { path: '/search/notes/:id', element: <NotePage /> },
   { path: '/profile/notes/:id', element: <NotePage /> },
   { path: '/explore/notes/:id', element: <NotePage /> },
-  { path: '/notifications/notes/:id', element: <NotePage /> },
+  { path: '/spells/notes/:id', element: <NotePage /> },
   { path: '/users', element: <ProfileListPage /> },
   { path: '/users/:id', element: <ProfilePage /> },
   { path: '/users/:id/following', element: <FollowingListPage /> },

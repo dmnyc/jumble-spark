@@ -20,7 +20,6 @@ import React, {
   useState
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import FeedButton from './FeedButton'
 import { KeyboardShortcutsHelpButton } from '@/components/KeyboardShortcutsHelp'
 import ExploreButton from '@/components/Titlebar/ExploreButton'
 import AccountButton from '@/components/Titlebar/AccountButton'
@@ -151,7 +150,6 @@ function NoteListPageTitlebar({
     <div className="relative flex gap-1 items-center h-full justify-between">
       <div className="flex gap-1 items-center">
         <ExploreButton />
-        <FeedButton className="flex-1 max-w-fit w-0" />
       </div>
       {isSmallScreen && (
         <div className="absolute left-1/2 transform -translate-x-1/2 z-10">

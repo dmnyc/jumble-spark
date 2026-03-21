@@ -11,8 +11,8 @@ export default function DiscussionsButton() {
   return (
     <SidebarItem
       title={t('Discussions')}
-      onClick={() => navigate('discussions')}
-      active={display && current === 'discussions' && primaryViewType === null}
+      onClick={() => navigate('spells', { spell: 'discussions' })}
+      active={display && current === 'spells' && primaryViewType === null}
     >
       <MessageCircle strokeWidth={3} />
     </SidebarItem>

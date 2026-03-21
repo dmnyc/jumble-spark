@@ -7,8 +7,8 @@ export default function DiscussionsButton() {
 
   return (
     <BottomNavigationBarItem
-      active={current === 'discussions' && display}
-      onClick={() => navigate('discussions')}
+      active={current === 'spells' && display}
+      onClick={() => navigate('spells', { spell: 'discussions' })}
     >
       <MessageCircle />
     </BottomNavigationBarItem>

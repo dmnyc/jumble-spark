@@ -1,4 +1,8 @@
+import HideUntrustedContentButton from '@/components/HideUntrustedContentButton'
 import NoteList from '@/components/NoteList'
+import NotificationList from '@/components/NotificationList'
+import { RefreshButton } from '@/components/RefreshButton'
+import Tabs from '@/components/Tabs'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -45,13 +49,29 @@ import {
   spellIsCount
 } from '@/services/spell.service'
 import { TFeedSubRequest } from '@/types'
-import { Check, ChevronDown, Copy, FileText, MoreVertical, Pencil, Plus, Star, Trash2, Wand2 } from 'lucide-react'
+import {
+  Bell,
+  Check,
+  ChevronDown,
+  Copy,
+  FileText,
+  MessageSquare,
+  MoreVertical,
+  Pencil,
+  Plus,
+  Star,
+  Trash2,
+  Wand2
+} from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { verifyEvent } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
 import type { TPageRef } from '@/types'
+import type { TNotificationType } from '@/types'
+import { isTouchDevice } from '@/lib/utils'
+import DiscussionsPage from '@/pages/primary/DiscussionsPage'
 
 /** Primary + optional subtitle (npub and/or short id). When grouped under an author header, omit npub. */
 function spellPickerPrimaryAndSecondary(
@@ -146,12 +166,30 @@ function SpellSheetOptionRow({
   )
 }
 
-const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
+const FAUX_SPELL_NAMES = ['notifications', 'discussions'] as const
+type FauxSpellName = (typeof FAUX_SPELL_NAMES)[number]
+
+function isFauxSpellName(s: string): s is FauxSpellName {
+  return FAUX_SPELL_NAMES.includes(s as FauxSpellName)
+}
+
+const SpellsPage = forwardRef<TPageRef>(function SpellsPage({ spell: spellProp }: { spell?: string }, ref) {
   const { t } = useTranslation()
   const { pubkey, relayList, attemptDelete } = useNostr()
   const [spells, setSpells] = useState<Event[]>([])
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set())
   const [selectedSpell, setSelectedSpell] = useState<Event | null>(null)
+  const [selectedFauxSpell, setSelectedFauxSpell] = useState<FauxSpellName | null>(null)
+  const [notificationType, setNotificationType] = useState<TNotificationType>('all')
+  const notificationListRef = useRef<{ refresh: () => void }>(null)
+  const supportTouch = useMemo(() => isTouchDevice(), [])
+
+  useEffect(() => {
+    if (spellProp && isFauxSpellName(spellProp)) {
+      setSelectedFauxSpell(spellProp)
+      setSelectedSpell(null)
+    }
+  }, [spellProp])
   const [createOpen, setCreateOpen] = useState(false)
   const [spellToEdit, setSpellToEdit] = useState<Event | null>(null)
   const [spellToClone, setSpellToClone] = useState<Event | null>(null)
@@ -538,6 +576,19 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
 
   const pickSpell = useCallback((spell: Event | null) => {
     setSelectedSpell(spell)
+    setSelectedFauxSpell(null)
+    setSpellPickerOpen(false)
+  }, [])
+
+  const clearSpellSelection = useCallback(() => {
+    setSelectedSpell(null)
+    setSelectedFauxSpell(null)
+    setSpellPickerOpen(false)
+  }, [])
+
+  const pickFauxSpell = useCallback((name: FauxSpellName | null) => {
+    setSelectedFauxSpell(name)
+    setSelectedSpell(null)
     setSpellPickerOpen(false)
   }, [])
 
@@ -573,15 +624,28 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
             <Button
               type="button"
               variant="outline"
-              disabled={spellsForSelect.length === 0}
               className="min-w-0 flex-1 justify-between font-normal sm:max-w-md"
-              title={selectedSpell ? spellMenuLabel(selectedSpell) : undefined}
+              title={
+                selectedFauxSpell === 'notifications'
+                  ? t('Notifications')
+                  : selectedFauxSpell === 'discussions'
+                    ? t('Discussions')
+                    : selectedSpell
+                      ? spellMenuLabel(selectedSpell)
+                      : undefined
+              }
               aria-haspopup="dialog"
               aria-expanded={spellPickerOpen}
               onClick={() => setSpellPickerOpen(true)}
             >
               <span className="truncate">
-                {selectedSpell ? spellMenuLabel(selectedSpell) : t('Select a spell…')}
+                {selectedFauxSpell === 'notifications'
+                  ? t('Notifications')
+                  : selectedFauxSpell === 'discussions'
+                    ? t('Discussions')
+                    : selectedSpell
+                      ? spellMenuLabel(selectedSpell)
+                      : t('Select a spell…')}
               </span>
               <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
             </Button>
@@ -600,19 +664,57 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
                   role="listbox"
                   aria-label={t('Select a spell…')}
                 >
+                  {pubkey && (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={selectedFauxSpell === 'notifications'}
+                      className={cn(
+                        'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+                        'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        selectedFauxSpell === 'notifications' && 'bg-accent/50'
+                      )}
+                      onClick={() => pickFauxSpell(selectedFauxSpell === 'notifications' ? null : 'notifications')}
+                    >
+                      <span className="flex size-4 shrink-0 items-center justify-center">
+                        {selectedFauxSpell === 'notifications' ? <Check className="size-4" aria-hidden /> : null}
+                      </span>
+                      <Bell className="size-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate text-left font-medium">
+                        {t('Notifications')}
+                      </span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     role="option"
-                    aria-selected={!selectedSpell}
+                    aria-selected={selectedFauxSpell === 'discussions'}
                     className={cn(
                       'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
                       'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      !selectedSpell && 'bg-accent/50'
+                      selectedFauxSpell === 'discussions' && 'bg-accent/50'
                     )}
-                    onClick={() => pickSpell(null)}
+                    onClick={() => pickFauxSpell(selectedFauxSpell === 'discussions' ? null : 'discussions')}
                   >
                     <span className="flex size-4 shrink-0 items-center justify-center">
-                      {!selectedSpell ? <Check className="size-4" aria-hidden /> : null}
+                      {selectedFauxSpell === 'discussions' ? <Check className="size-4" aria-hidden /> : null}
+                    </span>
+                    <MessageSquare className="size-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-left font-medium">{t('Discussions')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={!selectedSpell && !selectedFauxSpell}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+                      'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      !selectedSpell && !selectedFauxSpell && 'bg-accent/50'
+                    )}
+                    onClick={clearSpellSelection}
+                  >
+                    <span className="flex size-4 shrink-0 items-center justify-center">
+                      {!selectedSpell && !selectedFauxSpell ? <Check className="size-4" aria-hidden /> : null}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-left font-normal text-muted-foreground">
                       {t('Select a spell…')}
@@ -791,7 +893,34 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(_, ref) {
 
         {/* Feed */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {selectedSpell ? (
+          {selectedFauxSpell === 'notifications' ? (
+            <>
+              <div className="shrink-0 flex items-center justify-between gap-2 px-1 pb-2">
+                <Tabs
+                  value={notificationType}
+                  tabs={[
+                    { value: 'all', label: t('All') },
+                    { value: 'mentions', label: t('Mentions') },
+                    { value: 'reactions', label: t('Reactions') },
+                    { value: 'zaps', label: t('Zaps') }
+                  ]}
+                  onTabChange={(tab) => setNotificationType(tab as TNotificationType)}
+                  options={!supportTouch ? <RefreshButton onClick={() => notificationListRef.current?.refresh()} /> : null}
+                />
+                <HideUntrustedContentButton type="notifications" size="titlebar-icon" />
+              </div>
+              <div className="min-h-0 min-w-0 flex-1">
+                <NotificationList
+                  ref={notificationListRef}
+                  notificationType={notificationType}
+                />
+              </div>
+            </>
+          ) : selectedFauxSpell === 'discussions' ? (
+            <div className="min-h-0 min-w-0 flex-1">
+              <DiscussionsPage embedded />
+            </div>
+          ) : selectedSpell ? (
             spellIsCount(selectedSpell) ? (
               <div className="flex flex-col items-center justify-center gap-3 py-10 px-4">
                 {spellCount.error === 'login' ? (

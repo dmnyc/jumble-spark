@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils'
 import HomeButton from './HomeButton'
-import NotificationsButton from './NotificationsButton'
 import DiscussionsButton from './DiscussionsButton'
+import NotificationsButton from './NotificationsButton'
 import SearchButton from './SearchButton'
 import SpellsButton from './SpellsButton'
 import WriteButton from './WriteButton'

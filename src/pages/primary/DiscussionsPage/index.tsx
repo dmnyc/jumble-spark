@@ -5,6 +5,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useSmartNoteNavigation } from '@/PageManager'
 import { toNote } from '@/lib/link'
+import { cn } from '@/lib/utils'
 import logger from '@/lib/logger'
 import { NostrEvent, Event as NostrEventType } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
@@ -18,6 +19,7 @@ import ThreadCard from './ThreadCard'
 import CreateThreadDialog from './CreateThreadDialog'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import { extractGroupInfo } from '@/lib/discussion-topics'
+import type { TPageRef } from '@/types'
 
 // Simple event map type
 type EventMapEntry = {
@@ -332,7 +334,10 @@ function DiscussionsPageTitlebar() {
   )
 }
 
-const DiscussionsPage = forwardRef((_, ref) => {
+const DiscussionsPage = forwardRef<TPageRef, { embedded?: boolean }>(function DiscussionsPage(
+  { embedded = false },
+  ref
+) {
   const { t } = useTranslation()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { pubkey } = useNostr()
@@ -775,7 +780,10 @@ const DiscussionsPage = forwardRef((_, ref) => {
     }
     
     const handleRestore = (e: CustomEvent<{ page: string, discussionsState?: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' } }>) => {
-      if (e.detail.page === 'discussions' && e.detail.discussionsState) {
+      if (
+        e.detail.discussionsState &&
+        (e.detail.page === 'discussions' || e.detail.page === 'spells')
+      ) {
         setSelectedTopic(e.detail.discussionsState.selectedTopic)
         setTimeSpan(e.detail.discussionsState.timeSpan)
       }
@@ -1044,14 +1052,14 @@ const DiscussionsPage = forwardRef((_, ref) => {
     navigateToNote(toNote(threadId))
   }
 
-  return (
-    <PrimaryPageLayout
-      ref={ref}
-      pageName="discussions"
-      titlebar={<DiscussionsPageTitlebar />}
-      displayScrollToTopButton
-    >
-      <div className="min-w-0 pt-14 sm:pt-4 flex flex-col gap-4 p-4">
+  const mainContent = (
+    <>
+      <div
+        className={cn(
+          'min-w-0 flex flex-col gap-4 p-4',
+          embedded ? 'pt-2' : 'pt-14 sm:pt-4'
+        )}
+      >
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <button
             onClick={() => setShowCreateDialog(true)}
@@ -1218,6 +1226,23 @@ const DiscussionsPage = forwardRef((_, ref) => {
           onThreadCreated={handleCreateThread} 
         />
       )}
+    </>
+  )
+
+  if (embedded) {
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">{mainContent}</div>
+    )
+  }
+
+  return (
+    <PrimaryPageLayout
+      ref={ref}
+      pageName="spells"
+      titlebar={<DiscussionsPageTitlebar />}
+      displayScrollToTopButton
+    >
+      {mainContent}
     </PrimaryPageLayout>
   )
 })

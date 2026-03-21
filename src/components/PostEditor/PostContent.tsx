@@ -41,12 +41,30 @@ import logger from '@/lib/logger'
 import postEditorCache from '@/services/post-editor-cache.service'
 import storage from '@/services/local-storage.service'
 import { TPollCreateData } from '@/types'
-import { ImageUp, ListTodo, LoaderCircle, MessageCircle, Settings, Smile, X, Highlighter, FileText, Quote, Upload, Mic, Music, Video, Film } from 'lucide-react'
+import {
+  ImageUp,
+  ListTodo,
+  LoaderCircle,
+  MessageCircle,
+  MessagesSquare,
+  Settings,
+  Smile,
+  X,
+  Highlighter,
+  FileText,
+  Quote,
+  Upload,
+  Mic,
+  Music,
+  Video,
+  Film
+} from 'lucide-react'
 import { getMediaKindFromFile } from '@/lib/media-kind-detection'
 import { hasPrivateRelays, getPrivateRelayUrls } from '@/lib/private-relays'
 import mediaUpload from '@/services/media-upload.service'
 import client from '@/services/client.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
+import CreateThreadDialog from '@/pages/primary/DiscussionsPage/CreateThreadDialog'
 import { getReplaceableCoordinateFromEvent, isProtectedEvent as isEventProtected, isReplaceableEvent, isReplyNoteEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -116,6 +134,7 @@ export default function PostContent({
     relays: []
   })
   const [minPow, setMinPow] = useState(0)
+  const [createThreadOpen, setCreateThreadOpen] = useState(false)
   const [mediaNoteKind, setMediaNoteKind] = useState<number | null>(null)
   const [mediaImetaTags, setMediaImetaTags] = useState<string[][]>([])
   const [mediaUrl, setMediaUrl] = useState<string>('')
@@ -2031,6 +2050,14 @@ export default function PostContent({
                   >
                     <ListTodo className="h-4 w-4" />
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title={t('Create Thread')}
+                    onClick={() => checkLogin(() => setCreateThreadOpen(true))}
+                  >
+                    <MessagesSquare className="h-4 w-4" />
+                  </Button>
                   {/* Article dropdown - only show if has private relays for publication content */}
                   {(hasPrivateRelaysAvailable || !isPublicationContent) && (
                     <DropdownMenu>
@@ -2403,6 +2430,19 @@ export default function PostContent({
         </DialogContent>
       </Dialog>
       </NeventPickerProvider>
+      {createThreadOpen && (
+        <CreateThreadDialog
+          topic="general"
+          availableRelays={[]}
+          relaySets={[]}
+          onClose={() => setCreateThreadOpen(false)}
+          onThreadCreated={() => {
+            discussionFeedCache.clearDiscussionsListCache()
+            setCreateThreadOpen(false)
+            close()
+          }}
+        />
+      )}
     </div>
   )
 }

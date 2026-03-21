@@ -19,8 +19,27 @@ export default function FeedSwitcher({ close }: { close?: () => void }) {
   // Filter out blocked relays for display
   const visibleRelays = favoriteRelays.filter(relay => !blockedRelays.includes(relay))
 
+  // Feed rows that exist here follow FAUX_SPELL_ORDER where applicable: favorite-relays → following → bookmarks.
   return (
     <div className="space-y-2">
+      {visibleRelays.length > 0 && (
+        <FeedSwitcherItem
+          isActive={feedInfo.feedType === 'all-favorites'}
+          onClick={() => {
+            logger.debug('FeedSwitcher: Switching to all-favorites')
+            switchFeed('all-favorites')
+            close?.()
+          }}
+        >
+          <div className="flex gap-2 items-center">
+            <div className="flex justify-center items-center w-6 h-6 shrink-0">
+              <Server className="size-4" />
+            </div>
+            <div>{t('All favorite relays')}</div>
+          </div>
+        </FeedSwitcherItem>
+      )}
+
       {pubkey && (
         <FeedSwitcherItem
           isActive={feedInfo.feedType === 'following'}
@@ -53,24 +72,6 @@ export default function FeedSwitcher({ close }: { close?: () => void }) {
               <BookmarkIcon className="size-4" />
             </div>
             <div>{t('Bookmarks')}</div>
-          </div>
-        </FeedSwitcherItem>
-      )}
-
-      {visibleRelays.length > 0 && (
-        <FeedSwitcherItem
-          isActive={feedInfo.feedType === 'all-favorites'}
-          onClick={() => {
-            logger.debug('FeedSwitcher: Switching to all-favorites')
-            switchFeed('all-favorites')
-            close?.()
-          }}
-        >
-          <div className="flex gap-2 items-center">
-            <div className="flex justify-center items-center w-6 h-6 shrink-0">
-              <Server className="size-4" />
-            </div>
-            <div>{t('All favorite relays')}</div>
           </div>
         </FeedSwitcherItem>
       )}
