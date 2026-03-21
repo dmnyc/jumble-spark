@@ -10,8 +10,8 @@ import {
 } from '@/constants'
 import { normalizeTopic } from '@/lib/discussion-topics'
 import { normalizeUrl } from '@/lib/url'
-import type { TFeedSubRequest, TRelayList, TNotificationType } from '@/types'
-import { kinds, type Event, type Filter } from 'nostr-tools'
+import type { TFeedSubRequest, TRelayList } from '@/types'
+import { type Event, type Filter } from 'nostr-tools'
 
 const NOTIFICATION_LIMIT = 500
 const DISCUSSION_LIMIT = 500
@@ -57,40 +57,10 @@ function dedupe(urls: string[]): string[] {
   return out
 }
 
-export function notificationFilterKinds(notificationType: TNotificationType): number[] {
-  switch (notificationType) {
-    case 'mentions':
-      return [
-        kinds.ShortTextNote,
-        ExtendedKind.COMMENT,
-        ExtendedKind.VOICE_COMMENT,
-        ExtendedKind.POLL,
-        ExtendedKind.PUBLIC_MESSAGE,
-        ExtendedKind.DISCUSSION
-      ]
-    case 'reactions':
-      return [kinds.Reaction, kinds.Repost, ExtendedKind.POLL_RESPONSE]
-    case 'zaps':
-      return [kinds.Zap]
-    default:
-      return [
-        kinds.ShortTextNote,
-        kinds.Repost,
-        kinds.Reaction,
-        kinds.Zap,
-        ExtendedKind.COMMENT,
-        ExtendedKind.POLL_RESPONSE,
-        ExtendedKind.VOICE_COMMENT,
-        ExtendedKind.POLL,
-        ExtendedKind.PUBLIC_MESSAGE,
-        ExtendedKind.DISCUSSION
-      ]
-  }
-}
-
-export function buildNotificationFilter(pubkey: string, notificationType: TNotificationType): Filter {
+/** Notifications spell: same kind set as profile-style feeds, restricted to `#p` = you on the relay. */
+export function buildMentionsSpellFilter(pubkey: string): Filter {
   return {
-    kinds: notificationFilterKinds(notificationType),
+    kinds: [...PROFILE_FEED_KINDS],
     limit: NOTIFICATION_LIMIT,
     '#p': [pubkey]
   }

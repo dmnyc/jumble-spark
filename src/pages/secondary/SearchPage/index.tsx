@@ -1,3 +1,4 @@
+import LatestFromFollowsSection from '@/components/LatestFromFollowsSection'
 import SearchBar, { TSearchBarRef } from '@/components/SearchBar'
 import SearchResult from '@/components/SearchResult'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
@@ -124,6 +125,7 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
           </div>
         </div>
         <div className="h-4"></div>
+        {!searchParams && <LatestFromFollowsSection />}
         <div className="text-xl font-semibold mb-4">Trending Notes</div>
         <SearchResult searchParams={searchParams} />
       </div>

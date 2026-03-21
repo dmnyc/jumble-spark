@@ -1,6 +1,5 @@
 import HideUntrustedContentButton from '@/components/HideUntrustedContentButton'
 import NoteList from '@/components/NoteList'
-import Tabs from '@/components/Tabs'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -32,10 +31,12 @@ import { cn } from '@/lib/utils'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useNostr } from '@/providers/NostrProvider'
+import { useUserTrust } from '@/providers/UserTrustProvider'
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import { ExtendedKind, FAUX_SPELL_ORDER, PROFILE_FEED_KINDS } from '@/constants'
+import { isUserInEventMentions } from '@/lib/event'
 import { formatPubkey } from '@/lib/pubkey'
 import {
   buildSpellCatalogAuthors,
@@ -47,7 +48,7 @@ import {
   SPELL_CATALOG_SYNC_LIMIT_WITH_FOLLOWS,
   spellEventToFilter
 } from '@/services/spell.service'
-import { TFeedSubRequest, type TNotificationType } from '@/types'
+import { TFeedSubRequest } from '@/types'
 import {
   Bell,
   Bookmark,
@@ -80,11 +81,10 @@ import {
   buildFollowPacksSubRequests,
   buildInterestsSubRequests,
   buildMediaSpellFilter,
-  buildNotificationFilter,
+  buildMentionsSpellFilter,
   discussionRelayUrls,
   fauxFavoriteRelayUrls,
   MEDIA_SPELL_KINDS,
-  notificationFilterKinds,
   notificationRelayUrls
 } from './fauxSpellFeeds'
 import type { TPageRef } from '@/types'
@@ -241,6 +241,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const { t } = useTranslation()
   const { navigate: navigatePrimary } = usePrimaryPage()
   const { pubkey, relayList, attemptDelete, bookmarkListEvent, interestListEvent } = useNostr()
+  const { hideUntrustedNotifications } = useUserTrust()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const {
     showKinds: kindFilterShowKinds,
@@ -253,7 +254,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set())
   const [selectedSpell, setSelectedSpell] = useState<Event | null>(null)
   const [selectedFauxSpell, setSelectedFauxSpell] = useState<FauxSpellName | null>(null)
-  const [notificationType, setNotificationType] = useState<TNotificationType>('all')
   const [createOpen, setCreateOpen] = useState(false)
   const [spellToEdit, setSpellToEdit] = useState<Event | null>(null)
   const [spellToClone, setSpellToClone] = useState<Event | null>(null)
@@ -414,9 +414,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
     if (selectedFauxSpell === 'notifications') {
       if (!pubkey) return []
-      const urls = notificationRelayUrls(relayList, favoriteRelays)
+      const urls = fauxFavoriteRelayUrls(favoriteRelays, blockedRelays)
       if (!urls.length) return []
-      return [{ urls, filter: buildNotificationFilter(pubkey, notificationType) }]
+      return [{ urls, filter: buildMentionsSpellFilter(pubkey) }]
     }
     if (selectedFauxSpell === 'discussions') {
       const urls = discussionRelayUrls(relayList, favoriteRelays, blockedRelays)
@@ -451,7 +451,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   }, [
     selectedFauxSpell,
     pubkey,
-    notificationType,
     relayList,
     favoriteRelays,
     blockedRelays,
@@ -557,7 +556,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const showKinds = useMemo(() => {
     if (selectedFauxSpell === 'notifications') {
-      return notificationFilterKinds(notificationType)
+      return PROFILE_FEED_KINDS
     }
     if (selectedFauxSpell === 'discussions') {
       return [ExtendedKind.DISCUSSION]
@@ -588,7 +587,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     return kinds.length ? kinds : [1]
   }, [
     selectedFauxSpell,
-    notificationType,
     selectedSpell?.id,
     showKindsTagKey,
     kindFilterShowKinds
@@ -633,6 +631,11 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     if (!selectedFauxSpell) return true
     return selectedFauxSpell !== 'following' && selectedFauxSpell !== 'bookmarks'
   }, [selectedFauxSpell])
+
+  const notificationsMentionExtraHide = useCallback(
+    (evt: Event) => (pubkey ? !isUserInEventMentions(evt, pubkey) : false),
+    [pubkey]
+  )
 
   const fauxFeedEmptyMessage = useMemo(() => {
     if (!selectedFauxSpell || fauxSubRequests.length > 0) return null
@@ -953,17 +956,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
           ) : selectedFauxSpell && fauxSubRequests.length > 0 ? (
             <>
               {selectedFauxSpell === 'notifications' ? (
-                <div className="shrink-0 flex items-center justify-between gap-2 px-1 pb-2">
-                  <Tabs
-                    value={notificationType}
-                    tabs={[
-                      { value: 'all', label: t('All') },
-                      { value: 'mentions', label: t('Mentions') },
-                      { value: 'reactions', label: t('Reactions') },
-                      { value: 'zaps', label: t('Zaps') }
-                    ]}
-                    onTabChange={(tab) => setNotificationType(tab as TNotificationType)}
-                  />
+                <div className="flex shrink-0 justify-end px-1 pb-2">
                   <HideUntrustedContentButton type="notifications" size="titlebar-icon" />
                 </div>
               ) : null}
@@ -976,6 +969,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   showKind1Replies={selectedFauxSpell === 'following' ? showKind1Replies : true}
                   showKind1111={selectedFauxSpell === 'following' ? showKind1111 : true}
                   hideReplies={selectedFauxSpell === 'following' ? hideRepliesFollowing : false}
+                  extraShouldHideEvent={
+                    selectedFauxSpell === 'notifications' && pubkey
+                      ? notificationsMentionExtraHide
+                      : undefined
+                  }
+                  hideUntrustedNotes={
+                    selectedFauxSpell === 'notifications' ? hideUntrustedNotifications : false
+                  }
                 />
               </div>
             </>

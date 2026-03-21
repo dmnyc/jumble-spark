@@ -1,3 +1,4 @@
+import LatestFromFollowsSection from '@/components/LatestFromFollowsSection'
 import SearchBar, { TSearchBarRef } from '@/components/SearchBar'
 import SearchResult from '@/components/SearchResult'
 import PrimaryPageLayout, { TPrimaryPageLayoutRef } from '@/layouts/PrimaryPageLayout'
@@ -68,6 +69,7 @@ const SearchPage = forwardRef((_, ref) => {
           </div>
         </div>
         <div className="h-4"></div>
+        {!searchParams && <LatestFromFollowsSection />}
         <SearchResult searchParams={searchParams} />
       </div>
     </PrimaryPageLayout>

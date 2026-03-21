@@ -262,6 +262,18 @@ export function getEmbeddedPubkeys(event: Event) {
   return embeddedPubkeys
 }
 
+/**
+ * Whether `userPubkey` is mentioned on the event: any `p` tag and/or
+ * `nostr:npub…` / `nostr:nprofile…` in content (see {@link getEmbeddedPubkeys}).
+ * Events authored by the user are excluded (not treated as incoming mentions).
+ */
+export function isUserInEventMentions(event: Event, userPubkey: string): boolean {
+  if (event.pubkey === userPubkey) return false
+  const inPtags = event.tags.some((t) => t[0] === 'p' && t[1] === userPubkey)
+  if (inPtags) return true
+  return getEmbeddedPubkeys(event).includes(userPubkey)
+}
+
 export function getLatestEvent(events: Event[]): Event | undefined {
   return events.sort((a, b) => b.created_at - a.created_at)[0]
 }
