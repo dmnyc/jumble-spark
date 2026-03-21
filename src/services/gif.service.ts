@@ -3,7 +3,7 @@
  * Same approach as aitherboard for 1063; for 1/1111 we parse content and tags for .gif URLs.
  */
 
-import { ExtendedKind, GIF_RELAY_URLS } from '@/constants'
+import { ExtendedKind, FAST_READ_RELAY_URLS, GIF_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import { kinds } from 'nostr-tools'
 import type { Event as NEvent } from 'nostr-tools'
@@ -181,6 +181,12 @@ function parseGifFromEvent(event: NEvent): GifMetadata | null {
 }
 
 const CACHE_MAX_AGE_MS = 5 * 60 * 1000 // 5 minutes; cache lives in IndexedDB
+/** Partial fetches (timeouts, relay issues) used to get cached as-is and hide the grid for 5 minutes. */
+const MIN_GIF_CACHE_ENTRIES = 8
+
+/** Ensured on the kind 1063 (NIP-94) relay set even if absent from merged read lists. */
+const THECITADEL_FOR_GIF_METADATA =
+  normalizeUrl('wss://thecitadel.nostr1.com') || 'wss://thecitadel.nostr1.com'
 
 /**
  * Fetch GIFs from Nostr kind 1063 (NIP-94) events on GIF relays.
@@ -198,37 +204,55 @@ export async function fetchGifs(
 ): Promise<GifMetadata[]> {
   if (!forceRefresh && !searchQuery) {
     const cached = await indexedDb.getGifCache()
-    if (cached && cached.gifs.length > 0 && Date.now() - cached.cachedAt < CACHE_MAX_AGE_MS) {
+    if (
+      cached &&
+      cached.gifs.length >= MIN_GIF_CACHE_ENTRIES &&
+      Date.now() - cached.cachedAt < CACHE_MAX_AGE_MS
+    ) {
       return cached.gifs.slice(0, limit) as GifMetadata[]
     }
   }
 
+  // GIF-focused relays often fail (e.g. gifbuddy/damus down); merge fast read indexers so kind 1063 / GIF notes still resolve.
   const readUrls = [
     ...GIF_RELAY_URLS,
-    ...extraReadRelayUrls.map((u) => normalizeUrl(u)).filter(Boolean)
+    ...FAST_READ_RELAY_URLS,
+    ...extraReadRelayUrls.map((u) => normalizeUrl(u)).filter((u): u is string => !!u)
   ]
   const seen = new Set<string>()
-  const dedupedUrls = readUrls.filter((u) => {
-    const n = u.toLowerCase()
-    if (seen.has(n)) return false
-    seen.add(n)
-    return true
-  })
+  const dedupedUrls = readUrls
+    .map((u) => normalizeUrl(u) || u)
+    .filter(Boolean)
+    .filter((u) => {
+      const n = u.toLowerCase()
+      if (seen.has(n)) return false
+      seen.add(n)
+      return true
+    })
 
-  const fetchOpts = { eoseTimeout: 10000, globalTimeout: 15000 }
+  const fetchOpts = { eoseTimeout: 20000, globalTimeout: 28000 }
 
-  // Two separate requests so kind 1063 isn't overwhelmed by the volume of kind 1/1111
+  const limit1063 = Math.max(limit * 15, 400)
+  const limitNotes = Math.max(limit * 15, 500)
+
+  const relays1063 = dedupedUrls.some(
+    (u) => (normalizeUrl(u) || u).toLowerCase() === THECITADEL_FOR_GIF_METADATA.toLowerCase()
+  )
+    ? dedupedUrls
+    : [...dedupedUrls, THECITADEL_FOR_GIF_METADATA]
+
+  // Kind 1063 (incl. thecitadel) + kind 1/1111 on the broad list (thecitadel omitted for kind 1 via KIND_1_BLOCKED).
   const [events1063, eventsNotes] = await Promise.all([
-        queryService.fetchEvents(
-      dedupedUrls,
-      { kinds: [ExtendedKind.FILE_METADATA], limit: Math.max(limit * 10, 200) },
+    queryService.fetchEvents(
+      relays1063,
+      { kinds: [ExtendedKind.FILE_METADATA], limit: limit1063 },
       fetchOpts
     ),
-        queryService.fetchEvents(
+    queryService.fetchEvents(
       dedupedUrls,
       {
         kinds: [kinds.ShortTextNote, ExtendedKind.COMMENT],
-        limit: Math.max(limit * 10, 300)
+        limit: limitNotes
       },
       fetchOpts
     )
@@ -263,7 +287,7 @@ export async function fetchGifs(
   gifs.sort((a, b) => b.createdAt - a.createdAt)
   const result = gifs.slice(0, limit)
 
-  if (result.length > 0 && !searchQuery) {
+  if (result.length >= MIN_GIF_CACHE_ENTRIES && !searchQuery) {
     await indexedDb.setGifCache(result, Date.now())
   }
 

@@ -270,6 +270,12 @@ export default function GifPicker({
                     loading="lazy"
                     onError={(e) => {
                       const el = e.target as HTMLImageElement
+                      const fallback = gif.fallbackUrl?.trim()
+                      if (fallback && el.dataset.gifFallbackTried !== '1') {
+                        el.dataset.gifFallbackTried = '1'
+                        el.src = fallback
+                        return
+                      }
                       el.style.display = 'none'
                     }}
                   />

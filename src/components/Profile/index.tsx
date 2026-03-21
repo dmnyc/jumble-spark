@@ -331,12 +331,12 @@ export default function Profile({ id }: { id?: string }) {
         <div>
           <div className="relative bg-cover bg-center mb-2">
             <Skeleton className="w-full aspect-[3/1] rounded-none" />
-            <Skeleton className="w-24 h-24 absolute bottom-0 left-3 translate-y-1/2 border-4 border-background rounded-full" />
+            <Skeleton className="w-24 h-24 md:w-48 md:h-48 absolute bottom-0 left-3 translate-y-1/2 border-4 border-background rounded-full" />
           </div>
         </div>
         <div className="px-4">
-          <Skeleton className="h-5 w-28 mt-14 mb-1" />
-          <Skeleton className="h-5 w-56 mt-2 my-1 rounded-full" />
+          <Skeleton className="h-5 w-28 mt-14 md:mt-28 mb-1 md:ml-56" />
+          <Skeleton className="h-5 w-56 mt-2 my-1 rounded-full md:ml-56" />
         </div>
         <div className="px-4 pt-4 flex items-center justify-center">
           <div className="text-sm text-muted-foreground">
@@ -364,7 +364,7 @@ export default function Profile({ id }: { id?: string }) {
       <div>
         <div className="relative bg-cover bg-center mb-2">
           <ProfileBanner banner={banner} pubkey={pubkey} className="w-full aspect-[3/1]" />
-          <Avatar className="w-24 h-24 absolute left-3 bottom-0 translate-y-1/2 border-4 border-background">
+          <Avatar className="w-24 h-24 md:w-48 md:h-48 absolute left-3 bottom-0 translate-y-1/2 border-4 border-background">
             <AvatarImage src={avatar} className="object-cover object-center" />
             <AvatarFallback>
               <img src={defaultImage} />
@@ -435,7 +435,7 @@ export default function Profile({ id }: { id?: string }) {
               </>
             )}
           </div>
-          <div className="pt-2">
+          <div className="pt-2 md:pl-56">
             <div className="flex gap-2 items-center">
               <div className="text-xl font-semibold truncate select-text">{username}</div>
               {isFollowingYou && (

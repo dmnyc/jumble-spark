@@ -1,8 +1,7 @@
 import Icon from '@/assets/Icon'
 import Logo from '@/assets/Logo'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import AccountButton from './AccountButton'
-import KeyboardShortcutsHelpSidebarButton from './KeyboardShortcutsHelpSidebarButton'
+import HelpAndAccountMenu from '@/components/HelpAndAccountMenu'
 import DiscussionsButton from './DiscussionsButton'
 import FeedButton from './FeedButton'
 import HomeButton from './HomeButton'
@@ -39,8 +38,7 @@ export default function PrimaryPageSidebar() {
         <PostButton />
       </div>
       <div className="space-y-2">
-        <KeyboardShortcutsHelpSidebarButton />
-        <AccountButton />
+        <HelpAndAccountMenu variant="sidebar" />
         <PaneModeToggle />
       </div>
     </div>

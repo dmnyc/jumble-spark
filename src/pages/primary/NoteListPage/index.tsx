@@ -20,8 +20,7 @@ import React, {
   useState
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyboardShortcutsHelpButton } from '@/components/KeyboardShortcutsHelp'
-import AccountButton from '@/components/Titlebar/AccountButton'
+import HelpAndAccountMenu from '@/components/HelpAndAccountMenu'
 import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
 import { usePrimaryNoteView } from '@/PageManager'
@@ -173,12 +172,7 @@ function NoteListPageTitlebar({
             <Info />
           </Button>
         )}
-        {isSmallScreen && (
-          <>
-            <KeyboardShortcutsHelpButton />
-            <AccountButton />
-          </>
-        )}
+        {isSmallScreen && <HelpAndAccountMenu variant="titlebar" />}
       </div>
     </div>
   )
