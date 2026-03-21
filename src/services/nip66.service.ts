@@ -8,7 +8,7 @@
 
 import { normalizeUrl } from '@/lib/url'
 import indexDb from '@/services/indexed-db.service'
-import { TNip66RelayDiscovery, TRelayInfo } from '@/types'
+import { TNip66RelayDiscovery } from '@/types'
 import { Event as NEvent } from 'nostr-tools'
 
 const RELAY_DISCOVERY_KIND = 30166
@@ -201,30 +201,6 @@ class Nip66Service {
   getDiscovery(url: string): TNip66RelayDiscovery | undefined {
     const key = normalizeUrl(url) || url
     return this.discoveryByUrl.get(key)
-  }
-
-  /**
-   * Ingest relay info from our own monitor (after we publish 30166). Adds the relay to
-   * in-memory discovery and updates the IndexedDB public lively cache so it can be used
-   * for random publish relay selection and relay info page liveliness display.
-   */
-  addDiscoveryFromRelayInfo(relayInfo: TRelayInfo): void {
-    const lim = relayInfo.limitation
-    const discovery: TNip66RelayDiscovery = {
-      url: relayInfo.url,
-      supportedNips: relayInfo.supported_nips ?? [],
-      requirements: {
-        auth: lim?.auth_required ?? false,
-        payment: lim?.payment_required ?? false
-      },
-      created_at: Math.floor(Date.now() / 1000)
-    }
-    const key = normalizeUrl(relayInfo.url) || relayInfo.url
-    this.discoveryByUrl.set(key, discovery)
-    const publicLively = this.buildPublicLivelyFromDiscovery()
-    if (publicLively.length > 0 && typeof window !== 'undefined') {
-      indexDb.setPublicLivelyRelayUrlsCache(publicLively).catch(() => {})
-    }
   }
 
   /** Relay URLs that NIP-66 reports as supporting NIP-50 (search). Do not rely solely on this. */

@@ -9,7 +9,6 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
-import { publishMonitorAnnouncementOnce } from './services/nip66-monitor'
 import storage from './services/local-storage.service'
 
 declare global {
@@ -49,7 +48,6 @@ async function bootstrap() {
   } catch {
     // ignore quota or private browsing
   }
-  publishMonitorAnnouncementOnce()
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ErrorBoundary>

@@ -103,7 +103,7 @@ class ClientCacheService {
     fetchRelayList: (pubkey: string) => Promise<TRelayList>
     fetchFollowList?: (pubkey: string) => Promise<string[]>
     fetchMuteList?: (pubkey: string) => Promise<NEvent | undefined>
-    fetchDeletionEvents?: (relayUrls: string[]) => Promise<void>
+    fetchDeletionEvents?: (relayUrls: string[], authorPubkey?: string) => Promise<void>
   }): Promise<void> {
     if (this.warmingUp) {
       logger.debug('[CacheService] Already warming up, skipping')
@@ -162,10 +162,9 @@ class ClientCacheService {
         }
       }
 
-      // Fetch deletion events in background to update tombstone list
       if (fetchFn.fetchDeletionEvents) {
-        // This will run in background and update tombstone list
-        fetchFn.fetchDeletionEvents([]).catch(err => 
+        const authorPubkey = config.profilePubkeys?.[0]
+        fetchFn.fetchDeletionEvents([], authorPubkey).catch((err) =>
           logger.warn('[CacheService] Failed to fetch deletion events', { error: err })
         )
       }

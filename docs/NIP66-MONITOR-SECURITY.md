@@ -20,7 +20,7 @@ The monitor **nsec** (`NIP66_MONITOR_NSEC`) is used only in the **nip66-cron** c
 1. **docker-entrypoint.sh** – Writes config.json only from `NIP66_MONITOR_NPUB`; does not read or write `NIP66_MONITOR_NSEC`.
 2. **docker-compose.prod.yml** – `NIP66_MONITOR_NSEC` is set only on the **jumble-nip66-monitor** service; **jumble** has only `NIP66_MONITOR_NPUB`.
 3. **main.tsx** – Fetches config and types only `NIP66_MONITOR_NPUB`; no nsec in `Window.__RUNTIME_CONFIG__`.
-4. **nip66-monitor.ts** (frontend) – Stub only; `getMonitorSecretKey()` always returns `null`; no env or config read for nsec.
+4. **Frontend** – No monitor signing code; 30166/10166 publishing is server-only (nip66-cron / jumble-nip66-monitor).
 5. **nip66-cron/index.mjs** – Reads nsec from `process.env.NIP66_MONITOR_NSEC` only; never logs it or passes it to `log()`; comment added to never log or expose it.
 6. **RelayInfo / RelayLivelinessSection** – Use only `window.__RUNTIME_CONFIG__.NIP66_MONITOR_NPUB` (npub) for display.
 

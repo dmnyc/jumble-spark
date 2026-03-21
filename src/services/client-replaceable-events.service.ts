@@ -16,7 +16,6 @@ import { TProfile } from '@/types'
 import { LRUCache } from 'lru-cache'
 import indexedDb from './indexed-db.service'
 import type { QueryService } from './client-query.service'
-import { isReplaceableEvent, getReplaceableCoordinateFromEvent } from '@/lib/event'
 import logger from '@/lib/logger'
 import client from './client.service'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
@@ -372,11 +371,6 @@ export class ReplaceableEventService {
               if (event && event !== null) {
                 results[paramIndex] = event
                 eventsMap.set(`${pubkey}:${kind}`, event)
-                // Check tombstone in background (non-blocking)
-                const tombstoneKey = isReplaceableEvent(kind) 
-                  ? getReplaceableCoordinateFromEvent(event)
-                  : event.id
-                indexedDb.isTombstoned(tombstoneKey).catch(() => {})
                 // Refresh in background
                 this.refreshInBackground(pubkey, kind).catch(() => {})
               } else {

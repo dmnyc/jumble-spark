@@ -1,13 +1,9 @@
-import { FAST_READ_RELAY_URLS } from '@/constants'
 import { simplifyUrl } from '@/lib/url'
 import indexDb from '@/services/indexed-db.service'
 import { TAwesomeRelayCollection, TRelayInfo } from '@/types'
 import DataLoader from 'dataloader'
 import FlexSearch from 'flexsearch'
 import logger from '@/lib/logger'
-import client from '@/services/client.service'
-import { nip66Service } from '@/services/nip66.service'
-import { buildAndSignDiscoveryEvent, isNip66MonitorEnabled } from '@/services/nip66-monitor'
 
 class RelayInfoService {
   static instance: RelayInfoService
@@ -40,9 +36,6 @@ class RelayInfoService {
     { maxBatchSize: 1 }
   )
   private relayUrlsForRandom: string[] = []
-  /** NIP-66: throttle publishing 30166 per relay (min interval 1 hour). */
-  private lastNip66PublishByUrl = new Map<string, number>()
-  private static NIP66_PUBLISH_INTERVAL_MS = 60 * 60 * 1000
 
   /** Relay info cache TTL: refetch NIP-11 after this long (24h). */
   private static RELAY_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000
@@ -147,9 +140,7 @@ class RelayInfoService {
       url,
       shortUrl: simplifyUrl(url)
     }
-    const added = await this.addRelayInfo(relayInfo)
-    this.maybePublishNip66Discovery(added)
-    return added
+    return await this.addRelayInfo(relayInfo)
   }
 
   private async fetchRelayNip11(url: string) {
@@ -184,46 +175,6 @@ class RelayInfoService {
       indexDb.putRelayInfo(relayInfo)
     ])
     return relayInfo
-  }
-
-  /**
-   * When monitor nsec is set: publish a kind 30166 for this relay after we've fetched NIP-11
-   * (only when the fetch was from the network, not from cache). Throttled to once per hour per relay.
-   * Triggered whenever getRelayInfo/getRelayInfos causes a fresh NIP-11 fetch (e.g. first time
-   * opening a relay, or relay not in IndexedDB).
-   */
-  private maybePublishNip66Discovery(relayInfo: TRelayInfo): void {
-    if (!isNip66MonitorEnabled()) {
-      logger.debug('NIP-66: skip 30166 (publishing is handled by server cron)', { url: relayInfo.url })
-      return
-    }
-    const key = relayInfo.url
-    const now = Date.now()
-    const last = this.lastNip66PublishByUrl.get(key) ?? 0
-    if (now - last < RelayInfoService.NIP66_PUBLISH_INTERVAL_MS) {
-      logger.debug('NIP-66: skip 30166 (throttled, 1h per relay)', { url: relayInfo.url, nextInMin: Math.ceil((RelayInfoService.NIP66_PUBLISH_INTERVAL_MS - (now - last)) / 60000) })
-      return
-    }
-
-    const event = buildAndSignDiscoveryEvent(relayInfo)
-    if (!event) {
-      logger.debug('NIP-66: skip 30166 (build/sign failed)', { url: relayInfo.url })
-      return
-    }
-
-    this.lastNip66PublishByUrl.set(key, now)
-    const urls = [relayInfo.url, ...FAST_READ_RELAY_URLS.slice(0, 3)]
-    logger.info('NIP-66: publishing relay discovery (30166)', { url: relayInfo.url })
-    client.publishEvent(urls, event).then((res) => {
-      if (res.successCount > 0) {
-        nip66Service.addDiscoveryFromRelayInfo(relayInfo)
-        logger.info('NIP-66: published relay discovery (30166)', { url: relayInfo.url, successCount: res.successCount })
-      } else {
-        logger.info('NIP-66: relay discovery (30166) not accepted by any relay', { url: relayInfo.url })
-      }
-    }).catch((err) => {
-      logger.warn('NIP-66: publish relay discovery failed', { url: relayInfo.url, err })
-    })
   }
 }
 

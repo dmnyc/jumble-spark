@@ -1749,54 +1749,69 @@ class ClientService extends EventTarget {
    * Returns cached results immediately, then streams relay results via callback.
    */
   /**
-   * Fetch deletion events (kind 5) and update tombstone list
-   * This should be called during cache warmup to remove deleted events from cache
+   * Record a kind-5 deletion in the local tombstone store (no network).
+   * Call after publishing a deletion so cache updates without waiting for a fetch.
    */
-  async fetchDeletionEvents(relayUrls: string[] = []): Promise<void> {
-    // Use all available relays if none specified
-    const relays = relayUrls.length > 0 
-      ? relayUrls 
-      : Array.from(new Set([...PROFILE_FETCH_RELAY_URLS]))
-    
-    logger.info('[ClientService] Fetching deletion events', { profileFetchRelays: PROFILE_FETCH_RELAY_URLS, relayCount: relays.length })
-    
-    try {
-      // Fetch latest 100 deletion events
-      const deletionEvents = await this.queryService.query(relays, {
-        kinds: [kinds.EventDeletion],
-        limit: 100
-      }, undefined, {
-        replaceableRace: true,
-        eoseTimeout: 500,
-        globalTimeout: 5000
-      })
-      
-      logger.debug('[ClientService] Fetched deletion events', { count: deletionEvents.length })
-      
-      // Process each deletion event and add to tombstone list
-      for (const deletionEvent of deletionEvents) {
-        // Deletion events have 'e' tags for non-replaceable events or 'a' tags for replaceable events
-        const eTag = deletionEvent.tags.find(tag => tag[0] === 'e')
-        const aTag = deletionEvent.tags.find(tag => tag[0] === 'a')
-        const kTag = deletionEvent.tags.find(tag => tag[0] === 'k')
-        
-        if (eTag && eTag[1]) {
-          // Non-replaceable event - use event ID
-          await indexedDb.addTombstone(eTag[1])
-        } else if (aTag && aTag[1]) {
-          // Replaceable event - a tag format is "kind:pubkey:d" which is already the coordinate
-          await indexedDb.addTombstone(aTag[1])
-        } else if (kTag && kTag[1] && deletionEvent.pubkey) {
-          // Fallback: if we have kind and pubkey, construct coordinate
-          const kind = parseInt(kTag[1], 10)
-          if (!isNaN(kind)) {
-            const coordinate = `${kind}:${deletionEvent.pubkey}`
-            await indexedDb.addTombstone(coordinate)
-          }
-        }
+  async applyDeletionRequestToLocalCache(deletionEvent: NEvent): Promise<void> {
+    await this.addTombstoneEntriesFromDeletionEvent(deletionEvent)
+    const removed = await indexedDb.removeTombstonedFromCache()
+    if (removed > 0) {
+      logger.info('[ClientService] Removed tombstoned events from cache', { count: removed })
+    }
+  }
+
+  private async addTombstoneEntriesFromDeletionEvent(deletionEvent: NEvent): Promise<void> {
+    const eTag = deletionEvent.tags.find((tag) => tag[0] === 'e')
+    const aTag = deletionEvent.tags.find((tag) => tag[0] === 'a')
+    const kTag = deletionEvent.tags.find((tag) => tag[0] === 'k')
+
+    if (eTag?.[1]) {
+      await indexedDb.addTombstone(eTag[1])
+    } else if (aTag?.[1]) {
+      await indexedDb.addTombstone(aTag[1])
+    } else if (kTag?.[1] && deletionEvent.pubkey) {
+      const kind = parseInt(kTag[1], 10)
+      if (!isNaN(kind)) {
+        await indexedDb.addTombstone(`${kind}:${deletionEvent.pubkey}`)
       }
-      
-      // Remove tombstoned events from cache
+    }
+  }
+
+  /**
+   * Fetch deletion events (kind 5) and update the tombstone list.
+   * When `authorPubkey` is set, only that author's deletion requests are queried (typical on login).
+   */
+  async fetchDeletionEvents(relayUrls: string[] = [], authorPubkey?: string): Promise<void> {
+    const relays =
+      relayUrls.length > 0 ? relayUrls : Array.from(new Set([...PROFILE_FETCH_RELAY_URLS]))
+
+    logger.info('[ClientService] Fetching deletion events', {
+      relayCount: relays.length,
+      authorPubkey: authorPubkey?.slice(0, 12),
+    })
+
+    try {
+      const deletionEvents = await this.queryService.query(
+        relays,
+        {
+          kinds: [kinds.EventDeletion],
+          limit: 100,
+          ...(authorPubkey ? { authors: [authorPubkey] } : {}),
+        },
+        undefined,
+        {
+          replaceableRace: true,
+          eoseTimeout: 500,
+          globalTimeout: 5000,
+        }
+      )
+
+      logger.debug('[ClientService] Fetched deletion events', { count: deletionEvents.length })
+
+      for (const deletionEvent of deletionEvents) {
+        await this.addTombstoneEntriesFromDeletionEvent(deletionEvent)
+      }
+
       const removed = await indexedDb.removeTombstonedFromCache()
       if (removed > 0) {
         logger.info('[ClientService] Removed tombstoned events from cache', { count: removed })

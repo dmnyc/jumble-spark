@@ -106,7 +106,6 @@ export const useNostr = () => {
 
 export function NostrProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
-  // Note: Deletion event handling moved to individual components
   const [accounts, setAccounts] = useState<TAccountPointer[]>(
     storage.getAccounts().map((act) => ({ pubkey: act.pubkey, signerType: act.signerType }))
   )
@@ -400,8 +399,17 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       const mergedRelayList = await client.fetchRelayList(account.pubkey) // Keep using client for relay list merging
       setRelayList(mergedRelayList)
 
-      // Note: Deletion event fetching is now handled locally by individual components
-      // for better performance and accuracy
+      const deletionRelayUrls = Array.from(
+        new Set([
+          ...mergedRelayList.write.map((url: string) => normalizeUrl(url) || url),
+          ...mergedRelayList.read.slice(0, 8).map((url: string) => normalizeUrl(url) || url),
+          ...PROFILE_FETCH_RELAY_URLS.map((url: string) => normalizeUrl(url) || url),
+        ])
+      ).slice(0, 20)
+
+      client.fetchDeletionEvents(deletionRelayUrls, account.pubkey).catch((err) =>
+        logger.warn('[NostrProvider] Failed to sync deletion events / tombstones', { error: err })
+      )
 
       const normalizedRelays = [
         ...relayList.write.map((url: string) => normalizeUrl(url) || url),
@@ -974,9 +982,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
 
     const result = await client.publishEvent(relays, deletionRequest)
 
-    // Note: We don't need to add the deleted event to the provider here
-    // since it's being published as a kind 5 event and will be fetched later
-    
+    await client.applyDeletionRequestToLocalCache(deletionRequest)
+
     // Show publishing feedback
     if (result.relayStatuses) {
       showPublishingFeedback(result, {
