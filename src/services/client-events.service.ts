@@ -10,8 +10,8 @@ import { isReplaceableEvent } from '@/lib/event'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 
 /**
- * Build comprehensive relay list: author's outboxes + user's inboxes + relay hints + defaults
- * Uses the shared relay list builder utility
+ * Build comprehensive relay list for event-by-id fetch: user's inboxes (+ cache), relay hints,
+ * author outboxes/inboxes when known, FAST_READ_RELAY_URLS, and SEARCHABLE_RELAY_URLS.
  */
 async function buildComprehensiveRelayListForEvents(
   authorPubkey: string | undefined,
@@ -26,6 +26,7 @@ async function buildComprehensiveRelayListForEvents(
     seenRelays,
     containingEventRelays,
     includeFastReadRelays: true,
+    includeSearchableRelays: true,
     includeLocalRelays: true
   })
 }
@@ -86,35 +87,69 @@ export class EventService {
   }
 
   /**
-   * Fetch event with external relays
+   * REQ filter for searching a note/nevent/naddr/hex id on arbitrary relays.
    */
-  async fetchEventWithExternalRelays(eventId: string, externalRelays: string[]): Promise<NEvent | undefined> {
+  private filterForExternalRelayFetch(noteId: string): Filter | null {
+    const trimmed = noteId.trim()
+    if (/^[0-9a-f]{64}$/i.test(trimmed)) {
+      return { ids: [trimmed.toLowerCase()], limit: 1 }
+    }
+    try {
+      const { type, data } = nip19.decode(trimmed)
+      if (type === 'note') return { ids: [data], limit: 1 }
+      if (type === 'nevent') return { ids: [data.id], limit: 1 }
+      if (type === 'naddr') {
+        return {
+          kinds: [data.kind],
+          authors: [data.pubkey],
+          '#d': [data.identifier],
+          limit: 1
+        }
+      }
+    } catch {
+      /* invalid id */
+    }
+    return null
+  }
+
+  /**
+   * Fetch event with external relays (hex, note1, nevent1, or naddr1)
+   */
+  async fetchEventWithExternalRelays(noteId: string, externalRelays: string[]): Promise<NEvent | undefined> {
     if (!externalRelays || externalRelays.length === 0) {
-      logger.warn('fetchEventWithExternalRelays: No external relays provided', { eventId })
+      logger.warn('fetchEventWithExternalRelays: No external relays provided', { noteId })
       return undefined
     }
 
+    const filter = this.filterForExternalRelayFetch(noteId)
+    if (!filter) {
+      logger.warn('fetchEventWithExternalRelays: unparseable note id', {
+        noteIdPrefix: noteId.slice(0, 24)
+      })
+      return undefined
+    }
+
+    const logKey =
+      'ids' in filter && filter.ids?.[0]
+        ? filter.ids[0].slice(0, 8)
+        : `${filter.kinds?.[0]}:${(filter.authors?.[0] ?? '').slice(0, 8)}`
+
     logger.debug('fetchEventWithExternalRelays: Starting search', {
-      eventId: eventId.substring(0, 8),
+      noteIdKey: logKey,
       relayCount: externalRelays.length,
       relays: externalRelays
     })
 
     const startTime = Date.now()
-    const events = await this.queryService.query(
-      externalRelays,
-      { ids: [eventId], limit: 1 },
-      undefined,
-      {
-        eoseTimeout: 10000,
-        globalTimeout: 20000,
-        immediateReturn: true
-      }
-    )
+    const events = await this.queryService.query(externalRelays, filter, undefined, {
+      eoseTimeout: 10000,
+      globalTimeout: 20000,
+      immediateReturn: true
+    })
     const duration = Date.now() - startTime
 
     logger.debug('fetchEventWithExternalRelays: Search completed', {
-      eventId: eventId.substring(0, 8),
+      noteIdKey: logKey,
       relayCount: externalRelays.length,
       eventsFound: events.length,
       durationMs: duration
@@ -271,7 +306,7 @@ export class EventService {
 
   /**
    * Private: Try harder to fetch event from relays
-   * ALWAYS uses: author's outboxes + user's inboxes + relay hints + seen relays + defaults
+   * Uses: hints, seen, author relays when known, user's inboxes + cache, fast read + searchable relays.
    */
   private async tryHarderToFetchEvent(
     relayHints: string[],
@@ -328,7 +363,7 @@ export class EventService {
 
   /**
    * Private: Fetch events from big relays (batch)
-   * Uses comprehensive relay list: user's inboxes + defaults
+   * Uses same comprehensive list as single-event fetch (inboxes, fast read, searchable, cache).
    */
   private async fetchEventsFromBigRelays(ids: readonly string[]): Promise<(NEvent | undefined)[]> {
     // Build comprehensive relay list (user's inboxes + defaults)

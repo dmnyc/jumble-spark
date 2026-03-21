@@ -18,6 +18,32 @@ import { contentParserService } from '@/services/content-parser.service'
 import { useSmartNoteNavigation } from '@/PageManager'
 import { toNote } from '@/lib/link'
 
+/** Embedded `noteId` is often raw hex from parsers; must accept A–F and normalize for REQ `ids`. */
+function hexEventIdFromNoteId(noteId: string): string | null {
+  const trimmed = noteId.trim()
+  if (/^[0-9a-f]{64}$/i.test(trimmed)) {
+    return trimmed.toLowerCase()
+  }
+  try {
+    const { type, data } = nip19.decode(noteId)
+    if (type === 'note') return data
+    if (type === 'nevent') return data.id
+    return null
+  } catch {
+    return null
+  }
+}
+
+/** True if `fetchEventWithExternalRelays(noteId, …)` can build a REQ filter (hex, note, nevent, naddr). */
+function canSearchOnExternalRelays(noteId: string): boolean {
+  if (hexEventIdFromNoteId(noteId)) return true
+  try {
+    return nip19.decode(noteId.trim()).type === 'naddr'
+  } catch {
+    return false
+  }
+}
+
 export function EmbeddedNote({ 
   noteId, 
   className,
@@ -140,6 +166,9 @@ function EmbeddedNoteNotFound({
   const [triedExternal, setTriedExternal] = useState(false)
   const [externalRelays, setExternalRelays] = useState<string[]>([])
   const [hexEventId, setHexEventId] = useState<string | null>(null)
+  const [externalSearchDetail, setExternalSearchDetail] = useState<
+    null | 'unparseable' | 'no_relays' | 'searched'
+  >(null)
 
   // Calculate which external relays would be tried when user clicks "Try external relays".
   // IMPORTANT: For embedded events, we should search:
@@ -179,30 +208,29 @@ function EmbeddedNoteNotFound({
         }
       }
 
-      // 2. Extract hints from bech32 ID and embedded event author
-      if (!/^[0-9a-f]{64}$/.test(noteId)) {
-        try {
-          const { type, data } = nip19.decode(noteId)
-
-          if (type === 'nevent') {
-            extractedHexEventId = data.id
-            if (data.relays) hintRelays.push(...data.relays)
-            if (data.author) {
-              const authorRelayList = await client.fetchRelayList(data.author).catch(() => ({ read: [] as string[], write: [] as string[] }))
-              hintRelays.push(...(authorRelayList.read ?? []).slice(0, 10), ...(authorRelayList.write ?? []).slice(0, 10))
-            }
-          } else if (type === 'naddr') {
-            if (data.relays) hintRelays.push(...data.relays)
-            const authorRelayList = await client.fetchRelayList(data.pubkey).catch(() => ({ read: [] as string[], write: [] as string[] }))
+      // 2. Hex id (any case) or bech32; hints from nevent/naddr for extra relays
+      const quickHex = hexEventIdFromNoteId(noteId)
+      if (quickHex) {
+        extractedHexEventId = quickHex
+      }
+      try {
+        const { type, data } = nip19.decode(noteId)
+        if (type === 'nevent') {
+          extractedHexEventId = data.id
+          if (data.relays) hintRelays.push(...data.relays)
+          if (data.author) {
+            const authorRelayList = await client.fetchRelayList(data.author).catch(() => ({ read: [] as string[], write: [] as string[] }))
             hintRelays.push(...(authorRelayList.read ?? []).slice(0, 10), ...(authorRelayList.write ?? []).slice(0, 10))
-          } else if (type === 'note') {
-            extractedHexEventId = data
           }
-        } catch (err) {
-          logger.error('Failed to parse external relays', { error: err, noteId })
+        } else if (type === 'naddr') {
+          if (data.relays) hintRelays.push(...data.relays)
+          const authorRelayList = await client.fetchRelayList(data.pubkey).catch(() => ({ read: [] as string[], write: [] as string[] }))
+          hintRelays.push(...(authorRelayList.read ?? []).slice(0, 10), ...(authorRelayList.write ?? []).slice(0, 10))
+        } else if (type === 'note') {
+          extractedHexEventId = data
         }
-      } else {
-        extractedHexEventId = noteId
+      } catch {
+        // Plain hex ids are not valid bech32 — already handled via quickHex
       }
       
       setHexEventId(extractedHexEventId)
@@ -244,61 +272,81 @@ function EmbeddedNoteNotFound({
     }
 
     getExternalRelays()
-  }, [noteId])
+    // containingEvent supplies e/a/q relay hints + author NIP-65 list — must rerun when parent loads
+  }, [noteId, containingEvent?.id])
 
   const handleTryExternalRelays = async () => {
-    if (!hexEventId || isSearchingExternal) return
-    
-    if (externalRelays.length === 0) {
-      logger.warn('No external relays to search', { noteId, hexEventId })
+    if (isSearchingExternal) return
+
+    if (!canSearchOnExternalRelays(noteId)) {
+      logger.warn('External relay search skipped: unsupported note id', { noteId })
+      setExternalSearchDetail('unparseable')
       setTriedExternal(true)
       return
     }
-    
+
+    if (externalRelays.length === 0) {
+      logger.warn('No external relays to search', { noteId })
+      setExternalSearchDetail('no_relays')
+      setTriedExternal(true)
+      return
+    }
+
     setIsSearchingExternal(true)
+    setExternalSearchDetail(null)
+    let found: Event | undefined
     try {
-      logger.info('Searching external relays', { 
-        noteId, 
-        hexEventId, 
+      const idLog = hexEventId ?? hexEventIdFromNoteId(noteId) ?? noteId.slice(0, 16)
+      logger.info('Searching external relays', {
+        noteId,
+        hexOrHint: idLog,
         relayCount: externalRelays.length,
-        relays: externalRelays.slice(0, 5) // Log first 5 relays
+        relays: externalRelays.slice(0, 5)
       })
-      
-      const event = await client.fetchEventWithExternalRelays(hexEventId, externalRelays)
-      
+
+      const event = await client.fetchEventWithExternalRelays(noteId, externalRelays)
+
       if (event) {
-        logger.info('Event found on external relay', { noteId, hexEventId })
-        if (onEventFound) {
-          onEventFound(event)
-        }
+        logger.info('Event found on external relay', { noteId })
+        found = event
+        onEventFound?.(event)
       } else {
-        logger.info('Event not found on external relays', { 
-          noteId, 
-          hexEventId, 
-          relayCount: externalRelays.length 
+        logger.info('Event not found on external relays', {
+          noteId,
+          relayCount: externalRelays.length
         })
+        setExternalSearchDetail('searched')
       }
     } catch (error) {
-      logger.error('External relay fetch failed', { error, noteId, hexEventId, externalRelays })
+      logger.error('External relay fetch failed', { error, noteId, externalRelays })
+      setExternalSearchDetail('searched')
     } finally {
       setIsSearchingExternal(false)
-      setTriedExternal(true)
+      if (!found) {
+        setTriedExternal(true)
+      }
     }
   }
 
   const hasExternalRelays = externalRelays.length > 0
+  const showExternalTryButton =
+    !triedExternal && hasExternalRelays && canSearchOnExternalRelays(noteId)
 
   return (
     <div className={cn('text-left p-3 border rounded-lg', className)}>
       <div className="flex flex-col items-center text-muted-foreground gap-3">
         <div className="text-sm font-medium">{t('Note not found')}</div>
         
-        {!triedExternal && hasExternalRelays && (
+        {showExternalTryButton && (
           <div className="flex flex-col items-center gap-2 w-full">
             <Button
               variant="outline"
               size="sm"
-              onClick={handleTryExternalRelays}
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                void handleTryExternalRelays()
+              }}
               disabled={isSearchingExternal}
               className="gap-2 w-full"
             >
@@ -332,8 +380,28 @@ function EmbeddedNoteNotFound({
         {!triedExternal && !hasExternalRelays && (
           <div className="text-xs text-center">{t('No external relay hints available')}</div>
         )}
-        
-        {triedExternal && (
+
+        {!triedExternal && hasExternalRelays && !canSearchOnExternalRelays(noteId) && (
+          <div className="text-xs text-center text-muted-foreground">
+            {t('External relay search is not available for this link type')}
+          </div>
+        )}
+
+        {triedExternal && externalSearchDetail === 'unparseable' && (
+          <div className="text-xs text-center">{t('External relay search is not available for this link type')}</div>
+        )}
+
+        {triedExternal && externalSearchDetail === 'no_relays' && (
+          <div className="text-xs text-center">{t('No external relay hints available')}</div>
+        )}
+
+        {triedExternal && externalSearchDetail === 'searched' && (
+          <div className="text-xs text-center">
+            {t('Searched external relays not found', { count: externalRelays.length })}
+          </div>
+        )}
+
+        {triedExternal && !externalSearchDetail && (
           <div className="text-xs text-center">{t('Note could not be found anywhere')}</div>
         )}
         

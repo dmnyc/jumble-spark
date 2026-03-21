@@ -135,24 +135,24 @@ export default function NotFound({
   }, [bech32Id])
 
   const handleTryExternalRelays = async () => {
-    if (!hexEventId || isSearchingExternal) return
-    
+    if (!bech32Id || isSearchingExternal) return
+
     if (externalRelays.length === 0) {
       logger.warn('No external relays to search (NotFound)', { bech32Id, hexEventId })
       setTriedExternal(true)
       return
     }
-    
+
     setIsSearchingExternal(true)
     try {
-      logger.info('Searching external relays (NotFound)', { 
-        bech32Id, 
-        hexEventId, 
+      logger.info('Searching external relays (NotFound)', {
+        bech32Id,
+        hexEventId,
         relayCount: externalRelays.length,
         relays: externalRelays.slice(0, 5) // Log first 5 relays
       })
-      
-      const event = await client.fetchEventWithExternalRelays(hexEventId, externalRelays)
+
+      const event = await client.fetchEventWithExternalRelays(bech32Id, externalRelays)
       
       if (event) {
         logger.info('Event found on external relay (NotFound)', { bech32Id, hexEventId })

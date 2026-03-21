@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import client from '@/services/client.service'
 import { useTranslation } from 'react-i18next'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Event, nip19 } from 'nostr-tools'
+import { Event } from 'nostr-tools'
 import ContentPreview from '../ContentPreview'
 import UserAvatar from '../UserAvatar'
 import logger from '@/lib/logger'
@@ -26,34 +26,13 @@ export default function ParentNotePreview({
   /** One automatic searchable-relay attempt per eventId; without this, the effect re-fires forever after each 20s timeout. */
   const autoSearchableAttemptedRef = useRef(false)
 
-  // Helper function to decode event ID
-  const getHexEventId = (id: string): string | null => {
-    if (/^[0-9a-f]{64}$/.test(id)) {
-      return id
-    }
-    try {
-      const { type, data } = nip19.decode(id)
-      if (type === 'note') {
-        return data
-      } else if (type === 'nevent') {
-        return data.id
-      }
-      // Can't fetch naddr with fetchEventWithExternalRelays
-      return null
-    } catch (err) {
-      // Invalid bech32 or already hex
-      return null
-    }
-  }
-
-  // Helper function to fetch from searchable relays
+  // Helper function to fetch from searchable relays (hex, note1, nevent1, naddr1)
   const fetchFromSearchableRelays = useCallback(async () => {
-    const hexEventId = getHexEventId(eventId)
-    if (!hexEventId) return
+    if (!eventId?.trim()) return
 
     setIsFetchingFallback(true)
     try {
-      const foundEvent = await client.fetchEventWithExternalRelays(hexEventId, SEARCHABLE_RELAY_URLS)
+      const foundEvent = await client.fetchEventWithExternalRelays(eventId, SEARCHABLE_RELAY_URLS)
       if (foundEvent) {
         setFallbackEvent(foundEvent)
       }

@@ -73,29 +73,12 @@ export function useFetchProfile(id?: string, skipCache = false) {
         pubkey: pubkey.substring(0, 8)
       })
       try {
-        // Add timeout to prevent waiting forever on a stuck promise
-        const timeoutPromise = new Promise<null>((resolve) => {
-          setTimeout(() => {
-            logger.warn('[useFetchProfile] Existing promise timeout, not starting duplicate fetch', {
-              pubkey: pubkey.substring(0, 8)
-            })
-            resolve(null)
-          }, PROFILE_FETCH_PROMISE_TIMEOUT_MS)
-        })
-
-        const existingProfile = await Promise.race([existingPromise, timeoutPromise])
+        // Await the shared promise only — it already races fetchProfileEvent with
+        // PROFILE_FETCH_PROMISE_TIMEOUT_MS. Per-waiter Promise.race timers caused N identical
+        // "timeout" warnings (one per mounted component) and premature map deletion.
+        const existingProfile = await existingPromise
         if (cancelled.current) return null
 
-        // If timeout won: do NOT start a new fetch (avoids pile-up of parallel fetches for same pubkey).
-        // Return null so caller can show fallback; the original fetch may still complete and update cache.
-        // Set a cooldown period to prevent immediate retries from other components
-        if (existingProfile === null && !cancelled.current) {
-          globalFetchPromises.delete(pubkey)
-          globalFetchingPubkeys.delete(pubkey)
-          // Set cooldown for 10 seconds to prevent cascade of duplicate fetches
-          globalFetchCooldowns.set(pubkey, Date.now() + 10000)
-          return null
-        }
         if (existingProfile) {
           // Update state for this instance
           setProfile(existingProfile)
@@ -130,26 +113,9 @@ export function useFetchProfile(id?: string, skipCache = false) {
       const retryPromise = globalFetchPromises.get(pubkey)
       if (retryPromise) {
         try {
-          // Add timeout protection here too
-          const timeoutPromise = new Promise<null>((resolve) => {
-            setTimeout(() => {
-              logger.warn('[useFetchProfile] Retry promise timeout, not starting duplicate fetch', {
-                pubkey: pubkey.substring(0, 8)
-              })
-            resolve(null)
-          }, PROFILE_FETCH_PROMISE_TIMEOUT_MS)
-          })
-
-          const retryProfile = await Promise.race([retryPromise, timeoutPromise])
+          const retryProfile = await retryPromise
           if (cancelled.current) return null
 
-          if (retryProfile === null && !cancelled.current) {
-            globalFetchPromises.delete(pubkey)
-            globalFetchingPubkeys.delete(pubkey)
-            // Set cooldown for 10 seconds to prevent cascade of duplicate fetches
-            globalFetchCooldowns.set(pubkey, Date.now() + 10000)
-            return null
-          }
           if (retryProfile) {
             // Update state for this instance
             setProfile(retryProfile)

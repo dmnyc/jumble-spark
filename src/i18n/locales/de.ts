@@ -413,6 +413,10 @@ export default {
     'Searching...': 'Searching...',
     'Show relays': 'Show relays',
     'No external relay hints available': 'No external relay hints available',
+    'External relay search is not available for this link type':
+      'Externe Relay-Suche ist für diesen Linktyp nicht verfügbar.',
+    'Searched external relays not found':
+      '{{count}} externe Relays durchsucht; die Note wurde nicht gefunden.',
     'no more replies': 'keine weiteren Antworten',
     'Relay sets': 'Relay-Sets',
     'Favorite Relays': 'Lieblings-Relays',
