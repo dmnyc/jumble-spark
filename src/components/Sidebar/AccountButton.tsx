@@ -11,7 +11,7 @@ import { toWallet } from '@/lib/link'
 import { formatPubkey, generateImageByPubkey, pubkeyToNpub, formatNpub } from '@/lib/pubkey'
 import { usePrimaryPage, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
-import { ArrowDownUp, LogIn, LogOut, UserRound, Wallet } from 'lucide-react'
+import { ArrowDownUp, LogIn, LogOut, MoreVertical, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import LoginDialog from '../LoginDialog'
@@ -39,55 +39,62 @@ function ProfileButton() {
   if (!pubkey) return null
 
   const defaultAvatar = generateImageByPubkey(pubkey)
-  // Fallback to formatted npub if no profile
   const npub = pubkeyToNpub(pubkey)
   const fallbackUsername = npub ? formatNpub(npub) : formatPubkey(pubkey)
   const { username, avatar } = profile || { username: fallbackUsername, avatar: defaultAvatar }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          className="clickable shadow-none p-2 xl:px-2 xl:py-2 w-12 h-12 xl:w-full xl:h-auto flex items-center bg-transparent text-foreground hover:text-accent-foreground rounded-lg justify-start gap-4 text-lg font-semibold"
-        >
-          <div className="flex gap-2 items-center flex-1 w-0">
-            <Avatar className="w-8 h-8">
-              <AvatarImage src={avatar} />
-              <AvatarFallback>
-                <img src={defaultAvatar} />
-              </AvatarFallback>
-            </Avatar>
-            <div className="truncate font-semibold text-lg">{username}</div>
-          </div>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="top">
-        <DropdownMenuItem onClick={() => navigate('profile')}>
-          <UserRound />
-          {t('Profile')}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => push(toWallet())}>
-          <Wallet />
-          {t('Wallet')}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => setLoginDialogOpen(true)}>
-          <ArrowDownUp />
-          {t('Switch account')}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="text-destructive focus:text-destructive"
-          onClick={() => setLogoutDialogOpen(true)}
-        >
-          <LogOut />
-          {t('Logout')}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
+    <div className="flex w-full min-w-0 items-center gap-0.5 xl:gap-1">
+      <Button
+        type="button"
+        variant="ghost"
+        title={t('Profile')}
+        className="clickable h-12 min-w-0 flex-1 justify-start gap-2 rounded-lg bg-transparent p-2 text-lg font-semibold text-foreground shadow-none hover:text-accent-foreground xl:px-2 xl:py-2"
+        onClick={() => navigate('profile')}
+      >
+        <Avatar className="size-8 shrink-0">
+          <AvatarImage src={avatar} />
+          <AvatarFallback>
+            <img src={defaultAvatar} alt="" />
+          </AvatarFallback>
+        </Avatar>
+        <span className="truncate max-xl:hidden">{username}</span>
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-10 shrink-0 rounded-lg"
+            title={t('Account menu')}
+            aria-label={t('Account menu')}
+          >
+            <MoreVertical className="size-5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="end">
+          <DropdownMenuItem onClick={() => push(toWallet())}>
+            <Wallet />
+            {t('Wallet')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setLoginDialogOpen(true)}>
+            <ArrowDownUp />
+            {t('Switch account')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => setLogoutDialogOpen(true)}
+          >
+            <LogOut />
+            {t('Logout')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <LoginDialog open={loginDialogOpen} setOpen={setLoginDialogOpen} />
       <LogoutDialog open={logoutDialogOpen} setOpen={setLogoutDialogOpen} />
-    </DropdownMenu>
+    </div>
   )
 }
 

@@ -15,12 +15,12 @@ export default function AccountButton() {
     () => (profile?.pubkey ? generateImageByPubkey(profile.pubkey) : ''),
     [profile]
   )
-  const active = useMemo(() => current === 'me' && display, [display, current])
+  const active = useMemo(() => current === 'profile' && display, [display, current])
 
   return (
     <BottomNavigationBarItem
       onClick={() => {
-        navigate('me')
+        navigate(pubkey ? 'profile' : 'me')
       }}
       active={active}
     >

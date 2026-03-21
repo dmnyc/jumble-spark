@@ -10,7 +10,6 @@ import NotificationButton from './NotificationButton'
 import PostButton from './PostButton'
 import RssButton from './RssButton'
 import SearchButton from './SearchButton'
-import SettingsButton from './SettingsButton'
 import SpellsButton from './SpellsButton'
 import PaneModeToggle from './PaneModeToggle'
 
@@ -37,7 +36,6 @@ export default function PrimaryPageSidebar() {
         <SearchButton />
         <SpellsButton />
         <RssButton />
-        <SettingsButton />
         <PostButton />
       </div>
       <div className="space-y-2">

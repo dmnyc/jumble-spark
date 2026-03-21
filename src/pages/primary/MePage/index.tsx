@@ -3,12 +3,11 @@ import LoginDialog from '@/components/LoginDialog'
 import LogoutDialog from '@/components/LogoutDialog'
 import PubkeyCopy from '@/components/PubkeyCopy'
 import NpubQrCode from '@/components/NpubQrCode'
-import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { SimpleUserAvatar } from '@/components/UserAvatar'
 import { SimpleUsername } from '@/components/Username'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
-import { toProfile, toRelaySettings, toSettings, toWallet } from '@/lib/link'
+import { toProfile, toRelaySettings, toWallet } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
@@ -103,12 +102,10 @@ MePage.displayName = 'MePage'
 export default MePage
 
 function MePageTitlebar() {
-  const { push } = useSecondaryPage()
+  const { t } = useTranslation()
   return (
-    <div className="flex justify-end items-center">
-      <Button variant="ghost" size="titlebar-icon" onClick={() => push(toSettings())}>
-        <Settings />
-      </Button>
+    <div className="flex h-full items-center pl-3">
+      <div className="text-lg font-semibold">{t('YouTabName')}</div>
     </div>
   )
 }

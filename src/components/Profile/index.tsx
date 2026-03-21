@@ -16,7 +16,7 @@ import { kinds, type NostrEvent } from 'nostr-tools'
 import { getPaymentInfoFromEvent } from '@/lib/event-metadata'
 import { toProfileEditor } from '@/lib/link'
 import { generateImageByPubkey } from '@/lib/pubkey'
-import { useSecondaryPage } from '@/PageManager'
+import { usePrimaryPage, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
 import { replaceableEventService } from '@/services/client.service'
@@ -27,7 +27,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Link, Copy, Ellipsis, Calendar, MapPin, Pencil, SatelliteDish, Code } from 'lucide-react'
+import { Copy, Ellipsis, Calendar, MapPin, Pencil, SatelliteDish, Code, Gift, Link } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -38,7 +38,6 @@ import ProfileFeedWithPins from './ProfileFeedWithPins'
 import SmartFollowings from './SmartFollowings'
 import SmartMuteLink from './SmartMuteLink'
 import SmartRelays from './SmartRelays'
-import { toFollowPacks } from '@/lib/link'
 import ZapDialog from '@/components/ZapDialog'
 import PaytoLink from '@/components/PaytoLink'
 import PostEditor from '@/components/PostEditor'
@@ -157,6 +156,7 @@ function mergePaymentMethods(
 export default function Profile({ id }: { id?: string }) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
+  const { navigate: navigatePrimary } = usePrimaryPage()
   const { profile, isFetching } = useFetchProfile(id)
   const { pubkey: accountPubkey } = useNostr()
   const [paymentInfo, setPaymentInfo] = useState<ReturnType<typeof getPaymentInfoFromEvent> | null>(null)
@@ -399,9 +399,9 @@ export default function Profile({ id }: { id?: string }) {
                     <MapPin />
                     {t('Schedule in-person meeting')}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => push(toFollowPacks())}>
-                    <Link />
-                    {t('Browse follow packs')}
+                  <DropdownMenuItem onClick={() => navigatePrimary('spells', { spell: 'followPacks' })}>
+                    <Gift />
+                    {t('Follow Packs')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => push(toProfileEditor())}>
                     <Pencil />

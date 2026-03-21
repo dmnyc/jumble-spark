@@ -1,12 +1,59 @@
 import Explore from '@/components/Explore'
+import ExploreFavoriteRelays from '@/components/Explore/ExploreFavoriteRelays'
 import FollowingFavoriteRelayList from '@/components/FollowingFavoriteRelayList'
 import Tabs from '@/components/Tabs'
 import VersionUpdateBanner from '@/components/VersionUpdateBanner'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { toRelay } from '@/lib/link'
+import { cn } from '@/lib/utils'
+import { isWebsocketUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
-import { Compass, Plus } from 'lucide-react'
-import { forwardRef, useEffect, useState } from 'react'
+import { useSmartRelayNavigation } from '@/PageManager'
+import nip66Service from '@/services/nip66.service'
+import { ArrowRight, Compass, Plus } from 'lucide-react'
+import { forwardRef, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+
+const RELAY_SUGGESTION_LIMIT = 20
+
+function dedupeNormalizedRelayUrls(urls: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const u of urls) {
+    const k = normalizeUrl(u) || u
+    if (!k || seen.has(k)) continue
+    seen.add(k)
+    out.push(k)
+  }
+  return out
+}
+
+/** Lower rank = better match for ordering suggestions. */
+function relaySuggestionRank(normalizedUrl: string, queryLower: string): number {
+  const n = normalizedUrl.toLowerCase()
+  const simple = simplifyUrl(n).toLowerCase()
+  if (!queryLower) return 99
+  if (n === queryLower || simple === queryLower) return 0
+  if (simple.startsWith(queryLower) || n.startsWith(`wss://${queryLower}`) || n.startsWith(`ws://${queryLower}`))
+    return 1
+  if (simple.includes(queryLower) || n.includes(queryLower)) return 2
+  return 99
+}
+
+function filterMonitoringRelaySuggestions(urls: string[], rawQuery: string): string[] {
+  const q = rawQuery.trim().toLowerCase()
+  if (!q) return []
+  const matches = urls.filter((url) => relaySuggestionRank(url, q) < 99)
+  matches.sort((a, b) => {
+    const ra = relaySuggestionRank(a, q)
+    const rb = relaySuggestionRank(b, q)
+    if (ra !== rb) return ra - rb
+    return simplifyUrl(a).localeCompare(simplifyUrl(b), undefined, { sensitivity: 'base' })
+  })
+  return matches.slice(0, RELAY_SUGGESTION_LIMIT)
+}
 
 type TExploreTabs = 'explore' | 'following'
 
@@ -35,7 +82,7 @@ const ExplorePage = forwardRef((_, ref) => {
     <PrimaryPageLayout
       ref={ref}
       pageName="home"
-      titlebar={<ExplorePageTitlebar t={t} />}
+      titlebar={<ExplorePageTitlebar />}
       subHeader={
         <Tabs
           value={tab}
@@ -59,7 +106,12 @@ const ExplorePage = forwardRef((_, ref) => {
         <div className="px-2">
           <VersionUpdateBanner />
         </div>
-        {tab === 'explore' && <Explore />}
+        {tab === 'explore' && (
+          <>
+            <ExploreFavoriteRelays />
+            <Explore />
+          </>
+        )}
         {tab === 'following' && <FollowingFavoriteRelayList />}
       </div>
     </PrimaryPageLayout>
@@ -68,17 +120,129 @@ const ExplorePage = forwardRef((_, ref) => {
 ExplorePage.displayName = 'ExplorePage'
 export default ExplorePage
 
-function ExplorePageTitlebar({ t }: { t: (key: string) => string }) {
+function ExplorePageTitlebar() {
+  const { t } = useTranslation()
+  const { navigateToRelay } = useSmartRelayNavigation()
+  const [relayQuery, setRelayQuery] = useState('')
+  const [monitoringRelays, setMonitoringRelays] = useState<string[]>([])
+  const [suggestOpen, setSuggestOpen] = useState(false)
+  const blurCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    nip66Service.getPublicLivelyRelayUrls().then((urls) => {
+      setMonitoringRelays(dedupeNormalizedRelayUrls(urls ?? []))
+    })
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (blurCloseTimer.current != null) clearTimeout(blurCloseTimer.current)
+    }
+  }, [])
+
+  const relaySuggestions = useMemo(
+    () => filterMonitoringRelaySuggestions(monitoringRelays, relayQuery),
+    [monitoringRelays, relayQuery]
+  )
+
+  const clearBlurTimer = () => {
+    if (blurCloseTimer.current != null) {
+      clearTimeout(blurCloseTimer.current)
+      blurCloseTimer.current = null
+    }
+  }
+
+  const openRelayAndReset = (normalizedUrl: string) => {
+    navigateToRelay(toRelay(normalizedUrl))
+    setRelayQuery('')
+    setSuggestOpen(false)
+  }
+
+  const tryOpenRelay = () => {
+    const trimmed = relayQuery.trim()
+    if (!trimmed) return
+    const normalized = normalizeUrl(trimmed)
+    if (!normalized || !isWebsocketUrl(normalized)) {
+      toast.error(t('invalid relay URL'))
+      return
+    }
+    openRelayAndReset(normalized)
+  }
+
+  const onSubmitRelay = (e: FormEvent) => {
+    e.preventDefault()
+    tryOpenRelay()
+  }
+
   return (
-    <div className="flex gap-2 justify-between h-full">
-      <div className="flex gap-2 items-center h-full pl-3">
-        <Compass />
+    <div className="flex h-full min-w-0 w-full flex-wrap items-center justify-between gap-2 gap-y-2 px-2 py-1 sm:pl-3 sm:pr-2">
+      <div className="flex shrink-0 items-center gap-2">
+        <Compass className="size-5 shrink-0" />
         <div className="text-lg font-semibold">{t('Explore')}</div>
+      </div>
+      <div className="relative min-w-0 max-w-xl flex-1 basis-full sm:basis-64">
+        <form className="flex items-center gap-1.5" onSubmit={onSubmitRelay}>
+          <Input
+            type="text"
+            inputMode="url"
+            autoComplete="off"
+            placeholder={t('Relay URL…')}
+            className="h-9 min-w-0 flex-1 font-mono text-sm"
+            value={relayQuery}
+            onChange={(e) => setRelayQuery(e.target.value)}
+            aria-label={t('Relay URL…')}
+            aria-autocomplete="list"
+            aria-expanded={suggestOpen && relaySuggestions.length > 0}
+            aria-controls="explore-relay-suggestions"
+            role="combobox"
+            onFocus={() => {
+              clearBlurTimer()
+              setSuggestOpen(true)
+            }}
+            onBlur={() => {
+              clearBlurTimer()
+              blurCloseTimer.current = setTimeout(() => setSuggestOpen(false), 200)
+            }}
+          />
+          <Button
+            type="submit"
+            variant="secondary"
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            title={t('Open relay')}
+          >
+            <ArrowRight className="size-4" />
+          </Button>
+        </form>
+        {suggestOpen && relaySuggestions.length > 0 ? (
+          <ul
+            id="explore-relay-suggestions"
+            role="listbox"
+            className={cn(
+              'absolute left-0 right-12 top-full z-50 mt-1 max-h-60 overflow-auto rounded-md border bg-popover py-1 text-popover-foreground shadow-md'
+            )}
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            {relaySuggestions.map((url) => (
+              <li key={url} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  className="flex w-full flex-col items-stretch gap-0.5 px-3 py-2 text-left text-sm hover:bg-accent focus:bg-accent focus:outline-none"
+                  onClick={() => openRelayAndReset(url)}
+                >
+                  <span className="truncate font-mono">{simplifyUrl(url)}</span>
+                  <span className="truncate text-xs text-muted-foreground">{url}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       <Button
         variant="ghost"
         size="titlebar-icon"
-        className="relative w-fit px-3"
+        className="relative w-fit shrink-0 px-3"
         onClick={() => {
           window.open(
             'https://github.com/CodyTseng/awesome-nostr-relays/issues/new?template=add-relay.md',

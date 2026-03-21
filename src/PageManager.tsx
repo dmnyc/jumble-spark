@@ -7,14 +7,6 @@ import { NavigationService } from '@/services/navigation.service'
 import NoteListPage from '@/pages/primary/NoteListPage'
 import SecondaryNoteListPage from '@/pages/secondary/NoteListPage'
 // Page imports needed for primary note view
-import SettingsPage from '@/pages/secondary/SettingsPage'
-import RelaySettingsPage from '@/pages/secondary/RelaySettingsPage'
-import WalletPage from '@/pages/secondary/WalletPage'
-import PostSettingsPage from '@/pages/secondary/PostSettingsPage'
-import GeneralSettingsPage from '@/pages/secondary/GeneralSettingsPage'
-import TranslationPage from '@/pages/secondary/TranslationPage'
-import CacheSettingsPage from '@/pages/secondary/CacheSettingsPage'
-import RssFeedSettingsPage from '@/pages/secondary/RssFeedSettingsPage'
 import NoteDrawer from '@/components/NoteDrawer'
 import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
 import storage from '@/services/local-storage.service'
@@ -56,6 +48,7 @@ import ProfilePage from './pages/primary/ProfilePage'
 import RelayPage from './pages/primary/RelayPage'
 import SearchPage from './pages/primary/SearchPage'
 import RssPage from './pages/primary/RssPage'
+import SettingsPrimaryPage from './pages/primary/SettingsPrimaryPage'
 import { useScreenSize } from './providers/ScreenSizeProvider'
 
 /** Lazy-loaded so PageManager does not synchronously import SpellsPage (avoids HMR cycle: SpellsPage → PrimaryPageLayout → PageManager → SpellsPage). */
@@ -96,6 +89,7 @@ const PRIMARY_PAGE_REF_MAP = {
   relay: createRef<TPageRef>(),
   search: createRef<TPageRef>(),
   rss: createRef<TPageRef>(),
+  settings: createRef<TPageRef>(),
   spells: createRef<TPageRef>()
 }
 
@@ -109,6 +103,7 @@ const getPrimaryPageMap = () => ({
   relay: <RelayPage ref={PRIMARY_PAGE_REF_MAP.relay} />,
   search: <SearchPage ref={PRIMARY_PAGE_REF_MAP.search} />,
   rss: <RssPage ref={PRIMARY_PAGE_REF_MAP.rss} />,
+  settings: <SettingsPrimaryPage ref={PRIMARY_PAGE_REF_MAP.settings} />,
   spells: (
     <Suspense
       fallback={
@@ -477,47 +472,18 @@ export function useSmartOthersRelaySettingsNavigation() {
   return { navigateToOthersRelaySettings }
 }
 
-// Fixed: Settings navigation uses primary note view when settings is in main area; when settings list is in the right panel (Sheet), push sub-pages so they open in the panel instead of behind it.
+/** Settings index is a normal primary page; sub-routes open on the secondary stack (panel / drawer). */
 export function useSmartSettingsNavigation() {
-  const { setPrimaryNoteView, getTopSecondaryUrl } = usePrimaryNoteView()
+  const { navigate: navigatePrimary } = usePrimaryPage()
   const { push: pushSecondaryPage } = useSecondaryPage()
 
   const navigateToSettings = (url: string) => {
-    const topUrl = getTopSecondaryUrl?.()
-    const settingsInRightPanel = topUrl === '/settings'
-
-    // When the right panel is showing the settings list, push the sub-page so it opens in the panel instead of in the main area (behind the panel).
-    if (settingsInRightPanel && url !== '/settings') {
-      pushSecondaryPage(url)
+    const base = url.split('?')[0].split('#')[0]
+    if (base === '/settings') {
+      navigatePrimary('settings')
       return
     }
-
-    // Otherwise use primary note view (main content area)
-    if (url === '/settings') {
-      window.history.pushState(null, '', url)
-      setPrimaryNoteView(<SettingsPage key="settings" index={0} hideTitlebar={true} />, 'settings')
-    } else if (url.startsWith('/settings/relays')) {
-      window.history.pushState(null, '', url)
-      setPrimaryNoteView(<RelaySettingsPage key="relay-settings" index={0} hideTitlebar={true} />, 'settings-sub')
-    } else if (url === '/settings/cache') {
-      window.history.pushState(null, '', url)
-      setPrimaryNoteView(<CacheSettingsPage key="cache-settings" index={0} hideTitlebar={true} />, 'settings-sub')
-    } else if (url === '/settings/wallet') {
-      window.history.pushState(null, '', url)
-      setPrimaryNoteView(<WalletPage key="wallet" index={0} hideTitlebar={true} />, 'settings-sub')
-    } else if (url === '/settings/posts') {
-      window.history.pushState(null, '', url)
-      setPrimaryNoteView(<PostSettingsPage key="post-settings" index={0} hideTitlebar={true} />, 'settings-sub')
-    } else if (url === '/settings/general') {
-      window.history.pushState(null, '', url)
-      setPrimaryNoteView(<GeneralSettingsPage key="general-settings" index={0} hideTitlebar={true} />, 'settings-sub')
-    } else if (url === '/settings/translation') {
-      window.history.pushState(null, '', url)
-      setPrimaryNoteView(<TranslationPage key="translation" index={0} hideTitlebar={true} />, 'settings-sub')
-    } else if (url === '/settings/rss-feeds') {
-      window.history.pushState(null, '', url)
-      setPrimaryNoteView(<RssFeedSettingsPage key="rss-feed-settings" index={0} hideTitlebar={true} />, 'settings-sub')
-    }
+    pushSecondaryPage(url)
   }
 
   return { navigateToSettings }
@@ -731,24 +697,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         }))
         currentTabStateRef.current.set('search', tab)
       }
-    }
-  }
-
-  const goBack = () => {
-    // Special handling for settings sub-pages - go back to main settings page
-    if (primaryViewType === 'settings-sub') {
-      window.history.pushState(null, '', '/settings')
-      setPrimaryNoteView(<SettingsPage index={0} hideTitlebar={true} />, 'settings')
-    } else if (primaryViewType === 'following' || primaryViewType === 'mute' || primaryViewType === 'others-relay-settings') {
-      // Special handling for profile sub-pages - go back to main profile page
-      const currentPath = window.location.pathname
-      const profileId = currentPath.replace('/users/', '').replace('/following', '').replace('/muted', '').replace('/relays', '')
-      const profileUrl = `/users/${profileId}`
-      window.history.pushState(null, '', profileUrl)
-      setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
-    } else {
-      // Use browser's back functionality for other pages
-      window.history.back()
     }
   }
 
@@ -1094,7 +1042,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               // Double-pane mode: continue with stack creation
             }
           }
-          // Create a new stack item if it's a secondary route (e.g., /follow-packs, /mutes)
+          // Create a new stack item if it's a secondary route (e.g., /mutes)
           const { component, ref } = findAndCreateComponent(state.url, state.index)
           if (component) {
             newStack.push({
@@ -1246,6 +1194,21 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     // NEVER scroll to top - feed should maintain scroll position at all times
   }
 
+  const goBack = () => {
+    if (primaryViewType === 'settings-sub') {
+      navigatePrimaryPage('settings')
+      return
+    }
+    if (primaryViewType === 'following' || primaryViewType === 'mute' || primaryViewType === 'others-relay-settings') {
+      const currentPath = window.location.pathname
+      const profileId = currentPath.replace('/users/', '').replace('/following', '').replace('/muted', '').replace('/relays', '')
+      const profileUrl = `/users/${profileId}`
+      window.history.pushState(null, '', profileUrl)
+      setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+      return
+    }
+    window.history.back()
+  }
 
   const pushSecondaryPage = (url: string, index?: number) => {
     logger.component('PageManager', 'pushSecondaryPage called', { url })

@@ -126,7 +126,7 @@ export default function Note({
     ExtendedKind.ZAP_REQUEST,
     ExtendedKind.ZAP_RECEIPT,
     ExtendedKind.PUBLICATION_CONTENT, // Only for rendering embedded content, not in feeds
-    ExtendedKind.FOLLOW_PACK, // Only for rendering embedded content, not in feeds
+    ExtendedKind.FOLLOW_PACK, // Follow-pack feed + embedded previews
     ExtendedKind.CITATION_INTERNAL, // Citations for rendering
     ExtendedKind.CITATION_EXTERNAL,
     ExtendedKind.CITATION_HARDCOPY,

@@ -56,6 +56,7 @@ import {
   ChevronDown,
   Copy,
   FileText,
+  Gift,
   Hash,
   Image as ImageIcon,
   MessageSquare,
@@ -76,6 +77,7 @@ import {
   buildBookmarksSubRequests,
   buildCalendarSpellFilter,
   buildDiscussionFilter,
+  buildFollowPacksSubRequests,
   buildInterestsSubRequests,
   buildMediaSpellFilter,
   buildNotificationFilter,
@@ -206,6 +208,8 @@ function fauxSpellLabelKey(name: FauxSpellName): string {
       return 'Discussions'
     case 'following':
       return 'Following'
+    case 'followPacks':
+      return 'Follow Packs'
     case 'media':
       return 'Media'
     case 'interests':
@@ -223,6 +227,7 @@ const FAUX_SPELL_ICON: Record<FauxSpellName, typeof Bell> = {
   notifications: Bell,
   discussions: MessageSquare,
   following: Users,
+  followPacks: Gift,
   media: ImageIcon,
   interests: Hash,
   bookmarks: Bookmark,
@@ -439,6 +444,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       const urls = notificationRelayUrls(relayList, favoriteRelays)
       return buildBookmarksSubRequests(bookmarkListEvent, urls)
     }
+    if (selectedFauxSpell === 'followPacks') {
+      return buildFollowPacksSubRequests()
+    }
     return []
   }, [
     selectedFauxSpell,
@@ -556,6 +564,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     }
     if (selectedFauxSpell === 'following') {
       return kindFilterShowKinds
+    }
+    if (selectedFauxSpell === 'followPacks') {
+      return [ExtendedKind.FOLLOW_PACK]
     }
     if (selectedFauxSpell === 'media') {
       return [...MEDIA_SPELL_KINDS]

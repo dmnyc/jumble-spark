@@ -135,6 +135,20 @@ export function buildCalendarSpellFilter(): Filter {
   }
 }
 
+const FOLLOW_PACK_LIMIT = 100
+
+/** Kind 39089 follow/starter packs from fast read relays (same scope as the old Follow Packs page). */
+export function buildFollowPacksSubRequests(): TFeedSubRequest[] {
+  const urls = FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean) as string[]
+  if (!urls.length) return []
+  return [
+    {
+      urls,
+      filter: { kinds: [ExtendedKind.FOLLOW_PACK], limit: FOLLOW_PACK_LIMIT }
+    }
+  ]
+}
+
 /** One subrequest per topic (OR). Uses same kind set as the main profile/favorites feed. */
 export function buildInterestsSubRequests(
   relayUrls: string[],
