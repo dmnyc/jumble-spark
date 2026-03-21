@@ -64,7 +64,6 @@ const DEFAULT_RELAYS_TO_MONITOR = [
   'wss://relay.nsec.app',
   'wss://bucket.coracle.social',
   'wss://spatia-arcana.com',
-  'wss://sendit.nosflare.com',
   'wss://nostr-pub.wellorder.net',
   'wss://pyramid.fiatjaf.com/',
   'wss://nostr.lopp.social/',

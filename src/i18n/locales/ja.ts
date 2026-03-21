@@ -394,6 +394,14 @@ export default {
     'Seen on': '見た',
     'Temporarily display this reply': 'この返信を一時的に表示',
     'Note not found': 'ノートが見つかりません',
+    'Invalid embedded note reference': 'Invalid embedded note reference',
+    embeddedNoteInvalidEmpty: 'This embedded link is empty.',
+    embeddedNoteInvalidHex:
+      'This is not a valid hex event id (expected exactly 64 hexadecimal characters).',
+    embeddedNoteInvalidBech32:
+      'This is not a valid Nostr id (bech32 decode failed). It may be mistyped or truncated.',
+    embeddedNoteInvalidWrongKind:
+      'This is a {{type}} id. Embedded notes must use note1, nevent1, naddr1, or 64-character hex.',
     'The note was not found on your relays or default relays.':
       'The note was not found on your relays or default relays.',
     "Try searching author's relays": "Try searching author's relays",

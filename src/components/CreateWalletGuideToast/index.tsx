@@ -1,5 +1,5 @@
 import { toWallet } from '@/lib/link'
-import { useSecondaryPage } from '@/PageManager'
+import { useSecondaryPage } from '@/contexts/secondary-page-context'
 import { useNostr } from '@/providers/NostrProvider'
 import storage from '@/services/local-storage.service'
 import { useEffect } from 'react'

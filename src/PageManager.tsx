@@ -42,6 +42,7 @@ import { normalizeUrl } from './lib/url'
 import modalManager from './services/modal-manager.service'
 import { routes } from './routes'
 import { useScreenSize } from './providers/ScreenSizeProvider'
+import { SecondaryPageContext, useSecondaryPage } from '@/contexts/secondary-page-context'
 
 /** Lazy-loaded so PageManager does not synchronously import SpellsPage (avoids HMR cycle: SpellsPage → PrimaryPageLayout → PageManager → SpellsPage). */
 const SpellsPageLazy = lazy(() => import('./pages/primary/SpellsPage'))
@@ -76,13 +77,6 @@ type TPrimaryPageContext = {
   /** Props passed to the current primary page (e.g. `{ spell: 'discussions' }` for spells). */
   currentPageProps: object | undefined
   display: boolean
-}
-
-type TSecondaryPageContext = {
-  push: (url: string) => void
-  pop: () => void
-  currentIndex: number
-  navigateToPrimaryPage: (page: TPrimaryPageName, props?: object) => void
 }
 
 type TStackItem = {
@@ -203,8 +197,6 @@ function mergePrimaryPageEntry(
 
 export const PrimaryPageContext = createContext<TPrimaryPageContext | undefined>(undefined)
 
-const SecondaryPageContext = createContext<TSecondaryPageContext | undefined>(undefined)
-
 const PrimaryNoteViewContext = createContext<{
   setPrimaryNoteView: (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => void
   primaryViewType: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null
@@ -228,13 +220,7 @@ export function usePrimaryPage() {
   return context
 }
 
-export function useSecondaryPage() {
-  const context = useContext(SecondaryPageContext)
-  if (!context) {
-    throw new Error('useSecondaryPage must be used within a SecondaryPageContext.Provider')
-  }
-  return context
-}
+export { useSecondaryPage }
 
 export function usePrimaryNoteView() {
   const context = useContext(PrimaryNoteViewContext)

@@ -1,14 +1,16 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS, ExtendedKind } from '@/constants'
+import { isRenderableNoteKind } from '@/lib/note-renderable-kinds'
 import { useFetchEvent } from '@/hooks'
 import { normalizeUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import client from '@/services/client.service'
 import { useTranslation } from 'react-i18next'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Event, nip19 } from 'nostr-tools'
 import ClientSelect from '../ClientSelect'
 import MainNoteCard from '../NoteCard/MainNoteCard'
+import UnknownNote from '../Note/UnknownNote'
 import { Button } from '../ui/button'
 import { EmbeddedCalendarEvent } from './EmbeddedCalendarEvent'
 import { Search } from 'lucide-react'
@@ -44,14 +46,140 @@ function canSearchOnExternalRelays(noteId: string): boolean {
   }
 }
 
-export function EmbeddedNote({ 
-  noteId, 
+export type EmbeddedNoteIdValidation =
+  | { valid: true }
+  | {
+      valid: false
+      reason: 'empty' | 'invalid_hex' | 'invalid_bech32' | 'wrong_nip19_type'
+      decodedType?: string
+    }
+
+/**
+ * Only hex (64), note1, nevent1, and naddr1 are valid embedded note targets.
+ * Malformed bech32, wrong kinds (npub, …), or bad hex length fail before fetch/search UI.
+ */
+export function validateEmbeddedNotePointer(noteId: string): EmbeddedNoteIdValidation {
+  const s = noteId.trim()
+  if (!s) return { valid: false, reason: 'empty' }
+
+  if (/^[0-9a-f]{64}$/i.test(s)) return { valid: true }
+
+  if (/^[0-9a-f]+$/i.test(s)) {
+    return { valid: false, reason: 'invalid_hex' }
+  }
+
+  const looksLikeNostrBech32 =
+    s.startsWith('n') && s.includes('1') && /^[a-z0-9]+$/i.test(s) && s.length >= 10
+
+  if (looksLikeNostrBech32) {
+    try {
+      const { type } = nip19.decode(s)
+      if (type === 'note' || type === 'nevent' || type === 'naddr') return { valid: true }
+      return { valid: false, reason: 'wrong_nip19_type', decodedType: type }
+    } catch {
+      return { valid: false, reason: 'invalid_bech32' }
+    }
+  }
+
+  try {
+    const { type } = nip19.decode(s)
+    if (type === 'note' || type === 'nevent' || type === 'naddr') return { valid: true }
+    return { valid: false, reason: 'wrong_nip19_type', decodedType: type }
+  } catch {
+    return { valid: false, reason: 'invalid_bech32' }
+  }
+}
+
+export function EmbeddedNote({
+  noteId,
   className,
-  containingEvent 
-}: { 
+  containingEvent
+}: {
   noteId: string
   className?: string
-  containingEvent?: Event // Event that contains this embedded note - use its author's relays and relay hints
+  containingEvent?: Event
+}) {
+  const validation = useMemo(() => validateEmbeddedNotePointer(noteId), [noteId])
+  if (!validation.valid) {
+    return (
+      <EmbeddedNoteInvalid
+        className={className}
+        noteId={noteId}
+        validation={validation}
+      />
+    )
+  }
+  return (
+    <EmbeddedNoteContent
+      noteId={noteId}
+      className={className}
+      containingEvent={containingEvent}
+    />
+  )
+}
+
+function EmbeddedNoteInvalid({
+  noteId,
+  className,
+  validation
+}: {
+  noteId: string
+  className?: string
+  validation: Exclude<EmbeddedNoteIdValidation, { valid: true }>
+}) {
+  const { t } = useTranslation()
+  const trimmed = noteId.trim()
+  const isNsecLike = /^nsec1/i.test(trimmed) || validation.decodedType === 'nsec'
+  const preview =
+    trimmed.length > 96 ? `${trimmed.slice(0, 96)}…` : trimmed || '—'
+
+  let message: string
+  switch (validation.reason) {
+    case 'empty':
+      message = t('embeddedNoteInvalidEmpty')
+      break
+    case 'invalid_hex':
+      message = t('embeddedNoteInvalidHex')
+      break
+    case 'wrong_nip19_type':
+      message = t('embeddedNoteInvalidWrongKind', {
+        type: validation.decodedType ?? 'unknown'
+      })
+      break
+    case 'invalid_bech32':
+    default:
+      message = t('embeddedNoteInvalidBech32')
+      break
+  }
+
+  return (
+    <div
+      className={cn('text-left p-3 border border-destructive/30 rounded-lg bg-destructive/5', className)}
+      onClick={(e) => e.stopPropagation()}
+      data-embedded-note-invalid
+    >
+      <div className="flex flex-col gap-2 text-muted-foreground">
+        <div className="text-sm font-medium text-destructive">{t('Invalid embedded note reference')}</div>
+        <p className="text-xs leading-relaxed">{message}</p>
+        {validation.reason !== 'empty' && !isNsecLike && (
+          <pre className="text-[10px] font-mono whitespace-pre-wrap break-all rounded bg-muted/50 p-2 text-foreground/80">
+            {preview}
+          </pre>
+        )}
+        <ClientSelect className="w-full" originalNoteId={trimmed || undefined} />
+      </div>
+    </div>
+  )
+}
+
+function EmbeddedNoteContent({
+  noteId,
+  className,
+  containingEvent
+}: {
+  noteId: string
+  className?: string
+  containingEvent?: Event
 }) {
   const { event, isFetching } = useFetchEvent(noteId)
   const [retryEvent, setRetryEvent] = useState<Event | undefined>(undefined)
@@ -114,6 +242,21 @@ export function EmbeddedNote({
     return (
       <div data-embedded-note onClick={(e) => e.stopPropagation()}>
         <EmbeddedCalendarEvent event={finalEvent} className={className} />
+      </div>
+    )
+  }
+
+  if (!isRenderableNoteKind(finalEvent.kind)) {
+    return (
+      <div
+        data-embedded-note
+        data-embedded-unsupported
+        onClick={(e) => e.stopPropagation()}
+      >
+        <UnknownNote
+          event={finalEvent}
+          className={cn('my-0 p-2 sm:p-3 border rounded-lg w-full', className)}
+        />
       </div>
     )
   }

@@ -1,5 +1,6 @@
 import { useSmartNoteNavigation } from '@/PageManager'
-import { ExtendedKind, SUPPORTED_KINDS } from '@/constants'
+import { ExtendedKind } from '@/constants'
+import { isRenderableNoteKind } from '@/lib/note-renderable-kinds'
 import { getParentBech32Id, isNsfwEvent } from '@/lib/event'
 import { toNote } from '@/lib/link'
 import logger from '@/lib/logger'
@@ -117,24 +118,7 @@ export default function Note({
 
   let content: React.ReactNode
   
-  const supportedKindsList = [
-    ...SUPPORTED_KINDS,
-    kinds.CommunityDefinition,
-    kinds.LiveEvent,
-    ExtendedKind.GROUP_METADATA,
-    ExtendedKind.PUBLIC_MESSAGE,
-    ExtendedKind.ZAP_REQUEST,
-    ExtendedKind.ZAP_RECEIPT,
-    ExtendedKind.PUBLICATION_CONTENT, // Only for rendering embedded content, not in feeds
-    ExtendedKind.FOLLOW_PACK, // Follow-pack feed + embedded previews
-    ExtendedKind.CITATION_INTERNAL, // Citations for rendering
-    ExtendedKind.CITATION_EXTERNAL,
-    ExtendedKind.CITATION_HARDCOPY,
-    ExtendedKind.CITATION_PROMPT
-  ]
-  
-  
-  if (!supportedKindsList.includes(event.kind)) {
+  if (!isRenderableNoteKind(event.kind)) {
     logger.debug('Note component - rendering UnknownNote for unsupported kind:', event.kind)
     content = <UnknownNote className="mt-2" event={event} />
   } else if (mutePubkeySet.has(event.pubkey) && !showMuted) {

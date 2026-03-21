@@ -7,6 +7,7 @@ import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ExternalLink } from 'lucide-react'
 import { nip19, kinds } from 'nostr-tools'
 import { useMemo, useEffect, useState } from 'react'
@@ -459,15 +460,28 @@ export default function WebPreview({ url, className }: { url: string; className?
     return null
   }
 
-  // Always try to fetch OG data for standalone hyperlinks (except internal jumble links)
-  // Check if we have any opengraph data (title, description, or image)
+  // Prefer the page's own Open Graph / meta when the fetch returns anything useful.
   const hasOpengraphData = !isInternalJumbleLink && (title || description || image)
 
-  // Show enhanced fallback link card if:
-  // 1. No OG data available, OR
-  // 2. A nostr identifier was detected (we want to show the detailed nostr card even with OG data)
-  // Note: We always attempt to fetch OG data via useFetchWebMetadata hook above
-  if (!hasOpengraphData || nostrIdentifier) {
+  // While OG is loading for external URLs, avoid flashing the nostr / hostname fallback.
+  if (!isInternalJumbleLink && ogLoading) {
+    return (
+      <div
+        className={cn('p-2 flex w-full border rounded-lg overflow-hidden gap-2 max-w-full', className)}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Skeleton className="h-20 w-20 sm:w-40 shrink-0 rounded-l-md rounded-r-none" />
+        <div className="flex-1 min-w-0 space-y-2 py-1">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-3 w-4/5" />
+        </div>
+      </div>
+    )
+  }
+
+  // Nostr-enhanced cards only when the target page did not provide usable preview metadata.
+  if (!hasOpengraphData) {
     // Enhanced card for event URLs (always show if nostr identifier detected, even while loading)
     if (nostrType === 'naddr' || nostrType === 'nevent' || nostrType === 'note') {
       const eventTypeName = fetchedEvent ? getEventTypeName(fetchedEvent.kind) : null

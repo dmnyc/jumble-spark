@@ -1,3 +1,4 @@
+import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
 import { simplifyUrl, isLocalNetworkUrl, normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -70,6 +71,21 @@ export default function PostRelaySelector({
     
     return false
   }, [_parentEvent])
+
+  /**
+   * Relay selection only cares about nostr:… mentions in the draft (see relay-selection.service).
+   * Depending on full `postContent` re-ran the heavy relay effect on every keystroke.
+   */
+  const contentRelaySignature = useMemo(() => {
+    if (isDiscussionReply) return ''
+    if (isPublicMessage && mentions.length > 0) {
+      // PM recipients come from `mentions` when set; content is ignored by selection service
+      return ''
+    }
+    const matches = [...postContent.matchAll(NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX)].map((m) => m[0])
+    if (!matches.length) return ''
+    return [...new Set(matches)].sort().join('\n')
+  }, [postContent, isDiscussionReply, isPublicMessage, mentions])
 
   // Memoize arrays to prevent unnecessary re-renders
   const memoizedFavoriteRelays = useMemo(() => favoriteRelays, [favoriteRelays])
@@ -164,7 +180,19 @@ export default function PostRelaySelector({
     }
 
     updateRelaySelection()
-  }, [memoizedOpenFrom, _parentEvent, memoizedFavoriteRelays, memoizedBlockedRelays, memoizedRelaySets, isPublicMessage, pubkey, relayList, isDiscussionReply, postContent, mentions])
+  }, [
+    memoizedOpenFrom,
+    _parentEvent,
+    memoizedFavoriteRelays,
+    memoizedBlockedRelays,
+    memoizedRelaySets,
+    isPublicMessage,
+    pubkey,
+    relayList,
+    isDiscussionReply,
+    contentRelaySignature,
+    mentions
+  ])
 
   // Separate effect for mention changes in non-discussion replies
   useEffect(() => {
@@ -253,7 +281,20 @@ export default function PostRelaySelector({
       
       updateRelaySelection()
     }
-  }, [mentions, isDiscussionReply, memoizedFavoriteRelays, memoizedBlockedRelays, memoizedRelaySets, _parentEvent, isPublicMessage, pubkey, relayList, memoizedOpenFrom, previousSelectableCount, hasManualSelection, postContent])
+  }, [
+    mentions,
+    isDiscussionReply,
+    memoizedFavoriteRelays,
+    memoizedBlockedRelays,
+    memoizedRelaySets,
+    _parentEvent,
+    isPublicMessage,
+    pubkey,
+    relayList,
+    memoizedOpenFrom,
+    previousSelectableCount,
+    hasManualSelection
+  ])
 
   // Update description when selected relays change due to manual selection
   useEffect(() => {

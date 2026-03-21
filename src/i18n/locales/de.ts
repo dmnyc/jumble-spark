@@ -402,6 +402,14 @@ export default {
     'Seen on': 'Gesehen auf',
     'Temporarily display this reply': 'Antwort vorübergehend anzeigen',
     'Note not found': 'Die Notiz wurde nicht gefunden',
+    'Invalid embedded note reference': 'Ungültige eingebettete Notiz-Referenz',
+    embeddedNoteInvalidEmpty: 'Dieser eingebettete Link ist leer.',
+    embeddedNoteInvalidHex:
+      'Keine gültige Hex-Event-ID (es werden genau 64 hexadezimale Zeichen erwartet).',
+    embeddedNoteInvalidBech32:
+      'Keine gültige Nostr-ID (Bech32 konnte nicht gelesen werden). Tippfehler oder abgeschnittene Adresse?',
+    embeddedNoteInvalidWrongKind:
+      'Dies ist eine {{type}}-Adresse. Eingebettete Notizen brauchen note1, nevent1, naddr1 oder 64 Zeichen Hex.',
     'The note was not found on your relays or default relays.':
       'The note was not found on your relays or default relays.',
     "Try searching author's relays": "Try searching author's relays",
