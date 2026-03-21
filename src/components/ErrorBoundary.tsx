@@ -7,6 +7,38 @@ import logger from '@/lib/logger'
 const ISSUES_URL =
   'https://gitrepublic.imwald.eu/repos/npub1l5sga6xg72phsz5422ykujprejwud075ggrr3z2hwyrfgr7eylqstegx9z/jumble-imwald-edition?tab=issues'
 
+/** HMR can remount children before parents; context hooks throw. One recovery reload fixes it. */
+const CONTEXT_RECOVERY_RELOAD_KEY = 'jumble-context-recovery-reload-at'
+const CONTEXT_RECOVERY_COOLDOWN_MS = 20_000
+
+function isLikelyBrokenReactContextFromHmr(message: string): boolean {
+  return (
+    /must be used within (a )?[\w]+/i.test(message) ||
+    message.includes('useNostr must be used within') ||
+    message.includes('useInterestList must be used within') ||
+    (message.includes('useContext') && message.includes('null'))
+  )
+}
+
+/** Avoid double `reload()` when React StrictMode runs render twice before navigation. */
+let contextRecoveryReloadScheduled = false
+
+function tryContextRecoveryReload(): boolean {
+  if (typeof window === 'undefined') return false
+  if (contextRecoveryReloadScheduled) return true
+  try {
+    const last = Number(sessionStorage.getItem(CONTEXT_RECOVERY_RELOAD_KEY) || '0')
+    const now = Date.now()
+    if (now - last <= CONTEXT_RECOVERY_COOLDOWN_MS) return false
+    sessionStorage.setItem(CONTEXT_RECOVERY_RELOAD_KEY, String(now))
+    contextRecoveryReloadScheduled = true
+    window.location.reload()
+    return true
+  } catch {
+    return false
+  }
+}
+
 interface ErrorBoundaryProps {
   children: ReactNode
 }
@@ -28,10 +60,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     logger.error('ErrorBoundary caught an error', { error, errorInfo })
+    // Recovery reload runs in render() so navigation starts before the error UI paints.
   }
 
   render() {
     if (this.state.hasError) {
+      const msg = this.state.error?.message ?? ''
+      if (isLikelyBrokenReactContextFromHmr(msg) && tryContextRecoveryReload()) {
+        return (
+          <div className="flex h-screen w-screen items-center justify-center p-4 text-muted-foreground">
+            Reloading after a dev hot-reload glitch…
+          </div>
+        )
+      }
       return (
         <div className="w-screen h-screen flex flex-col items-center justify-center p-4 gap-4">
           <h1 className="text-2xl font-bold">Oops, something went wrong.</h1>
@@ -67,7 +108,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               </pre>
             </>
           )}
-          <Button onClick={() => window.location.reload()} className="mt-2">
+          <Button
+            onClick={() => {
+              try {
+                sessionStorage.removeItem(CONTEXT_RECOVERY_RELOAD_KEY)
+              } catch {
+                /* ignore */
+              }
+              window.location.reload()
+            }}
+            className="mt-2"
+          >
             <RotateCw className="w-4 h-4 mr-2" />
             Reload Page
           </Button>

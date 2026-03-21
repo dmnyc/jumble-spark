@@ -35,6 +35,7 @@ import storage from '@/services/local-storage.service'
 import { ExtendedKind, FAUX_SPELL_ORDER, PROFILE_FEED_KINDS } from '@/constants'
 import { isUserInEventMentions } from '@/lib/event'
 import { formatPubkey } from '@/lib/pubkey'
+import { computeSpellSubRequestsIdentityKey } from '@/lib/spell-feed-request-identity'
 import { normalizeUrl } from '@/lib/url'
 import {
   buildSpellCatalogAuthors,
@@ -82,7 +83,8 @@ import {
   buildMentionsSpellFilter,
   discussionRelayUrls,
   fauxFavoriteRelayUrls,
-  MEDIA_SPELL_KINDS,
+  MEDIA_SPELL_SHOW_KINDS,
+  mediaSpellExtraShouldHideEvent,
   notificationRelayUrls
 } from './fauxSpellFeeds'
 import type { TPageRef } from '@/types'
@@ -306,30 +308,29 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     setFavoriteIds(new Set(ids))
   }, [])
 
-  /** Re-sync catalog when inbox / outbox / mailbox entries change (not only `write`). */
-  const spellCatalogRelayKey = useMemo(
-    () =>
-      relayList
-        ? JSON.stringify({
-            r: relayList.read,
-            w: relayList.write,
-            o: relayList.originalRelays.map((x) => [x.url, x.scope])
-          })
-        : '',
-    [relayList]
-  )
+  /**
+   * Fingerprint by value — `relayList` from NostrProvider often gets a new object ref each render.
+   * Using `[relayList]` in useMemo deps was invalidating every tick → new subRequests → browse-relay
+   * effect → CurrentRelays churn → mass useFetchProfile cancellation (e.g. Discussions spell).
+   */
+  const normalizedReadSorted = relayList
+    ? [...relayList.read].map((u) => normalizeUrl(u) || u).filter(Boolean).sort()
+    : []
+  const normalizedWriteSorted = relayList
+    ? [...relayList.write].map((u) => normalizeUrl(u) || u).filter(Boolean).sort()
+    : []
 
-  /** Content key only — `relayList` often gets a new object ref from NostrProvider; recomputing spell filters would re-run `resolveRelativeTime` (Date.now) and churn NoteList subscriptions. */
-  const relayListWriteKey = useMemo(
-    () =>
-      JSON.stringify(
-        [...(relayList?.write ?? [])]
-          .map((u) => normalizeUrl(u) || u)
-          .filter(Boolean)
-          .sort()
-      ),
-    [relayList]
-  )
+  /** Read+write only, order-stable. `originalRelays` churns during NIP-66 / discovery but faux spell REQ lists ignore it. */
+  const relayMailboxStableKey =
+    relayList == null
+      ? ''
+      : JSON.stringify({ r: normalizedReadSorted, w: normalizedWriteSorted })
+
+  /** Write URLs only; mailbox key excludes discovery merges on `originalRelays`. */
+  const relayListWriteKey = useMemo(() => {
+    if (!relayList) return '[]'
+    return JSON.stringify(normalizedWriteSorted)
+  }, [relayMailboxStableKey])
 
   useEffect(() => {
     loadSpells()
@@ -338,7 +339,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   /** Stable key so we re-sync when the follow list changes (not only on array identity). */
   const contactsSyncKey = useMemo(() => [...contacts].sort().join(','), [contacts])
 
-  /** After showing the cache, pull kind 777 from merged mailbox (10002 + 10432) read/write + fast read. */
+  /**
+   * After showing the cache, pull kind 777 from merged mailbox (10002 + 10432) read/write + fast read.
+   * Deps use `relayMailboxStableKey` only — not NIP-66 `originalRelays` — so discovery merges don’t restart this sub.
+   */
   useEffect(() => {
     if (!pubkey) {
       setSpellsCatalogSyncing(false)
@@ -346,7 +350,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     }
     let cancelled = false
     spellCatalogCloserRef.current = null
-    setSpellsCatalogSyncing(true)
+    let loadSpellsDebounce: ReturnType<typeof setTimeout> | null = null
+    const scheduleLoadSpells = () => {
+      if (loadSpellsDebounce != null) clearTimeout(loadSpellsDebounce)
+      loadSpellsDebounce = setTimeout(() => {
+        loadSpellsDebounce = null
+        if (!cancelled) void loadSpells()
+      }, 120)
+    }
     const urls = getRelaysForSpellCatalogSync(relayList ?? undefined)
     const catalogAuthors = buildSpellCatalogAuthors(pubkey, contacts)
     const authorAllowlist = new Set(catalogAuthors)
@@ -365,30 +376,41 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
     void (async () => {
       try {
+        setSpellsCatalogSyncing(true)
         const { closer } = await client.subscribeTimeline(
           [{ urls, filter }],
           {
             onEvents: async (events, eosed) => {
-              if (!eosed || cancelled) return
-              window.clearTimeout(syncTimeout)
+              if (cancelled) return
+              let wrote = false
               for (const ev of events) {
                 if (cancelled) return
                 if (!verifyEvent(ev) || !isSpellEvent(ev) || !authorAllowlist.has(ev.pubkey)) continue
                 try {
                   await indexedDb.putSpellEvent(ev)
+                  wrote = true
                 } catch (e) {
                   logger.warn('[SpellsPage] Failed to cache spell from relay', e)
                 }
               }
-              if (!cancelled) await loadSpells()
-              if (!cancelled) setSpellsCatalogSyncing(false)
-              closer()
-              spellCatalogCloserRef.current = null
+              if (wrote) scheduleLoadSpells()
+              if (eosed) {
+                window.clearTimeout(syncTimeout)
+                if (loadSpellsDebounce != null) {
+                  clearTimeout(loadSpellsDebounce)
+                  loadSpellsDebounce = null
+                }
+                if (!cancelled) await loadSpells()
+                if (!cancelled) setSpellsCatalogSyncing(false)
+                closer()
+                spellCatalogCloserRef.current = null
+              }
             },
             onNew: () => {} // Not needed
           },
           {
-            useCache: false // NO CACHING - stream raw from relays
+            useCache: true,
+            omitDefaultSinceWhenUseCache: true
           }
         )
         if (cancelled) {
@@ -405,12 +427,13 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
     return () => {
       cancelled = true
+      if (loadSpellsDebounce != null) clearTimeout(loadSpellsDebounce)
       window.clearTimeout(syncTimeout)
       spellCatalogCloserRef.current?.()
       spellCatalogCloserRef.current = null
       setSpellsCatalogSyncing(false)
     }
-  }, [pubkey, spellCatalogRelayKey, loadSpells, contactsSyncKey])
+  }, [pubkey, relayMailboxStableKey, loadSpells, contactsSyncKey])
 
   useEffect(() => {
     if (!pubkey) {
@@ -419,6 +442,37 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     }
     client.fetchFollowings(pubkey).then(setContacts).catch(() => setContacts([]))
   }, [pubkey])
+
+  /** Order-independent favorites/blocked — array order from providers must not rebuild faux subs. */
+  const sortedFavoriteRelaysKey = JSON.stringify(
+    [...favoriteRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort((a, b) => a.localeCompare(b))
+  )
+  const sortedBlockedRelaysKey = JSON.stringify(
+    [...blockedRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort((a, b) => a.localeCompare(b))
+  )
+
+  const interestTagsStableKey = interestListEvent
+    ? JSON.stringify(
+        [...interestListEvent.tags].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+      )
+    : ''
+  const bookmarkTagsStableKey = bookmarkListEvent
+    ? JSON.stringify(
+        [...bookmarkListEvent.tags].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+      )
+    : ''
+
+  /** Content-based key so event ref churn does not rebuild faux subs every render. */
+  const fauxFeedRelaysDepsKey = [
+    sortedFavoriteRelaysKey,
+    sortedBlockedRelaysKey,
+    interestListEvent?.id ?? '',
+    String(interestListEvent?.created_at ?? ''),
+    interestTagsStableKey,
+    bookmarkListEvent?.id ?? '',
+    String(bookmarkListEvent?.created_at ?? ''),
+    bookmarkTagsStableKey
+  ].join('\0')
 
   const syncFauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
     if (!selectedFauxSpell || selectedFauxSpell === 'following') return []
@@ -459,16 +513,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return buildFollowPacksSubRequests()
     }
     return []
-    // spellCatalogRelayKey: stable mailbox fingerprint (not relayList ref) so faux feeds don’t rebuild every NostrProvider tick
-  }, [
-    selectedFauxSpell,
-    pubkey,
-    spellCatalogRelayKey,
-    favoriteRelays,
-    blockedRelays,
-    interestListEvent,
-    bookmarkListEvent
-  ])
+    // relayMailboxStableKey: read/write only — do not tie faux feeds to originalRelays (NIP-66 churn).
+  }, [selectedFauxSpell, pubkey, relayMailboxStableKey, fauxFeedRelaysDepsKey])
 
   const fauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
     if (selectedFauxSpell === 'following') return followingSubRequests
@@ -492,6 +538,11 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     return spellSubRequests
   }, [selectedFauxSpell, fauxSubRequests, spellSubRequests])
 
+  const spellFeedSubscriptionKey = useMemo(
+    () => computeSpellSubRequestsIdentityKey(subRequests),
+    [subRequests]
+  )
+
   const spellBrowseRelayUrls = useMemo(() => {
     const set = new Set<string>()
     for (const req of subRequests) {
@@ -500,15 +551,18 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         if (n) set.add(n)
       }
     }
-    return [...set]
+    return [...set].sort()
   }, [subRequests])
+
+  const spellBrowseRelayUrlsKey = spellBrowseRelayUrls.join('|')
 
   const { addRelayUrls, removeRelayUrls } = useCurrentRelays()
   useEffect(() => {
-    if (!spellBrowseRelayUrls.length) return
-    addRelayUrls(spellBrowseRelayUrls)
-    return () => removeRelayUrls(spellBrowseRelayUrls)
-  }, [spellBrowseRelayUrls, addRelayUrls, removeRelayUrls])
+    if (!spellBrowseRelayUrlsKey) return
+    const urls = spellBrowseRelayUrlsKey.split('|')
+    addRelayUrls(urls)
+    return () => removeRelayUrls(urls)
+  }, [spellBrowseRelayUrlsKey, addRelayUrls, removeRelayUrls])
 
   const toggleFavorite = useCallback(async (spellId: string) => {
     const ids = await indexedDb.getSpellFavoriteIds()
@@ -585,6 +639,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       .join(',')
   }, [selectedSpell?.id])
 
+  /** Avoid depending on `kindFilterShowKinds` ref for faux spells that don’t use it (e.g. Discussions). */
+  const followingShowKindsKey =
+    selectedFauxSpell === 'following' ? JSON.stringify(kindFilterShowKinds) : ''
+
   const showKinds = useMemo(() => {
     if (selectedFauxSpell === 'notifications') {
       return PROFILE_FEED_KINDS
@@ -599,7 +657,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return [ExtendedKind.FOLLOW_PACK]
     }
     if (selectedFauxSpell === 'media') {
-      return [...MEDIA_SPELL_KINDS]
+      return [...MEDIA_SPELL_SHOW_KINDS]
     }
     if (selectedFauxSpell === 'calendar') {
       return [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME]
@@ -616,12 +674,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       .map((tag) => parseInt(tag[1], 10))
       .filter((n) => !Number.isNaN(n))
     return kinds.length ? kinds : [1]
-  }, [
-    selectedFauxSpell,
-    selectedSpell?.id,
-    showKindsTagKey,
-    kindFilterShowKinds
-  ])
+  }, [selectedFauxSpell, selectedSpell?.id, showKindsTagKey, followingShowKindsKey])
 
   const spellMenuLabel = useCallback(
     (spell: Event) => (favoriteIds.has(spell.id) ? `★ ${getSpellName(spell)}` : getSpellName(spell)),
@@ -1043,7 +1096,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
               <div className="min-h-0 min-w-0 flex-1">
                 <NoteList
                   subRequests={subRequests}
+                  feedSubscriptionKey={spellFeedSubscriptionKey}
                   showKinds={showKinds}
+                  useTimelineCacheBootstrap
                   useFilterAsIs={fauxNoteListUseFilterAsIs}
                   showKind1OPs={selectedFauxSpell === 'following' ? showKind1OPs : true}
                   showKind1Replies={selectedFauxSpell === 'following' ? showKind1Replies : true}
@@ -1052,7 +1107,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   extraShouldHideEvent={
                     selectedFauxSpell === 'notifications' && pubkey
                       ? notificationsMentionExtraHide
-                      : undefined
+                      : selectedFauxSpell === 'media'
+                        ? mediaSpellExtraShouldHideEvent
+                        : undefined
                   }
                   hideUntrustedNotes={
                     selectedFauxSpell === 'notifications' ? hideUntrustedNotifications : false
@@ -1062,7 +1119,13 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             </>
           ) : selectedSpell ? (
             subRequests.length > 0 ? (
-              <NoteList subRequests={subRequests} showKinds={showKinds} useFilterAsIs />
+              <NoteList
+                subRequests={subRequests}
+                feedSubscriptionKey={spellFeedSubscriptionKey}
+                showKinds={showKinds}
+                useTimelineCacheBootstrap
+                useFilterAsIs
+              />
             ) : !pubkey &&
               selectedSpell.tags.some(
                 (tag) => tag[0] === 'authors' && (tag.includes('$me') || tag.includes('$contacts'))

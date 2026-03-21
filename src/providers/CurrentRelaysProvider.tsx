@@ -21,6 +21,7 @@ export function CurrentRelaysProvider({ children }: { children: React.ReactNode 
   const relayUrls = useMemo(() => Object.keys(relayRefCount), [relayRefCount])
 
   const addRelayUrls = useCallback((urls: string[]) => {
+    if (!urls.length) return
     setRelayRefCount((prev) => {
       const newCounts = { ...prev }
       urls.forEach((url) => {
@@ -31,6 +32,7 @@ export function CurrentRelaysProvider({ children }: { children: React.ReactNode 
   }, [])
 
   const removeRelayUrls = useCallback((urls: string[]) => {
+    if (!urls.length) return
     setRelayRefCount((prev) => {
       const newCounts = { ...prev }
       urls.forEach((url) => {
@@ -45,8 +47,13 @@ export function CurrentRelaysProvider({ children }: { children: React.ReactNode 
     })
   }, [])
 
+  const contextValue = useMemo(
+    () => ({ relayUrls, addRelayUrls, removeRelayUrls }),
+    [relayUrls, addRelayUrls, removeRelayUrls]
+  )
+
   return (
-    <CurrentRelaysContext.Provider value={{ relayUrls, addRelayUrls, removeRelayUrls }}>
+    <CurrentRelaysContext.Provider value={contextValue}>
       {children}
     </CurrentRelaysContext.Provider>
   )

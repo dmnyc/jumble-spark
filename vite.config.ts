@@ -1,6 +1,7 @@
 import react from '@vitejs/plugin-react'
 import { execSync } from 'child_process'
 import path from 'path'
+import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { VitePWA } from 'vite-plugin-pwa'
 import packageJson from './package.json'
@@ -21,6 +22,24 @@ const getAppVersion = () => {
   } catch (error) {
     console.warn('Failed to retrieve app version:', error)
     return '"unknown"'
+  }
+}
+
+/**
+ * React Fast Refresh can remount provider children without NostrProvider (e.g. after editing pages),
+ * causing `useNostr must be used within a NostrProvider`. Full page reload keeps the tree consistent.
+ */
+function fullReloadOnProvidersAndPages(): Plugin {
+  return {
+    name: 'full-reload-providers-pages',
+    apply: 'serve',
+    handleHotUpdate({ file, server }) {
+      const normalized = file.replace(/\\/g, '/')
+      if (normalized.includes('/src/providers/') || normalized.includes('/src/pages/')) {
+        server.ws.send({ type: 'full-reload' })
+        return []
+      }
+    }
   }
 }
 
@@ -172,6 +191,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    fullReloadOnProvidersAndPages(),
     VitePWA({
       registerType: 'autoUpdate',
       // Use public/manifest.webmanifest and index.html <link> only; avoid duplicate manifest link in build

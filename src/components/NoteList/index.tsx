@@ -9,6 +9,8 @@ import {
   isReplyNoteEvent
 } from '@/lib/event'
 import { shouldFilterEvent } from '@/lib/event-filtering'
+import { stableSpellFeedFilterKey } from '@/lib/spell-feed-request-identity'
+import { normalizeUrl } from '@/lib/url'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { isTouchDevice } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
@@ -53,7 +55,14 @@ const NoteList = forwardRef(
       areAlgoRelays = false,
       pinnedEventIds = [],
       useFilterAsIs = false,
-      extraShouldHideEvent
+      extraShouldHideEvent,
+      /** When set (e.g. Spells page), timeline subscription keys off this string instead of `subRequests` reference churn. */
+      feedSubscriptionKey,
+      /**
+       * When true, hydrate the list from the client timeline cache (IndexedDB-backed) before/at same time as
+       * live REQ, so feeds feel instant on repeat visits. Spells faux feeds use this; home feed stays false.
+       */
+      useTimelineCacheBootstrap = false
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -69,6 +78,8 @@ const NoteList = forwardRef(
       useFilterAsIs?: boolean
       /** When provided and returns true, the event is omitted from the feed (in addition to built-in rules). */
       extraShouldHideEvent?: (evt: Event) => boolean
+      feedSubscriptionKey?: string
+      useTimelineCacheBootstrap?: boolean
     },
     ref
   ) => {
@@ -94,11 +105,18 @@ const NoteList = forwardRef(
     
     // Memoize subRequests serialization to avoid expensive JSON.stringify on every render
     const subRequestsKey = useMemo(() => {
-      return JSON.stringify(subRequests.map(req => ({
-        urls: [...req.urls].sort(), // Create a copy before sorting to avoid mutation
-        filter: req.filter
-      })))
+      return JSON.stringify(
+        subRequests.map((req) => ({
+          urls: [...req.urls].map((u) => normalizeUrl(u) || u).filter(Boolean).sort(),
+          filter: stableSpellFeedFilterKey(req.filter)
+        }))
+      )
     }, [subRequests])
+
+    const timelineSubscriptionKey = feedSubscriptionKey ?? subRequestsKey
+
+    const subRequestsRef = useRef(subRequests)
+    subRequestsRef.current = subRequests
 
     // Stable key for kind filter so subscription effect doesn't re-run on parent re-renders with same kinds
     // Use sorted array and JSON.stringify to create a stable key that only changes when content changes
@@ -230,7 +248,8 @@ const NoteList = forwardRef(
     useImperativeHandle(ref, () => ({ scrollToTop, refresh }), [])
 
     useEffect(() => {
-      if (!subRequests.length) {
+      const currentSubRequests = subRequestsRef.current
+      if (!currentSubRequests.length) {
         setLoading(false)
         setEvents([])
         // Return a no-op closer function to satisfy the cleanup function
@@ -247,7 +266,7 @@ const NoteList = forwardRef(
         setHasMore(true)
         consecutiveEmptyRef.current = 0 // Reset counter on refresh
 
-        const mappedSubRequests = subRequests.map(({ urls, filter }) => {
+        const mappedSubRequests = subRequestsRef.current.map(({ urls, filter }) => {
           // CRITICAL: Always ensure filter has kinds - relays require this to return events
           const defaultKinds = showKinds.length > 0 ? showKinds : [kinds.ShortTextNote]
           const finalFilter = useFilterAsIs
@@ -402,7 +421,8 @@ const NoteList = forwardRef(
           {
             startLogin,
             needSort: !areAlgoRelays,
-            useCache: false // Main feeds should always fetch fresh from relays, not use cache
+            useCache: useTimelineCacheBootstrap,
+            omitDefaultSinceWhenUseCache: useTimelineCacheBootstrap
           }
           )
 
@@ -435,15 +455,29 @@ const NoteList = forwardRef(
         promise.then((closer) => closer?.())
       }
     }, [
-      subRequestsKey,
+      timelineSubscriptionKey,
       refreshCount,
       showKindsKey,
       showKind1OPs,
       showKind1Replies,
       showKind1111,
       useFilterAsIs,
-      areAlgoRelays
+      areAlgoRelays,
+      useTimelineCacheBootstrap
     ])
+
+    useEffect(() => {
+      if (!subRequestsRef.current.length) return
+      let cancelled = false
+      const timer = window.setTimeout(() => {
+        if (cancelled) return
+        setLoading((prev) => (prev ? false : prev))
+      }, 15_000)
+      return () => {
+        cancelled = true
+        clearTimeout(timer)
+      }
+    }, [timelineSubscriptionKey, refreshCount])
 
     // Use refs to avoid dependency issues and ensure latest values in async callbacks
     const eventsRef = useRef(events)

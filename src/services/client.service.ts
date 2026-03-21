@@ -853,16 +853,22 @@ class ClientService extends EventTarget {
     {
       startLogin,
       needSort = true,
-      useCache = false
+      useCache = false,
+      omitDefaultSinceWhenUseCache = false
     }: {
       startLogin?: () => void
       needSort?: boolean
       useCache?: boolean
+      /** When useCache is true but there are no timeline refs yet, skip the default 24h `since` so REQ stays unbounded (spell feeds / catalog). */
+      omitDefaultSinceWhenUseCache?: boolean
     } = {}
   ) {
     const newEventIdSet = new Set<string>()
     const requestCount = subRequests.length
-    const threshold = Math.floor(requestCount / 2)
+    // For requestCount===1, floor(1/2)=0 makes eosedCount>=threshold true from the first inner
+    // callback, so every progressive update forwards to the outer onEvents → setState storms and
+    // stuck feeds (e.g. Spells Discussions). Require at least one EOSE before opening the gate.
+    const threshold = requestCount <= 1 ? 1 : Math.floor(requestCount / 2)
     let eventIdSet = new Set<string>()
     let events: NEvent[] = []
     let eosedCount = 0
@@ -901,7 +907,7 @@ class ClientService extends EventTarget {
             },
             onClose
           },
-          { startLogin, needSort, useCache }
+          { startLogin, needSort, useCache, omitDefaultSinceWhenUseCache }
         )
       })
     )
@@ -1191,11 +1197,13 @@ class ClientService extends EventTarget {
     {
       startLogin,
       needSort = true,
-      useCache = false
+      useCache = false,
+      omitDefaultSinceWhenUseCache = false
     }: {
       startLogin?: () => void
       needSort?: boolean
       useCache?: boolean
+      omitDefaultSinceWhenUseCache?: boolean
     } = {}
   ) {
     const relays = Array.from(new Set(urls))
@@ -1245,7 +1253,7 @@ class ClientService extends EventTarget {
     // CRITICAL FIX: Only set since parameter if caching is enabled
     // When useCache is false, we want to stream raw from relays without time restrictions
     // This allows relay feeds to show all available events, not just recent ones
-    if (!since && needSort && useCache) {
+    if (!since && needSort && useCache && !omitDefaultSinceWhenUseCache) {
       // Default to last 24 hours if no recent cached events (only when caching is enabled)
       // This ensures we get recent content even if relays are slow
       const oneDayAgo = dayjs().subtract(24, 'hours').unix()
