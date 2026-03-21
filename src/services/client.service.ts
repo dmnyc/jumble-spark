@@ -54,6 +54,13 @@ import { MacroService, createBookstrService } from './client-macro.service'
 
 type TTimelineRef = [string, number]
 
+/**
+ * Timeline bootstrap used to await up to `filter.limit` IndexedDB reads before opening a live REQ,
+ * which blocked first paint for many seconds. We only prefetch this many newest refs; the subscription
+ * streams the rest immediately.
+ */
+const TIMELINE_CACHE_PREFETCH_CAP = 48
+
 class ClientService extends EventTarget {
   static instance: ClientService
 
@@ -854,25 +861,51 @@ class ClientService extends EventTarget {
       startLogin,
       needSort = true,
       useCache = false,
-      omitDefaultSinceWhenUseCache = false
+      omitDefaultSinceWhenUseCache = false,
+      firstRelayResultGraceMs = FIRST_RELAY_RESULT_GRACE_MS
     }: {
       startLogin?: () => void
       needSort?: boolean
       useCache?: boolean
       /** When useCache is true but there are no timeline refs yet, skip the default 24h `since` so REQ stays unbounded (spell feeds / catalog). */
       omitDefaultSinceWhenUseCache?: boolean
+      /**
+       * After the first live event before EOSE, wait this long then treat initial load as EOSE (query-style finalize).
+       * Spells pass {@link FIRST_RELAY_RESULT_GRACE_MS} explicitly; feeds may override.
+       */
+      firstRelayResultGraceMs?: number
     } = {}
   ) {
     const newEventIdSet = new Set<string>()
     const requestCount = subRequests.length
-    // For requestCount===1, floor(1/2)=0 makes eosedCount>=threshold true from the first inner
-    // callback, so every progressive update forwards to the outer onEvents → setState storms and
-    // stuck feeds (e.g. Spells Discussions). Require at least one EOSE before opening the gate.
-    const threshold = requestCount <= 1 ? 1 : Math.floor(requestCount / 2)
     let eventIdSet = new Set<string>()
     let events: NEvent[] = []
     let eosedCount = 0
-    let progressiveDelivered = false
+
+    /** First merged batch goes out synchronously so the list paints without waiting a frame. */
+    let outerMergedDelivered = false
+    /** One React update per animation frame after the first paint — limits setEvents/profile churn. */
+    let outerFlushRaf: number | null = null
+    const scheduleOuterFlush = () => {
+      const snapshot = events.length ? [...events] : []
+      const allEosed = eosedCount >= requestCount
+      if (!outerMergedDelivered && (snapshot.length > 0 || allEosed)) {
+        outerMergedDelivered = true
+        if (outerFlushRaf != null) {
+          cancelAnimationFrame(outerFlushRaf)
+          outerFlushRaf = null
+        }
+        onEvents(snapshot, allEosed)
+        return
+      }
+      if (outerFlushRaf != null) {
+        cancelAnimationFrame(outerFlushRaf)
+      }
+      outerFlushRaf = requestAnimationFrame(() => {
+        outerFlushRaf = null
+        onEvents(events.length ? [...events] : [], eosedCount >= requestCount)
+      })
+    }
 
     const subs = await Promise.all(
       subRequests.map(({ urls, filter }) => {
@@ -893,12 +926,7 @@ class ClientService extends EventTarget {
               events = events.sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
               eventIdSet = new Set(events.map((evt) => evt.id))
 
-              if (eosedCount >= threshold) {
-                onEvents(events, eosedCount >= requestCount)
-              } else if (!progressiveDelivered && events.length > 0) {
-                progressiveDelivered = true
-                onEvents(events, false)
-              }
+              scheduleOuterFlush()
             },
             onNew: (evt) => {
               if (newEventIdSet.has(evt.id)) return
@@ -907,7 +935,7 @@ class ClientService extends EventTarget {
             },
             onClose
           },
-          { startLogin, needSort, useCache, omitDefaultSinceWhenUseCache }
+          { startLogin, needSort, useCache, omitDefaultSinceWhenUseCache, firstRelayResultGraceMs }
         )
       })
     )
@@ -915,8 +943,18 @@ class ClientService extends EventTarget {
     const key = this.generateMultipleTimelinesKey(subRequests)
     this.timelines[key] = subs.map((sub) => sub.timelineKey)
 
+    if (outerFlushRaf != null) {
+      cancelAnimationFrame(outerFlushRaf)
+      outerFlushRaf = null
+      onEvents(events.length ? [...events] : [], eosedCount >= requestCount)
+    }
+
     return {
       closer: () => {
+        if (outerFlushRaf != null) {
+          cancelAnimationFrame(outerFlushRaf)
+          outerFlushRaf = null
+        }
         onEvents = () => {}
         onNew = () => {}
         subs.forEach((sub) => {
@@ -1198,12 +1236,14 @@ class ClientService extends EventTarget {
       startLogin,
       needSort = true,
       useCache = false,
-      omitDefaultSinceWhenUseCache = false
+      omitDefaultSinceWhenUseCache = false,
+      firstRelayResultGraceMs = FIRST_RELAY_RESULT_GRACE_MS
     }: {
       startLogin?: () => void
       needSort?: boolean
       useCache?: boolean
       omitDefaultSinceWhenUseCache?: boolean
+      firstRelayResultGraceMs?: number
     } = {}
   ) {
     const relays = Array.from(new Set(urls))
@@ -1223,42 +1263,7 @@ class ClientService extends EventTarget {
     
     let cachedEvents: NEvent[] = []
     let since: number | undefined
-    // CRITICAL: Only use cache if explicitly enabled (for profile timelines)
-    // Main feeds (home, notifications) should always fetch fresh from relays
-    if (useCache && timeline && !Array.isArray(timeline) && timeline.refs.length && needSort) {
-      cachedEvents = (
-        await Promise.all(timeline.refs.slice(0, filter.limit).map(([id]) => this.eventService.fetchEvent(id)))
-      ).filter((evt): evt is NEvent => !!evt)
-      if (cachedEvents.length) {
-        // Sort cached events by newest first
-        cachedEvents.sort((a, b) => b.created_at - a.created_at)
-        
-        // CRITICAL FIX: Filter out very old cached events (older than 24 hours)
-        // This prevents showing 15+ hour old events when the cache is stale
-        const oneDayAgo = dayjs().subtract(24, 'hours').unix()
-        const recentCachedEvents = cachedEvents.filter(evt => evt.created_at >= oneDayAgo)
-        
-        if (recentCachedEvents.length > 0) {
-          // Only show cached events if they're recent
-          onEvents([...recentCachedEvents], false)
-          // Use the NEWEST cached event's timestamp + 1 to fetch only newer events
-          since = recentCachedEvents[0].created_at + 1
-        } else {
-          // All cached events are too old, ignore them and start fresh
-          cachedEvents = []
-        }
-      }
-    }
-    
-    // CRITICAL FIX: Only set since parameter if caching is enabled
-    // When useCache is false, we want to stream raw from relays without time restrictions
-    // This allows relay feeds to show all available events, not just recent ones
-    if (!since && needSort && useCache && !omitDefaultSinceWhenUseCache) {
-      // Default to last 24 hours if no recent cached events (only when caching is enabled)
-      // This ensures we get recent content even if relays are slow
-      const oneDayAgo = dayjs().subtract(24, 'hours').unix()
-      since = oneDayAgo
-    }
+    const oneDayAgo = dayjs().subtract(24, 'hours').unix()
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const that = this
@@ -1266,28 +1271,90 @@ class ClientService extends EventTarget {
     let eosedAt: number | null = null
     let initialBatchScheduled = false
     let lastDeliveredCount = 0
-    // Progressive loading: show the first event(s) as soon as they arrive (not only after 5+ events)
-    const PROGRESSIVE_INTERVAL_MS = 100 // Poll for more events while relays are still streaming
-    const MIN_NEW_EVENTS_AFTER_FIRST = 5 // After first paint, batch updates to limit re-renders
     let progressiveIntervalId: ReturnType<typeof setInterval> | null = null
     let firstRelayResultGraceTimer: ReturnType<typeof setTimeout> | null = null
-    const deliverProgressive = () => {
-      if (eosedAt || events.length === 0) return
-      const sortedEvents = [...events].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
-      const newEventCount = sortedEvents.length - lastDeliveredCount
+    const PROGRESSIVE_INTERVAL_MS = 100 // Backup tick while relays stream without new onevent bursts
+    const MIN_NEW_EVENTS_AFTER_FIRST = 1
 
+    const mergeTimelineLiveAndCache = (): NEvent[] => {
+      const sortedLive = [...events].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
+      if (!needSort || !useCache || cachedEvents.length === 0) {
+        return sortedLive
+      }
+      const byId = new Map<string, NEvent>()
+      for (const e of cachedEvents) {
+        byId.set(e.id, e)
+      }
+      for (const e of sortedLive) {
+        byId.set(e.id, e)
+      }
+      return [...byId.values()].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
+    }
+
+    const deliverProgressive = () => {
+      if (eosedAt) return
+      const combined = mergeTimelineLiveAndCache()
+      if (combined.length === 0) return
+      const newEventCount = combined.length - lastDeliveredCount
       const isFirstPaint = lastDeliveredCount === 0
       const shouldDeliver =
         isFirstPaint
-          ? sortedEvents.length >= 1
-          : newEventCount >= MIN_NEW_EVENTS_AFTER_FIRST || sortedEvents.length >= filter.limit * 0.5
+          ? combined.length >= 1
+          : newEventCount >= MIN_NEW_EVENTS_AFTER_FIRST || combined.length >= filter.limit * 0.5
 
       if (shouldDeliver) {
-        lastDeliveredCount = sortedEvents.length
-        const snap = sortedEvents
-        // Only include cached events if caching is enabled
-        onEvents(needSort && useCache ? snap.concat(cachedEvents).slice(0, filter.limit) : snap, false)
+        lastDeliveredCount = combined.length
+        onEvents(combined, false)
       }
+    }
+
+    // CRITICAL: Only use cache if explicitly enabled (for profile timelines)
+    // Main feeds (home, notifications) should always fetch fresh from relays
+    if (useCache && timeline && !Array.isArray(timeline) && timeline.refs.length && needSort) {
+      const refs = timeline.refs
+      const prefetchN = Math.min(refs.length, filter.limit, TIMELINE_CACHE_PREFETCH_CAP)
+
+      // Spell / catalog feeds: refs already carry created_at — set `since` immediately and open the live REQ
+      // without awaiting dozens of IndexedDB reads (that delayed first events by seconds).
+      if (omitDefaultSinceWhenUseCache && refs[0]![1] >= oneDayAgo) {
+        since = refs[0]![1] + 1
+        void (async () => {
+          try {
+            const loaded = (
+              await Promise.all(refs.slice(0, prefetchN).map(([id]) => that.eventService.fetchEvent(id)))
+            ).filter((evt): evt is NEvent => !!evt)
+            if (!loaded.length) return
+            loaded.sort((a, b) => b.created_at - a.created_at)
+            const recent = loaded.filter((evt) => evt.created_at >= oneDayAgo)
+            if (!recent.length) return
+            cachedEvents = recent
+            deliverProgressive()
+          } catch {
+            // ignore
+          }
+        })()
+      } else if (!omitDefaultSinceWhenUseCache) {
+        cachedEvents = (
+          await Promise.all(refs.slice(0, prefetchN).map(([id]) => this.eventService.fetchEvent(id)))
+        ).filter((evt): evt is NEvent => !!evt)
+        if (cachedEvents.length) {
+          cachedEvents.sort((a, b) => b.created_at - a.created_at)
+          const recentCachedEvents = cachedEvents.filter((evt) => evt.created_at >= oneDayAgo)
+          if (recentCachedEvents.length > 0) {
+            onEvents([...recentCachedEvents], false)
+            since = recentCachedEvents[0].created_at + 1
+          } else {
+            cachedEvents = []
+          }
+        }
+      }
+    }
+
+    // CRITICAL FIX: Only set since parameter if caching is enabled
+    // When useCache is false, we want to stream raw from relays without time restrictions
+    // This allows relay feeds to show all available events, not just recent ones
+    if (!since && needSort && useCache && !omitDefaultSinceWhenUseCache) {
+      since = oneDayAgo
     }
 
     const handleTimelineEose = (eosed: boolean) => {
@@ -1382,15 +1449,17 @@ class ClientService extends EventTarget {
             firstRelayResultGraceTimer = setTimeout(() => {
               firstRelayResultGraceTimer = null
               handleTimelineEose(true)
-            }, FIRST_RELAY_RESULT_GRACE_MS)
+            }, firstRelayResultGraceMs)
           }
-          // Deliver as soon as we have any event while waiting for EOSE (then batch further updates)
-          if (needSort && events.length >= 1 && !initialBatchScheduled) {
-            initialBatchScheduled = true
-            deliverProgressive()
-            if (!progressiveIntervalId) {
-              progressiveIntervalId = setInterval(deliverProgressive, PROGRESSIVE_INTERVAL_MS)
+          // Deliver on every live event before EOSE (plus interval as a safety net)
+          if (needSort && events.length >= 1) {
+            if (!initialBatchScheduled) {
+              initialBatchScheduled = true
+              if (!progressiveIntervalId) {
+                progressiveIntervalId = setInterval(deliverProgressive, PROGRESSIVE_INTERVAL_MS)
+              }
             }
+            deliverProgressive()
           }
           return
         }

@@ -1,5 +1,5 @@
 import HideUntrustedContentButton from '@/components/HideUntrustedContentButton'
-import NoteList from '@/components/NoteList'
+import NoteList, { type TNoteListRef } from '@/components/NoteList'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -32,7 +32,13 @@ import { useUserTrust } from '@/providers/UserTrustProvider'
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
-import { ExtendedKind, FAUX_SPELL_ORDER, PROFILE_FEED_KINDS } from '@/constants'
+import {
+  ExtendedKind,
+  FAUX_SPELL_ORDER,
+  FIRST_RELAY_RESULT_GRACE_MS,
+  PROFILE_FEED_KINDS,
+  SPELL_FEED_FIRST_RELAY_GRACE_MS
+} from '@/constants'
 import { isUserInEventMentions } from '@/lib/event'
 import { formatPubkey } from '@/lib/pubkey'
 import { computeSpellSubRequestsIdentityKey } from '@/lib/spell-feed-request-identity'
@@ -45,6 +51,7 @@ import {
   isSpellEvent,
   SPELL_CATALOG_SYNC_LIMIT,
   SPELL_CATALOG_SYNC_LIMIT_WITH_FOLLOWS,
+  SPELL_CATALOG_SYNC_TIMEOUT_MS,
   spellEventToFilter
 } from '@/services/spell.service'
 import { TFeedSubRequest } from '@/types'
@@ -63,6 +70,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  RefreshCw,
   Star,
   Trash2,
   Users,
@@ -74,6 +82,7 @@ import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'r
 import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
 import {
+  appendCuratedReadOnlyRelays,
   buildBookmarksSubRequests,
   buildCalendarSpellFilter,
   buildDiscussionFilter,
@@ -263,41 +272,55 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   /** True while fetching kind 777 authored by the user from write relays into IndexedDB */
   const [spellsCatalogSyncing, setSpellsCatalogSyncing] = useState(false)
   const spellCatalogCloserRef = useRef<(() => void) | null>(null)
+  /** Bumps spell catalog relay re-sync when the user taps refresh in the titlebar. */
+  const [spellCatalogManualRefreshKey, setSpellCatalogManualRefreshKey] = useState(0)
+  const spellFeedListRef = useRef<TNoteListRef>(null)
+  const [titlebarRefreshSpin, setTitlebarRefreshSpin] = useState(false)
   const [spellPickerOpen, setSpellPickerOpen] = useState(false)
 
+  /** Monotonic token + wall time for spell-feed latency instrumentation (picker → first rows). */
+  const spellFeedInstrTokenRef = useRef(0)
+  const spellFeedInstrT0Ref = useRef(0)
+  const spellFeedInstrLabelRef = useRef('')
+  const [spellFeedInstrumentToken, setSpellFeedInstrumentToken] = useState(0)
+
+  const logSpellFeedPickerSelection = useCallback((label: string, extra?: Record<string, unknown>) => {
+    spellFeedInstrT0Ref.current = performance.now()
+    spellFeedInstrLabelRef.current = label
+    spellFeedInstrTokenRef.current += 1
+    const instrumentToken = spellFeedInstrTokenRef.current
+    setSpellFeedInstrumentToken(instrumentToken)
+    logger.info('[SpellsPage] Spell feed — picker selection', {
+      label,
+      instrumentToken,
+      ...extra
+    })
+  }, [])
+
+  const urlFauxSpellInstrumentedRef = useRef<string | null>(null)
+  /** Set when picker calls `navigatePrimary(..., { spell })` so URL effect does not log/bump token again. */
+  const fauxSpellUrlSyncFromPickerRef = useRef<string | null>(null)
   useEffect(() => {
     if (spellProp && isFauxSpellName(spellProp)) {
+      if (fauxSpellUrlSyncFromPickerRef.current === spellProp) {
+        fauxSpellUrlSyncFromPickerRef.current = null
+        urlFauxSpellInstrumentedRef.current = spellProp
+        setSelectedFauxSpell(spellProp)
+        setSelectedSpell(null)
+        return
+      }
+      if (urlFauxSpellInstrumentedRef.current === spellProp) return
+      urlFauxSpellInstrumentedRef.current = spellProp
+      logSpellFeedPickerSelection(`faux:${spellProp} (from URL)`, { fauxSpell: spellProp, fromUrl: true })
       setSelectedFauxSpell(spellProp)
       setSelectedSpell(null)
+    } else {
+      urlFauxSpellInstrumentedRef.current = null
     }
-  }, [spellProp])
+  }, [spellProp, logSpellFeedPickerSelection])
 
   const [followingSubRequests, setFollowingSubRequests] = useState<TFeedSubRequest[]>([])
   const [followingFeedLoading, setFollowingFeedLoading] = useState(false)
-
-  useEffect(() => {
-    if (selectedFauxSpell !== 'following' || !pubkey) {
-      setFollowingSubRequests([])
-      setFollowingFeedLoading(false)
-      return
-    }
-    let cancelled = false
-    setFollowingFeedLoading(true)
-    void (async () => {
-      try {
-        const followings = await client.fetchFollowings(pubkey)
-        const req = await client.generateSubRequestsForPubkeys([pubkey, ...followings], pubkey)
-        if (!cancelled) setFollowingSubRequests(req)
-      } catch {
-        if (!cancelled) setFollowingSubRequests([])
-      } finally {
-        if (!cancelled) setFollowingFeedLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [selectedFauxSpell, pubkey])
 
   const loadSpells = useCallback(async () => {
     const [events, ids] = await Promise.all([
@@ -307,6 +330,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     setSpells(events)
     setFavoriteIds(new Set(ids))
   }, [])
+
+  const refreshSpellsFeedAndCatalog = useCallback(() => {
+    setTitlebarRefreshSpin(true)
+    window.setTimeout(() => setTitlebarRefreshSpin(false), 600)
+    void loadSpells()
+    if (pubkey) setSpellCatalogManualRefreshKey((k) => k + 1)
+    spellFeedListRef.current?.refresh()
+  }, [loadSpells, pubkey])
 
   /**
    * Fingerprint by value — `relayList` from NostrProvider often gets a new object ref each render.
@@ -372,7 +403,16 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       spellCatalogCloserRef.current?.()
       spellCatalogCloserRef.current = null
       setSpellsCatalogSyncing(false)
-    }, 40_000)
+    }, SPELL_CATALOG_SYNC_TIMEOUT_MS)
+
+    let afterFirstBatchTimer: ReturnType<typeof setTimeout> | null = null
+    let catalogSyncDone = false
+    const clearAfterFirstBatchTimer = () => {
+      if (afterFirstBatchTimer != null) {
+        clearTimeout(afterFirstBatchTimer)
+        afterFirstBatchTimer = null
+      }
+    }
 
     void (async () => {
       try {
@@ -394,7 +434,28 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                 }
               }
               if (wrote) scheduleLoadSpells()
+              if (wrote && afterFirstBatchTimer == null) {
+                afterFirstBatchTimer = setTimeout(() => {
+                  afterFirstBatchTimer = null
+                  if (cancelled || catalogSyncDone) return
+                  catalogSyncDone = true
+                  window.clearTimeout(syncTimeout)
+                  if (loadSpellsDebounce != null) {
+                    clearTimeout(loadSpellsDebounce)
+                    loadSpellsDebounce = null
+                  }
+                  void (async () => {
+                    if (!cancelled) await loadSpells()
+                    if (!cancelled) setSpellsCatalogSyncing(false)
+                  })()
+                  closer()
+                  spellCatalogCloserRef.current = null
+                }, FIRST_RELAY_RESULT_GRACE_MS)
+              }
               if (eosed) {
+                clearAfterFirstBatchTimer()
+                if (cancelled || catalogSyncDone) return
+                catalogSyncDone = true
                 window.clearTimeout(syncTimeout)
                 if (loadSpellsDebounce != null) {
                   clearTimeout(loadSpellsDebounce)
@@ -410,7 +471,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
           },
           {
             useCache: true,
-            omitDefaultSinceWhenUseCache: true
+            omitDefaultSinceWhenUseCache: true,
+            firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS
           }
         )
         if (cancelled) {
@@ -427,13 +489,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
     return () => {
       cancelled = true
+      clearAfterFirstBatchTimer()
       if (loadSpellsDebounce != null) clearTimeout(loadSpellsDebounce)
       window.clearTimeout(syncTimeout)
       spellCatalogCloserRef.current?.()
       spellCatalogCloserRef.current = null
       setSpellsCatalogSyncing(false)
     }
-  }, [pubkey, relayMailboxStableKey, loadSpells, contactsSyncKey])
+  }, [pubkey, relayMailboxStableKey, loadSpells, contactsSyncKey, spellCatalogManualRefreshKey])
 
   useEffect(() => {
     if (!pubkey) {
@@ -450,6 +513,34 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const sortedBlockedRelaysKey = JSON.stringify(
     [...blockedRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort((a, b) => a.localeCompare(b))
   )
+
+  useEffect(() => {
+    if (selectedFauxSpell !== 'following' || !pubkey) {
+      setFollowingSubRequests([])
+      setFollowingFeedLoading(false)
+      return
+    }
+    let cancelled = false
+    setFollowingFeedLoading(true)
+    void (async () => {
+      try {
+        const followings = await client.fetchFollowings(pubkey)
+        const req = await client.generateSubRequestsForPubkeys([pubkey, ...followings], pubkey)
+        const withReadOnly = req.map((r) => ({
+          ...r,
+          urls: appendCuratedReadOnlyRelays(r.urls, blockedRelays)
+        }))
+        if (!cancelled) setFollowingSubRequests(withReadOnly)
+      } catch {
+        if (!cancelled) setFollowingSubRequests([])
+      } finally {
+        if (!cancelled) setFollowingFeedLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedFauxSpell, pubkey, sortedBlockedRelaysKey])
 
   const interestTagsStableKey = interestListEvent
     ? JSON.stringify(
@@ -683,33 +774,62 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const pickSpell = useCallback(
     (spell: Event | null) => {
+      if (spell) {
+        logSpellFeedPickerSelection(`kind777:${getSpellName(spell)}`, {
+          spellId: spell.id,
+          spellAuthorPubkey: spell.pubkey,
+          kind777: true
+        })
+      }
       setSelectedSpell(spell)
       setSelectedFauxSpell(null)
       setSpellPickerOpen(false)
       navigatePrimary('spells')
     },
-    [navigatePrimary]
+    [logSpellFeedPickerSelection, navigatePrimary]
   )
 
   const clearSpellSelection = useCallback(() => {
+    logSpellFeedPickerSelection('(cleared)', { cleared: true })
     setSelectedSpell(null)
     setSelectedFauxSpell(null)
     setSpellPickerOpen(false)
     navigatePrimary('spells')
-  }, [navigatePrimary])
+  }, [logSpellFeedPickerSelection, navigatePrimary])
 
   const pickFauxSpell = useCallback(
     (name: FauxSpellName | null) => {
+      if (name) {
+        logSpellFeedPickerSelection(`faux:${name}`, { fauxSpell: name })
+        fauxSpellUrlSyncFromPickerRef.current = name
+      } else {
+        logSpellFeedPickerSelection('(cleared faux)', { clearedFaux: true })
+        fauxSpellUrlSyncFromPickerRef.current = null
+      }
       setSelectedFauxSpell(name)
       setSelectedSpell(null)
       setSpellPickerOpen(false)
       if (name) navigatePrimary('spells', { spell: name })
       else navigatePrimary('spells')
     },
-    [navigatePrimary]
+    [logSpellFeedPickerSelection, navigatePrimary]
   )
 
   const selectedSpellIsOwn = !!(pubkey && selectedSpell && selectedSpell.pubkey === pubkey)
+
+  const handleSpellFeedFirstPaint = useCallback(
+    (detail: { eventCount: number; firstEventId: string }) => {
+      const elapsedMsSincePickerMs = Math.round(performance.now() - spellFeedInstrT0Ref.current)
+      logger.info('[SpellsPage] Spell feed — first events rendered (list has rows)', {
+        ...detail,
+        eventCountMeaning: 'filtered visible rows (slice), not full relay buffer',
+        elapsedMsSincePickerMs,
+        selectionLabel: spellFeedInstrLabelRef.current,
+        instrumentToken: spellFeedInstrTokenRef.current
+      })
+    },
+    []
+  )
 
   const fauxNoteListUseFilterAsIs = useMemo(() => {
     if (!selectedFauxSpell) return true
@@ -890,20 +1010,32 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       ref={ref}
       pageName="spells"
       titlebar={
-        <div className="flex w-full items-center justify-between gap-2">
-          <div className="font-semibold">{t('Spells')}</div>
-          <Button
-            variant="ghost"
-            size="titlebar-icon"
-            onClick={() => {
-              setSpellToEdit(null)
-              setSpellToClone(null)
-              setCreateOpen(true)
-            }}
-            title={t('Create a Spell')}
-          >
-            <Plus className="size-5" />
-          </Button>
+        <div className="flex h-full w-full items-center justify-between gap-2 pr-1">
+          <div className="pl-3 text-lg font-semibold">{t('Spells')}</div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="titlebar-icon"
+              title={t('Refresh')}
+              aria-label={t('Refresh')}
+              onClick={refreshSpellsFeedAndCatalog}
+            >
+              <RefreshCw className={`size-5 ${titlebarRefreshSpin ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="titlebar-icon"
+              onClick={() => {
+                setSpellToEdit(null)
+                setSpellToClone(null)
+                setCreateOpen(true)
+              }}
+              title={t('Create a Spell')}
+            >
+              <Plus className="size-5" />
+            </Button>
+          </div>
         </div>
       }
       displayScrollToTopButton
@@ -1095,10 +1227,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
               ) : null}
               <div className="min-h-0 min-w-0 flex-1">
                 <NoteList
+                  ref={spellFeedListRef}
                   subRequests={subRequests}
                   feedSubscriptionKey={spellFeedSubscriptionKey}
                   showKinds={showKinds}
                   useTimelineCacheBootstrap
+                  spellFetchTimeoutMs={SPELL_FEED_FIRST_RELAY_GRACE_MS}
+                  spellFeedInstrumentToken={spellFeedInstrumentToken}
+                  onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                   useFilterAsIs={fauxNoteListUseFilterAsIs}
                   showKind1OPs={selectedFauxSpell === 'following' ? showKind1OPs : true}
                   showKind1Replies={selectedFauxSpell === 'following' ? showKind1Replies : true}
@@ -1120,10 +1256,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
           ) : selectedSpell ? (
             subRequests.length > 0 ? (
               <NoteList
+                ref={spellFeedListRef}
                 subRequests={subRequests}
                 feedSubscriptionKey={spellFeedSubscriptionKey}
                 showKinds={showKinds}
                 useTimelineCacheBootstrap
+                spellFetchTimeoutMs={SPELL_FEED_FIRST_RELAY_GRACE_MS}
+                spellFeedInstrumentToken={spellFeedInstrumentToken}
+                onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                 useFilterAsIs
               />
             ) : !pubkey &&

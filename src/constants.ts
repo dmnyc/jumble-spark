@@ -17,6 +17,9 @@ export const DEFAULT_FAVORITE_RELAYS = [
 /** Multi-relay queries and timeline initial REQ: after the first event, wait this long then close (query) or finalize EOSE (live feed) while keeping the subscription open for new events. */
 export const FIRST_RELAY_RESULT_GRACE_MS = 2000
 
+/** Spells page feeds: shorter grace so multi-relay spell REQs finalize initial load sooner (still keeps subscription open for `onNew`). */
+export const SPELL_FEED_FIRST_RELAY_GRACE_MS = 450
+
 /**
  * Implicit query feed grace ({@link FIRST_RELAY_RESULT_GRACE_MS}) applies only when the largest `limit` among
  * filters is at least this value. Omitting `limit` counts as 0 (no implicit grace).

@@ -6,7 +6,8 @@ import {
   ExtendedKind,
   FAST_READ_RELAY_URLS,
   FAST_WRITE_RELAY_URLS,
-  PROFILE_FEED_KINDS
+  PROFILE_FEED_KINDS,
+  READ_ONLY_RELAY_URLS
 } from '@/constants'
 import {
   extractHashtagsFromContent,
@@ -28,6 +29,44 @@ const MAX_BOOKMARK_IDS = 250
  * subscription slots; cap keeps first paint fast. Full coverage remains on /discussions.
  */
 const DISCUSSION_FAUX_SPELL_MAX_RELAYS = 32
+/** Without caps, a long NIP-66 read list consumes the whole 32 slots and fast public relays never get a REQ — discussions stay empty while notifications still work (they blend fast reads). */
+const DISCUSSION_SPELL_READ_CAP = 10
+const DISCUSSION_SPELL_WRITE_CAP = 8
+const DISCUSSION_SPELL_FAV_CAP = 8
+
+function dedupe(urls: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const u of urls) {
+    const k = normalizeUrl(u) || u
+    if (!k || seen.has(k)) continue
+    seen.add(k)
+    out.push(k)
+  }
+  return out
+}
+
+/**
+ * Append {@link READ_ONLY_RELAY_URLS} (e.g. aggr) after the curated set so every faux REQ includes them unless blocked.
+ */
+export function appendCuratedReadOnlyRelays(curated: string[], blockedRelays: string[]): string[] {
+  const blocked = new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const u of curated) {
+    const k = normalizeUrl(u) || u
+    if (!k || seen.has(k)) continue
+    seen.add(k)
+    out.push(k)
+  }
+  for (const u of READ_ONLY_RELAY_URLS) {
+    const k = normalizeUrl(u) || u
+    if (!k || blocked.has(k) || seen.has(k)) continue
+    seen.add(k)
+    out.push(k)
+  }
+  return out
+}
 
 export const MEDIA_SPELL_KINDS = [
   ExtendedKind.PICTURE,
@@ -136,17 +175,21 @@ export function fauxFavoriteRelayUrls(favoriteRelays: string[], blockedRelays: s
     return k && !blocked.has(k)
   })
   const base = visible.length > 0 ? visible : DEFAULT_FAVORITE_RELAYS
-  return dedupe(base.map((u) => normalizeUrl(u) || u).filter(Boolean) as string[])
+  const curated = dedupe(base.map((u) => normalizeUrl(u) || u).filter(Boolean) as string[])
+  return appendCuratedReadOnlyRelays(curated, blockedRelays)
 }
 
 /**
- * Notifications / bookmarks faux spells: prefer inbox (then favorites), but **always** merge FAST_READ.
- * Using only the first N inbox relays meant one dead relay (e.g. offline personal relay) could dominate
- * connection/EOSE latency while public relays were never asked — skeletons until timeout.
+ * Notifications / bookmarks faux spells: **fast public relays first**, then inbox/favorites.
+ * `FAST_READ_RELAY_URLS` has 7 entries; the old cap of 6 never subscribed to `wss://aggr.nostr.land`
+ * (last in the list) — a major `#p` indexer — so mentions could take tens of seconds or look empty.
+ * Fast-write relays catch mentions replicated to outboxes (damus/primal/nos.lol) with little overlap.
  */
-const NOTIFICATION_PRIMARY_MAX = 6
-const NOTIFICATION_BLEND_FAST_MAX = 6
-const NOTIFICATION_RELAY_CAP = 12
+const NOTIFICATION_PRIMARY_MAX = 4
+/** Must be ≥ FAST_READ length so every default fast read relay is eligible (currently 7). */
+const NOTIFICATION_FAST_READ_MAX = 10
+const NOTIFICATION_FAST_WRITE_MAX = 4
+const NOTIFICATION_RELAY_CAP = 14
 
 function relayUrlsUpToUnblocked(urls: string[], blocked: Set<string>, max: number): string[] {
   const seen = new Set<string>()
@@ -198,22 +241,18 @@ export function notificationRelayUrls(
       : favoriteRelays.length > 0
         ? relayUrlsUpToUnblocked(favSorted, blocked, NOTIFICATION_PRIMARY_MAX)
         : []
-  const fromFast = relayUrlsUpToUnblocked(FAST_READ_RELAY_URLS, blocked, NOTIFICATION_BLEND_FAST_MAX)
-  const merged = mergeRelayListsUnique([primary, fromFast], blocked, NOTIFICATION_RELAY_CAP)
-  if (merged.length > 0) return merged
-  return relayUrlsUpToUnblocked(FAST_READ_RELAY_URLS, blocked, NOTIFICATION_RELAY_CAP)
-}
-
-function dedupe(urls: string[]): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const u of urls) {
-    const k = normalizeUrl(u) || u
-    if (!k || seen.has(k)) continue
-    seen.add(k)
-    out.push(k)
-  }
-  return out
+  const fromFastRead = relayUrlsUpToUnblocked(FAST_READ_RELAY_URLS, blocked, NOTIFICATION_FAST_READ_MAX)
+  const fromFastWrite = relayUrlsUpToUnblocked(FAST_WRITE_RELAY_URLS, blocked, NOTIFICATION_FAST_WRITE_MAX)
+  const merged = mergeRelayListsUnique(
+    [fromFastRead, fromFastWrite, primary],
+    blocked,
+    NOTIFICATION_RELAY_CAP
+  )
+  if (merged.length > 0) return appendCuratedReadOnlyRelays(merged, blockedRelays)
+  return appendCuratedReadOnlyRelays(
+    relayUrlsUpToUnblocked(FAST_READ_RELAY_URLS, blocked, NOTIFICATION_RELAY_CAP),
+    blockedRelays
+  )
 }
 
 /** Notifications spell: same kind set as profile-style feeds, restricted to `#p` = you on the relay. */
@@ -249,16 +288,19 @@ export function discussionRelayUrls(
   const fav = tier(favoriteRelays)
   const fastR = tier([...FAST_READ_RELAY_URLS])
   const fastW = tier([...FAST_WRITE_RELAY_URLS])
-  const merged = [...read, ...write, ...fav, ...fastR, ...fastW]
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const k of merged) {
-    if (seen.has(k)) continue
-    seen.add(k)
-    out.push(k)
-    if (out.length >= DISCUSSION_FAUX_SPELL_MAX_RELAYS) break
-  }
-  return out
+
+  const curated = mergeRelayListsUnique(
+    [
+      read.slice(0, DISCUSSION_SPELL_READ_CAP),
+      write.slice(0, DISCUSSION_SPELL_WRITE_CAP),
+      fav.slice(0, DISCUSSION_SPELL_FAV_CAP),
+      fastR,
+      fastW
+    ],
+    blocked,
+    DISCUSSION_FAUX_SPELL_MAX_RELAYS
+  )
+  return appendCuratedReadOnlyRelays(curated, blockedRelays)
 }
 
 export function buildDiscussionFilter(): Filter {
@@ -283,8 +325,9 @@ const FOLLOW_PACK_LIMIT = 100
 
 /** Kind 39089 follow/starter packs from fast read relays (same scope as the old Follow Packs page). */
 export function buildFollowPacksSubRequests(): TFeedSubRequest[] {
-  const urls = FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean) as string[]
-  if (!urls.length) return []
+  const curated = FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean) as string[]
+  if (!curated.length) return []
+  const urls = appendCuratedReadOnlyRelays(curated, [])
   return [
     {
       urls,

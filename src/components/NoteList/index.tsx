@@ -1,6 +1,6 @@
 import NewNotesButton from '@/components/NewNotesButton'
 import { Button } from '@/components/ui/button'
-import { ExtendedKind } from '@/constants'
+import { ExtendedKind, FIRST_RELAY_RESULT_GRACE_MS } from '@/constants'
 import {
   getEmbeddedNoteBech32Ids,
   getReplaceableCoordinateFromEvent,
@@ -29,17 +29,23 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import PullToRefresh from 'react-simple-pull-to-refresh'
+import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
+import { NoteFeedProfileContext, type NoteFeedProfileContextValue } from '@/providers/NoteFeedProfileContext'
+import type { TProfile } from '@/types'
 import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
 const LIMIT = 500 // Increased from 200 to load more events per request
 const ALGO_LIMIT = 1000 // Increased from 500 for algorithm feeds
 const SHOW_COUNT = 50 // Increased from 10 to show more events at once, reducing scroll load frequency
+const FEED_PROFILE_BATCH_DEBOUNCE_MS = 120
+const FEED_PROFILE_CHUNK = 36
 
 const NoteList = forwardRef(
   (
@@ -62,7 +68,17 @@ const NoteList = forwardRef(
        * When true, hydrate the list from the client timeline cache (IndexedDB-backed) before/at same time as
        * live REQ, so feeds feel instant on repeat visits. Spells faux feeds use this; home feed stays false.
        */
-      useTimelineCacheBootstrap = false
+      useTimelineCacheBootstrap = false,
+      /**
+       * When set (Spells page), passed to `subscribeTimeline` as `firstRelayResultGraceMs` only — ms to wait after
+       * the first live event before treating initial load as EOSE. Subscribe setup and loading fallback keep
+       * longer defaults so multi-relay spell feeds do not race-fail and stay blank after refresh.
+       */
+      spellFetchTimeoutMs,
+      /** Spells page: bumps when user picks a feed; used with {@link onSpellFeedFirstPaint}. */
+      spellFeedInstrumentToken,
+      /** Spells page: fired once when the filtered list first has rows after a picker change. */
+      onSpellFeedFirstPaint
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -80,6 +96,9 @@ const NoteList = forwardRef(
       extraShouldHideEvent?: (evt: Event) => boolean
       feedSubscriptionKey?: string
       useTimelineCacheBootstrap?: boolean
+      spellFetchTimeoutMs?: number
+      spellFeedInstrumentToken?: number
+      onSpellFeedFirstPaint?: (detail: { eventCount: number; firstEventId: string }) => void
     },
     ref
   ) => {
@@ -91,6 +110,7 @@ const NoteList = forwardRef(
     const { isEventDeleted } = useDeletedEvent()
     const { zapReplyThreshold } = useZap()
     const [events, setEvents] = useState<Event[]>([])
+    const eventsRef = useRef<Event[]>([])
     const [newEvents, setNewEvents] = useState<Event[]>([])
     const [hasMore, setHasMore] = useState<boolean>(true)
     const [loading, setLoading] = useState(true)
@@ -100,8 +120,29 @@ const NoteList = forwardRef(
     const supportTouch = useMemo(() => isTouchDevice(), [])
     const bottomRef = useRef<HTMLDivElement | null>(null)
     const topRef = useRef<HTMLDivElement | null>(null)
+    const spellFeedFirstPaintLoggedKeyRef = useRef('')
     const consecutiveEmptyRef = useRef(0) // Track consecutive empty results to prevent infinite retries
     const loadMoreTimeoutRef = useRef<NodeJS.Timeout | null>(null) // Throttle loadMore calls to prevent stuttering
+    /** Batched profile + embed prefetch after timeline updates (avoids N×9s profile storms while relays stream). */
+    const timelinePrefetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const lastEventsForTimelinePrefetchRef = useRef<Event[]>([])
+
+    const [feedProfileBatch, setFeedProfileBatch] = useState<{
+      profiles: Map<string, TProfile>
+      pending: Set<string>
+      version: number
+    }>(() => ({ profiles: new Map(), pending: new Set(), version: 0 }))
+    const feedProfileLoadedRef = useRef<Set<string>>(new Set())
+    const feedProfileBatchGenRef = useRef(0)
+
+    const noteFeedProfileContextValue = useMemo<NoteFeedProfileContextValue>(
+      () => ({
+        profiles: feedProfileBatch.profiles,
+        pendingPubkeys: feedProfileBatch.pending,
+        version: feedProfileBatch.version
+      }),
+      [feedProfileBatch]
+    )
     
     // Memoize subRequests serialization to avoid expensive JSON.stringify on every render
     const subRequestsKey = useMemo(() => {
@@ -114,6 +155,12 @@ const NoteList = forwardRef(
     }, [subRequests])
 
     const timelineSubscriptionKey = feedSubscriptionKey ?? subRequestsKey
+
+    useEffect(() => {
+      feedProfileBatchGenRef.current += 1
+      feedProfileLoadedRef.current.clear()
+      setFeedProfileBatch({ profiles: new Map(), pending: new Set(), version: 0 })
+    }, [timelineSubscriptionKey, refreshCount])
 
     const subRequestsRef = useRef(subRequests)
     subRequestsRef.current = subRequests
@@ -232,6 +279,91 @@ const NoteList = forwardRef(
       })
     }, [newEvents, shouldHideEvent, showKinds, showKind1OPs, showKind1Replies, showKind1111])
 
+    useLayoutEffect(() => {
+      if (!onSpellFeedFirstPaint || spellFeedInstrumentToken === undefined) return
+      if (filteredEvents.length === 0) return
+      const first = filteredEvents[0]
+      if (!first) return
+      const fpKey = `${spellFeedInstrumentToken}|${timelineSubscriptionKey ?? ''}`
+      if (spellFeedFirstPaintLoggedKeyRef.current === fpKey) return
+      spellFeedFirstPaintLoggedKeyRef.current = fpKey
+      onSpellFeedFirstPaint({
+        eventCount: filteredEvents.length,
+        firstEventId: first.id
+      })
+    }, [
+      onSpellFeedFirstPaint,
+      spellFeedInstrumentToken,
+      timelineSubscriptionKey,
+      filteredEvents.length,
+      filteredEvents[0]?.id
+    ])
+
+    useEffect(() => {
+      const handle = window.setTimeout(() => {
+        const gen = feedProfileBatchGenRef.current
+        const candidates = new Set<string>()
+        const addPk = (p: string | undefined) => {
+          if (p && p.length === 64 && /^[0-9a-f]{64}$/.test(p)) {
+            candidates.add(p)
+          }
+        }
+        filteredEvents.slice(0, 50).forEach((e) => addPk(e.pubkey))
+        events.slice(0, 120).forEach((e) => addPk(e.pubkey))
+        events.slice(showCount, showCount + 60).forEach((e) => addPk(e.pubkey))
+
+        const need = [...candidates].filter((pk) => !feedProfileLoadedRef.current.has(pk))
+        if (need.length === 0) return
+
+        need.forEach((pk) => feedProfileLoadedRef.current.add(pk))
+
+        setFeedProfileBatch((prev) => {
+          const pending = new Set(prev.pending)
+          need.forEach((pk) => pending.add(pk))
+          return { ...prev, pending, version: prev.version + 1 }
+        })
+
+        void (async () => {
+          for (let i = 0; i < need.length; i += FEED_PROFILE_CHUNK) {
+            if (gen !== feedProfileBatchGenRef.current) return
+            const chunk = need.slice(i, i + FEED_PROFILE_CHUNK)
+            try {
+              const profiles = await client.fetchProfilesForPubkeys(chunk)
+              if (gen !== feedProfileBatchGenRef.current) return
+              setFeedProfileBatch((prev) => {
+                const next = new Map(prev.profiles)
+                const pend = new Set(prev.pending)
+                for (const p of profiles) {
+                  next.set(p.pubkey, p)
+                  pend.delete(p.pubkey)
+                }
+                for (const pk of chunk) {
+                  pend.delete(pk)
+                  if (!next.has(pk)) {
+                    next.set(pk, {
+                      pubkey: pk,
+                      npub: pubkeyToNpub(pk) ?? '',
+                      username: formatPubkey(pk)
+                    })
+                  }
+                }
+                return { profiles: next, pending: pend, version: prev.version + 1 }
+              })
+            } catch {
+              chunk.forEach((pk) => feedProfileLoadedRef.current.delete(pk))
+              if (gen !== feedProfileBatchGenRef.current) return
+              setFeedProfileBatch((prev) => {
+                const pend = new Set(prev.pending)
+                chunk.forEach((pk) => pend.delete(pk))
+                return { ...prev, pending: pend, version: prev.version + 1 }
+              })
+            }
+          }
+        })()
+      }, FEED_PROFILE_BATCH_DEBOUNCE_MS)
+      return () => window.clearTimeout(handle)
+    }, [filteredEvents, events, showCount])
+
     const scrollToTop = (behavior: ScrollBehavior = 'instant') => {
       setTimeout(() => {
         topRef.current?.scrollIntoView({ behavior, block: 'start' })
@@ -308,13 +440,17 @@ const NoteList = forwardRef(
           | undefined
 
         try {
-          // Add timeout wrapper to prevent subscribeTimeline from hanging indefinitely
+          // Opening subs + IndexedDB timeline hydration can exceed 2s on spell feeds with many relays; a short race
+          // rejects, the catch closes the late subscription, and the list stays empty after refresh.
+          const subscribeSetupRaceMs = 5000
           const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(() => {
-              reject(new Error('subscribeTimeline timeout after 5 seconds'))
-            }, 5000) // 5 second timeout
+              reject(new Error(`subscribeTimeline timeout after ${subscribeSetupRaceMs}ms`))
+            }, subscribeSetupRaceMs)
           })
-          
+
+          const firstRelayGraceMs = spellFetchTimeoutMs ?? FIRST_RELAY_RESULT_GRACE_MS
+
           timelineSubscribePromise = client.subscribeTimeline(
             mappedSubRequests,
             {
@@ -324,52 +460,33 @@ const NoteList = forwardRef(
                   setEvents(events)
                   // Do not wait for full EOSE across many relays — otherwise loading/skeleton stays up for 10–30s+
                   setLoading(false)
-                  
-                  // CRITICAL: Prefetch profiles for initial events (optimized for faster initial load)
-                  // Only prefetch for first 50 events to reduce initial load time
-                  // Additional prefetching happens on scroll via the useEffect hooks
-                  const initialPubkeys = Array.from(
-                    new Set(events.slice(0, 50).map((ev: Event) => ev.pubkey).filter((p: string) => p?.length === 64))
-                  )
-                  if (initialPubkeys.length > 0) {
-                    // Filter out already prefetched pubkeys
-                    const pubkeysToFetch = initialPubkeys.filter((p) => !prefetchedPubkeysRef.current.has(p))
-                    if (pubkeysToFetch.length > 0) {
-                      // Mark as prefetched immediately to prevent duplicate requests
-                      pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.add(p))
-                      // Batch fetch in background (non-blocking) with delay to not block initial render
-                      setTimeout(() => {
-                        if (!effectActive) return
-                        client.fetchProfilesForPubkeys(pubkeysToFetch).catch(() => {
-                          // On error, remove from prefetched set so we can retry later
-                          pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.delete(p))
-                        })
-                      }, 100)
-                    }
+
+                  // Defer profile + embed prefetch: streaming timelines fire onEvents often; starting
+                  // fetchProfilesForPubkeys on every update spams relays (multi-second each) and cancels hooks.
+                  lastEventsForTimelinePrefetchRef.current = events
+                  if (timelinePrefetchDebounceRef.current) {
+                    clearTimeout(timelinePrefetchDebounceRef.current)
                   }
-                  
-                  // CRITICAL: Prefetch embedded events for initial events (reduced scope)
-                  // Only prefetch for first 50 events to reduce initial load time
-                  const initialEmbeddedEventIds = new Set<string>()
-                  events.slice(0, 50).forEach((ev: Event) => {
-                    const embeddedIds = extractEmbeddedEventIds(ev)
-                    embeddedIds.forEach((id: string) => initialEmbeddedEventIds.add(id))
-                  })
-                  const eventIdsToFetch = Array.from(initialEmbeddedEventIds).filter(
-                    (id) => !prefetchedEventIdsRef.current.has(id)
-                  )
-                  if (eventIdsToFetch.length > 0) {
-                    // Mark as prefetched immediately to prevent duplicate requests
-                    eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
-                    // Batch fetch embedded events in background (non-blocking) with delay
-                    setTimeout(() => {
-                      if (!effectActive) return
+                  timelinePrefetchDebounceRef.current = setTimeout(() => {
+                    timelinePrefetchDebounceRef.current = null
+                    if (!effectActive) return
+                    const evs = lastEventsForTimelinePrefetchRef.current
+                    if (evs.length === 0) return
+
+                    const initialEmbeddedEventIds = new Set<string>()
+                    evs.slice(0, 50).forEach((ev: Event) => {
+                      extractEmbeddedEventIds(ev).forEach((id: string) => initialEmbeddedEventIds.add(id))
+                    })
+                    const eventIdsToFetch = Array.from(initialEmbeddedEventIds).filter(
+                      (id) => !prefetchedEventIdsRef.current.has(id)
+                    )
+                    if (eventIdsToFetch.length > 0) {
+                      eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
                       Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
-                        // On error, remove from prefetched set so we can retry later
                         eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
                       })
-                    }, 200)
-                  }
+                    }
+                  }, 450)
                 } else if (eosed) {
                   // No events received but EOSE - set empty events array and stop loading
                   setEvents([])
@@ -422,7 +539,8 @@ const NoteList = forwardRef(
             startLogin,
             needSort: !areAlgoRelays,
             useCache: useTimelineCacheBootstrap,
-            omitDefaultSinceWhenUseCache: useTimelineCacheBootstrap
+            omitDefaultSinceWhenUseCache: useTimelineCacheBootstrap,
+            firstRelayResultGraceMs: firstRelayGraceMs
           }
           )
 
@@ -452,6 +570,10 @@ const NoteList = forwardRef(
       const promise = init()
       return () => {
         effectActive = false
+        if (timelinePrefetchDebounceRef.current) {
+          clearTimeout(timelinePrefetchDebounceRef.current)
+          timelinePrefetchDebounceRef.current = null
+        }
         promise.then((closer) => closer?.())
       }
     }, [
@@ -463,8 +585,13 @@ const NoteList = forwardRef(
       showKind1111,
       useFilterAsIs,
       areAlgoRelays,
-      useTimelineCacheBootstrap
+      useTimelineCacheBootstrap,
+      spellFetchTimeoutMs
     ])
+
+    useEffect(() => {
+      eventsRef.current = events
+    }, [events])
 
     useEffect(() => {
       if (!subRequestsRef.current.length) return
@@ -472,6 +599,11 @@ const NoteList = forwardRef(
       const timer = window.setTimeout(() => {
         if (cancelled) return
         setLoading((prev) => (prev ? false : prev))
+        // hasMore defaults true; if timeline never sends eosed (slow/hung relays), we would keep a
+        // bottom skeleton forever while loading is false — unblock empty state / reload.
+        if (eventsRef.current.length === 0) {
+          setHasMore(false)
+        }
       }, 15_000)
       return () => {
         cancelled = true
@@ -480,16 +612,11 @@ const NoteList = forwardRef(
     }, [timelineSubscriptionKey, refreshCount])
 
     // Use refs to avoid dependency issues and ensure latest values in async callbacks
-    const eventsRef = useRef(events)
     const showCountRef = useRef(showCount)
     const loadingRef = useRef(loading)
     const hasMoreRef = useRef(hasMore)
     const timelineKeyRef = useRef(timelineKey)
-    
-    useEffect(() => {
-      eventsRef.current = events
-    }, [events])
-    
+
     useEffect(() => {
       showCountRef.current = showCount
     }, [showCount])
@@ -639,23 +766,6 @@ const NoteList = forwardRef(
               }
               
               schedulePrefetch(() => {
-                const newPubkeys = Array.from(
-                  new Set(newEvents.map((ev) => ev.pubkey).filter((p) => p?.length === 64))
-                )
-                if (newPubkeys.length > 0) {
-                  // Filter out already prefetched pubkeys
-                  const pubkeysToFetch = newPubkeys.filter((p) => !prefetchedPubkeysRef.current.has(p))
-                  if (pubkeysToFetch.length > 0) {
-                    // Mark as prefetched immediately to prevent duplicate requests
-                    pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.add(p))
-                    // Batch fetch in background (non-blocking)
-                    client.fetchProfilesForPubkeys(pubkeysToFetch).catch(() => {
-                      // On error, remove from prefetched set so we can retry later
-                      pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.delete(p))
-                    })
-                  }
-                }
-                
                 // CRITICAL: Prefetch embedded events for newly loaded events (throttled)
                 const newEmbeddedEventIds = new Set<string>()
                 // Only prefetch for first 30 events to reduce load
@@ -719,12 +829,6 @@ const NoteList = forwardRef(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    // CRITICAL: Prefetch profiles for visible authors + upcoming events in one batched request
-    // This prevents browser crashes during rapid scrolling by pre-loading profiles before they're needed
-    const visiblePubkeysRef = useRef<Set<string>>(new Set())
-    const prefetchedPubkeysRef = useRef<Set<string>>(new Set())
-    const prefetchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-    
     // CRITICAL: Prefetch embedded events (referenced in e tags, a tags, and content)
     // This ensures embedded events are ready before user scrolls to them
     const prefetchedEventIdsRef = useRef<Set<string>>(new Set())
@@ -766,76 +870,6 @@ const NoteList = forwardRef(
       
       return Array.from(new Set(eventIds)) // Deduplicate
     }, [])
-    
-    useEffect(() => {
-      // Throttle profile prefetching to reduce frequency during rapid scrolling
-      // Clear any existing timeout
-      if (prefetchTimeoutRef.current) {
-        clearTimeout(prefetchTimeoutRef.current)
-      }
-      
-      // Debounce profile prefetching by 300ms to reduce frequency during rapid scrolling
-      prefetchTimeoutRef.current = setTimeout(() => {
-        // Prefetch profiles for:
-        // 1. Currently visible events (first 40, reduced to reduce stuttering)
-        // 2. Upcoming events that will be visible when scrolling (next 80, reduced to reduce load)
-        // This ensures profiles are ready before they're needed during rapid scrolling
-        const visiblePubkeys = Array.from(
-          new Set(filteredEvents.slice(0, 40).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
-        )
-        const upcomingPubkeys = Array.from(
-          new Set(events.slice(0, 80).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
-        )
-        
-        // Combine visible and upcoming, but prioritize visible ones
-        const allPubkeys = Array.from(new Set([...visiblePubkeys, ...upcomingPubkeys]))
-        
-        if (allPubkeys.length === 0) return
-        
-        // Check if we've already prefetched these exact pubkeys
-        const prev = visiblePubkeysRef.current
-        const same = allPubkeys.length === prev.size && allPubkeys.every((p) => prev.has(p))
-        if (same) return
-        
-        // Find pubkeys that haven't been prefetched yet
-        const newPubkeys = allPubkeys.filter((p) => !prefetchedPubkeysRef.current.has(p))
-        
-        if (newPubkeys.length === 0) {
-          // All pubkeys already prefetched, just update the ref
-          visiblePubkeysRef.current = new Set(allPubkeys)
-          return
-        }
-        
-        // Update refs
-        visiblePubkeysRef.current = new Set(allPubkeys)
-        newPubkeys.forEach((p) => prefetchedPubkeysRef.current.add(p))
-        
-        // Batch fetch profiles for new pubkeys (IndexedDB + network in one request)
-        // This is the key optimization: batch processing prevents individual fetches during scrolling
-        // Use requestIdleCallback if available to avoid blocking scroll
-        const scheduleFetch = (callback: () => void) => {
-          if (typeof requestIdleCallback !== 'undefined') {
-            requestIdleCallback(callback, { timeout: 500 })
-          } else {
-            setTimeout(callback, 0)
-          }
-        }
-        
-        scheduleFetch(() => {
-          client.fetchProfilesForPubkeys(newPubkeys).catch(() => {
-            // On error, remove from prefetched set so we can retry later
-            newPubkeys.forEach((p) => prefetchedPubkeysRef.current.delete(p))
-          })
-        })
-      }, 300) // Debounce by 300ms to reduce frequency during rapid scrolling
-      
-      return () => {
-        if (prefetchTimeoutRef.current) {
-          clearTimeout(prefetchTimeoutRef.current)
-          prefetchTimeoutRef.current = null
-        }
-      }
-    }, [filteredEvents, events, extractEmbeddedEventIds])
     
     // CRITICAL: Prefetch embedded events for visible events
     useEffect(() => {
@@ -915,40 +949,8 @@ const NoteList = forwardRef(
         clearTimeout(prefetchNewEventsTimeoutRef.current)
       }
       
-      // Debounce profile prefetching for newly loaded events (optimized to reduce stuttering)
+      // Debounce embedded-event prefetch for newly revealed rows (profiles use NoteFeed batcher above)
       prefetchNewEventsTimeoutRef.current = setTimeout(() => {
-        // When we have more events loaded, prefetch profiles for the newly loaded ones
-        // Reduced to 50 to reduce batch size and prevent stuttering
-        const newlyLoadedPubkeys = Array.from(
-          new Set(events.slice(showCount, showCount + 50).map((ev) => ev.pubkey).filter((p) => p?.length === 64))
-        )
-        
-        if (newlyLoadedPubkeys.length > 0) {
-          // Filter out already prefetched pubkeys
-          const newPubkeys = newlyLoadedPubkeys.filter((p) => !prefetchedPubkeysRef.current.has(p))
-          
-          if (newPubkeys.length > 0) {
-            // Mark as prefetched immediately to prevent duplicate requests
-            newPubkeys.forEach((p) => prefetchedPubkeysRef.current.add(p))
-            
-            // Batch fetch in background (non-blocking) using requestIdleCallback
-            const scheduleFetch = (callback: () => void) => {
-              if (typeof requestIdleCallback !== 'undefined') {
-                requestIdleCallback(callback, { timeout: 500 })
-              } else {
-                setTimeout(callback, 0)
-              }
-            }
-            
-            scheduleFetch(() => {
-              client.fetchProfilesForPubkeys(newPubkeys).catch(() => {
-                // On error, remove from prefetched set so we can retry later
-                newPubkeys.forEach((p) => prefetchedPubkeysRef.current.delete(p))
-              })
-            })
-          }
-        }
-        
         // CRITICAL: Prefetch embedded events for newly loaded events (reduced scope)
         const newlyLoadedEmbeddedEventIds = new Set<string>()
         events.slice(showCount, showCount + 50).forEach((ev) => {
@@ -1005,11 +1007,15 @@ const NoteList = forwardRef(
             filterMutedNotes={filterMutedNotes}
           />
         ))}
-        {hasMore || loading ? (
+        {events.length === 0 && loading ? (
           <div ref={bottomRef}>
             <NoteCardLoadingSkeleton />
           </div>
-        ) : events.length ? (
+        ) : events.length > 0 && (hasMore || loading) ? (
+          <div ref={bottomRef}>
+            <NoteCardLoadingSkeleton />
+          </div>
+        ) : events.length > 0 ? (
           <div className="text-center text-sm text-muted-foreground mt-2">{t('no more notes')}</div>
         ) : (
           <div className="flex justify-center w-full mt-2">
@@ -1024,19 +1030,21 @@ const NoteList = forwardRef(
     return (
       <div>
         <div ref={topRef} className="scroll-mt-[calc(6rem+1px)]" />
-        {supportTouch ? (
-          <PullToRefresh
-            onRefresh={async () => {
-              refresh()
-              await new Promise((resolve) => setTimeout(resolve, 1000))
-            }}
-            pullingContent=""
-          >
-            {list}
-          </PullToRefresh>
-        ) : (
-          list
-        )}
+        <NoteFeedProfileContext.Provider value={noteFeedProfileContextValue}>
+          {supportTouch ? (
+            <PullToRefresh
+              onRefresh={async () => {
+                refresh()
+                await new Promise((resolve) => setTimeout(resolve, 1000))
+              }}
+              pullingContent=""
+            >
+              {list}
+            </PullToRefresh>
+          ) : (
+            list
+          )}
+        </NoteFeedProfileContext.Provider>
         <div className="h-40" />
         {filteredNewEvents.length > 0 && (
           <NewNotesButton newEvents={filteredNewEvents} onClick={showNewEvents} />

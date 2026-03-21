@@ -2,6 +2,7 @@ import { PROFILE_FETCH_PROMISE_TIMEOUT_MS } from '@/constants'
 import { getProfileFromEvent } from '@/lib/event-metadata'
 import { userIdToPubkey } from '@/lib/pubkey'
 import { useNostr } from '@/providers/NostrProvider'
+import { useNoteFeedProfileContext } from '@/providers/NoteFeedProfileContext'
 import { replaceableEventService } from '@/services/client.service'
 import { TProfile } from '@/types'
 import { useEffect, useState, useRef, useCallback } from 'react'
@@ -24,6 +25,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
   // })
   
   const { profile: currentAccountProfile } = useNostr()
+  const noteFeed = useNoteFeedProfileContext()
   const [isFetching, setIsFetching] = useState(true)
   const [error, setError] = useState<Error | null>(null)
   const [profile, setProfile] = useState<TProfile | null>(null)
@@ -284,6 +286,27 @@ export function useFetchProfile(id?: string, skipCache = false) {
 
     // Extract pubkey early to check if id has changed
     const extractedPubkey = userIdToPubkey(id)
+
+    // Note feeds: profiles are batch-fetched in NoteList — skip per-row relay storms while pending
+    if (extractedPubkey && noteFeed && !skipCache) {
+      const fromBatch = noteFeed.profiles.get(extractedPubkey)
+      if (fromBatch) {
+        setProfile(fromBatch)
+        setPubkey(extractedPubkey)
+        setIsFetching(false)
+        setError(null)
+        processingPubkeyRef.current = extractedPubkey
+        initializedPubkeysRef.current.add(extractedPubkey)
+        effectRunCountRef.current.delete(extractedPubkey)
+        return
+      }
+      if (noteFeed.pendingPubkeys.has(extractedPubkey)) {
+        setPubkey(extractedPubkey)
+        setIsFetching(false)
+        setError(null)
+        return
+      }
+    }
     
     // CRITICAL: Early exit if already processing this exact pubkey - prevents infinite loops
     // This check must happen FIRST, before any other logic
@@ -568,7 +591,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, skipCache]) // checkProfile is memoized and stable, no need to include it
+  }, [id, skipCache, noteFeed?.version]) // checkProfile is memoized; noteFeed.version hydrates batch profiles
 
   useEffect(() => {
     // CRITICAL: Only use currentAccountProfile if it matches the pubkey we're looking for

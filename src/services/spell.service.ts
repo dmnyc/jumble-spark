@@ -65,6 +65,12 @@ export const SPELL_CATALOG_SYNC_LIMIT_WITH_FOLLOWS = 600
 /** Max distinct pubkeys in one catalog REQ (relay compatibility). Your pubkey is always first. */
 export const SPELL_CATALOG_MAX_AUTHORS = 400
 
+/**
+ * If no relay sends EOSE, stop showing the catalog sync state and close the sub after this long.
+ * Keeps the UI from feeling stuck when relays are slow or silent.
+ */
+export const SPELL_CATALOG_SYNC_TIMEOUT_MS = 12_000
+
 /** Build author list for spell catalog sync: always include `pubkey`, then follows, deduped. */
 export function buildSpellCatalogAuthors(pubkey: string, contacts: string[]): string[] {
   const rest = contacts.filter((c) => typeof c === 'string' && c.length > 0 && c !== pubkey)
