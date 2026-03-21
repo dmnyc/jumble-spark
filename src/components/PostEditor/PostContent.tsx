@@ -2432,9 +2432,6 @@ export default function PostContent({
       </NeventPickerProvider>
       {createThreadOpen && (
         <CreateThreadDialog
-          topic="general"
-          availableRelays={[]}
-          relaySets={[]}
           onClose={() => setCreateThreadOpen(false)}
           onThreadCreated={() => {
             discussionFeedCache.clearDiscussionsListCache()

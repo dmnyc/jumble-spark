@@ -58,6 +58,7 @@ const PostTextarea = forwardRef<
       dTag?: string
       topics?: string[]
     }
+    extraPreviewTags?: string[][]
   }
 >(
   (
@@ -78,7 +79,8 @@ const PostTextarea = forwardRef<
       getDraftEventJson,
       mediaImetaTags,
       mediaUrl,
-      articleMetadata
+      articleMetadata,
+      extraPreviewTags
     },
     ref
   ) => {
@@ -243,7 +245,17 @@ const PostTextarea = forwardRef<
             <div className="text-xs text-muted-foreground">
               kind {kindDescription.number}: {kindDescription.description}
             </div>
-            <Preview content={text} className={className} kind={kind} highlightData={highlightData} pollCreateData={pollCreateData} mediaImetaTags={mediaImetaTags} mediaUrl={mediaUrl} articleMetadata={articleMetadata} />
+            <Preview
+              content={text}
+              className={className}
+              kind={kind}
+              highlightData={highlightData}
+              pollCreateData={pollCreateData}
+              mediaImetaTags={mediaImetaTags}
+              mediaUrl={mediaUrl}
+              articleMetadata={articleMetadata}
+              extraPreviewTags={extraPreviewTags}
+            />
           </div>
         </TabsContent>
         <TabsContent value="json">

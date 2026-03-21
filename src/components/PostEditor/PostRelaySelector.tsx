@@ -18,6 +18,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import logger from '@/lib/logger'
 
+/** Stable default when `mentions` is omitted — inline `= []` is a new array every render and retriggers effects. */
+const NO_MENTIONS: string[] = []
+
 export default function PostRelaySelector({
   parentEvent: _parentEvent,
   openFrom,
@@ -25,7 +28,7 @@ export default function PostRelaySelector({
   setAdditionalRelayUrls,
   content: postContent = '',
   isPublicMessage = false,
-  mentions = []
+  mentions = NO_MENTIONS
 }: {
   parentEvent?: NostrEvent
   openFrom?: string[]

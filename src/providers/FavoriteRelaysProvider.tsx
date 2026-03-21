@@ -9,34 +9,12 @@ import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import { TRelaySet } from '@/types'
 import { Event, kinds } from 'nostr-tools'
-import { createContext, useContext, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { FavoriteRelaysContext } from './favorite-relays-context'
 import { useNostr } from './NostrProvider'
 
-type TFavoriteRelaysContext = {
-  favoriteRelays: string[]
-  addFavoriteRelays: (relayUrls: string[]) => Promise<void>
-  deleteFavoriteRelays: (relayUrls: string[]) => Promise<void>
-  reorderFavoriteRelays: (reorderedRelays: string[]) => Promise<void>
-  blockedRelays: string[]
-  addBlockedRelays: (relayUrls: string[]) => Promise<void>
-  deleteBlockedRelays: (relayUrls: string[]) => Promise<void>
-  relaySets: TRelaySet[]
-  createRelaySet: (relaySetName: string, relayUrls?: string[]) => Promise<void>
-  addRelaySets: (newRelaySetEvents: Event[]) => Promise<void>
-  deleteRelaySet: (id: string) => Promise<void>
-  updateRelaySet: (newSet: TRelaySet) => Promise<void>
-  reorderRelaySets: (reorderedSets: TRelaySet[]) => Promise<void>
-}
-
-const FavoriteRelaysContext = createContext<TFavoriteRelaysContext | undefined>(undefined)
-
-export const useFavoriteRelays = () => {
-  const context = useContext(FavoriteRelaysContext)
-  if (!context) {
-    throw new Error('useFavoriteRelays must be used within a FavoriteRelaysProvider')
-  }
-  return context
-}
+export { useFavoriteRelays } from './favorite-relays-context'
+export type { TFavoriteRelaysContext } from './favorite-relays-context'
 
 export function FavoriteRelaysProvider({ children }: { children: React.ReactNode }) {
   const { favoriteRelaysEvent, blockedRelaysEvent, updateFavoriteRelaysEvent, updateBlockedRelaysEvent, pubkey, relayList, publish } = useNostr()

@@ -25,7 +25,8 @@ export default function Preview({
   pollCreateData,
   mediaImetaTags,
   mediaUrl,
-  articleMetadata
+  articleMetadata,
+  extraPreviewTags
 }: { 
   content: string
   className?: string
@@ -41,6 +42,8 @@ export default function Preview({
     dTag?: string
     topics?: string[]
   }
+  /** Merged into the fake event (e.g. kind 11 discussion title / topic tags). */
+  extraPreviewTags?: string[][]
 }) {
   const { content: processedContent, emojiTags, highlightTags, pollTags } = useMemo(
     () => {
@@ -148,8 +151,11 @@ export default function Preview({
         tags.push(...normalizedTopics.map((topic) => ['t', topic]))
       }
     }
+    if (extraPreviewTags?.length) {
+      tags.push(...extraPreviewTags)
+    }
     return tags
-  }, [emojiTags, highlightTags, pollTags, mediaImetaTags, articleMetadata, kind])
+  }, [emojiTags, highlightTags, pollTags, mediaImetaTags, articleMetadata, kind, extraPreviewTags])
   
   const fakeEvent = useMemo(() => {
     // For voice comments, include the media URL in content if not already there
@@ -187,6 +193,14 @@ export default function Preview({
   // For kind 1 notes, use MarkdownArticle to match actual rendering
   // This ensures preview matches the final result (no Links section, correct image placement, proper line breaks)
   if (kind === kinds.ShortTextNote || kind === ExtendedKind.COMMENT || kind === ExtendedKind.VOICE_COMMENT) {
+    return (
+      <Card className={cn('p-3', className, selectableClass)}>
+        <MarkdownArticle event={fakeEvent} hideMetadata={true} />
+      </Card>
+    )
+  }
+
+  if (kind === ExtendedKind.DISCUSSION) {
     return (
       <Card className={cn('p-3', className, selectableClass)}>
         <MarkdownArticle event={fakeEvent} hideMetadata={true} />

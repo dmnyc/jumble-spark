@@ -173,8 +173,12 @@ function NoteListPageTitlebar({
             <Info />
           </Button>
         )}
-        <KeyboardShortcutsHelpButton />
-        <AccountButton />
+        {isSmallScreen && (
+          <>
+            <KeyboardShortcutsHelpButton />
+            <AccountButton />
+          </>
+        )}
       </div>
     </div>
   )

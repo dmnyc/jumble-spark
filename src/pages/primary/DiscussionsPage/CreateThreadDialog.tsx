@@ -1,53 +1,53 @@
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import TextareaWithMentionAutocomplete from '@/components/TextareaWithMentionAutocomplete'
-import { Badge } from '@/components/ui/badge'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle
+} from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Hash, X, Users, Film, Image, Zap, Settings, Book, Eye, Edit3, ChevronDown, Check, ImageUp, Smile } from 'lucide-react'
-import { forwardRef, useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { Hash, X, Users, Film, Image, Zap, Settings, Book, ChevronDown, Check, Smile, Upload } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useGroupList } from '@/providers/GroupListProvider'
-import { TDraftEvent, TRelaySet } from '@/types'
+import { TDraftEvent } from '@/types'
 import { NostrEvent } from 'nostr-tools'
 import { prefixNostrAddresses } from '@/lib/nostr-address'
 import { showPublishingError, showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
-import { simplifyUrl } from '@/lib/url'
-import relaySelectionService, { type RelaySourceType } from '@/services/relay-selection.service'
 import dayjs from 'dayjs'
 import { extractHashtagsFromContent, normalizeTopic } from '@/lib/discussion-topics'
 import { DISCUSSION_TOPICS } from './discussionTopics'
-import MarkdownArticle from '@/components/Note/MarkdownArticle/MarkdownArticle'
-import RelayIcon from '@/components/RelayIcon'
+import PostRelaySelector from '@/components/PostEditor/PostRelaySelector'
+import PostTextarea, { type TPostTextareaHandle } from '@/components/PostEditor/PostTextarea'
 import GifPicker from '@/components/GifPicker'
 import EmojiPickerDialog from '@/components/EmojiPickerDialog'
 import Uploader from '@/components/PostEditor/Uploader'
 import { NeventPickerProvider } from '@/components/PostEditor/PostTextarea/Mention/NeventNaddrPickerDialog'
-import { useNeventPicker } from '@/components/PostEditor/PostTextarea/Mention/useNeventPicker'
+import { MentionAndEventToolbarButtons } from '@/components/PostEditor/PostTextarea/Mention/MentionAndEventToolbarButtons'
 import logger from '@/lib/logger'
 import postEditorCache from '@/services/post-editor-cache.service'
-import { MentionAndEventToolbarButtons } from '@/components/PostEditor/PostTextarea/Mention/MentionAndEventToolbarButtons'
+import postEditor from '@/services/post-editor.service'
+import { cn } from '@/lib/utils'
+import { ExtendedKind } from '@/constants'
+import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { Event } from 'nostr-tools'
 
-/** Wraps the textarea so it receives the nevent/naddr picker from context (must be rendered inside NeventPickerProvider). */
-const ThreadContentTextarea = forwardRef<HTMLTextAreaElement, React.ComponentProps<typeof TextareaWithMentionAutocomplete>>(
-  function ThreadContentTextarea(props, ref) {
-    const neventPicker = useNeventPicker()
-    return (
-      <TextareaWithMentionAutocomplete
-        ref={ref}
-        {...props}
-        onOpenNeventPicker={neventPicker?.openNeventPicker}
-      />
-    )
-  }
-)
+/** Isolates TipTap post cache from the main note composer (see postEditorCache.generateCacheKey). */
+const THREAD_POST_EDITOR_PARENT = { id: '__jumble_thread_post_editor__' } as Event
 
 // Utility functions for thread creation
 function extractImagesFromContent(content: string): string[] {
@@ -63,6 +63,25 @@ function buildNsfwTag(): string[] {
   return ['content-warning', '']
 }
 
+type TopicListEntry = { id: string; label: string }
+
+/** Match preset/dynamic list by id or exact label (case-insensitive); otherwise normalize as a new topic slug. */
+function resolveTopicFromInput(raw: string, topics: TopicListEntry[]): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  const lower = trimmed.toLowerCase()
+  const byId = topics.find((x) => x.id === lower)
+  if (byId) return byId.id
+  const byLabel = topics.find((x) => x.label.toLowerCase() === lower)
+  if (byLabel) return byLabel.id
+  return normalizeTopic(trimmed)
+}
+
+function displayTopicLabel(topicId: string, topics: TopicListEntry[]): string {
+  const row = topics.find((x) => x.id === topicId)
+  return row?.label ?? topicId
+}
+
 interface DynamicTopic {
   id: string
   label: string
@@ -73,10 +92,10 @@ interface DynamicTopic {
 }
 
 interface CreateThreadDialogProps {
-  topic: string
-  availableRelays: string[]
-  relaySets: TRelaySet[]
-  selectedRelay?: string | null  // null = "All relays", relay set ID, or single relay URL
+  /** Default topic id from the preset list; defaults to `general`. */
+  topic?: string
+  /** Relay set id or single relay URL to seed selection (same as PostEditor `openFrom`). */
+  selectedRelay?: string | null
   dynamicTopics?: {
     mainTopics: DynamicTopic[]
     subtopics: DynamicTopic[]
@@ -86,32 +105,42 @@ interface CreateThreadDialogProps {
   onThreadCreated: (publishedEvent?: NostrEvent) => void
 }
 
-export default function CreateThreadDialog({ 
-  topic: initialTopic, 
-  availableRelays, 
-  relaySets,
-  selectedRelay: initialRelay,
+export default function CreateThreadDialog({
+  topic: initialTopic = 'general',
+  selectedRelay: initialRelay = null,
   dynamicTopics,
-  onClose, 
-  onThreadCreated 
+  onClose,
+  onThreadCreated
 }: CreateThreadDialogProps) {
   const { t } = useTranslation()
-  const { pubkey, publish, relayList } = useNostr()
-  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
+  const { isSmallScreen } = useScreenSize()
+  const { pubkey, publish } = useNostr()
+  const { relaySets } = useFavoriteRelays()
   const { userGroups } = useGroupList()
+  const [hydrated, setHydrated] = useState(false)
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [selectedTopic, setSelectedTopic] = useState(initialTopic)
-  const [selectedRelayUrls, setSelectedRelayUrls] = useState<string[]>([])
-  const [selectableRelays, setSelectableRelays] = useState<string[]>([])
-  const [relayTypes, setRelayTypes] = useState<Record<string, RelaySourceType>>({})
+  const [topicInput, setTopicInput] = useState(() => {
+    const row = DISCUSSION_TOPICS.find((x) => x.id === initialTopic)
+    return row?.label ?? initialTopic
+  })
+  const [, setIsProtectedEvent] = useState(false)
+  const [additionalRelayUrls, setAdditionalRelayUrls] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [errors, setErrors] = useState<{ title?: string; content?: string; relay?: string; author?: string; subject?: string; group?: string }>({})
+  const [errors, setErrors] = useState<{
+    title?: string
+    content?: string
+    topic?: string
+    relay?: string
+    author?: string
+    subject?: string
+    group?: string
+  }>({})
   const [isNsfw, setIsNsfw] = useState(false)
   const [addClientTag, setAddClientTag] = useState(true)
   const [minPow, setMinPow] = useState(0)
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
-  const [isLoadingRelays, setIsLoadingRelays] = useState(true)
   const [isTopicSelectorOpen, setIsTopicSelectorOpen] = useState(false)
   const [pickerPortalContainer, setPickerPortalContainer] = useState<HTMLElement | null>(null)
 
@@ -125,24 +154,12 @@ export default function CreateThreadDialog({
   const [selectedGroup, setSelectedGroup] = useState<string>('')
   const [isGroupSelectorOpen, setIsGroupSelectorOpen] = useState(false)
 
-  const contentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const postTextareaRef = useRef<TPostTextareaHandle | null>(null)
+  const advancedOptionsRef = useRef<HTMLDivElement | null>(null)
 
-  const insertAtCursor = (text: string) => {
-    const ta = contentTextareaRef.current
-    if (ta) {
-      const start = ta.selectionStart
-      const end = ta.selectionEnd
-      const before = content.slice(0, start)
-      const after = content.slice(end)
-      setContent(before + text + after)
-      setTimeout(() => {
-        ta.focus()
-        ta.setSelectionRange(start + text.length, start + text.length)
-      }, 0)
-    } else {
-      setContent((prev) => prev + text)
-    }
-  }
+  const insertAtCursor = useCallback((text: string) => {
+    postTextareaRef.current?.insertText(text)
+  }, [])
 
   // Create combined topics list (predefined + dynamic) with hierarchy
   const allAvailableTopics = useMemo(() => {
@@ -215,122 +232,227 @@ export default function CreateThreadDialog({
     return combined
   }, [dynamicTopics])
 
-  // Stable refs for relay lists so we don't re-run init when parent context identity changes
-  const writeRelays = relayList?.write ?? []
-  const readRelays = relayList?.read ?? []
-  const writeKey = writeRelays.join(',')
-  const readKey = readRelays.join(',')
-  const favoriteKey = favoriteRelays.join(',')
-  const blockedKey = blockedRelays.join(',')
-  const relaySetsKey = relaySets.map(s => `${s.id}:${s.relayUrls.join(',')}`).join(';')
-  const availableRelaysKey = availableRelays.join(',')
+  const effectiveTopic = useMemo(
+    () => resolveTopicFromInput(topicInput, allAvailableTopics),
+    [topicInput, allAvailableTopics]
+  )
 
-  // Initialize selected relays using the centralized relay selection service (once per meaningful change)
-  useEffect(() => {
-    const initializeRelays = async () => {
-      setIsLoadingRelays(true)
-      try {
-        // Determine openFrom based on initialRelay
-        let openFrom: string[] | undefined = undefined
-        if (initialRelay) {
-          const relaySet = relaySets.find(set => set.id === initialRelay)
-          if (relaySet) {
-            openFrom = relaySet.relayUrls
-          } else {
-            openFrom = [initialRelay]
-          }
-        }
+  /** Same `openFrom` semantics as PostEditor / PostRelaySelector. */
+  const openFrom = useMemo(() => {
+    if (!initialRelay) return undefined
+    const relaySet = relaySets.find((set) => set.id === initialRelay)
+    if (relaySet?.relayUrls?.length) return relaySet.relayUrls
+    return [initialRelay]
+  }, [initialRelay, relaySets])
 
-        const result = await relaySelectionService.selectRelays({
-          userWriteRelays: writeRelays,
-          userReadRelays: readRelays,
-          favoriteRelays,
-          blockedRelays,
-          relaySets,
-          openFrom,
-          userPubkey: pubkey || undefined
-        })
-
-        setSelectableRelays(result.selectableRelays)
-        setSelectedRelayUrls(result.selectedRelays)
-        setRelayTypes(result.relayTypes ?? {})
-      } catch (error) {
-        logger.error('[CreateThreadDialog] Failed to initialize relays:', error)
-        // Fallback to availableRelays
-        setSelectableRelays(availableRelays)
-        setSelectedRelayUrls(availableRelays)
-        setRelayTypes({})
-      } finally {
-        setIsLoadingRelays(false)
-      }
-    }
-
-    initializeRelays()
-  }, [initialRelay, availableRelaysKey, writeKey, readKey, favoriteKey, blockedKey, relaySetsKey, pubkey])
-
-  // Load cached thread draft when dialog opens
+  // Load cached thread draft when dialog opens (then mount PostTextarea once)
   useEffect(() => {
     const draft = postEditorCache.getThreadDraft()
     if (draft) {
       setTitle(draft.title)
       setContent(draft.content)
       setSelectedTopic(draft.topic)
+      const predefined = DISCUSSION_TOPICS.find((x) => x.id === draft.topic)
+      const dyn = dynamicTopics?.allTopics.find((x) => x.id === draft.topic)
+      setTopicInput(predefined?.label ?? dyn?.label ?? draft.topic)
     }
-  }, [])
+    setHydrated(true)
+  }, [dynamicTopics])
 
   // Persist draft when title, content, or topic change (debounced)
   useEffect(() => {
     if (!title && !content.trim()) return
     const t = setTimeout(() => {
-      postEditorCache.setThreadDraft({ title, content, topic: selectedTopic })
+      const tr = resolveTopicFromInput(topicInput, allAvailableTopics)
+      postEditorCache.setThreadDraft({
+        title,
+        content,
+        topic: tr || selectedTopic
+      })
     }, 500)
     return () => clearTimeout(t)
-  }, [title, content, selectedTopic])
+  }, [title, content, topicInput, selectedTopic, allAvailableTopics])
+
+  useEffect(() => {
+    if (!showAdvancedOptions) return
+    const el = advancedOptionsRef.current
+    if (!el) return
+    const id = requestAnimationFrame(() => {
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [showAdvancedOptions])
 
   const handleClearDraft = useCallback(() => {
     setTitle('')
     setContent('')
-    setSelectedTopic(initialTopic)
+    setSelectedTopic('general')
+    setTopicInput(displayTopicLabel('general', DISCUSSION_TOPICS))
     setErrors({})
     postEditorCache.clearThreadDraft()
-  }, [initialTopic])
+    postEditorCache.clearPostCache({ parentEvent: THREAD_POST_EDITOR_PARENT })
+    postTextareaRef.current?.clear()
+  }, [])
 
-  const handleRelayCheckedChange = (checked: boolean, url: string) => {
-    if (checked) {
-      setSelectedRelayUrls(prev => [...prev, url])
-    } else {
-      setSelectedRelayUrls(prev => prev.filter(u => u !== url))
-    }
-  }
+  const collectThreadTags = useCallback(
+    (processedContent: string, topicForTags: string) => {
+      const images = extractImagesFromContent(processedContent)
+      const hashtags = extractHashtagsFromContent(processedContent)
+      const tags: string[][] = [['title', title.trim()], ['-']]
 
-  const handleSelectAll = () => {
-    setSelectedRelayUrls([...selectableRelays])
-  }
+      if (topicForTags === 'groups' && selectedGroup) {
+        tags.push(['h', selectedGroup])
+      }
 
-  const handleClearAll = () => {
-    setSelectedRelayUrls([])
-  }
+      if (topicForTags !== 'all' && topicForTags !== 'general' && topicForTags !== 'groups') {
+        const selectedDynamicTopic = dynamicTopics?.allTopics.find((dt) => dt.id === topicForTags)
+
+        if (selectedDynamicTopic?.isSubtopic) {
+          const predefinedMainTopic = DISCUSSION_TOPICS.find(
+            (pt) =>
+              topicForTags.toLowerCase().includes(pt.id.toLowerCase()) ||
+              pt.id.toLowerCase().includes(topicForTags.toLowerCase())
+          )
+
+          if (predefinedMainTopic) {
+            tags.push(['t', normalizeTopic(predefinedMainTopic.id)])
+            tags.push(['t', normalizeTopic(topicForTags)])
+          } else {
+            const relatedDynamicMainTopic = dynamicTopics?.mainTopics.find(
+              (dt) =>
+                topicForTags.toLowerCase().includes(dt.id.toLowerCase()) ||
+                dt.id.toLowerCase().includes(topicForTags.toLowerCase())
+            )
+
+            if (relatedDynamicMainTopic) {
+              tags.push(['t', normalizeTopic(relatedDynamicMainTopic.id)])
+              tags.push(['t', normalizeTopic(topicForTags)])
+            } else {
+              tags.push(['t', normalizeTopic(topicForTags)])
+            }
+          }
+        } else {
+          tags.push(['t', normalizeTopic(topicForTags)])
+        }
+      }
+
+      let uniqueHashtags = hashtags
+      if (topicForTags !== 'all' && topicForTags !== 'general') {
+        const selectedDynamicTopic = dynamicTopics?.allTopics.find((dt) => dt.id === topicForTags)
+
+        if (selectedDynamicTopic?.isSubtopic) {
+          const predefinedMainTopic = DISCUSSION_TOPICS.find(
+            (pt) =>
+              topicForTags.toLowerCase().includes(pt.id.toLowerCase()) ||
+              pt.id.toLowerCase().includes(topicForTags.toLowerCase())
+          )
+          const relatedDynamicMainTopic = dynamicTopics?.mainTopics.find(
+            (dt) =>
+              topicForTags.toLowerCase().includes(dt.id.toLowerCase()) ||
+              dt.id.toLowerCase().includes(topicForTags.toLowerCase())
+          )
+
+          const parentTopic = predefinedMainTopic?.id || relatedDynamicMainTopic?.id
+          uniqueHashtags = hashtags.filter(
+            (hashtag) =>
+              hashtag !== normalizeTopic(topicForTags) &&
+              (parentTopic ? hashtag !== normalizeTopic(parentTopic) : true)
+          )
+        } else {
+          uniqueHashtags = hashtags.filter((hashtag) => hashtag !== normalizeTopic(topicForTags))
+        }
+      }
+      for (const hashtag of uniqueHashtags) {
+        tags.push(['t', hashtag])
+      }
+
+      if (isReadingGroup) {
+        if (!uniqueHashtags.includes('readings')) {
+          tags.push(['t', 'readings'])
+        }
+        tags.push(['author', author.trim()])
+        tags.push(['subject', subject.trim()])
+      }
+
+      if (images && images.length > 0) {
+        tags.push(...generateImetaTags(images))
+      }
+
+      if (isNsfw) {
+        tags.push(buildNsfwTag())
+      }
+
+      return tags
+    },
+    [title, selectedGroup, dynamicTopics, isReadingGroup, author, subject, isNsfw]
+  )
+
+  const previewExtraTags = useMemo(() => {
+    if (!hydrated) return [] as string[][]
+    const resolved = resolveTopicFromInput(topicInput, allAvailableTopics)
+    if (!resolved) return [] as string[][]
+    return collectThreadTags(prefixNostrAddresses(content.trim()), resolved)
+  }, [hydrated, content, topicInput, allAvailableTopics, collectThreadTags])
+
+  const handleThreadMediaUploadSuccess = useCallback(({ url }: { url: string }) => {
+    setTimeout(() => {
+      const ed = postTextareaRef.current
+      if (ed && !ed.getText().includes(url)) {
+        ed.appendText(url, true)
+      }
+    }, 100)
+  }, [])
+
+  const getDraftEventJson = useCallback(async () => {
+    const processed = prefixNostrAddresses(content.trim())
+    const topicResolved = resolveTopicFromInput(topicInput, allAvailableTopics) || selectedTopic
+    const tags = collectThreadTags(processed, topicResolved)
+    return JSON.stringify(
+      {
+        kind: ExtendedKind.DISCUSSION,
+        content: processed,
+        tags,
+        created_at: dayjs().unix(),
+        pubkey: pubkey || '(your pubkey)'
+      },
+      null,
+      2
+    )
+  }, [content, topicInput, allAvailableTopics, selectedTopic, collectThreadTags, pubkey])
 
   const validateForm = () => {
-    const newErrors: { title?: string; content?: string; relay?: string; author?: string; subject?: string; group?: string } = {}
-    
+    const newErrors: {
+      title?: string
+      content?: string
+      topic?: string
+      relay?: string
+      author?: string
+      subject?: string
+      group?: string
+    } = {}
+
+    const topicResolved = resolveTopicFromInput(topicInput, allAvailableTopics)
+
     if (!title.trim()) {
       newErrors.title = t('Title is required')
     } else if (title.length > 100) {
       newErrors.title = t('Title must be 100 characters or less')
     }
-    
+
+    if (!topicResolved) {
+      newErrors.topic = t('Topic is required')
+    }
+
     if (!content.trim()) {
       newErrors.content = t('Content is required')
     } else if (content.length > 5000) {
       newErrors.content = t('Content must be 5000 characters or less')
     }
-    
-    if (selectedRelayUrls.length === 0) {
+
+    if (additionalRelayUrls.length === 0) {
       newErrors.relay = t('Please select at least one relay')
     }
-    
-    // Validate readings fields if reading group is enabled
+
     if (isReadingGroup) {
       if (!author.trim()) {
         newErrors.author = t('Author is required for reading groups')
@@ -339,14 +461,13 @@ export default function CreateThreadDialog({
         newErrors.subject = t('Subject (book title) is required for reading groups')
       }
     }
-    
-    // Validate group selection if groups topic is selected
-    if (selectedTopic === 'groups') {
+
+    if (topicResolved === 'groups') {
       if (!selectedGroup.trim()) {
         newErrors.group = t('Please select a group')
       }
     }
-    
+
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -366,118 +487,16 @@ export default function CreateThreadDialog({
     setIsSubmitting(true)
     
     try {
-      // Process content to prefix nostr addresses
+      const topicResolved = resolveTopicFromInput(topicInput, allAvailableTopics)
+      if (!topicResolved) {
+        setIsSubmitting(false)
+        return
+      }
+      setSelectedTopic(topicResolved)
+
       const processedContent = prefixNostrAddresses(content.trim())
-      
-      // Extract images from processed content
-      const images = extractImagesFromContent(processedContent)
-      
-      // Extract hashtags from content
-      const hashtags = extractHashtagsFromContent(processedContent)
-      
-      // Build tags array
-      const tags = [
-        ['title', title.trim()],
-        ['-'] // Required tag for relay privacy
-      ]
-      
-      // Add h tag for group discussions
-      if (selectedTopic === 'groups' && selectedGroup) {
-        tags.push(['h', selectedGroup])
-      }
-      
-      // Only add topic tag if it's a specific topic (not 'all' or 'general' or 'groups')
-      if (selectedTopic !== 'all' && selectedTopic !== 'general' && selectedTopic !== 'groups') {
-        // Check if this is a dynamic subtopic
-        const selectedDynamicTopic = dynamicTopics?.allTopics.find(dt => dt.id === selectedTopic)
-        
-        if (selectedDynamicTopic?.isSubtopic) {
-          // For subtopics, we need to find the parent main topic
-          // First, try to find a predefined main topic that might be related
-          const predefinedMainTopic = DISCUSSION_TOPICS.find(pt => 
-            selectedTopic.toLowerCase().includes(pt.id.toLowerCase()) || 
-            pt.id.toLowerCase().includes(selectedTopic.toLowerCase())
-          )
-          
-          if (predefinedMainTopic) {
-            // Add the predefined main topic first, then the subtopic
-            tags.push(['t', normalizeTopic(predefinedMainTopic.id)])
-            tags.push(['t', normalizeTopic(selectedTopic)])
-          } else {
-            // If no predefined main topic found, try to find a dynamic main topic
-            const relatedDynamicMainTopic = dynamicTopics?.mainTopics.find(dt => 
-              selectedTopic.toLowerCase().includes(dt.id.toLowerCase()) || 
-              dt.id.toLowerCase().includes(selectedTopic.toLowerCase())
-            )
-            
-            if (relatedDynamicMainTopic) {
-              // Add the dynamic main topic first, then the subtopic
-              tags.push(['t', normalizeTopic(relatedDynamicMainTopic.id)])
-              tags.push(['t', normalizeTopic(selectedTopic)])
-            } else {
-              // Fallback: just add the subtopic and let the system categorize it under 'general'
-              // Don't add 'general' as a t-tag since it's the default fallback
-              tags.push(['t', normalizeTopic(selectedTopic)])
-            }
-          }
-        } else {
-          // Regular topic (predefined or dynamic main topic)
-          tags.push(['t', normalizeTopic(selectedTopic)])
-        }
-      }
-      
-      // Add hashtags as t-tags (deduplicate with selectedTopic and any parent topics)
-      let uniqueHashtags = hashtags
-      if (selectedTopic !== 'all' && selectedTopic !== 'general') {
-        const selectedDynamicTopic = dynamicTopics?.allTopics.find(dt => dt.id === selectedTopic)
-        
-        if (selectedDynamicTopic?.isSubtopic) {
-          // For subtopics, deduplicate against both the subtopic and its potential parent
-          const predefinedMainTopic = DISCUSSION_TOPICS.find(pt => 
-            selectedTopic.toLowerCase().includes(pt.id.toLowerCase()) || 
-            pt.id.toLowerCase().includes(selectedTopic.toLowerCase())
-          )
-          const relatedDynamicMainTopic = dynamicTopics?.mainTopics.find(dt => 
-            selectedTopic.toLowerCase().includes(dt.id.toLowerCase()) || 
-            dt.id.toLowerCase().includes(selectedTopic.toLowerCase())
-          )
-          
-          const parentTopic = predefinedMainTopic?.id || relatedDynamicMainTopic?.id
-          uniqueHashtags = hashtags.filter(hashtag => 
-            hashtag !== normalizeTopic(selectedTopic) && 
-            (parentTopic ? hashtag !== normalizeTopic(parentTopic) : true)
-          )
-        } else {
-          // Regular topic
-          uniqueHashtags = hashtags.filter(hashtag => hashtag !== normalizeTopic(selectedTopic))
-        }
-      }
-      for (const hashtag of uniqueHashtags) {
-        tags.push(['t', hashtag])
-      }
-      
-      // Add readings tags if this is a reading group
-      if (isReadingGroup) {
-        // Only add if not already added from hashtags
-        if (!uniqueHashtags.includes('readings')) {
-          tags.push(['t', 'readings'])
-        }
-        tags.push(['author', author.trim()])
-        tags.push(['subject', subject.trim()])
-      }
-      
-      // Add image metadata tags if images are found
-      if (images && images.length > 0) {
-        tags.push(...generateImetaTags(images))
-      }
-      
-      // Add NSFW tag if enabled
-      if (isNsfw) {
-        tags.push(buildNsfwTag())
-      }
-      
-      // Client tag is added in publish() based on user preference
-      
+      const tags = collectThreadTags(processedContent, topicResolved)
+
       // Create the thread event (kind 11)
       const threadEvent: TDraftEvent = {
         kind: 11,
@@ -499,9 +518,10 @@ export default function CreateThreadDialog({
       
       // Publish to all selected relays
       const publishedEvent = await publish(threadEvent, {
-        specifiedRelayUrls: selectedRelayUrls,
+        specifiedRelayUrls: additionalRelayUrls,
         minPow,
-        addClientTag
+        addClientTag,
+        disableFallbacks: additionalRelayUrls.length > 0
       })
       
       
@@ -522,6 +542,7 @@ export default function CreateThreadDialog({
         }
         
         postEditorCache.clearThreadDraft()
+        postEditorCache.clearPostCache({ parentEvent: THREAD_POST_EDITOR_PARENT })
         onThreadCreated(publishedEvent)
         onClose()
       } else {
@@ -562,546 +583,427 @@ export default function CreateThreadDialog({
     }
   }
 
-  const selectedTopicInfo = allAvailableTopics.find(t => t.id === selectedTopic) || allAvailableTopics[0]
+  const triggerSubmit = () => {
+    void handleSubmit({ preventDefault: () => {} } as React.FormEvent<HTMLFormElement>)
+  }
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
-      {/* Portal target for GIF/emoji pickers so they render as children of this modal */}
+  const escapeDialog = (e: { preventDefault: () => void }) => {
+    if (postEditor.isSuggestionPopupOpen) {
+      e.preventDefault()
+      postEditor.closeSuggestionPopup()
+    }
+  }
+
+  const formBody = (
+    <NeventPickerProvider>
       <div
         ref={setPickerPortalContainer}
-        className="absolute inset-0 pointer-events-none"
+        className="pointer-events-none absolute inset-0"
         aria-hidden
       />
-      <NeventPickerProvider>
-      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto relative bg-background">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <CardTitle className="text-xl font-semibold">{t('Create New Thread')}</CardTitle>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="h-8 w-8"
-          >
+      <form
+        id="create-thread-form"
+        onSubmit={handleSubmit}
+        className="relative flex min-w-0 flex-col gap-4"
+      >
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <div className="text-lg font-semibold">{t('New Discussion')}</div>
+          <Button type="button" variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 shrink-0">
             <X className="h-4 w-4" />
           </Button>
-        </CardHeader>
-        
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Topic Selection */}
-            <div className="space-y-2">
-              <Label htmlFor="topic">{t('Topic')}</Label>
+        </div>
+
+        <div className="shrink-0 space-y-3 rounded-lg border bg-muted/30 p-4">
+          <div className="space-y-2">
+            <Label htmlFor="topic-input" className="text-sm font-medium">
+              {t('Topic')} <span className="text-destructive">*</span>
+            </Label>
+            <div className="flex min-w-0 gap-2">
+              <Input
+                id="topic-input"
+                value={topicInput}
+                onChange={(e) => setTopicInput(e.target.value)}
+                onBlur={() => {
+                  const r = resolveTopicFromInput(topicInput, allAvailableTopics)
+                  if (r) {
+                    setSelectedTopic(r)
+                    setTopicInput(displayTopicLabel(r, allAvailableTopics))
+                  }
+                }}
+                placeholder={t('Type a topic or pick from the list')}
+                autoComplete="off"
+                className={cn('min-w-0 flex-1 bg-background', errors.topic && 'border-destructive')}
+              />
               <Popover open={isTopicSelectorOpen} onOpenChange={setIsTopicSelectorOpen}>
                 <PopoverTrigger asChild>
                   <Button
+                    type="button"
                     variant="outline"
-                    role="combobox"
+                    size="icon"
+                    className="h-9 w-9 shrink-0"
+                    title={t('Suggested topics')}
                     aria-expanded={isTopicSelectorOpen}
-                    className="w-full justify-between"
                   >
-                    {selectedTopicInfo?.label || t('Select topic...')}
-                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    <ChevronDown className="h-4 w-4 opacity-70" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent 
-                  className="w-[--radix-popover-trigger-width] p-2 z-[10000]" 
-                  align="start"
-                  side="bottom"
-                  sideOffset={4}
-                >
+                <PopoverContent className="z-[10000] w-72 p-2" align="end" side="bottom" sideOffset={4}>
+                  <p className="text-muted-foreground mb-2 px-1 text-xs font-medium">{t('Suggested topics')}</p>
                   <div className="max-h-60 overflow-y-auto">
                     {allAvailableTopics.map((topic, index) => {
                       const Icon = topic.icon
                       return (
                         <div
                           key={`topic-${index}-${topic.id}`}
-                          className="flex items-center p-2 hover:bg-accent cursor-pointer rounded"
+                          className="flex cursor-pointer items-center rounded p-2 hover:bg-accent"
                           onClick={() => {
                             setSelectedTopic(topic.id)
+                            setTopicInput(topic.label)
                             setIsTopicSelectorOpen(false)
                           }}
                         >
                           <Check
-                            className={`mr-2 h-4 w-4 ${
-                              selectedTopic === topic.id ? 'opacity-100' : 'opacity-0'
-                            }`}
+                            className={`mr-2 h-4 w-4 ${effectiveTopic === topic.id ? 'opacity-100' : 'opacity-0'}`}
                           />
-                          <Icon className="mr-2 h-4 w-4" />
-                          {topic.label}
+                          <Icon className="mr-2 h-4 w-4 shrink-0" />
+                          <span className="min-w-0 truncate text-sm">{topic.label}</span>
                         </div>
                       )
                     })}
                   </div>
                 </PopoverContent>
               </Popover>
-              <p className="text-sm text-muted-foreground">
-                {t('Threads are organized by topics. Choose a topic that best fits your discussion.')}
-              </p>
             </div>
-
-            {/* Group Selection - Only show when Groups topic is selected */}
-            {selectedTopic === 'groups' && (
-              <div className="space-y-2">
-                <Label htmlFor="group">{t('Select Group')}</Label>
-                <Popover open={isGroupSelectorOpen} onOpenChange={setIsGroupSelectorOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={isGroupSelectorOpen}
-                      className="w-full justify-between"
-                    >
-                      {selectedGroup ? selectedGroup : t('Select group...')}
-                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent 
-                    className="w-[--radix-popover-trigger-width] p-2 z-[10000]" 
-                    align="start"
-                    side="bottom"
-                    sideOffset={4}
-                  >
-                    <div className="max-h-60 overflow-y-auto">
-                      {userGroups.length === 0 ? (
-                        <div className="p-2 text-sm text-muted-foreground text-center">
-                          {t('No groups available. Join some groups first.')}
-                        </div>
-                      ) : (
-                        userGroups.map((groupId) => (
-                          <div
-                            key={groupId}
-                            className="flex items-center p-2 hover:bg-accent cursor-pointer rounded"
-                            onClick={() => {
-                              setSelectedGroup(groupId)
-                              setIsGroupSelectorOpen(false)
-                            }}
-                          >
-                            <Check
-                              className={`mr-2 h-4 w-4 ${
-                                selectedGroup === groupId ? 'opacity-100' : 'opacity-0'
-                              }`}
-                            />
-                            <Users className="mr-2 h-4 w-4" />
-                            {groupId}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-                {errors.group && (
-                  <p className="text-sm text-destructive">{errors.group}</p>
-                )}
-                <p className="text-sm text-muted-foreground">
-                  {t('Select the group where you want to create this discussion.')}
-                </p>
-              </div>
-            )}
-
-            {/* Title Input */}
-            <div className="space-y-2">
-              <Label htmlFor="title">{t('Thread Title')}</Label>
-              <Input
-                id="title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={t('Enter a descriptive title for your thread')}
-                maxLength={100}
-                className={errors.title ? 'border-destructive' : ''}
-              />
-              {errors.title && (
-                <p className="text-sm text-destructive">{errors.title}</p>
+            {errors.topic && <p className="text-sm text-destructive">{errors.topic}</p>}
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'Choose a suggested topic or type your own. It becomes a normalized tag (e.g. my-topic).'
               )}
-              <p className="text-sm text-muted-foreground">
-                {title.length}/100 {t('characters')}
-              </p>
-            </div>
+            </p>
+          </div>
 
-            {/* Content Input with Preview */}
+          {effectiveTopic === 'groups' && (
             <div className="space-y-2">
-              <Label htmlFor="content">{t('Thread Content')}</Label>
-              <Tabs defaultValue="edit" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="edit" className="flex items-center gap-2">
-                    <Edit3 className="w-4 h-4" />
-                    {t('Edit')}
-                  </TabsTrigger>
-                  <TabsTrigger value="preview" className="flex items-center gap-2">
-                    <Eye className="w-4 h-4" />
-                    {t('Preview')}
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="edit" className="space-y-2">
-                  <div className="flex items-center gap-1 mb-1 flex-wrap">
-                    <Uploader
-                      onUploadSuccess={({ url }) => insertAtCursor(url)}
-                      accept="image/*"
-                    >
-                      <Button type="button" variant="outline" size="sm">
-                        <ImageUp className="h-4 w-4 mr-1" />
-                        {t('Upload Image')}
-                      </Button>
-                    </Uploader>
-                    <GifPicker onSelect={(gifUrl) => insertAtCursor(gifUrl)} portalContainer={pickerPortalContainer}>
-                      <Button type="button" variant="outline" size="sm">
-                        <Film className="h-4 w-4 mr-1" />
-                        {t('Insert GIF')}
-                      </Button>
-                    </GifPicker>
-                    <EmojiPickerDialog
-                      portalContainer={pickerPortalContainer}
-                      onEmojiClick={(emoji) => {
-                        if (emoji == null) return
-                        const char = typeof emoji === 'string' ? emoji : (emoji as { native?: string }).native ?? String(emoji)
-                        insertAtCursor(char)
-                      }}
-                    >
-                      <Button type="button" variant="outline" size="sm">
-                        <Smile className="h-4 w-4 mr-1" />
-                        {t('Insert emoji')}
-                      </Button>
-                    </EmojiPickerDialog>
-                    <MentionAndEventToolbarButtons insertAtCursor={insertAtCursor} />
-                  </div>
-                  <ThreadContentTextarea
-                    ref={contentTextareaRef}
-                    id="content"
-                    value={content}
-                    onChange={setContent}
-                    placeholder={t('Share your thoughts, ask questions, or start a discussion...')}
-                    rows={8}
-                    maxLength={5000}
-                    className={errors.content ? 'border-destructive' : ''}
-                  />
-                  {errors.content && (
-                    <p className="text-sm text-destructive">{errors.content}</p>
-                  )}
-                  <p className="text-sm text-muted-foreground">
-                    {content.length}/5000 {t('characters')}
-                  </p>
-                </TabsContent>
-                <TabsContent value="preview" className="space-y-2">
-                  <div className="border rounded-lg p-4 bg-muted/30 min-h-[200px]">
-                    {content.trim() ? (
-                      <div className="space-y-4">
-                        {/* Preview of the thread */}
-                        <div className="border-b pb-2">
-                          <h3 className="text-lg font-semibold">{title || t('Untitled')}</h3>
-                          <div className="flex items-center gap-2 mt-1">
-                            <selectedTopicInfo.icon className="w-4 h-4" />
-                            <Badge variant="secondary" className="text-xs">
-                              {selectedTopicInfo.label}
-                            </Badge>
-                            {isReadingGroup && (
-                              <>
-                                <Badge variant="outline" className="text-xs">
-                                  <Hash className="w-3 h-3 mr-1" />
-                                  Readings
-                                </Badge>
-                                {author && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {t('Author')}: {author}
-                                  </span>
-                                )}
-                                {subject && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {t('Book')}: {subject}
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        {/* Preview of the content */}
-                        <MarkdownArticle 
-                          event={{
-                            id: 'preview',
-                            pubkey: pubkey || '',
-                            created_at: Math.floor(Date.now() / 1000),
-                            kind: 11,
-                            tags: [
-                              ['title', title],
-                              ['t', selectedTopic],
-                              ...(isReadingGroup ? [['t', 'readings']] : []),
-                              ...(author ? [['author', author]] : []),
-                              ...(subject ? [['subject', subject]] : [])
-                            ],
-                            content: content,
-                            sig: ''
-                          }}
-                          hideMetadata={true}
-                        />
+              <Label htmlFor="group" className="text-sm font-medium">
+                {t('Select Group')}
+              </Label>
+              <Popover open={isGroupSelectorOpen} onOpenChange={setIsGroupSelectorOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={isGroupSelectorOpen}
+                    className="h-9 w-full justify-between bg-background font-normal"
+                  >
+                    {selectedGroup ? selectedGroup : t('Select group...')}
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="z-[10000] w-[--radix-popover-trigger-width] p-2"
+                  align="start"
+                  side="bottom"
+                  sideOffset={4}
+                >
+                  <div className="max-h-60 overflow-y-auto">
+                    {userGroups.length === 0 ? (
+                      <div className="p-2 text-center text-sm text-muted-foreground">
+                        {t('No groups available. Join some groups first.')}
                       </div>
                     ) : (
-                      <div className="text-center text-muted-foreground py-8">
-                        <Edit3 className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                        <p>{t('Start typing to see a preview...')}</p>
-                      </div>
+                      userGroups.map((groupId) => (
+                        <div
+                          key={groupId}
+                          className="flex cursor-pointer items-center rounded p-2 hover:bg-accent"
+                          onClick={() => {
+                            setSelectedGroup(groupId)
+                            setIsGroupSelectorOpen(false)
+                          }}
+                        >
+                          <Check
+                            className={`mr-2 h-4 w-4 ${selectedGroup === groupId ? 'opacity-100' : 'opacity-0'}`}
+                          />
+                          <Users className="mr-2 h-4 w-4" />
+                          {groupId}
+                        </div>
+                      ))
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {content.length}/5000 {t('characters')}
-                  </p>
-                </TabsContent>
-              </Tabs>
+                </PopoverContent>
+              </Popover>
+              {errors.group && <p className="text-sm text-destructive">{errors.group}</p>}
+              <p className="text-xs text-muted-foreground">
+                {t('Select the group where you want to create this discussion.')}
+              </p>
             </div>
+          )}
 
-            {/* Readings Options - Only show for literature topic */}
-            {selectedTopic === 'literature' && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Book className="w-4 h-4" />
-                  <Label className="text-sm font-medium">{t('Readings Options')}</Label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowReadingsPanel(!showReadingsPanel)}
-                    className="ml-auto"
-                  >
-                    {showReadingsPanel ? t('Hide') : t('Configure')}
-                  </Button>
-                </div>
-                
-                {showReadingsPanel && (
-                  <div className="border rounded-lg p-4 space-y-4 bg-muted/30">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Book className="w-4 h-4 text-primary" />
-                        <Label htmlFor="reading-group" className="text-sm">
-                          {t('Reading group entry')}
-                        </Label>
-                      </div>
-                      <Switch
-                        id="reading-group"
-                        checked={isReadingGroup}
-                        onCheckedChange={setIsReadingGroup}
-                      />
-                    </div>
-                    
-                    {isReadingGroup && (
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="author">{t('Author')}</Label>
-                          <Input
-                            id="author"
-                            value={author}
-                            onChange={(e) => setAuthor(e.target.value)}
-                            placeholder={t('Enter the author name')}
-                            className={errors.author ? 'border-destructive' : ''}
-                          />
-                          {errors.author && (
-                            <p className="text-sm text-destructive">{errors.author}</p>
-                          )}
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <Label htmlFor="subject">{t('Subject (Book Title)')}</Label>
-                          <Input
-                            id="subject"
-                            value={subject}
-                            onChange={(e) => setSubject(e.target.value)}
-                            placeholder={t('Enter the book title')}
-                            className={errors.subject ? 'border-destructive' : ''}
-                          />
-                          {errors.subject && (
-                            <p className="text-sm text-destructive">{errors.subject}</p>
-                          )}
-                        </div>
-                        
-                        <p className="text-xs text-muted-foreground">
-                          {t('This will add additional tags for author and subject to help organize reading group discussions.')}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+          <div className="space-y-2">
+            <Label htmlFor="title" className="text-sm font-medium">
+              {t('Title')} <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={t('Enter a descriptive title for your thread')}
+              maxLength={100}
+              className={cn('bg-background', errors.title && 'border-destructive')}
+            />
+            {errors.title && <p className="text-sm text-destructive">{errors.title}</p>}
+            <p className="text-xs text-muted-foreground">
+              {title.length}/100 {t('characters')}
+            </p>
+          </div>
+        </div>
 
-            {/* Relay Selection */}
-            <div className="space-y-2">
-              <Label>{t('Publish to Relays')}</Label>
-              <div
-                className={`max-h-64 min-h-0 overflow-y-scroll overflow-x-hidden rounded-md border p-4 ${errors.relay ? 'border-destructive' : ''}`}
-              >
-                {isLoadingRelays ? (
-                  <div className="text-sm text-muted-foreground text-center py-4">
-                    {t('Loading relays...')}
-                  </div>
-                ) : selectableRelays.length === 0 ? (
-                  <div className="text-sm text-muted-foreground text-center py-4">
-                    {t('No relays available. Please configure relays in settings.')}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {selectableRelays.map(relay => {
-                      const isChecked = selectedRelayUrls.includes(relay)
-                      const sourceType = relayTypes[relay]
-                      const typeLabel = sourceType ? t(`relayType_${sourceType}`) : ''
-                      return (
-                        <div key={relay} className="flex items-center space-x-3">
-                          <Checkbox
-                            id={`relay-${relay}`}
-                            checked={isChecked}
-                            onCheckedChange={(checked: boolean | 'indeterminate') => handleRelayCheckedChange(!!checked, relay)}
-                            disabled={isLoadingRelays}
-                          />
-                          <label
-                            htmlFor={`relay-${relay}`}
-                            className="flex items-center gap-2 text-sm font-medium leading-none cursor-pointer peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex-1 min-w-0"
-                          >
-                            <RelayIcon url={relay} className="w-4 h-4 shrink-0" />
-                            <span className="truncate">{simplifyUrl(relay)}</span>
-                            {typeLabel && (
-                              <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-                                {typeLabel}
-                              </span>
-                            )}
-                          </label>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-              {errors.relay && (
-                <p className="text-sm text-destructive">{errors.relay}</p>
-              )}
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">
-                  {selectedRelayUrls.length === 0
-                    ? t('No relays selected')
-                    : t('{{count}} relay(s) selected', { count: selectedRelayUrls.length })}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleSelectAll}
-                    disabled={isLoadingRelays}
+        <div className="flex min-w-0 flex-col gap-1 min-h-52">
+          {hydrated ? (
+            <PostTextarea
+              ref={postTextareaRef}
+              text={content}
+              setText={setContent}
+              defaultContent={content}
+              parentEvent={THREAD_POST_EDITOR_PARENT}
+              onSubmit={triggerSubmit}
+              className={cn('min-h-52', errors.content && 'border-destructive')}
+              kind={ExtendedKind.DISCUSSION}
+              getDraftEventJson={getDraftEventJson}
+              extraPreviewTags={previewExtraTags}
+              headerActions={
+                <>
+                  <Uploader onUploadSuccess={handleThreadMediaUploadSuccess} accept="image/*,audio/*,video/*">
+                    <Button type="button" variant="ghost" size="icon" title={t('Upload Media')}>
+                      <Upload className="h-4 w-4" />
+                    </Button>
+                  </Uploader>
+                  <GifPicker
+                    onSelect={(gifUrl) => insertAtCursor(gifUrl + ' ')}
+                    portalContainer={pickerPortalContainer ?? undefined}
                   >
-                    {t('Select All')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleClearAll}
-                    disabled={isLoadingRelays}
+                    <Button type="button" variant="ghost" size="icon" title={t('Insert GIF')}>
+                      <Film className="h-4 w-4" />
+                    </Button>
+                  </GifPicker>
+                  <EmojiPickerDialog
+                    portalContainer={pickerPortalContainer ?? undefined}
+                    onEmojiClick={(emoji) => {
+                      if (emoji == null) return
+                      const char =
+                        typeof emoji === 'string'
+                          ? emoji
+                          : (emoji as { native?: string }).native ?? String(emoji)
+                      insertAtCursor(char)
+                    }}
                   >
-                    {t('Clear All')}
-                  </Button>
-                </div>
-              </div>
-            </div>
+                    <Button type="button" variant="ghost" size="icon" title={t('Insert emoji')}>
+                      <Smile className="h-4 w-4" />
+                    </Button>
+                  </EmojiPickerDialog>
+                  <MentionAndEventToolbarButtons insertAtCursor={insertAtCursor} variant="ghost" />
+                </>
+              }
+            />
+          ) : null}
+          {errors.content && <p className="text-sm text-destructive">{errors.content}</p>}
+          <p className="text-xs text-muted-foreground">
+            {content.length}/5000 {t('characters')}
+          </p>
+        </div>
 
-            {/* Advanced Options Toggle */}
-            <div className="border-t pt-4">
+        {effectiveTopic === 'literature' && (
+          <div className="shrink-0 space-y-2">
+            <div className="flex items-center gap-2">
+              <Book className="h-4 w-4" />
+              <Label className="text-sm font-medium">{t('Readings Options')}</Label>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
-                className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowReadingsPanel(!showReadingsPanel)}
+                className="ml-auto"
               >
-                <Settings className="w-4 h-4" />
-                {t('Advanced Options')}
+                {showReadingsPanel ? t('Hide') : t('Configure')}
               </Button>
-              
-              {showAdvancedOptions && (
-                <div className="space-y-4 mt-4">
-                  {/* NSFW Toggle */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Hash className="w-4 h-4 text-foreground" />
-                      <Label htmlFor="nsfw" className="text-sm">
-                        {t('Mark as NSFW')}
-                      </Label>
-                    </div>
-                    <Switch
-                      id="nsfw"
-                      checked={isNsfw}
-                      onCheckedChange={setIsNsfw}
-                    />
-                  </div>
+            </div>
 
-                  {/* Client Tag Toggle */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Image className="w-4 h-4 text-foreground" />
-                      <Label htmlFor="client-tag" className="text-sm">
-                        {t('Add client identifier')}
-                      </Label>
-                    </div>
-                    <Switch
-                      id="client-tag"
-                      checked={addClientTag}
-                      onCheckedChange={setAddClientTag}
-                    />
+            {showReadingsPanel && (
+              <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Book className="h-4 w-4 text-primary" />
+                    <Label htmlFor="reading-group" className="text-sm">
+                      {t('Reading group entry')}
+                    </Label>
                   </div>
+                  <Switch id="reading-group" checked={isReadingGroup} onCheckedChange={setIsReadingGroup} />
+                </div>
 
-                  {/* PoW Setting */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-foreground" />
-                      <Label className="text-sm">
-                        {t('Proof of Work')}: {minPow}
-                      </Label>
-                    </div>
-                    <div className="px-2">
-                      <Slider
-                        value={[minPow]}
-                        onValueChange={(value: number[]) => setMinPow(value[0])}
-                        max={20}
-                        min={0}
-                        step={1}
-                        className="w-full"
+                {isReadingGroup && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="author">{t('Author')}</Label>
+                      <Input
+                        id="author"
+                        value={author}
+                        onChange={(e) => setAuthor(e.target.value)}
+                        placeholder={t('Enter the author name')}
+                        className={errors.author ? 'border-destructive' : ''}
                       />
-                      <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                        <span>{t('No PoW')}</span>
-                        <span>{t('High PoW')}</span>
-                      </div>
+                      {errors.author && <p className="text-sm text-destructive">{errors.author}</p>}
                     </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="subject">{t('Subject (Book Title)')}</Label>
+                      <Input
+                        id="subject"
+                        value={subject}
+                        onChange={(e) => setSubject(e.target.value)}
+                        placeholder={t('Enter the book title')}
+                        className={errors.subject ? 'border-destructive' : ''}
+                      />
+                      {errors.subject && <p className="text-sm text-destructive">{errors.subject}</p>}
+                    </div>
+
                     <p className="text-xs text-muted-foreground">
-                      {t('Higher values make your thread harder to mine but more unique.')}
+                      {t('This will add additional tags for author and subject to help organize reading group discussions.')}
                     </p>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
-            {/* Form Actions */}
-            <div className="flex gap-3 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onClose}
-                className="flex-1"
-              >
-                {t('Cancel')}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleClearDraft}
-                disabled={isSubmitting}
-              >
-                {t('Clear')}
-              </Button>
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                className="flex-1"
-              >
-                {isSubmitting ? t('Creating...') : t('Create Thread')}
-              </Button>
+        <div className={cn('shrink-0', errors.relay && 'rounded-md ring-1 ring-destructive')}>
+          <PostRelaySelector
+            setIsProtectedEvent={setIsProtectedEvent}
+            setAdditionalRelayUrls={setAdditionalRelayUrls}
+            openFrom={openFrom}
+            content={content}
+          />
+          {errors.relay && <p className="mt-1 text-sm text-destructive">{errors.relay}</p>}
+        </div>
+
+        <div ref={advancedOptionsRef} className="shrink-0 scroll-mt-4 border-t pt-4">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+          >
+            <Settings className="h-4 w-4" />
+            {t('Advanced Options')}
+          </Button>
+
+          {showAdvancedOptions && (
+            <div className="mt-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Hash className="h-4 w-4 text-foreground" />
+                  <Label htmlFor="nsfw" className="text-sm">
+                    {t('Mark as NSFW')}
+                  </Label>
+                </div>
+                <Switch id="nsfw" checked={isNsfw} onCheckedChange={setIsNsfw} />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Image className="h-4 w-4 text-foreground" />
+                  <Label htmlFor="client-tag" className="text-sm">
+                    {t('Add client identifier')}
+                  </Label>
+                </div>
+                <Switch id="client-tag" checked={addClientTag} onCheckedChange={setAddClientTag} />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-foreground" />
+                  <Label className="text-sm">
+                    {t('Proof of Work')}: {minPow}
+                  </Label>
+                </div>
+                <div className="px-2">
+                  <Slider
+                    value={[minPow]}
+                    onValueChange={(value: number[]) => setMinPow(value[0])}
+                    max={20}
+                    min={0}
+                    step={1}
+                    className="w-full"
+                  />
+                  <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+                    <span>{t('No PoW')}</span>
+                    <span>{t('High PoW')}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('Higher values make your thread harder to mine but more unique.')}
+                </p>
+              </div>
             </div>
-          </form>
-        </CardContent>
-      </Card>
-      </NeventPickerProvider>
-    </div>
+          )}
+        </div>
+
+        <div className="flex shrink-0 gap-3 pt-4">
+          <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+            {t('Cancel')}
+          </Button>
+          <Button type="button" variant="outline" onClick={handleClearDraft} disabled={isSubmitting}>
+            {t('Clear')}
+          </Button>
+          <Button type="submit" disabled={isSubmitting} className="flex-1">
+            {isSubmitting ? t('Creating...') : t('Create Thread')}
+          </Button>
+        </div>
+      </form>
+    </NeventPickerProvider>
+  )
+
+  if (isSmallScreen) {
+    return (
+      <Sheet open onOpenChange={(open) => !open && onClose()}>
+        <SheetContent
+          className="flex max-h-[min(92dvh,100%)] w-full max-w-full flex-col overflow-hidden border-none p-0"
+          side="bottom"
+          hideClose
+          onEscapeKeyDown={escapeDialog}
+        >
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-auto overscroll-y-contain px-4 [scrollbar-gutter:stable]">
+            <div className="min-w-0 space-y-4 px-2 py-6 pr-4">
+              <SheetHeader className="sr-only">
+                <SheetTitle>{t('New Discussion')}</SheetTitle>
+                <SheetDescription>{t('Create a discussion thread')}</SheetDescription>
+              </SheetHeader>
+              {formBody}
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+    )
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        className="z-[210] flex max-h-[min(93dvh,52rem)] w-[calc(100vw-2rem)] max-w-2xl flex-col overflow-hidden p-0 sm:w-full"
+        overlayClassName="z-[205]"
+        withoutClose
+        onEscapeKeyDown={escapeDialog}
+      >
+        <div className="max-h-[min(90dvh,50rem)] min-h-0 w-full overflow-x-hidden overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable]">
+          <div className="min-w-0 space-y-4 px-2 py-6 pr-4 pl-4">
+            <DialogHeader className="sr-only">
+              <DialogTitle>{t('New Discussion')}</DialogTitle>
+              <DialogDescription>{t('Create a discussion thread')}</DialogDescription>
+            </DialogHeader>
+            {formBody}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

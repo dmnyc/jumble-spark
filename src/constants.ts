@@ -132,7 +132,8 @@ export const KIND_1_BLOCKED_RELAY_URLS = [
   'wss://thecitadel.nostr1.com',
   'wss://hist.nostr.land',
   'wss://profiles.nostr1.com',
-  'wss://purplepag.es'
+  'wss://purplepag.es',
+  'wss://wikifreedia.xyz'
 ]
 
 // Optimized relay list for read operations (includes aggregator)

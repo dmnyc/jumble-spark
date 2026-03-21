@@ -1234,12 +1234,9 @@ const DiscussionsPage = forwardRef<TPageRef, { embedded?: boolean }>(function Di
       {/* Create Thread Dialog */}
       {showCreateDialog && (
         <CreateThreadDialog
-          topic="general"
-          availableRelays={[]}
-          relaySets={[]}
           dynamicTopics={dynamicTopics}
           onClose={handleCloseDialog}
-          onThreadCreated={handleCreateThread} 
+          onThreadCreated={handleCreateThread}
         />
       )}
     </>

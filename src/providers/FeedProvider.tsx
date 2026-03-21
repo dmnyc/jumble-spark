@@ -6,29 +6,13 @@ import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import { TFeedInfo, TFeedType } from '@/types'
 import { kinds } from 'nostr-tools'
-import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { FeedContext } from './feed-context'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
 import { useNostr } from './NostrProvider'
 
-type TFeedContext = {
-  feedInfo: TFeedInfo
-  relayUrls: string[]
-  isReady: boolean
-  switchFeed: (
-    feedType: TFeedType,
-    options?: { activeRelaySetId?: string; pubkey?: string; relay?: string | null }
-  ) => Promise<void>
-}
-
-const FeedContext = createContext<TFeedContext | undefined>(undefined)
-
-export const useFeed = () => {
-  const context = useContext(FeedContext)
-  if (!context) {
-    throw new Error('useFeed must be used within a FeedProvider')
-  }
-  return context
-}
+export { useFeed } from './feed-context'
+export type { TFeedContext } from './feed-context'
 
 export function FeedProvider({ children }: { children: React.ReactNode }) {
   const { pubkey, isInitialized } = useNostr()
