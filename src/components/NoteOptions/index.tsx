@@ -3,6 +3,7 @@ import { Ellipsis } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useState, useMemo } from 'react'
 import { DesktopMenu } from './DesktopMenu'
+import EditOrCloneEventDialog, { type TEditOrCloneMode } from './EditOrCloneEventDialog'
 import { MobileMenu } from './MobileMenu'
 import RawEventDialog from './RawEventDialog'
 import ReportDialog from './ReportDialog'
@@ -40,6 +41,8 @@ export default function NoteOptions({
   const { isSmallScreen } = useScreenSize()
   const [isRawEventDialogOpen, setIsRawEventDialogOpen] = useState(false)
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
+  const [editCloneOpen, setEditCloneOpen] = useState(false)
+  const [editCloneMode, setEditCloneMode] = useState<TEditOrCloneMode>('clone')
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [showSubMenu, setShowSubMenu] = useState(false)
   const [activeSubMenu, setActiveSubMenu] = useState<SubMenuAction[]>([])
@@ -68,7 +71,11 @@ export default function NoteOptions({
     setIsReportDialogOpen,
     isSmallScreen,
     onOpenPublicMessage,
-    onOpenCallInvite
+    onOpenCallInvite,
+    onOpenEditOrClone: (mode) => {
+      setEditCloneMode(mode)
+      setEditCloneOpen(true)
+    }
   })
 
   const trigger = useMemo(
@@ -110,6 +117,12 @@ export default function NoteOptions({
         event={event}
         isOpen={isReportDialogOpen}
         closeDialog={() => setIsReportDialogOpen(false)}
+      />
+      <EditOrCloneEventDialog
+        open={editCloneOpen}
+        onOpenChange={setEditCloneOpen}
+        sourceEvent={event}
+        mode={editCloneMode}
       />
       {onPostEditorClose != null && (
         <PostEditor

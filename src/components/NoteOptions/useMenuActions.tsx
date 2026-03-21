@@ -15,7 +15,25 @@ import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
 import { eventService, queryService } from '@/services/client.service'
 import { nip66Service } from '@/services/nip66.service'
-import { Bell, BellOff, Code, Copy, Link, SatelliteDish, Trash2, TriangleAlert, Pin, FileDown, Globe, BookOpen, MessageCircle, Send, Video } from 'lucide-react'
+import {
+  Bell,
+  BellOff,
+  BookOpen,
+  Code,
+  Copy,
+  FileDown,
+  GitFork,
+  Globe,
+  Link,
+  MessageCircle,
+  PencilLine,
+  Pin,
+  SatelliteDish,
+  Send,
+  Trash2,
+  TriangleAlert,
+  Video
+} from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
 import { useMemo, useState, useEffect, useContext } from 'react'
@@ -24,6 +42,7 @@ import { toast } from 'sonner'
 import RelayIcon from '../RelayIcon'
 import { PrimaryPageContext } from '@/PageManager'
 import { showPublishingFeedback } from '@/lib/publishing-feedback'
+import type { TEditOrCloneMode } from './EditOrCloneEventDialog'
 
 export interface SubMenuAction {
   label: React.ReactNode
@@ -52,6 +71,8 @@ interface UseMenuActionsProps {
   onOpenPublicMessage?: (pubkey: string) => void
   /** When provided, adds "Send call invite" to open composer with the call URL as content. */
   onOpenCallInvite?: (url: string) => void
+  /** Opens edit/clone dialog (signed-in accounts only, not read-only npub). */
+  onOpenEditOrClone?: (mode: TEditOrCloneMode) => void
 }
 
 export function useMenuActions({
@@ -63,12 +84,14 @@ export function useMenuActions({
   isSmallScreen,
   onOpenPublicMessage,
   onOpenCallInvite,
+  onOpenEditOrClone,
 }: UseMenuActionsProps) {
   const { t } = useTranslation()
   // Use useContext directly to avoid error if provider is not available
   const primaryPageContext = useContext(PrimaryPageContext)
   const currentPrimaryPage = primaryPageContext?.current ?? null
-  const { pubkey, profile, attemptDelete, publish } = useNostr()
+  const { pubkey, profile, attemptDelete, publish, account } = useNostr()
+  const canSignEvents = account != null && account.signerType !== 'npub'
   const { relayUrls: currentBrowsingRelayUrls } = useCurrentRelays()
   const { relaySets, favoriteRelays } = useFavoriteRelays()
   const relayUrls = useMemo(() => {
@@ -684,6 +707,19 @@ export function useMenuActions({
       })
     }
 
+    if (canSignEvents && pubkey && onOpenEditOrClone) {
+      const isOwn = event.pubkey === pubkey
+      actions.push({
+        icon: isOwn ? PencilLine : GitFork,
+        label: isOwn ? t('Edit this event') : t('Clone or fork this event'),
+        onClick: () => {
+          closeDrawer()
+          onOpenEditOrClone(isOwn ? 'edit' : 'clone')
+        },
+        separator: true
+      })
+    }
+
     actions.push({
       icon: Code,
       label: t('View raw event'),
@@ -877,6 +913,8 @@ export function useMenuActions({
     naddr,
     onOpenPublicMessage,
     onOpenCallInvite,
+    onOpenEditOrClone,
+    canSignEvents,
     profile
   ])
 

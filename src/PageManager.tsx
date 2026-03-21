@@ -238,6 +238,47 @@ function buildRelayUrl(relayUrl: string, currentPage: TPrimaryPageName | null): 
   return `/relays/${encodedRelayUrl}`
 }
 
+/** Path (+ query for spells) pushed when navigating primary pages — shareable URLs for faux spells. */
+function buildPrimaryPageUrl(
+  page: TPrimaryPageName,
+  props?: { spell?: string } | Record<string, unknown> | null
+): string {
+  if (page === 'home') return '/'
+  if (page === 'spells') {
+    const spell =
+      props && typeof (props as { spell?: unknown }).spell === 'string'
+        ? String((props as { spell: string }).spell).trim()
+        : ''
+    if (spell) return `/spells?spell=${encodeURIComponent(spell)}`
+    return '/spells'
+  }
+  return `/${page}`
+}
+
+function spellPropsFromSearch(search: string): { spell: string } | undefined {
+  const spell = new URLSearchParams(search).get('spell')?.trim()
+  return spell ? { spell } : undefined
+}
+
+/** Primary URL for drawer/overlay restore when we only have pathname + optional full URL for query. */
+function restoredPrimaryBrowserUrl(pathname: string, fullUrlForQuery: string): string {
+  const popSegments = pathname.split('/').filter(Boolean)
+  const popFirstSeg = popSegments[0] ?? ''
+  if (popSegments.length === 0 || (popSegments.length === 1 && popFirstSeg === 'home')) {
+    return '/'
+  }
+  if (popSegments.length === 1 && popFirstSeg === 'spells') {
+    try {
+      const sp = new URL(fullUrlForQuery, window.location.origin).searchParams.get('spell')?.trim()
+      return buildPrimaryPageUrl('spells', sp ? { spell: sp } : undefined)
+    } catch {
+      return '/spells'
+    }
+  }
+  if (popSegments.length === 1) return `/${popFirstSeg}`
+  return pathname
+}
+
 // Helper function to extract noteId and context from URL
 function parseNoteUrl(url: string): { noteId: string; context?: string } {
   // Match patterns like /discussions/notes/{noteId} or /notes/{noteId}
@@ -624,6 +665,8 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   const navigationCounterRef = useRef(0)
   const savedFeedStateRef = useRef<Map<TPrimaryPageName, { tab?: string }>>(new Map())
   const currentTabStateRef = useRef<Map<TPrimaryPageName, string>>(new Map()) // Track current tab state for each page
+  const savedPrimaryPagePropsRef = useRef<object | undefined>(undefined)
+  const primaryPagePropsRef = useRef<Map<TPrimaryPageName, object | undefined>>(new Map())
 
   const currentPageProps = useMemo((): object | undefined => {
     const entry = primaryPages.find((p) => p.name === currentPrimaryPage)
@@ -633,6 +676,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   const setPrimaryNoteView = (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => {
     if (view && !primaryNoteView) {
       // Saving current primary page before showing overlay
+      savedPrimaryPagePropsRef.current = primaryPages.find((p) => p.name === currentPrimaryPage)?.props as
+        | object
+        | undefined
       setSavedPrimaryPage(currentPrimaryPage)
       
       // Get current tab state from ref (updated by components via events)
@@ -662,7 +708,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     
     // If clearing the view, restore to the saved primary page
     if (!view && savedPrimaryPage) {
-      const newUrl = savedPrimaryPage === 'home' ? '/' : `/${savedPrimaryPage}`
+      const newUrl = buildPrimaryPageUrl(
+        savedPrimaryPage,
+        savedPrimaryPagePropsRef.current as { spell?: string } | undefined
+      )
       window.history.replaceState(null, '', newUrl)
       
       const savedFeedState = savedFeedStateRef.current.get(savedPrimaryPage)
@@ -826,6 +875,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           })
         } else if (pageName === 'discussions') {
           navigatePrimaryPage('spells', { spell: 'discussions' })
+        } else if (pageName === 'spells') {
+          const spellProps = spellPropsFromSearch(window.location.search)
+          navigatePrimaryPage('spells', spellProps)
         } else if (pageName in primaryMap) {
           navigatePrimaryPage(pageName as TPrimaryPageName)
         }
@@ -898,6 +950,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           })
           return
         }
+        if (pageName === 'spells') {
+          const spellProps = spellPropsFromSearch(window.location.search)
+          navigatePrimaryPage('spells', spellProps)
+          return
+        }
         if (pageName && pageName in getPrimaryPageMap()) {
           // For relay page, check if there's a URL prop
           if (pageName === 'relay') {
@@ -934,6 +991,16 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       const noteUrlMatch = urlToCheck.match(/\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/) || 
                           urlToCheck.match(/\/notes\/(.+)$/)
       const noteIdToShow = noteUrlMatch ? noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0] : null
+
+      // Keep spells faux spell in sync with ?spell= on browser back/forward
+      if (!noteIdToShow) {
+        const syncSegs = window.location.pathname.split('/').filter(Boolean)
+        if (syncSegs.length === 1 && syncSegs[0] === 'spells') {
+          const spellProps = spellPropsFromSearch(window.location.search)
+          setCurrentPrimaryPage('spells')
+          setPrimaryPages((prev) => mergePrimaryPageEntry(prev, { name: 'spells', props: spellProps }))
+        }
+      }
       
       // If not a note URL and drawer is open - close the drawer immediately
       // Only in single-pane mode or mobile
@@ -942,7 +1009,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         setTimeout(() => {
           setDrawerNoteId(null)
           // Restore URL to current primary page
-          const pageUrl = currentPrimaryPage === 'home' ? '/' : `/${currentPrimaryPage}`
+          const pageUrl = buildPrimaryPageUrl(
+            currentPrimaryPage,
+            primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
+          )
           window.history.replaceState(null, '', pageUrl)
         }, 350)
       }
@@ -993,13 +1063,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             // On mobile or single-pane: if drawer is open, close it
             if (drawerOpen && (isSmallScreen || panelMode === 'single')) {
               setDrawerOpen(false)
+              const historyUrl = state!.url
               setTimeout(() => {
                 setDrawerNoteId(null)
-                // Ensure URL matches the primary page
-                const pageUrl =
-                  popSegments.length === 0 || (popSegments.length === 1 && popFirstSeg === 'home')
-                    ? '/'
-                    : `/${popFirstSeg}`
+                // Ensure URL matches the primary page (preserve /spells?spell=)
+                const pageUrl = restoredPrimaryBrowserUrl(pathname, historyUrl)
                 window.history.replaceState(null, '', pageUrl)
               }, 350)
             }
@@ -1151,9 +1219,8 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     })
     setCurrentPrimaryPage(page)
     
-    // Update URL for primary pages - use dedicated paths
-    // Home can be either / or /home, but we'll use / for home
-    const newUrl = page === 'home' ? '/' : `/${page}`
+    // Update URL for primary pages (spells uses ?spell= for faux feeds)
+    const newUrl = buildPrimaryPageUrl(page, props)
     window.history.pushState(null, '', newUrl)
     
     // NEVER scroll to top - feed should maintain scroll position at all times
@@ -1442,7 +1509,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                   // Use 350ms to ensure animation is fully done (animation is 300ms)
                   if (!open) {
                     // Restore URL to current primary page
-                    const pageUrl = currentPrimaryPage === 'home' ? '/' : `/${currentPrimaryPage}`
+                    const pageUrl = buildPrimaryPageUrl(
+                      currentPrimaryPage,
+                      primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
+                    )
                     window.history.replaceState(null, '', pageUrl)
                     setTimeout(() => setDrawerNoteId(null), 350)
                   }
@@ -1560,7 +1630,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                   // Use 350ms to ensure animation is fully done (animation is 300ms)
                   if (!open) {
                     // Restore URL to current primary page
-                    const pageUrl = currentPrimaryPage === 'home' ? '/' : `/${currentPrimaryPage}`
+                    const pageUrl = buildPrimaryPageUrl(
+                      currentPrimaryPage,
+                      primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
+                    )
                     window.history.replaceState(null, '', pageUrl)
                     setTimeout(() => setDrawerNoteId(null), 350)
                   }
