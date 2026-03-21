@@ -18,7 +18,6 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import { useZap } from '@/providers/ZapProvider'
 import client from '@/services/client.service'
-import logger from '@/lib/logger'
 import { TFeedSubRequest } from '@/types'
 import dayjs from 'dayjs'
 import { Event, kinds } from 'nostr-tools'
@@ -34,7 +33,6 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import PullToRefresh from 'react-simple-pull-to-refresh'
-import { toast } from 'sonner'
 import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
 const LIMIT = 500 // Increased from 200 to load more events per request
@@ -53,7 +51,6 @@ const NoteList = forwardRef(
       hideReplies = false,
       hideUntrustedNotes = false,
       areAlgoRelays = false,
-      showRelayCloseReason = false,
       pinnedEventIds = [],
       useFilterAsIs = false,
       extraShouldHideEvent
@@ -67,7 +64,6 @@ const NoteList = forwardRef(
       hideReplies?: boolean
       hideUntrustedNotes?: boolean
       areAlgoRelays?: boolean
-      showRelayCloseReason?: boolean
       pinnedEventIds?: string[]
       /** When true, use filter from subRequests as-is (kinds, limit) instead of showKinds. For spell feeds. */
       useFilterAsIs?: boolean
@@ -229,16 +225,7 @@ const NoteList = forwardRef(
     useImperativeHandle(ref, () => ({ scrollToTop, refresh }), [])
 
     useEffect(() => {
-      logger.info('[NoteList] useEffect triggered', {
-        subRequestsLength: subRequests.length,
-        subRequests: subRequests.map(({ urls, filter }) => ({
-          urls: urls.slice(0, 2),
-          filterKeys: Object.keys(filter)
-        }))
-      })
-      
       if (!subRequests.length) {
-        logger.warn('[NoteList] subRequests is empty, not initializing')
         setLoading(false)
         setEvents([])
         // Return a no-op closer function to satisfy the cleanup function
@@ -246,13 +233,6 @@ const NoteList = forwardRef(
       }
 
       async function init() {
-        logger.debug('[NoteList] init called', {
-          subRequestsCount: subRequests.length,
-          showKindsLength: showKinds.length,
-          showKinds,
-          useFilterAsIs,
-          areAlgoRelays
-        })
         setLoading(true)
         setEvents([])
         setNewEvents([])
@@ -278,36 +258,15 @@ const NoteList = forwardRef(
           
           // CRITICAL: Validate filter has kinds before subscribing
           if (!finalFilter.kinds || finalFilter.kinds.length === 0) {
-            logger.error('[NoteList] Filter missing kinds! Using default', {
-              originalFilter: filter,
-              showKinds,
-              useFilterAsIs
-            })
             finalFilter.kinds = [kinds.ShortTextNote]
           }
           
           return { urls, filter: finalFilter }
         })
         
-        logger.debug('[NoteList] Subscribing with filters', {
-          subRequestCount: mappedSubRequests.length,
-          filters: mappedSubRequests.map(({ urls, filter }) => ({
-            urls: urls.slice(0, 2), // Log first 2 URLs
-            kinds: filter.kinds,
-            limit: filter.limit,
-            hasKinds: !!(filter.kinds && filter.kinds.length > 0)
-          }))
-        })
-        
         // CRITICAL: Validate all filters have kinds before subscribing
         const invalidFilters = mappedSubRequests.filter(({ filter }) => !filter.kinds || filter.kinds.length === 0)
         if (invalidFilters.length > 0) {
-          logger.error('[NoteList] CRITICAL: Some filters are missing kinds!', {
-            invalidCount: invalidFilters.length,
-            totalCount: mappedSubRequests.length,
-            showKinds,
-            useFilterAsIs
-          })
           // Don't subscribe with invalid filters - this would return no events
           setLoading(false)
           setEvents([])
@@ -315,10 +274,6 @@ const NoteList = forwardRef(
           return () => {}
         }
 
-        logger.info('[NoteList] About to call subscribeTimeline', {
-          mappedSubRequestsCount: mappedSubRequests.length
-        })
-        
         let closer: (() => void) | undefined
         let timelineKey: string | undefined
         
@@ -335,13 +290,6 @@ const NoteList = forwardRef(
             mappedSubRequests,
             {
               onEvents: (events: Event[], eosed: boolean) => {
-                logger.debug('[NoteList] onEvents called', {
-                  eventCount: events.length,
-                  eosed,
-                  showKindsLength: showKinds.length,
-                  subRequestsCount: subRequests.length
-                })
-                
                 if (events.length > 0) {
                   setEvents(events)
                   
@@ -390,7 +338,6 @@ const NoteList = forwardRef(
                   }
                 } else if (eosed) {
                   // No events received but EOSE - set empty events array and stop loading
-                  logger.debug('[NoteList] EOSE with no events, stopping loading')
                   setEvents([])
                   setLoading(false)
                 }
@@ -435,37 +382,6 @@ const NoteList = forwardRef(
                 )
               }
             },
-            onClose: (url: string, reason: string) => {
-              if (!showRelayCloseReason) return
-              // ignore reasons from nostr-tools
-              if (
-                [
-                  'closed by caller',
-                  'relay connection errored',
-                  'relay connection closed',
-                  'pingpong timed out',
-                  'relay connection closed by us'
-                ].includes(reason)
-              ) {
-                return
-              }
-              // don't toast for routine connection failures (noisy and expected when relays are down/slow)
-              const r = reason.toLowerCase()
-              if (
-                r.includes('connection failed') ||
-                r.includes('econnrefused') ||
-                r.includes('econnreset') ||
-                r.includes('etimedout') ||
-                r.includes('timeout') ||
-                r.includes('network') ||
-                r.includes('enotfound') ||
-                r.includes('connection refused')
-              ) {
-                return
-              }
-
-              toast.error(`${url}: ${reason}`)
-            }
           },
           {
             startLogin,
@@ -477,20 +393,11 @@ const NoteList = forwardRef(
           ])
           closer = result.closer
           timelineKey = result.timelineKey
-        logger.info('[NoteList] subscribeTimeline completed', {
-          hasTimelineKey: !!timelineKey,
-          hasCloser: !!closer
-        })
         setTimelineKey(timelineKey)
         return closer
-      } catch (error) {
-        logger.error('[NoteList] Error in subscribeTimeline', {
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined
-        })
+      } catch (_error) {
         setLoading(false)
         // Return a no-op closer function instead of throwing - allows cleanup to work
-        // The error is already logged, no need to crash the component
         return () => {}
       }
       }
@@ -708,9 +615,8 @@ const NoteList = forwardRef(
                 }
               })
             }
-          } catch (error) {
+          } catch (_error) {
             // On error, don't set hasMore to false - might be temporary network issue
-            logger.error('[NoteList] Error loading more events', { error })
             consecutiveEmptyRef.current += 1
             // Only stop after MANY consecutive errors - be very patient with network issues
             // This prevents stopping when relays are temporarily down or slow

@@ -1,6 +1,5 @@
 import NormalFeed from '@/components/NormalFeed'
 import { checkAlgoRelay } from '@/lib/relay'
-import logger from '@/lib/logger'
 import { useFeed } from '@/providers/FeedProvider'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import relayInfoService from '@/services/relay-info.service'
@@ -15,18 +14,10 @@ export default function RelaysFeed({
   /** When set, subscription kinds (fixed list); otherwise uses KindFilterProvider. */
   kindsOverride?: number[]
 }) {
-  logger.debug('RelaysFeed component rendering')
   const { feedInfo, relayUrls } = useFeed()
   const { showKinds } = useKindFilter()
   const [areAlgoRelays, setAreAlgoRelays] = useState(false)
   const relayInfoFetchedRef = useRef(false)
-
-  // Debug logging
-  logger.debug('RelaysFeed debug:', {
-    feedInfo,
-    relayUrls: relayUrls.length,
-    showKinds: showKinds.length
-  })
 
   // Fetch relay info in background (non-blocking) - don't wait for it to render
   useEffect(() => {
@@ -52,23 +43,14 @@ export default function RelaysFeed({
         ])
         const areAlgo = relayInfos.every((relayInfo) => checkAlgoRelay(relayInfo))
         setAreAlgoRelays(areAlgo)
-        logger.debug('RelaysFeed: Relay info fetched successfully', {
-          relayCount: relayUrls.length,
-          areAlgoRelays: areAlgo
-        })
-      } catch (error) {
-        logger.debug('RelaysFeed: Failed to get relay infos (non-blocking)', {
-          error: error instanceof Error ? error.message : String(error),
-          relayUrls: relayUrls.length
-        })
+      } catch (_error) {
         // Default to false - feed will work without this info
         setAreAlgoRelays(false)
       }
     }
     
     // Don't await - let it run in background
-    init().catch((err) => {
-      logger.debug('RelaysFeed: Unhandled error in init', { error: err })
+    init().catch(() => {
       setAreAlgoRelays(false)
     })
   }, [relayUrls])
@@ -105,25 +87,14 @@ export default function RelaysFeed({
   }, [canRenderFeed, relayUrls, defaultKinds, kindsOverride])
 
   if (!canRenderFeed) {
-    if (relayUrls.length === 0) {
-      logger.debug('RelaysFeed: relayUrls is empty, not rendering feed')
-    }
     return null
   }
-
-  logger.component('RelaysFeed', 'Rendering NormalFeed', { 
-    subRequests: subRequests.length, 
-    relayUrls: relayUrls.length, 
-    areAlgoRelays,
-    filterKinds: subRequests[0]?.filter?.kinds?.length || 0
-  })
 
   return (
     <NormalFeed
       subRequests={subRequests}
       areAlgoRelays={areAlgoRelays}
       isMainFeed
-      showRelayCloseReason
       setSubHeader={setSubHeader}
     />
   )

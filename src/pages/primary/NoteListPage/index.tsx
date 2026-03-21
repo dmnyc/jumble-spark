@@ -24,11 +24,9 @@ import { KeyboardShortcutsHelpButton } from '@/components/KeyboardShortcutsHelp'
 import AccountButton from '@/components/Titlebar/AccountButton'
 import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
-import logger from '@/lib/logger'
 import { usePrimaryNoteView } from '@/PageManager'
 
 const NoteListPage = forwardRef((_, ref) => {
-  logger.debug('NoteListPage component rendering')
   const { t } = useTranslation()
   const { addRelayUrls, removeRelayUrls } = useCurrentRelays()
   const layoutRef = useRef<TPageRef>(null)
@@ -63,14 +61,6 @@ const NoteListPage = forwardRef((_, ref) => {
       }
     }
   }, [relayUrls])
-
-  // Debug logging
-  logger.debug('NoteListPage debug:', {
-    isReady,
-    feedInfo,
-    relayUrls,
-    pubkey: !!pubkey
-  })
 
   let content: React.ReactNode = null
   if (!isReady) {
@@ -158,7 +148,6 @@ function NoteListPageTitlebar({
             onClick={(e) => {
               e.preventDefault()
               e.stopPropagation()
-              logger.debug('Im Wald button clicked, clearing overlay')
               setPrimaryNoteView(null)
             }}
           >

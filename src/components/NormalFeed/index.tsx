@@ -1,6 +1,5 @@
 import NoteList, { TNoteListRef } from '@/components/NoteList'
 import Tabs, { TabDefinition } from '@/components/Tabs'
-import logger from '@/lib/logger'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import storage from '@/services/local-storage.service'
@@ -13,7 +12,6 @@ const NormalFeed = forwardRef<TNoteListRef, {
   subRequests: TFeedSubRequest[]
   areAlgoRelays?: boolean
   isMainFeed?: boolean
-  showRelayCloseReason?: boolean
   /** When set (e.g. on Home), tabs are rendered in layout subHeader instead of in-feed; avoids overlap */
   setSubHeader?: (node: React.ReactNode) => void
 }>(function NormalFeed(
@@ -21,12 +19,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
     subRequests,
     areAlgoRelays = false,
     isMainFeed = false,
-    showRelayCloseReason = false,
     setSubHeader
   },
   ref
 ) {
-  logger.debug('NormalFeed component rendering with:', { subRequests, areAlgoRelays, isMainFeed })
   const { hideUntrustedNotes } = useUserTrust()
   const { showKinds, showKind1OPs, showKind1Replies, showKind1111 } = useKindFilter()
   const [temporaryShowKinds, setTemporaryShowKinds] = useState(showKinds)
@@ -112,7 +108,6 @@ const NormalFeed = forwardRef<TNoteListRef, {
           hideReplies={listMode === 'posts'}
           hideUntrustedNotes={hideUntrustedNotes}
           areAlgoRelays={areAlgoRelays}
-          showRelayCloseReason={showRelayCloseReason}
         />
       </div>
     </>

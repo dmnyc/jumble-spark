@@ -53,7 +53,6 @@ export default function SearchResult({ searchParams }: { searchParams: TSearchPa
     return (
       <NormalFeed
         subRequests={[{ urls: searchRelays, filter: { search: searchParams.search } }]}
-        showRelayCloseReason
       />
     )
   }
@@ -61,7 +60,6 @@ export default function SearchResult({ searchParams }: { searchParams: TSearchPa
     return (
       <NormalFeed
         subRequests={[{ urls: searchRelays, filter: { '#t': [searchParams.search] } }]}
-        showRelayCloseReason
       />
     )
   }

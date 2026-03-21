@@ -297,13 +297,11 @@ function ReplyNoteList({
       const hasCache = cachedData !== null
       
       if (hasCache) {
-        logger.debug('[ReplyNoteList] Found cached replies:', cachedData.length, 'replies', hasFreshCache ? '(fresh)' : '(stale)')
         // Display cached data immediately (even if stale) for instant switching
         addReplies(cachedData)
         setLoading(false)
       } else {
         // No cache at all, show loading while fetching
-        logger.debug('[ReplyNoteList] No cache found, fetching from relays')
         setLoading(true)
       }
       
@@ -373,14 +371,9 @@ function ReplyNoteList({
             }
           }
 
-          logger.debug('[ReplyNoteList] Using filters:', filters)
-          logger.debug('[ReplyNoteList] Using relays:', finalRelayUrls.length)
-
           // Use fetchEvents instead of subscribeTimeline for one-time fetching
           const allReplies = await queryService.fetchEvents(finalRelayUrls, filters)
-          
-          logger.debug('[ReplyNoteList] Fetched', allReplies.length, 'replies')
-          
+
           // Filter and add replies
           const regularReplies = allReplies.filter((evt) => isReplyNoteEvent(evt))
           
@@ -395,7 +388,6 @@ function ReplyNoteList({
           // This ensures we keep all previously seen replies and add any new ones
           // addReplies will deduplicate, so it's safe to call even if some replies are already displayed
           if (mergedCachedReplies) {
-            logger.debug('[ReplyNoteList] Adding merged cached replies to UI:', mergedCachedReplies.length, 'total replies')
             addReplies(mergedCachedReplies)
           } else {
             // Fallback: if cache somehow failed, at least add the fetched replies
@@ -406,16 +398,6 @@ function ReplyNoteList({
           if (!hasCache) {
             // No cache: stop loading after adding replies
             setLoading(false)
-          } else {
-            // Background refresh: check if we got new replies
-            const cachedReplyIds = new Set(cachedData!.map(r => r.id))
-            const hasNewReplies = regularReplies.some(r => !cachedReplyIds.has(r.id))
-            
-            if (hasNewReplies) {
-              logger.debug('[ReplyNoteList] Background refresh found new replies, UI updated')
-            } else {
-              logger.debug('[ReplyNoteList] Background refresh: no new replies, existing replies preserved')
-            }
           }
         } catch (error) {
           logger.error('[ReplyNoteList] Error fetching replies:', error)
