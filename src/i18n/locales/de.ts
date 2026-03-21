@@ -637,22 +637,6 @@ export default {
     'You will not be able to send zaps to others.':
       'Du wirst keine Zaps mehr an andere senden können.',
     Disconnect: 'Trennen',
-    'Start with a Rizful Vault': 'Starte mit einem Rizful Vault',
-    'or other wallets': 'oder andere Wallets',
-    'Rizful Vault': 'Rizful Vault',
-    'Rizful Vault connected!': 'Rizful Vault verbunden!',
-    'You can now use your Rizful Vault to zap your favorite notes and creators.':
-      'Du kannst jetzt dein Rizful Vault verwenden, um deine Lieblingsnotizen und -ersteller zu zapen.',
-    'Your Lightning Address': 'Deine Lightning-Adresse',
-    'New to Rizful?': 'Neu bei Rizful?',
-    'Sign up for Rizful': 'Registriere dich bei Rizful',
-    'If you already have a Rizful account, you can skip this step.':
-      'Wenn du bereits ein Rizful-Konto hast, kannst du diesen Schritt überspringen.',
-    'Get your one-time code': 'Hole dir deinen Einmal-Code',
-    'Get code': 'Code holen',
-    'Connect to your Rizful Vault': 'Verbinde dich mit deinem Rizful Vault',
-    'Paste your one-time code here': 'Füge hier deinen Einmal-Code ein',
-    Connect: 'Verbinden',
     'Set up your wallet to send and receive sats!':
       'Richte deine Wallet ein, um Sats zu senden und zu empfangen!',
     'Set up': 'Einrichten',

@@ -38,6 +38,122 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+
+          // Lazy-loaded only — must not share a chunk with sync vendors or it gets preloaded
+          if (id.includes('@asciidoctor')) {
+            return 'vendor-asciidoctor'
+          }
+
+          if (id.includes('/katex/') || id.includes('node_modules/katex/')) {
+            return 'vendor-katex'
+          }
+
+          // React core (load first; keep together)
+          if (/node_modules\/(react-dom|react\/|scheduler\/|use-sync-external-store\/)/.test(id)) {
+            return 'vendor-react'
+          }
+
+          // TipTap + ProseMirror
+          if (id.includes('@tiptap') || id.includes('prosemirror-')) {
+            return 'vendor-editor'
+          }
+
+          // Radix UI primitives
+          if (id.includes('@radix-ui')) {
+            return 'vendor-radix'
+          }
+
+          // Nostr + crypto used by the stack
+          if (
+            id.includes('nostr-tools') ||
+            id.includes('@noble') ||
+            id.includes('@scure')
+          ) {
+            return 'vendor-nostr'
+          }
+
+          if (id.includes('lucide-react')) {
+            return 'vendor-lucide'
+          }
+
+          if (id.includes('i18next') || id.includes('react-i18next')) {
+            return 'vendor-i18n'
+          }
+
+          if (id.includes('@dnd-kit')) {
+            return 'vendor-dnd'
+          }
+
+          if (id.includes('highlight.js')) {
+            return 'vendor-highlight'
+          }
+
+          if (id.includes('flexsearch')) {
+            return 'vendor-flexsearch'
+          }
+
+          if (id.includes('emoji-picker-react')) {
+            return 'vendor-emoji'
+          }
+
+          if (id.includes('yet-another-react-lightbox')) {
+            return 'vendor-lightbox'
+          }
+
+          if (
+            id.includes('@getalby') ||
+            id.includes('bitcoin-connect') ||
+            id.includes('nstart-modal')
+          ) {
+            return 'vendor-lightning'
+          }
+
+          if (id.includes('embla-carousel')) {
+            return 'vendor-embla'
+          }
+
+          if (id.includes('qr-code-styling') || id.includes('/qr-scanner/')) {
+            return 'vendor-qr'
+          }
+
+          if (id.includes('/cmdk/')) {
+            return 'vendor-cmdk'
+          }
+
+          if (id.includes('/vaul/')) {
+            return 'vendor-vaul'
+          }
+
+          if (id.includes('tippy.js')) {
+            return 'vendor-tippy'
+          }
+
+          if (id.includes('/zod/') || id.includes('node_modules/zod')) {
+            return 'vendor-zod'
+          }
+
+          if (id.includes('/dayjs/')) {
+            return 'vendor-dayjs'
+          }
+
+          if (id.includes('/sonner/')) {
+            return 'vendor-sonner'
+          }
+
+          if (id.includes('blossom-client-sdk')) {
+            return 'vendor-blossom'
+          }
+
+          if (id.includes('@popperjs')) {
+            return 'vendor-popper'
+          }
+
+          return 'vendor-misc'
+        }
+      },
       onwarn(warning, warn) {
         // Suppress vite:reporter warnings about mixed static/dynamic imports
         // These are informational warnings about code splitting, not errors

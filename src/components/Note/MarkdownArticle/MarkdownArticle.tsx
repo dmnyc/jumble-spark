@@ -29,7 +29,7 @@ import { preprocessMarkdownMediaLinks } from './preprocessMarkup'
 import { PAYTO_URI_REGEX, parsePaytoUri } from '@/lib/payto'
 import PaytoLink from '@/components/PaytoLink'
 import katex from 'katex'
-import 'katex/dist/katex.min.css'
+import '@/styles/katex-bundle.css'
 import { isContentSpacingDebug, reprString } from '@/lib/content-spacing-debug'
 import logger from '@/lib/logger'
 

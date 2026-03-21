@@ -1,0 +1,41 @@
+/* Map styles that referenced bundled-out fonts onto KaTeX_Main so layout still works;
+   \mathbb, \mathcal, \mathfrak, etc. will not match canonical TeX glyphs. */
+
+.katex .texttt,
+.katex .mathtt {
+  font-family: KaTeX_Main, ui-monospace, monospace;
+}
+.katex .textsf,
+.katex .mathsf,
+.katex .mathboldsf,
+.katex .textboldsf,
+.katex .mathitsf,
+.katex .mathsfit,
+.katex .textitsf {
+  font-family: KaTeX_Main, sans-serif;
+}
+.katex .mathboldsf,
+.katex .textboldsf {
+  font-weight: 700;
+}
+.katex .mathitsf,
+.katex .mathsfit,
+.katex .textitsf {
+  font-style: italic;
+}
+.katex .amsrm,
+.katex .mathbb,
+.katex .textbb,
+.katex .mathcal,
+.katex .mathfrak,
+.katex .textfrak,
+.katex .mathboldfrak,
+.katex .textboldfrak,
+.katex .mathscr,
+.katex .textscr {
+  font-family: KaTeX_Main, Times New Roman, serif;
+}
+.katex .mathboldfrak,
+.katex .textboldfrak {
+  font-weight: 700;
+}

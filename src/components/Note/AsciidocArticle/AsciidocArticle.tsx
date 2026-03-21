@@ -31,7 +31,7 @@ import logger from '@/lib/logger'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { ExtendedKind } from '@/constants'
 import katex from 'katex'
-import 'katex/dist/katex.min.css'
+import '@/styles/katex-bundle.css'
 import { WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
 
 /**

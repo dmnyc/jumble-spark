@@ -426,22 +426,6 @@ export default {
     'Are you absolutely sure?': '您确定吗？',
     'You will not be able to send zaps to others.': '您将无法向他人发送打闪。',
     Disconnect: '断开连接',
-    'Start with a Rizful Vault': '从 Rizful 钱包开始',
-    'or other wallets': '或其他钱包',
-    'Rizful Vault': 'Rizful 钱包',
-    'Rizful Vault connected!': 'Rizful 钱包已连接！',
-    'You can now use your Rizful Vault to zap your favorite notes and creators.':
-      '您现在可以使用您的 Rizful 钱包为您喜欢的笔记和创作者打闪。',
-    'Your Lightning Address': '您的闪电地址',
-    'New to Rizful?': '第一次使用 Rizful？',
-    'Sign up for Rizful': '注册 Rizful',
-    'If you already have a Rizful account, you can skip this step.':
-      '如果您已经有一个 Rizful 账户，可以跳过此步骤。',
-    'Get your one-time code': '获取一次性代码',
-    'Get code': '获取代码',
-    'Connect to your Rizful Vault': '连接到您的 Rizful 钱包',
-    'Paste your one-time code here': '将您的一次性代码粘贴到此处',
-    Connect: '连接',
     'Set up your wallet to send and receive sats!': '设置你的钱包以发送和接收 sats！',
     'Set up': '去设置'
   }
