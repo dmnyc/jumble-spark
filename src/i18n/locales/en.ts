@@ -310,6 +310,7 @@ export default {
     'Send only to r': 'Send only to {{r}}',
     'Send only to these relays': 'Send only to these relays',
     Explore: 'Explore',
+    'Relay reviews': 'Relay reviews',
     'Search relays': 'Search relays',
     relayInfoBadgeAuth: 'Auth',
     relayInfoBadgeSearch: 'Search',

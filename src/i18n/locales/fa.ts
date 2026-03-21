@@ -164,6 +164,7 @@ export default {
     'Send only to r': 'فقط به {{r}} ارسال شود',
     'Send only to these relays': 'فقط به این رله‌ها ارسال شود',
     Explore: 'کاوش',
+    'Relay reviews': 'نقد رله‌ها',
     'Search relays': 'جستجو رله‌ها',
     relayInfoBadgeAuth: 'احراز هویت',
     relayInfoBadgeSearch: 'جستجو',

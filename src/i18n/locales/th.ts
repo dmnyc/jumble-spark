@@ -162,6 +162,7 @@ export default {
     'Send only to r': 'ส่งเฉพาะไปยัง {{r}}',
     'Send only to these relays': 'ส่งเฉพาะไปยังรีเลย์เหล่านี้',
     Explore: 'สำรวจ',
+    'Relay reviews': 'รีวิวรีเลย์',
     'Search relays': 'ค้นหารีเลย์',
     relayInfoBadgeAuth: 'ยืนยันตัวตน',
     relayInfoBadgeSearch: 'ค้นหา',

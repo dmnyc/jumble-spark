@@ -165,6 +165,7 @@ export default {
     'Send only to r': 'केवल {{r}} को भेजें',
     'Send only to these relays': 'केवल इन रिले को भेजें',
     Explore: 'एक्सप्लोर करें',
+    'Relay reviews': 'रिले समीक्षाएँ',
     'Search relays': 'रिले खोजें',
     relayInfoBadgeAuth: 'प्रमाणीकरण',
     relayInfoBadgeSearch: 'खोज',

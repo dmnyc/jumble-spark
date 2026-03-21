@@ -165,6 +165,7 @@ export default {
     'Send only to r': '{{r}}에만 전송',
     'Send only to these relays': '이 릴레이에만 전송',
     Explore: '탐색',
+    'Relay reviews': '릴레이 리뷰',
     'Search relays': '릴레이 검색',
     relayInfoBadgeAuth: '로그인 필요',
     relayInfoBadgeSearch: '검색 지원',

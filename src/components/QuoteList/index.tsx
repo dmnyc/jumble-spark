@@ -8,12 +8,22 @@ import dayjs from 'dayjs'
 import { Event, kinds } from 'nostr-tools'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { cn } from '@/lib/utils'
 import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
 const LIMIT = 100
 const SHOW_COUNT = 10
 
-export default function QuoteList({ event, className }: { event: Event; className?: string }) {
+export default function QuoteList({
+  event,
+  className,
+  embedded = false
+}: {
+  event: Event
+  className?: string
+  /** When true, compact layout for use below the replies feed (no full-tab min-height). */
+  embedded?: boolean
+}) {
   const { t } = useTranslation()
   const { relayList: userRelayList } = useNostr()
   const { hideUntrustedInteractions, isUserTrusted } = useUserTrust()
@@ -183,8 +193,11 @@ export default function QuoteList({ event, className }: { event: Event; classNam
   }, [timelineKey, loading, hasMore, events, showCount])
 
   return (
-    <div className={className}>
-      <div className="min-h-[80vh]">
+    <div className={cn(className, embedded && 'mt-6 border-t border-border pt-4')}>
+      {embedded && (
+        <h3 className="text-sm font-semibold text-muted-foreground mb-3 px-4">{t('Quotes')}</h3>
+      )}
+      <div className={embedded ? undefined : 'min-h-[80vh]'}>
         <div>
           {events.slice(0, showCount).map((event) => {
             if (hideUntrustedInteractions && !isUserTrusted(event.pubkey)) {
@@ -201,7 +214,8 @@ export default function QuoteList({ event, className }: { event: Event; classNam
           <div className="text-center text-sm text-muted-foreground mt-2">{t('no more notes')}</div>
         )}
       </div>
-      <div className="h-40" />
+      {!embedded && <div className="h-40" />}
+      {embedded && <div className="pb-8" />}
     </div>
   )
 }

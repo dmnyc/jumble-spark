@@ -162,6 +162,7 @@ export default {
     'Send only to r': 'Wyślij tylko do {{r}}',
     'Send only to these relays': 'Wyślij tylko do tych transmiterów',
     Explore: 'Transmitery',
+    'Relay reviews': 'Opinie o relayach',
     'Search relays': 'Wyszukaj transmiter',
     relayInfoBadgeAuth: '✔️',
     relayInfoBadgeSearch: 'Wyszukiwarka',

@@ -162,6 +162,7 @@ export default {
     'Send only to r': 'إرسال فقط إلى {{r}}',
     'Send only to these relays': 'إرسال فقط إلى هذه الريلايات',
     Explore: 'استكشاف',
+    'Relay reviews': 'مراجعات الترحيل',
     'Search relays': 'البحث في الريلايات',
     relayInfoBadgeAuth: 'مصادقة',
     relayInfoBadgeSearch: 'بحث',

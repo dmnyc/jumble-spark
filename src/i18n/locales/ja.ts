@@ -164,6 +164,7 @@ export default {
     'Send only to r': '{{r}} にのみ送信',
     'Send only to these relays': 'これらのリレイにのみ送信',
     Explore: '探索',
+    'Relay reviews': 'リレーレビュー',
     'Search relays': 'リレイを検索',
     relayInfoBadgeAuth: '認証',
     relayInfoBadgeSearch: '検索',

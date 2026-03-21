@@ -30,6 +30,7 @@ import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoadingBar } from '../LoadingBar'
+import QuoteList from '../QuoteList'
 import ReplyNote, { ReplyNoteSkeleton } from '../ReplyNote'
 import ZapReplyFeedRow from './ZapReplyFeedRow'
 
@@ -41,7 +42,18 @@ type TRootInfo =
 const LIMIT = 100
 const SHOW_COUNT = 10
 
-function ReplyNoteList({ index, event, sort = 'oldest' }: { index?: number; event: NEvent; sort?: 'newest' | 'oldest' | 'top' | 'controversial' | 'most-zapped' }) {
+function ReplyNoteList({
+  index,
+  event,
+  sort = 'oldest',
+  showQuotes = true
+}: {
+  index?: number
+  event: NEvent
+  sort?: 'newest' | 'oldest' | 'top' | 'controversial' | 'most-zapped'
+  /** When false, omit the quotes section (e.g. discussion threads). */
+  showQuotes?: boolean
+}) {
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigation()
   const { currentIndex } = useSecondaryPage()
@@ -564,6 +576,7 @@ function ReplyNoteList({ index, event, sort = 'oldest' }: { index?: number; even
       )}
       <div ref={bottomRef} />
       {loading && <ReplyNoteSkeleton />}
+      {showQuotes && <QuoteList event={event} embedded />}
     </div>
   )
 }

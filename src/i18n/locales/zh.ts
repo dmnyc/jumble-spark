@@ -164,6 +164,7 @@ export default {
     'Send only to r': '只发送到 {{r}}',
     'Send only to these relays': '只发送到这些服务器',
     Explore: '探索',
+    'Relay reviews': '中继评价',
     'Search relays': '搜索服务器',
     relayInfoBadgeAuth: '需登陆',
     relayInfoBadgeSearch: '支持搜索',

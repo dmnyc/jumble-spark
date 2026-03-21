@@ -577,3 +577,10 @@ export function getStarsFromRelayReviewEvent(event: Event): number {
   }
   return 0
 }
+
+/** Relay URL from the `d` tag (NIP for relay reviews). */
+export function getRelayUrlFromRelayReviewEvent(event: Event): string | undefined {
+  const d = event.tags.find((t) => t[0] === 'd')?.[1]?.trim()
+  if (!d) return undefined
+  return normalizeUrl(d) || d
+}

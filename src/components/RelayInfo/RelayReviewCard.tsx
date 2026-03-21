@@ -1,8 +1,10 @@
-import { useSmartNoteNavigation } from '@/PageManager'
-import { getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
-import { toNote } from '@/lib/link'
+import { useSmartNoteNavigation, useSmartRelayNavigation } from '@/PageManager'
+import { getRelayUrlFromRelayReviewEvent, getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
+import { toNote, toRelay } from '@/lib/link'
+import { simplifyUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import client from '@/services/client.service'
+import { Link2 } from 'lucide-react'
 import { NostrEvent } from 'nostr-tools'
 import { useMemo } from 'react'
 import ClientTag from '../ClientTag'
@@ -21,7 +23,9 @@ export default function RelayReviewCard({
   className?: string
 }) {
   const { navigateToNote } = useSmartNoteNavigation()
+  const { navigateToRelay } = useSmartRelayNavigation()
   const stars = useMemo(() => getStarsFromRelayReviewEvent(event), [event])
+  const relayUrl = useMemo(() => getRelayUrlFromRelayReviewEvent(event), [event])
 
   return (
     <div
@@ -55,7 +59,22 @@ export default function RelayReviewCard({
           </div>
         </div>
       </div>
-      <Stars stars={stars} className="mt-2 gap-0.5 [&_svg]:size-3" />
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <Stars stars={stars} className="gap-0.5 [&_svg]:size-3 shrink-0" />
+        {relayUrl ? (
+          <button
+            type="button"
+            className="flex min-w-0 max-w-full items-center gap-1 text-left text-xs text-muted-foreground hover:text-foreground"
+            onClick={(e) => {
+              e.stopPropagation()
+              navigateToRelay(toRelay(relayUrl))
+            }}
+          >
+            <Link2 className="size-3 shrink-0" aria-hidden />
+            <span className="truncate font-mono">{simplifyUrl(relayUrl)}</span>
+          </button>
+        ) : null}
+      </div>
       <ContentPreview className="mt-2 line-clamp-4" event={event} />
     </div>
   )

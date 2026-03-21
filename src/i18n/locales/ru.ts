@@ -167,6 +167,7 @@ export default {
     'Send only to r': 'Отправить только на {{r}}',
     'Send only to these relays': 'Отправить только на эти ретрансляторы',
     Explore: 'Обзор',
+    'Relay reviews': 'Отзывы о ретрансляторах',
     'Search relays': 'Поиск ретрансляторов',
     relayInfoBadgeAuth: 'Авторизация',
     relayInfoBadgeSearch: 'Поиск',

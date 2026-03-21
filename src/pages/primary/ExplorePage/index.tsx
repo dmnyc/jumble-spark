@@ -1,5 +1,6 @@
 import Explore from '@/components/Explore'
 import ExploreFavoriteRelays from '@/components/Explore/ExploreFavoriteRelays'
+import ExploreRelayReviews from '@/components/Explore/ExploreRelayReviews'
 import FollowingFavoriteRelayList from '@/components/FollowingFavoriteRelayList'
 import Tabs from '@/components/Tabs'
 import VersionUpdateBanner from '@/components/VersionUpdateBanner'
@@ -55,10 +56,11 @@ function filterMonitoringRelaySuggestions(urls: string[], rawQuery: string): str
   return matches.slice(0, RELAY_SUGGESTION_LIMIT)
 }
 
-type TExploreTabs = 'explore' | 'following'
+type TExploreTabs = 'explore' | 'reviews' | 'following'
 
 function normalizeHomeTab(restored: string): TExploreTabs {
   if (restored === 'following') return 'following'
+  if (restored === 'reviews') return 'reviews'
   // Removed "favorites" tab — treat saved state as Explore
   return 'explore'
 }
@@ -88,6 +90,7 @@ const ExplorePage = forwardRef((_, ref) => {
           value={tab}
           tabs={[
             { value: 'explore', label: t('Explore') },
+            { value: 'reviews', label: t('Relay reviews') },
             { value: 'following', label: t("Following's Favorites") }
           ]}
           onTabChange={(next) => {
@@ -113,6 +116,7 @@ const ExplorePage = forwardRef((_, ref) => {
             <Explore />
           </>
         )}
+        {tab === 'reviews' && <ExploreRelayReviews />}
         {tab === 'following' && <FollowingFavoriteRelayList />}
       </div>
     </PrimaryPageLayout>

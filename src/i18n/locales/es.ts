@@ -166,6 +166,7 @@ export default {
     'Send only to r': 'Enviar únicamente a {{r}}',
     'Send only to these relays': 'Enviar únicamente a estos relés',
     Explore: 'Explorar',
+    'Relay reviews': 'Reseñas de relays',
     'Search relays': 'Buscar relés',
     relayInfoBadgeAuth: 'Autenticación',
     relayInfoBadgeSearch: 'Búsqueda',

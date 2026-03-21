@@ -55,7 +55,8 @@ const NoteList = forwardRef(
       areAlgoRelays = false,
       showRelayCloseReason = false,
       pinnedEventIds = [],
-      useFilterAsIs = false
+      useFilterAsIs = false,
+      extraShouldHideEvent
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -70,6 +71,8 @@ const NoteList = forwardRef(
       pinnedEventIds?: string[]
       /** When true, use filter from subRequests as-is (kinds, limit) instead of showKinds. For spell feeds. */
       useFilterAsIs?: boolean
+      /** When provided and returns true, the event is omitted from the feed (in addition to built-in rules). */
+      extraShouldHideEvent?: (evt: Event) => boolean
     },
     ref
   ) => {
@@ -147,9 +150,19 @@ const NoteList = forwardRef(
           }
         }
 
+        if (extraShouldHideEvent?.(evt)) return true
+
         return false
       },
-      [hideReplies, hideUntrustedNotes, mutePubkeySet, pinnedEventIds, isEventDeleted, zapReplyThreshold]
+      [
+        hideReplies,
+        hideUntrustedNotes,
+        mutePubkeySet,
+        pinnedEventIds,
+        isEventDeleted,
+        zapReplyThreshold,
+        extraShouldHideEvent
+      ]
     )
 
     const filteredEvents = useMemo(() => {
@@ -409,6 +422,7 @@ const NoteList = forwardRef(
                 if (!isReply && !showKind1OPs) return
               }
               if (event.kind === ExtendedKind.COMMENT && !showKind1111) return
+              if (shouldHideEvent(event)) return
               if (pubkey && event.pubkey === pubkey) {
                 // If the new event is from the current user, insert it directly into the feed
                 setEvents((oldEvents) =>
@@ -485,7 +499,16 @@ const NoteList = forwardRef(
       return () => {
         promise.then((closer) => closer?.())
       }
-    }, [subRequestsKey, refreshCount, showKindsKey, showKind1OPs, showKind1Replies, showKind1111, useFilterAsIs])
+    }, [
+      subRequestsKey,
+      refreshCount,
+      showKindsKey,
+      showKind1OPs,
+      showKind1Replies,
+      showKind1111,
+      useFilterAsIs,
+      shouldHideEvent
+    ])
 
     // Use refs to avoid dependency issues and ensure latest values in async callbacks
     const eventsRef = useRef(events)
