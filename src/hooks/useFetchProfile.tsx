@@ -1,3 +1,4 @@
+import { PROFILE_FETCH_PROMISE_TIMEOUT_MS } from '@/constants'
 import { getProfileFromEvent } from '@/lib/event-metadata'
 import { userIdToPubkey } from '@/lib/pubkey'
 import { useNostr } from '@/providers/NostrProvider'
@@ -79,7 +80,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
               pubkey: pubkey.substring(0, 8)
             })
             resolve(null)
-          }, 5000) // 5 seconds
+          }, PROFILE_FETCH_PROMISE_TIMEOUT_MS)
         })
 
         const existingProfile = await Promise.race([existingPromise, timeoutPromise])
@@ -135,8 +136,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
               logger.warn('[useFetchProfile] Retry promise timeout, not starting duplicate fetch', {
                 pubkey: pubkey.substring(0, 8)
               })
-              resolve(null)
-            }, 5000) // 5 seconds
+            resolve(null)
+          }, PROFILE_FETCH_PROMISE_TIMEOUT_MS)
           })
 
           const retryProfile = await Promise.race([retryPromise, timeoutPromise])
@@ -183,12 +184,15 @@ export function useFetchProfile(id?: string, skipCache = false) {
         globalFetchingPubkeys.add(pubkey)
         const startTime = Date.now()
         
-        // CRITICAL: Add timeout to prevent infinite hangs
-        // Use Promise.race to timeout after 5 seconds
+        // CRITICAL: Add timeout to prevent infinite hangs (must exceed batched metadata query globalTimeout)
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => {
-            reject(new Error(`Profile fetch timeout after 5s for pubkey ${pubkey.substring(0, 8)}`))
-          }, 5000) // 5 second timeout
+            reject(
+              new Error(
+                `Profile fetch timeout after ${PROFILE_FETCH_PROMISE_TIMEOUT_MS}ms for pubkey ${pubkey.substring(0, 8)}`
+              )
+            )
+          }, PROFILE_FETCH_PROMISE_TIMEOUT_MS)
         })
         
         // Use fetchProfileEvent which includes author's relay list for better profile discovery
@@ -207,12 +211,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
             fetchTime: `${fetchTime}ms`
           })
         }
-        
-        if (cancelled.current) {
-          logger.info('[useFetchProfile] Fetch cancelled after fetch', { pubkey })
-          return null
-        }
-        
+
         if (profileEvent) {
           // getProfileFromEvent always returns a profile object (with fallback username)
           const newProfile = getProfileFromEvent(profileEvent)
@@ -221,8 +220,13 @@ export function useFetchProfile(id?: string, skipCache = false) {
             pubkey: pubkey.substring(0, 8),
             username: newProfile.username,
             hasAvatar: !!newProfile.avatar,
-            fetchTime: `${fetchTime}ms`
+            fetchTime: `${fetchTime}ms`,
+            unmounted: cancelled.current
           })
+          // CRITICAL: Always return the profile from this shared promise, even when the
+          // originating hook cleaned up (list virtualization, Strict Mode, feed switch).
+          // Returning null here made every waiter treat the result like a timeout, applied
+          // cooldowns, and left avatars empty (especially busy feeds e.g. all-favorites).
           return newProfile
         }
         // Only log warnings for missing profiles if skipCache is true (user explicitly requested)

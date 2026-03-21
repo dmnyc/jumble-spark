@@ -65,11 +65,15 @@ export function useFetchCalendarRsvps(calendarEvent: Event | undefined) {
       .then((relayUrls: string[] | undefined) => {
         if (cancelled) return
         const urls = relayUrls?.length ? relayUrls : Array.from(baseUrls)
-        return queryService.fetchEvents(urls, {
-          kinds: [ExtendedKind.CALENDAR_EVENT_RSVP],
-          '#a': [coordinate],
-          limit: 200
-        })
+        return queryService.fetchEvents(
+          urls,
+          {
+            kinds: [ExtendedKind.CALENDAR_EVENT_RSVP],
+            '#a': [coordinate],
+            limit: 200
+          },
+          { firstRelayResultGraceMs: false }
+        )
       })
       .then((events) => {
         if (cancelled) return

@@ -1,4 +1,9 @@
-import { KIND_1_BLOCKED_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import {
+  FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT,
+  FIRST_RELAY_RESULT_GRACE_MS,
+  KIND_1_BLOCKED_RELAY_URLS,
+  SEARCHABLE_RELAY_URLS
+} from '@/constants'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
 import type { Filter, Event as NEvent } from 'nostr-tools'
@@ -23,6 +28,13 @@ export interface QueryOptions {
   replaceableRaceWaitMs?: number
   /** For non-replaceable single events: return immediately on first match */
   immediateReturn?: boolean
+  /**
+   * Multi-relay feed / batch: after first event, wait this many ms then close and return.
+   * `false` disables (wait for normal EOSE / global timeout). When omitted, implicit grace uses
+   * {@link FIRST_RELAY_RESULT_GRACE_MS} only if the largest filter `limit` is at least
+   * {@link FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT} (and not replaceableRace / immediateReturn / single-event fetch).
+   */
+  firstRelayResultGraceMs?: number | false
 }
 
 export interface SubscribeCallbacks {
@@ -115,7 +127,7 @@ export class QueryService {
     const eoseTimeout = options?.eoseTimeout ?? 500
     const globalTimeout = options?.globalTimeout ?? 10000
     const replaceableRace = options?.replaceableRace ?? false
-    const replaceableRaceWaitMs = options?.replaceableRaceWaitMs ?? 2000
+    const replaceableRaceWaitMs = options?.replaceableRaceWaitMs ?? FIRST_RELAY_RESULT_GRACE_MS
     const immediateReturn = options?.immediateReturn ?? false
     const isExternalSearch = eoseTimeout > 1000
     
@@ -131,12 +143,25 @@ export class QueryService {
       })
     }
     
-    const FIRST_RESULT_GRACE_MS = 1200
+    const filtersForGrace = Array.isArray(filter) ? filter : [filter]
+    const maxLimitForGrace = Math.max(...filtersForGrace.map((f) => (f.limit ?? 0) as number), 0)
+    const isSingleEventFetchForGrace = maxLimitForGrace === 1
+    const useImplicitFeedFirstRelayGrace =
+      maxLimitForGrace >= FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT && !isSingleEventFetchForGrace
+    const feedGraceMsResolved: number | null =
+      options?.firstRelayResultGraceMs === false
+        ? null
+        : typeof options?.firstRelayResultGraceMs === 'number'
+          ? options.firstRelayResultGraceMs
+          : !replaceableRace && !immediateReturn && useImplicitFeedFirstRelayGrace
+            ? FIRST_RELAY_RESULT_GRACE_MS
+            : null
 
     return await new Promise<NEvent[]>((resolve) => {
       const events: NEvent[] = []
       let resolveTimeout: ReturnType<typeof setTimeout> | null = null
       let firstResultGraceTimeoutId: ReturnType<typeof setTimeout> | null = null
+      let feedFirstResultGraceTimeoutId: ReturnType<typeof setTimeout> | null = null
       let replaceableRaceTimeoutId: ReturnType<typeof setTimeout> | null = null
       let allEosed = false
       let eventCount = 0
@@ -178,6 +203,7 @@ export class QueryService {
         resolved = true
         if (resolveTimeout) clearTimeout(resolveTimeout)
         if (firstResultGraceTimeoutId) clearTimeout(firstResultGraceTimeoutId)
+        if (feedFirstResultGraceTimeoutId) clearTimeout(feedFirstResultGraceTimeoutId)
         if (replaceableRaceTimeoutId) clearTimeout(replaceableRaceTimeoutId)
         if (globalTimeoutId) clearTimeout(globalTimeoutId)
         
@@ -220,11 +246,23 @@ export class QueryService {
             }, replaceableRaceWaitMs)
           }
 
+          if (
+            feedGraceMsResolved != null &&
+            events.length >= 1 &&
+            !feedFirstResultGraceTimeoutId &&
+            !replaceableRace
+          ) {
+            feedFirstResultGraceTimeoutId = setTimeout(() => {
+              feedFirstResultGraceTimeoutId = null
+              resolveWithEvents()
+            }, feedGraceMsResolved)
+          }
+
           if (!replaceableRace && !immediateReturn && isSingleEventFetch && events.length === 1 && !firstResultGraceTimeoutId) {
             firstResultGraceTimeoutId = setTimeout(() => {
               firstResultGraceTimeoutId = null
               resolveWithEvents()
-            }, FIRST_RESULT_GRACE_MS)
+            }, FIRST_RELAY_RESULT_GRACE_MS)
           }
 
           if (hasIdFilter && isSingleEventFetch && events.length > 0 && allEosed && !replaceableRace && !immediateReturn) {
@@ -251,6 +289,7 @@ export class QueryService {
             }
             
             if (firstResultGraceTimeoutId) clearTimeout(firstResultGraceTimeoutId)
+            if (feedFirstResultGraceTimeoutId) clearTimeout(feedFirstResultGraceTimeoutId)
             if (resolveTimeout) clearTimeout(resolveTimeout)
             resolveTimeout = setTimeout(() => resolveWithEvents(), eoseTimeout)
           }
@@ -446,8 +485,6 @@ export class QueryService {
     filter: Filter | Filter[],
     options?: {
       onevent?: (evt: NEvent) => void
-      eoseTimeout?: number
-      globalTimeout?: number
     } & QueryOptions
   ): Promise<NEvent[]> {
     let relays = Array.from(new Set(urls))
@@ -461,6 +498,7 @@ export class QueryService {
       const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
       relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
     }
-    return this.query(relays, filter, options?.onevent, options)
+    const { onevent, ...queryOpts } = options ?? {}
+    return this.query(relays, filter, onevent, queryOpts)
   }
 }

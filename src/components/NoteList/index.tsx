@@ -161,6 +161,11 @@ const NoteList = forwardRef(
       ]
     )
 
+    const shouldHideEventRef = useRef(shouldHideEvent)
+    useEffect(() => {
+      shouldHideEventRef.current = shouldHideEvent
+    }, [shouldHideEvent])
+
     const filteredEvents = useMemo(() => {
       const idSet = new Set<string>()
 
@@ -292,6 +297,8 @@ const NoteList = forwardRef(
               onEvents: (events: Event[], eosed: boolean) => {
                 if (events.length > 0) {
                   setEvents(events)
+                  // Do not wait for full EOSE across many relays — otherwise loading/skeleton stays up for 10–30s+
+                  setLoading(false)
                   
                   // CRITICAL: Prefetch profiles for initial events (optimized for faster initial load)
                   // Only prefetch for first 50 events to reduce initial load time
@@ -369,7 +376,7 @@ const NoteList = forwardRef(
                 if (!isReply && !showKind1OPs) return
               }
               if (event.kind === ExtendedKind.COMMENT && !showKind1111) return
-              if (shouldHideEvent(event)) return
+              if (shouldHideEventRef.current(event)) return
               if (pubkey && event.pubkey === pubkey) {
                 // If the new event is from the current user, insert it directly into the feed
                 setEvents((oldEvents) =>
@@ -414,7 +421,7 @@ const NoteList = forwardRef(
       showKind1Replies,
       showKind1111,
       useFilterAsIs,
-      shouldHideEvent
+      areAlgoRelays
     ])
 
     // Use refs to avoid dependency issues and ensure latest values in async callbacks

@@ -180,8 +180,14 @@ export async function resolveSpellListATags(
       try {
         const events =
           relays.length > 0
-            ? await queryService.fetchEvents(relays, filter, { globalTimeout: 12_000 })
-            : await queryService.fetchEvents([], filter, { globalTimeout: 12_000 })
+            ? await queryService.fetchEvents(relays, filter, {
+                globalTimeout: 12_000,
+                firstRelayResultGraceMs: false
+              })
+            : await queryService.fetchEvents([], filter, {
+                globalTimeout: 12_000,
+                firstRelayResultGraceMs: false
+              })
         if (!events.length) {
           notices.push(`listImportATagNotFound:${at.slice(0, 48)}`)
           return

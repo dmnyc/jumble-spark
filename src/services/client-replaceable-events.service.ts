@@ -1,4 +1,10 @@
-import { ExtendedKind, FAST_READ_RELAY_URLS, PROFILE_FETCH_RELAY_URLS } from '@/constants'
+import {
+  ExtendedKind,
+  FAST_READ_RELAY_URLS,
+  METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS,
+  METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS,
+  PROFILE_FETCH_RELAY_URLS
+} from '@/constants'
 import { kinds, nip19 } from 'nostr-tools'
 import type { Event as NEvent, Filter } from 'nostr-tools'
 import DataLoader from 'dataloader'
@@ -105,7 +111,7 @@ export class ReplaceableEventService {
     containingEventRelays: string[] = []
   ): Promise<NEvent | undefined> {
     const cacheKey = d ? `${kind}:${pubkey}:${d}` : `${kind}:${pubkey}`
-    logger.info('[ReplaceableEventService] fetchReplaceableEvent start', {
+    logger.debug('[ReplaceableEventService] fetchReplaceableEvent start', {
       pubkey,
       kind,
       d,
@@ -119,14 +125,14 @@ export class ReplaceableEventService {
       let event: NEvent | undefined
       if (containingEventRelays.length > 0 && kind === kinds.Metadata && !d) {
         // For profiles with containing event relays (author's relay list), check IndexedDB first, then query directly
-        logger.info('[ReplaceableEventService] Checking IndexedDB for profile with containing relays', {
+        logger.debug('[ReplaceableEventService] Checking IndexedDB for profile with containing relays', {
           pubkey,
           kind
         })
         try {
           const indexedDbCached = await indexedDb.getReplaceableEvent(pubkey, kind, d)
           if (indexedDbCached) {
-            logger.info('[ReplaceableEventService] Found in IndexedDB', {
+            logger.debug('[ReplaceableEventService] Found in IndexedDB', {
               pubkey,
               kind,
               eventId: indexedDbCached.id
@@ -144,27 +150,32 @@ export class ReplaceableEventService {
         }
         
         // Not in IndexedDB, fetch from network with custom relay list
-        logger.info('[ReplaceableEventService] Building relay list with containing event relays', {
+        logger.debug('[ReplaceableEventService] Building relay list with containing event relays', {
           pubkey,
           containingRelayCount: containingEventRelays.length
         })
         const relayUrls = await this.buildComprehensiveRelayListForAuthor(pubkey, kind, containingEventRelays, [])
-        logger.info('[ReplaceableEventService] Querying relays', {
+        logger.debug('[ReplaceableEventService] Querying relays', {
           pubkey,
           relayCount: relayUrls.length,
           relays: relayUrls.slice(0, 5)
         })
         const startTime = Date.now()
-        const events = await this.queryService.query(relayUrls, {
-          authors: [pubkey],
-          kinds: [kind]
-        }, undefined, {
-          replaceableRace: true,
-          eoseTimeout: 100, // Reduced from 200ms for faster early returns
-          globalTimeout: 2000 // Reduced from 3000ms to prevent long waits when many relays are slow
-        })
+        const events = await this.queryService.query(
+          relayUrls,
+          {
+            authors: [pubkey],
+            kinds: [kind]
+          },
+          undefined,
+          {
+            replaceableRace: true,
+            eoseTimeout: METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS,
+            globalTimeout: METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS
+          }
+        )
         const queryTime = Date.now() - startTime
-        logger.info('[ReplaceableEventService] Query completed', {
+        logger.debug('[ReplaceableEventService] Query completed', {
           pubkey,
           eventCount: events.length,
           queryTime: `${queryTime}ms`
@@ -173,7 +184,7 @@ export class ReplaceableEventService {
         event = sortedEvents.length > 0 ? sortedEvents[0] : undefined
       } else {
         // Use DataLoader for batching (IndexedDB checks and network fetches are batched)
-        logger.info('[ReplaceableEventService] Using DataLoader (batches IndexedDB + network)', {
+        logger.debug('[ReplaceableEventService] Using DataLoader (batches IndexedDB + network)', {
           pubkey,
           kind,
           d
@@ -183,7 +194,7 @@ export class ReplaceableEventService {
           ? await this.replaceableEventDataLoader.load({ pubkey, kind, d })
           : await this.replaceableEventFromBigRelaysDataloader.load({ pubkey, kind })
         const loadTime = Date.now() - startTime
-        logger.info('[ReplaceableEventService] DataLoader completed', {
+        logger.debug('[ReplaceableEventService] DataLoader completed', {
           pubkey,
           found: !!loadedEvent,
           loadTime: `${loadTime}ms`
@@ -192,7 +203,7 @@ export class ReplaceableEventService {
       }
       
       if (event) {
-        logger.info('[ReplaceableEventService] Event found', {
+        logger.debug('[ReplaceableEventService] Event found', {
           pubkey,
           kind,
           eventId: event.id,
@@ -225,7 +236,7 @@ export class ReplaceableEventService {
       }
     }
     
-    logger.info('[ReplaceableEventService] fetchReplaceableEvent returning undefined', {
+    logger.debug('[ReplaceableEventService] fetchReplaceableEvent returning undefined', {
       pubkey,
       kind
     })
@@ -316,7 +327,7 @@ export class ReplaceableEventService {
   ): Promise<(NEvent | null)[]> {
     // CRITICAL: Reduce logging during rapid scrolling - only log large batches
     if (params.length > 50) {
-      logger.info('[ReplaceableEventService] Large batch load function called', {
+      logger.debug('[ReplaceableEventService] Large batch load function called', {
         paramCount: params.length,
         kind: params[0]?.kind
       })
@@ -399,7 +410,7 @@ export class ReplaceableEventService {
     
     // Only log at info level for large batches
     if (missingParams.length > 50) {
-      logger.info('[ReplaceableEventService] Fetching missing events from network', {
+      logger.debug('[ReplaceableEventService] Fetching missing events from network', {
         missingCount: missingParams.length,
         totalCount: params.length
       })
@@ -427,14 +438,38 @@ export class ReplaceableEventService {
         // For each pubkey, build comprehensive relay list
         // CRITICAL FIX: For batch fetches, use default relays instead of fetching relay lists for each author
         // Fetching relay lists for hundreds of authors causes infinite loops and browser crashes
-        // Use PROFILE_FETCH_RELAY_URLS + FAST_READ_RELAY_URLS for profiles, or FAST_READ_RELAY_URLS for other kinds
-        const relayUrls = kind === kinds.Metadata
-          ? Array.from(new Set([...PROFILE_FETCH_RELAY_URLS, ...FAST_READ_RELAY_URLS]))
-          : [...FAST_READ_RELAY_URLS]
+        // Use PROFILE_FETCH_RELAY_URLS + FAST_READ_RELAY_URLS for profiles, or FAST_READ_RELAY_URLS for other kinds.
+        // For metadata with a logged-in user, merge defaults with {@link buildComprehensiveRelayList}: inboxes (read),
+        // local/cache relays (10432), favorite relays (10012), plus profile + fast read — same idea as favorites feed
+        // / inbox-scoped discovery without per-author relay list fetches.
+        let relayUrls: string[]
+        if (kind === kinds.Metadata) {
+          const userPk = client.pubkey
+          if (userPk) {
+            try {
+              relayUrls = await buildComprehensiveRelayList({
+                userPubkey: userPk,
+                includeUserOwnRelays: false,
+                includeProfileFetchRelays: true,
+                includeFastReadRelays: true,
+                includeFavoriteRelays: true,
+                includeLocalRelays: true,
+                includeFastWriteRelays: false,
+                includeSearchableRelays: false
+              })
+            } catch {
+              relayUrls = Array.from(new Set([...PROFILE_FETCH_RELAY_URLS, ...FAST_READ_RELAY_URLS]))
+            }
+          } else {
+            relayUrls = Array.from(new Set([...PROFILE_FETCH_RELAY_URLS, ...FAST_READ_RELAY_URLS]))
+          }
+        } else {
+          relayUrls = [...FAST_READ_RELAY_URLS]
+        }
         
         // Only log at info level for large batches
         if (pubkeys.length > 50) {
-          logger.info('[ReplaceableEventService] Starting query for large batch', {
+          logger.debug('[ReplaceableEventService] Starting query for large batch', {
             kind,
             pubkeyCount: pubkeys.length,
             relayCount: relayUrls.length
@@ -446,17 +481,23 @@ export class ReplaceableEventService {
             relayCount: relayUrls.length
           })
         }
-        const events = await this.queryService.query(relayUrls, {
-          authors: pubkeys,
-          kinds: [kind]
-        }, undefined, {
-          replaceableRace: true,
-          eoseTimeout: 100, // Reduced from 200ms for faster early returns
-          globalTimeout: 2000 // Reduced from 3000ms to prevent long waits when many relays are slow
-        })
+        const isMetadataBatch = kind === kinds.Metadata
+        const events = await this.queryService.query(
+          relayUrls,
+          {
+            authors: pubkeys,
+            kinds: [kind]
+          },
+          undefined,
+          {
+            replaceableRace: true,
+            eoseTimeout: isMetadataBatch ? METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS : 100,
+            globalTimeout: isMetadataBatch ? METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS : 2000
+          }
+        )
         // Only log at info level for large batches or if many events found
         if (pubkeys.length > 50 || events.length > 100) {
-          logger.info('[ReplaceableEventService] Query completed for batch', {
+          logger.debug('[ReplaceableEventService] Query completed for batch', {
             kind,
             pubkeyCount: pubkeys.length,
             eventCount: events.length
@@ -488,7 +529,7 @@ export class ReplaceableEventService {
           }
           // Convert back to array, but limit to reasonable size
           const limitedEvents = Array.from(eventsByPubkey.values()).slice(0, 500)
-          logger.info('[ReplaceableEventService] Limited batch size', {
+          logger.debug('[ReplaceableEventService] Limited batch size', {
             originalCount: events.length,
             limitedCount: limitedEvents.length
           })
@@ -550,7 +591,7 @@ export class ReplaceableEventService {
     
     // Only log at info level for large batches
     if (params.length > 50) {
-      logger.info('[ReplaceableEventService] Batch load function completed', {
+      logger.debug('[ReplaceableEventService] Batch load function completed', {
         paramCount: params.length,
         foundCount: results.filter(r => r !== null).length,
         indexedDbCount: params.length - missingParams.length,
@@ -645,17 +686,17 @@ export class ReplaceableEventService {
    * Fetch profile event by id (hex, npub, nprofile)
    */
   async fetchProfileEvent(id: string, _skipCache: boolean = false): Promise<NEvent | undefined> {
-    logger.info('[ReplaceableEventService] fetchProfileEvent start', { id })
+    logger.debug('[ReplaceableEventService] fetchProfileEvent start', { id })
     
     let pubkey: string | undefined
     let relays: string[] = []
     if (/^[0-9a-f]{64}$/.test(id)) {
       pubkey = id
-      logger.info('[ReplaceableEventService] ID is hex pubkey', { pubkey })
+      logger.debug('[ReplaceableEventService] ID is hex pubkey', { pubkey })
     } else {
       try {
         const { data, type } = nip19.decode(id)
-        logger.info('[ReplaceableEventService] Decoded bech32 ID', { type })
+        logger.debug('[ReplaceableEventService] Decoded bech32 ID', { type })
         switch (type) {
           case 'npub':
             pubkey = data
@@ -663,7 +704,7 @@ export class ReplaceableEventService {
           case 'nprofile':
             pubkey = data.pubkey
             if (data.relays) relays = data.relays
-            logger.info('[ReplaceableEventService] nprofile has relay hints', { relayCount: relays.length })
+            logger.debug('[ReplaceableEventService] nprofile has relay hints', { relayCount: relays.length })
             break
         }
       } catch (error) {
@@ -687,7 +728,7 @@ export class ReplaceableEventService {
     // CRITICAL: Do NOT pass relay hints here - passing any relays bypasses DataLoader and creates individual subscriptions
     // DataLoader already uses default relays internally and batches all profile fetches
     // We'll use relay hints in Step 2/3 only if Step 1 fails
-    logger.info('[ReplaceableEventService] Step 1: Trying with DataLoader (checks cache first, uses default relays, batched)', {
+    logger.debug('[ReplaceableEventService] Step 1: Trying with DataLoader (checks cache first, uses default relays, batched)', {
       pubkey,
       relayHintCount: relayHints.length,
       hasRelayHints: relayHints.length > 0
@@ -698,7 +739,7 @@ export class ReplaceableEventService {
     const profileEvent = await this.fetchReplaceableEvent(pubkey, kinds.Metadata, undefined, [])
     
     if (profileEvent) {
-      logger.info('[ReplaceableEventService] Profile found with relay hints + default relays', {
+      logger.debug('[ReplaceableEventService] Profile found with relay hints + default relays', {
         pubkey,
         eventId: profileEvent.id
       })
@@ -710,7 +751,7 @@ export class ReplaceableEventService {
     // This prevents creating many individual subscriptions when profiles aren't found
     // If we have relay hints, it's worth trying author relays. Otherwise, Step 1 should be sufficient.
     if (relayHints.length > 0) {
-      logger.info('[ReplaceableEventService] Step 2: Profile not found, but we have relay hints - fetching author relay list as fallback', {
+      logger.debug('[ReplaceableEventService] Step 2: Profile not found, but we have relay hints - fetching author relay list as fallback', {
         pubkey,
         relayHintCount: relayHints.length
       })
@@ -730,7 +771,7 @@ export class ReplaceableEventService {
         })
         authorRelayList = await Promise.race([relayListPromise, timeoutPromise])
         const relayListTime = Date.now() - relayListStartTime
-        logger.info('[ReplaceableEventService] Author relay list fetched', {
+        logger.debug('[ReplaceableEventService] Author relay list fetched', {
           pubkey,
           hasRelayList: !!authorRelayList,
           fetchTime: `${relayListTime}ms`
@@ -757,7 +798,7 @@ export class ReplaceableEventService {
           ...FAST_READ_RELAY_URLS // Fast read relays
         ])]
         
-        logger.info('[ReplaceableEventService] Step 3: Trying with relay hints + author relays', {
+        logger.debug('[ReplaceableEventService] Step 3: Trying with relay hints + author relays', {
           pubkey,
           relayHintCount: relayHints.length,
           authorRelayCount: authorRelays.length,
@@ -773,7 +814,7 @@ export class ReplaceableEventService {
         )
         
         if (profileEventFromAuthorRelays) {
-          logger.info('[ReplaceableEventService] Profile found with relay hints + author relays', {
+          logger.debug('[ReplaceableEventService] Profile found with relay hints + author relays', {
             pubkey,
             eventId: profileEventFromAuthorRelays.id
           })
@@ -795,7 +836,7 @@ export class ReplaceableEventService {
     // when user explicitly navigates to a profile page. For feed rendering, missing profiles are acceptable.
     // Only run comprehensive search if we have relay hints (suggesting user intent to find this specific profile)
     if (relayHints.length > 0) {
-      logger.info('[ReplaceableEventService] Step 3: Profile not found, trying comprehensive relay list (all available relays)', {
+      logger.debug('[ReplaceableEventService] Step 3: Profile not found, trying comprehensive relay list (all available relays)', {
         pubkey,
         hasRelayHints: relayHints.length > 0
       })
@@ -815,7 +856,7 @@ export class ReplaceableEventService {
           includeLocalRelays: true // Include local/cache relays
         })
         
-        logger.info('[ReplaceableEventService] Comprehensive relay list built', {
+        logger.debug('[ReplaceableEventService] Comprehensive relay list built', {
           pubkey,
           relayCount: comprehensiveRelays.length,
           relays: comprehensiveRelays.slice(0, 10) // Log first 10 for debugging
@@ -834,7 +875,7 @@ export class ReplaceableEventService {
           })
           const queryTime = Date.now() - startTime
           
-          logger.info('[ReplaceableEventService] Comprehensive search completed', {
+          logger.debug('[ReplaceableEventService] Comprehensive search completed', {
             pubkey,
             eventCount: events.length,
             queryTime: `${queryTime}ms`,
@@ -844,7 +885,7 @@ export class ReplaceableEventService {
           if (events.length > 0) {
             const sortedEvents = events.sort((a, b) => b.created_at - a.created_at)
             const profileEvent = sortedEvents[0]
-            logger.info('[ReplaceableEventService] Profile found via comprehensive search', {
+            logger.debug('[ReplaceableEventService] Profile found via comprehensive search', {
               pubkey,
               eventId: profileEvent.id
             })

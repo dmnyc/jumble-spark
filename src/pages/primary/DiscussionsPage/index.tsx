@@ -422,12 +422,16 @@ const DiscussionsPage = forwardRef<TPageRef, { embedded?: boolean }>(function Di
       logger.debug('[DiscussionsPage] Using relays:', allRelays.slice(0, 10), '... (total:', allRelays.length, ')')
       
       // Step 1: Fetch all discussion threads (kind 11)
-      const discussionThreads = await queryService.fetchEvents(allRelays, [
-        {
-          kinds: [11], // ExtendedKind.DISCUSSION
-          limit: 500 // Increased from 100 to load more threads per request
-        }
-      ])
+      const discussionThreads = await queryService.fetchEvents(
+        allRelays,
+        [
+          {
+            kinds: [11], // ExtendedKind.DISCUSSION
+            limit: 500 // Increased from 100 to load more threads per request
+          }
+        ],
+        { firstRelayResultGraceMs: false }
+      )
       
       logger.debug('[DiscussionsPage] Fetched', discussionThreads.length, 'discussion threads')
       if (discussionThreads.length > 0) {
@@ -456,20 +460,32 @@ const DiscussionsPage = forwardRef<TPageRef, { embedded?: boolean }>(function Di
       const allThreadIdsArray = Array.from(allThreadIds)
       
       const [comments, reactions] = await Promise.all([
-        allThreadIdsArray.length > 0 ? queryService.fetchEvents(allRelays, [
-          {
-            kinds: [1111], // ExtendedKind.COMMENT
-            '#e': allThreadIdsArray,
-            limit: 500 // Increased from 100 to load more comments per request
-          }
-        ]) : Promise.resolve([]),
-        allThreadIdsArray.length > 0 ? queryService.fetchEvents(allRelays, [
-          {
-            kinds: [kinds.Reaction],
-            '#e': allThreadIdsArray,
-            limit: 500 // Increased from 100 to load more reactions per request
-          }
-        ]) : Promise.resolve([])
+        allThreadIdsArray.length > 0
+          ? queryService.fetchEvents(
+              allRelays,
+              [
+                {
+                  kinds: [1111], // ExtendedKind.COMMENT
+                  '#e': allThreadIdsArray,
+                  limit: 500 // Increased from 100 to load more comments per request
+                }
+              ],
+              { firstRelayResultGraceMs: false }
+            )
+          : Promise.resolve([]),
+        allThreadIdsArray.length > 0
+          ? queryService.fetchEvents(
+              allRelays,
+              [
+                {
+                  kinds: [kinds.Reaction],
+                  '#e': allThreadIdsArray,
+                  limit: 500 // Increased from 100 to load more reactions per request
+                }
+              ],
+              { firstRelayResultGraceMs: false }
+            )
+          : Promise.resolve([])
       ])
       
       logger.debug('[DiscussionsPage] Fetched', comments.length, 'comments and', reactions.length, 'reactions for', allThreadIdsArray.length, 'threads (', threadIds.length, 'new,', (cachedDataBeforeFetch?.eventMap.size || 0), 'cached)')

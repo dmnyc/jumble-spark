@@ -5,7 +5,7 @@
  * Handles all navigation logic in a clean, testable way.
  */
 
-import React, { ReactNode } from 'react'
+import React, { lazy, ReactNode, Suspense } from 'react'
 
 // Page components
 import SettingsPage from '@/pages/secondary/SettingsPage'
@@ -21,7 +21,14 @@ import FollowingListPage from '@/pages/secondary/FollowingListPage'
 import MuteListPage from '@/pages/secondary/MuteListPage'
 import OthersRelaySettingsPage from '@/pages/secondary/OthersRelaySettingsPage'
 import SecondaryRelayPage from '@/pages/secondary/RelayPage'
-import SecondaryNoteListPage from '@/pages/secondary/NoteListPage'
+/** Lazy avoids: NavigationService → NoteListPage → NormalFeed → NoteList → PageManager → navigation.service */
+const SecondaryNoteListPageLazy = lazy(() => import('@/pages/secondary/NoteListPage'))
+
+const navLazyFallback = React.createElement(
+  'div',
+  { className: 'flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground' },
+  'Loading…'
+)
 
 export type ViewType = 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null
 
@@ -87,7 +94,11 @@ export class ComponentFactory {
   }
 
   static createHashtagPage(): ReactNode {
-    return React.createElement(SecondaryNoteListPage, { hideTitlebar: true })
+    return React.createElement(
+      Suspense,
+      { fallback: navLazyFallback },
+      React.createElement(SecondaryNoteListPageLazy, { hideTitlebar: true })
+    )
   }
 
   static createFollowingListPage(profileId: string): ReactNode {

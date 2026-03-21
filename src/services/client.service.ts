@@ -1,4 +1,14 @@
-import { FAST_READ_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, KIND_1_BLOCKED_RELAY_URLS, NIP66_DISCOVERY_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, READ_ONLY_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import {
+  FAST_READ_RELAY_URLS,
+  ExtendedKind,
+  FAST_WRITE_RELAY_URLS,
+  FIRST_RELAY_RESULT_GRACE_MS,
+  KIND_1_BLOCKED_RELAY_URLS,
+  NIP66_DISCOVERY_RELAY_URLS,
+  PROFILE_FETCH_RELAY_URLS,
+  READ_ONLY_RELAY_URLS,
+  SEARCHABLE_RELAY_URLS
+} from '@/constants'
 
 /** NIP-01 filter keys only; NIP-50 adds `search` which non-searchable relays reject. */
 function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
@@ -1004,6 +1014,15 @@ class ClientService extends EventTarget {
       return { url, filters: filtersForRelay }
     })
 
+    // Kind-1 queries drop KIND_1_BLOCKED_RELAY_URLS; if every URL was removed, no subs run and
+    // oneose would never fire — timelines stay loading forever (e.g. favorites feed).
+    if (groupedRequests.length === 0) {
+      queueMicrotask(() => oneose?.(true))
+      return {
+        close: () => {}
+      }
+    }
+
     const eosesReceived: boolean[] = []
     const closesReceived: (string | undefined)[] = []
     const handleEose = (i: number) => {
@@ -1243,6 +1262,7 @@ class ClientService extends EventTarget {
     const PROGRESSIVE_INTERVAL_MS = 100 // Poll for more events while relays are still streaming
     const MIN_NEW_EVENTS_AFTER_FIRST = 5 // After first paint, batch updates to limit re-renders
     let progressiveIntervalId: ReturnType<typeof setInterval> | null = null
+    let firstRelayResultGraceTimer: ReturnType<typeof setTimeout> | null = null
     const deliverProgressive = () => {
       if (eosedAt || events.length === 0) return
       const sortedEvents = [...events].sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
@@ -1261,6 +1281,88 @@ class ClientService extends EventTarget {
         onEvents(needSort && useCache ? snap.concat(cachedEvents).slice(0, filter.limit) : snap, false)
       }
     }
+
+    const handleTimelineEose = (eosed: boolean) => {
+      if (eosed && eosedAt != null) return
+
+      if (eosed && !eosedAt) {
+        if (firstRelayResultGraceTimer != null) {
+          clearTimeout(firstRelayResultGraceTimer)
+          firstRelayResultGraceTimer = null
+        }
+        eosedAt = dayjs().unix()
+        if (progressiveIntervalId) {
+          clearInterval(progressiveIntervalId)
+          progressiveIntervalId = null
+        }
+      }
+      // (algo feeds) no need to sort and cache
+      if (!needSort) {
+        return onEvents([...events], !!eosedAt)
+      }
+      if (!eosed) {
+        events = events.sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
+        // Only include cached events if caching is enabled
+        return onEvents([...(useCache ? events.concat(cachedEvents).slice(0, filter.limit) : events)], false)
+      }
+
+      events = events.sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
+
+      // Only update timeline cache if caching is enabled
+      if (useCache) {
+        const timeline = that.timelines[key]
+        // no cache yet
+        if (!timeline || Array.isArray(timeline) || !timeline.refs.length) {
+          that.timelines[key] = {
+            refs: events.map((evt) => [evt.id, evt.created_at]),
+            filter,
+            urls
+          }
+          return onEvents([...events], true)
+        }
+
+        // Prevent concurrent requests from duplicating the same event
+        const firstRefCreatedAt = timeline.refs[0][1]
+        const newRefs = events
+          .filter((evt) => evt.created_at > firstRefCreatedAt)
+          .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
+
+        if (events.length >= filter.limit) {
+          // if new refs are more than limit, means old refs are too old, replace them
+          timeline.refs = newRefs
+          onEvents([...events], true)
+        } else {
+          // merge new refs with old refs
+          timeline.refs = newRefs.concat(timeline.refs)
+          onEvents([...events.concat(cachedEvents).slice(0, filter.limit)], true)
+        }
+      } else {
+        // No caching for initial load, but still need to initialize timeline.refs for loadMoreTimeline pagination
+        const timeline = that.timelines[key]
+        if (!timeline || Array.isArray(timeline)) {
+          // Initialize timeline with refs for pagination (even though we don't use cache for initial load)
+          that.timelines[key] = {
+            refs: events.map((evt) => [evt.id, evt.created_at]),
+            filter,
+            urls
+          }
+        } else {
+          // Update refs with new events for pagination tracking
+          const firstRefCreatedAt = timeline.refs.length > 0 ? timeline.refs[0][1] : dayjs().unix()
+          const newRefs = events
+            .filter((evt) => evt.created_at > firstRefCreatedAt)
+            .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
+          if (events.length >= filter.limit) {
+            timeline.refs = newRefs
+          } else {
+            timeline.refs = newRefs.concat(timeline.refs)
+          }
+        }
+        // Return events directly (no cache concatenation)
+        onEvents([...events], true)
+      }
+    }
+
     const subCloser = this.subscribe(relays, since ? { ...filter, since } : filter, {
       startLogin,
       onevent: (evt: NEvent) => {
@@ -1268,6 +1370,12 @@ class ClientService extends EventTarget {
         // not eosed yet, push to events
         if (!eosedAt) {
           events.push(evt)
+          if (firstRelayResultGraceTimer == null) {
+            firstRelayResultGraceTimer = setTimeout(() => {
+              firstRelayResultGraceTimer = null
+              handleTimelineEose(true)
+            }, FIRST_RELAY_RESULT_GRACE_MS)
+          }
           // Deliver as soon as we have any event while waiting for EOSE (then batch further updates)
           if (needSort && events.length >= 1 && !initialBatchScheduled) {
             initialBatchScheduled = true
@@ -1313,86 +1421,17 @@ class ClientService extends EventTarget {
         // insert the event to the right position
         timeline.refs.splice(idx, 0, [evt.id, evt.created_at])
       },
-      oneose: (eosed) => {
-        if (eosed && !eosedAt) {
-          eosedAt = dayjs().unix()
-          if (progressiveIntervalId) {
-            clearInterval(progressiveIntervalId)
-            progressiveIntervalId = null
-          }
-        }
-        // (algo feeds) no need to sort and cache
-        if (!needSort) {
-          return onEvents([...events], !!eosedAt)
-        }
-        if (!eosed) {
-          events = events.sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
-          // Only include cached events if caching is enabled
-          return onEvents([...(useCache ? events.concat(cachedEvents).slice(0, filter.limit) : events)], false)
-        }
-
-        events = events.sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
-        
-        // Only update timeline cache if caching is enabled
-        if (useCache) {
-          const timeline = that.timelines[key]
-          // no cache yet
-          if (!timeline || Array.isArray(timeline) || !timeline.refs.length) {
-            that.timelines[key] = {
-              refs: events.map((evt) => [evt.id, evt.created_at]),
-              filter,
-              urls
-            }
-            return onEvents([...events], true)
-          }
-
-          // Prevent concurrent requests from duplicating the same event
-          const firstRefCreatedAt = timeline.refs[0][1]
-          const newRefs = events
-            .filter((evt) => evt.created_at > firstRefCreatedAt)
-            .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
-
-          if (events.length >= filter.limit) {
-            // if new refs are more than limit, means old refs are too old, replace them
-            timeline.refs = newRefs
-            onEvents([...events], true)
-          } else {
-            // merge new refs with old refs
-            timeline.refs = newRefs.concat(timeline.refs)
-            onEvents([...events.concat(cachedEvents).slice(0, filter.limit)], true)
-          }
-        } else {
-          // No caching for initial load, but still need to initialize timeline.refs for loadMoreTimeline pagination
-          const timeline = that.timelines[key]
-          if (!timeline || Array.isArray(timeline)) {
-            // Initialize timeline with refs for pagination (even though we don't use cache for initial load)
-            that.timelines[key] = {
-              refs: events.map((evt) => [evt.id, evt.created_at]),
-              filter,
-              urls
-            }
-          } else {
-            // Update refs with new events for pagination tracking
-            const firstRefCreatedAt = timeline.refs.length > 0 ? timeline.refs[0][1] : dayjs().unix()
-            const newRefs = events
-              .filter((evt) => evt.created_at > firstRefCreatedAt)
-              .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
-            if (events.length >= filter.limit) {
-              timeline.refs = newRefs
-            } else {
-              timeline.refs = newRefs.concat(timeline.refs)
-            }
-          }
-          // Return events directly (no cache concatenation)
-          onEvents([...events], true)
-        }
-      },
+      oneose: handleTimelineEose,
       onclose: onClose
     })
 
     return {
       timelineKey: key,
       closer: () => {
+        if (firstRelayResultGraceTimer != null) {
+          clearTimeout(firstRelayResultGraceTimer)
+          firstRelayResultGraceTimer = null
+        }
         if (progressiveIntervalId) {
           clearInterval(progressiveIntervalId)
           progressiveIntervalId = null
@@ -1529,6 +1568,7 @@ class ClientService extends EventTarget {
       replaceableRace?: boolean
       /** For non-replaceable single events: return immediately on first match */
       immediateReturn?: boolean
+      firstRelayResultGraceMs?: number | false
     }
   ) {
     return this.queryService.query(urls, filter, onevent, options)
@@ -1543,12 +1583,18 @@ class ClientService extends EventTarget {
       onevent,
       cache = false,
       eoseTimeout,
-      globalTimeout
+      globalTimeout,
+      firstRelayResultGraceMs,
+      replaceableRace,
+      immediateReturn
     }: {
       onevent?: (evt: NEvent) => void
       cache?: boolean
       eoseTimeout?: number
       globalTimeout?: number
+      firstRelayResultGraceMs?: number | false
+      replaceableRace?: boolean
+      immediateReturn?: boolean
     } = {}
   ) {
     let relays = Array.from(new Set(urls))
@@ -1559,12 +1605,13 @@ class ClientService extends EventTarget {
       const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
       relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
     }
-    const events = await this.queryService.query(
-      relays, 
-      filter, 
-      onevent,
-      { eoseTimeout, globalTimeout }
-    )
+    const events = await this.queryService.query(relays, filter, onevent, {
+      eoseTimeout,
+      globalTimeout,
+      firstRelayResultGraceMs,
+      replaceableRace,
+      immediateReturn
+    })
     if (cache) {
       events.forEach((evt) => {
         this.addEventToCache(evt)

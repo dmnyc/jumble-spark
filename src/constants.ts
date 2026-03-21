@@ -14,6 +14,28 @@ export const DEFAULT_FAVORITE_RELAYS = [
   'wss://nostr.land'
 ]
 
+/** Multi-relay queries and timeline initial REQ: after the first event, wait this long then close (query) or finalize EOSE (live feed) while keeping the subscription open for new events. */
+export const FIRST_RELAY_RESULT_GRACE_MS = 2000
+
+/**
+ * Implicit query feed grace ({@link FIRST_RELAY_RESULT_GRACE_MS}) applies only when the largest `limit` among
+ * filters is at least this value. Omitting `limit` counts as 0 (no implicit grace).
+ */
+export const FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT = 200
+
+/**
+ * Batched kind-0 queries (ReplaceableEventService) over many relays (inbox, favorites, cache, defaults).
+ * Too low causes empty profiles and NIP-05 gaps when relays are slow or many URLs are queried.
+ */
+export const METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS = 16000
+export const METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS = 500
+
+/**
+ * useFetchProfile: outer Promise.race on fetchProfileEvent and wait-for-shared-promise timeouts.
+ * Must be greater than {@link METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS} so the batch can finish first.
+ */
+export const PROFILE_FETCH_PROMISE_TIMEOUT_MS = 20000
+
 export const RECOMMENDED_RELAYS = DEFAULT_FAVORITE_RELAYS.concat([])
 
 export const RECOMMENDED_BLOSSOM_SERVERS = [

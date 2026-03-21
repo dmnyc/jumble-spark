@@ -1,11 +1,8 @@
-import Sidebar from '@/components/Sidebar'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import logger from '@/lib/logger'
 import { ChevronLeft } from 'lucide-react'
 import { NavigationService } from '@/services/navigation.service'
-import NoteListPage from '@/pages/primary/NoteListPage'
-import SecondaryNoteListPage from '@/pages/secondary/NoteListPage'
 // Page imports needed for primary note view
 import NoteDrawer from '@/components/NoteDrawer'
 import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
@@ -28,6 +25,7 @@ import {
   createRef,
   isValidElement,
   lazy,
+  type ReactElement,
   type ReactNode,
   RefObject,
   Suspense,
@@ -38,26 +36,39 @@ import {
   useRef,
   useState
 } from 'react'
-import BottomNavigationBar from './components/BottomNavigationBar'
 import { useTranslation } from 'react-i18next'
-import TooManyRelaysAlertDialog from './components/TooManyRelaysAlertDialog'
+import { KeyboardShortcutsHelpProvider } from '@/components/KeyboardShortcutsHelp'
 import { normalizeUrl } from './lib/url'
-import ExplorePage from './pages/primary/ExplorePage'
-import MePage from './pages/primary/MePage'
-import ProfilePage from './pages/primary/ProfilePage'
-import RelayPage from './pages/primary/RelayPage'
-import SearchPage from './pages/primary/SearchPage'
-import RssPage from './pages/primary/RssPage'
-import SettingsPrimaryPage from './pages/primary/SettingsPrimaryPage'
+import modalManager from './services/modal-manager.service'
+import { routes } from './routes'
 import { useScreenSize } from './providers/ScreenSizeProvider'
 
 /** Lazy-loaded so PageManager does not synchronously import SpellsPage (avoids HMR cycle: SpellsPage → PrimaryPageLayout → PageManager → SpellsPage). */
 const SpellsPageLazy = lazy(() => import('./pages/primary/SpellsPage'))
-import { routes } from './routes'
-import modalManager from './services/modal-manager.service'
-import CreateWalletGuideToast from './components/CreateWalletGuideToast'
-import { KeyboardShortcutsHelpProvider } from '@/components/KeyboardShortcutsHelp'
+/** Lazy NoteList pages break: PageManager → … → NoteList → NoteCard → useSmartNoteNavigation → PageManager */
+const NoteListPageLazy = lazy(() => import('@/pages/primary/NoteListPage'))
+const SecondaryNoteListPageLazy = lazy(() => import('@/pages/secondary/NoteListPage'))
 
+const primaryPageLazyFallback = (
+  <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
+    Loading…
+  </div>
+)
+
+/** Lazy primary pages: each may import PrimaryPageLayout → usePrimaryPage → would sync-import PageManager. */
+const ExplorePageLazy = lazy(() => import('./pages/primary/ExplorePage'))
+const MePageLazy = lazy(() => import('./pages/primary/MePage'))
+const ProfilePageLazy = lazy(() => import('./pages/primary/ProfilePage'))
+const RelayPageLazy = lazy(() => import('./pages/primary/RelayPage'))
+const SearchPageLazy = lazy(() => import('./pages/primary/SearchPage'))
+const RssPageLazy = lazy(() => import('./pages/primary/RssPage'))
+const SettingsPrimaryPageLazy = lazy(() => import('./pages/primary/SettingsPrimaryPage'))
+
+/** Lazy chrome: Sidebar / bottom bar / dialogs import hooks from PageManager — must not be sync-imported here. */
+const SidebarLazy = lazy(() => import('@/components/Sidebar'))
+const BottomNavigationBarLazy = lazy(() => import('@/components/BottomNavigationBar'))
+const TooManyRelaysAlertDialogLazy = lazy(() => import('@/components/TooManyRelaysAlertDialog'))
+const CreateWalletGuideToastLazy = lazy(() => import('@/components/CreateWalletGuideToast'))
 
 type TPrimaryPageContext = {
   navigate: (page: TPrimaryPageName, props?: object) => void
@@ -96,22 +107,48 @@ const PRIMARY_PAGE_REF_MAP = {
 // Lazy function to create PRIMARY_PAGE_MAP to avoid circular dependency
 // This is only evaluated when called, not at module load time
 const getPrimaryPageMap = () => ({
-  home: <ExplorePage ref={PRIMARY_PAGE_REF_MAP.home} />,
-  feed: <NoteListPage ref={PRIMARY_PAGE_REF_MAP.feed} />,
-  me: <MePage ref={PRIMARY_PAGE_REF_MAP.me} />,
-  profile: <ProfilePage ref={PRIMARY_PAGE_REF_MAP.profile} />,
-  relay: <RelayPage ref={PRIMARY_PAGE_REF_MAP.relay} />,
-  search: <SearchPage ref={PRIMARY_PAGE_REF_MAP.search} />,
-  rss: <RssPage ref={PRIMARY_PAGE_REF_MAP.rss} />,
-  settings: <SettingsPrimaryPage ref={PRIMARY_PAGE_REF_MAP.settings} />,
+  home: (
+    <Suspense fallback={primaryPageLazyFallback}>
+      <ExplorePageLazy ref={PRIMARY_PAGE_REF_MAP.home} />
+    </Suspense>
+  ),
+  feed: (
+    <Suspense fallback={primaryPageLazyFallback}>
+      <NoteListPageLazy ref={PRIMARY_PAGE_REF_MAP.feed} />
+    </Suspense>
+  ),
+  me: (
+    <Suspense fallback={primaryPageLazyFallback}>
+      <MePageLazy ref={PRIMARY_PAGE_REF_MAP.me} />
+    </Suspense>
+  ),
+  profile: (
+    <Suspense fallback={primaryPageLazyFallback}>
+      <ProfilePageLazy ref={PRIMARY_PAGE_REF_MAP.profile} />
+    </Suspense>
+  ),
+  relay: (
+    <Suspense fallback={primaryPageLazyFallback}>
+      <RelayPageLazy ref={PRIMARY_PAGE_REF_MAP.relay} />
+    </Suspense>
+  ),
+  search: (
+    <Suspense fallback={primaryPageLazyFallback}>
+      <SearchPageLazy ref={PRIMARY_PAGE_REF_MAP.search} />
+    </Suspense>
+  ),
+  rss: (
+    <Suspense fallback={primaryPageLazyFallback}>
+      <RssPageLazy ref={PRIMARY_PAGE_REF_MAP.rss} />
+    </Suspense>
+  ),
+  settings: (
+    <Suspense fallback={primaryPageLazyFallback}>
+      <SettingsPrimaryPageLazy ref={PRIMARY_PAGE_REF_MAP.settings} />
+    </Suspense>
+  ),
   spells: (
-    <Suspense
-      fallback={
-        <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-          Loading…
-        </div>
-      }
-    >
+    <Suspense fallback={primaryPageLazyFallback}>
       <SpellsPageLazy ref={PRIMARY_PAGE_REF_MAP.spells} />
     </Suspense>
   )
@@ -443,7 +480,12 @@ export function useSmartHashtagNavigation() {
     // Use a key based on the hashtag and navigation counter to force remounting when hashtag changes
     // This ensures the component reads the new URL parameters when it mounts
     // setPrimaryNoteView will increment the counter, so we use counter + 1 for the key
-    setPrimaryNoteView(<SecondaryNoteListPage key={key} hideTitlebar={true} />, 'hashtag')
+    setPrimaryNoteView(
+      <Suspense fallback={primaryPageLazyFallback}>
+        <SecondaryNoteListPageLazy key={key} hideTitlebar={true} />
+      </Suspense>,
+      'hashtag'
+    )
     // Dispatch custom event as a fallback for components that might be reused
     window.dispatchEvent(new CustomEvent('hashtag-navigation', { detail: { url: parsedUrl } }))
   }
@@ -1520,9 +1562,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                 noteId={drawerNoteId} 
               />
             )}
-            <BottomNavigationBar />
-            <TooManyRelaysAlertDialog />
-            <CreateWalletGuideToast />
+            <Suspense fallback={null}>
+              <BottomNavigationBarLazy />
+            </Suspense>
+            <Suspense fallback={null}>
+              <TooManyRelaysAlertDialogLazy />
+            </Suspense>
+            <Suspense fallback={null}>
+              <CreateWalletGuideToastLazy />
+            </Suspense>
             </NoteDrawerContext.Provider>
             </PrimaryNoteViewContext.Provider>
           </NotificationProvider>
@@ -1562,7 +1610,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                   maxWidth: '1920px'
                 }}
               >
-                <Sidebar />
+                <Suspense fallback={null}>
+                  <SidebarLazy />
+                </Suspense>
                 {(() => {
                   if (panelMode === 'double') {
                     // Double-pane mode: show feed on left (flexible, maintains width), secondary stack on right (1042px, same as drawer)
@@ -1667,8 +1717,12 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                 </SheetContent>
               </Sheet>
             )}
-            <TooManyRelaysAlertDialog />
-            <CreateWalletGuideToast />
+            <Suspense fallback={null}>
+              <TooManyRelaysAlertDialogLazy />
+            </Suspense>
+            <Suspense fallback={null}>
+              <CreateWalletGuideToastLazy />
+            </Suspense>
             </NoteDrawerContext.Provider>
             </PrimaryNoteViewContext.Provider>
           </NotificationProvider>
@@ -1715,6 +1769,20 @@ function isCurrentPage(stack: TStackItem[], url: string) {
   return currentPage.url === url
 }
 
+/** Route elements are `<Suspense><LazyPage /></Suspense>` — props must be applied to the lazy leaf, not Suspense. */
+function cloneSecondaryRouteElement(
+  element: ReactElement,
+  props: Record<string, unknown>
+): ReactElement {
+  if (element.type === Suspense) {
+    const inner = element.props.children
+    if (isValidElement(inner)) {
+      return cloneElement(element, undefined, cloneElement(inner, props as any))
+    }
+  }
+  return cloneElement(element, props as any)
+}
+
 function findAndCreateComponent(url: string, index: number) {
   const path = url.split('?')[0].split('#')[0]
   logger.component('PageManager', 'findAndCreateComponent called', { url, path, routes: routes.length })
@@ -1739,7 +1807,7 @@ function findAndCreateComponent(url: string, index: number) {
     
     logger.component('PageManager', 'Creating component with params', { params, index })
     try {
-      const component = cloneElement(element, { ...params, index, ref } as any)
+      const component = cloneSecondaryRouteElement(element, { ...params, index, ref })
       logger.component('PageManager', 'Component created successfully', { hasComponent: !!component })
       return { component, ref }
     } catch (error) {

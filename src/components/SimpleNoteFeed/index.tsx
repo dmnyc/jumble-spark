@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { RefreshCw } from 'lucide-react'
 import { useNostr } from '@/providers/NostrProvider'
 import { normalizeUrl } from '@/lib/url'
-import { FAST_READ_RELAY_URLS } from '@/constants'
+import { FAST_READ_RELAY_URLS, FIRST_RELAY_RESULT_GRACE_MS } from '@/constants'
 import client from '@/services/client.service'
 import { Event } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
@@ -87,7 +87,9 @@ const SimpleNoteFeed = forwardRef<
       // Fetch events
       logger.component('SimpleNoteFeed', 'Calling client.fetchEvents')
       const { queryService } = await import('@/services/client.service')
-      const fetchedEvents = await queryService.fetchEvents(allRelays, [filter])
+      const fetchedEvents = await queryService.fetchEvents(allRelays, [filter], {
+        firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS
+      })
       
       logger.component('SimpleNoteFeed', 'Fetched events', { count: fetchedEvents.length })
       
