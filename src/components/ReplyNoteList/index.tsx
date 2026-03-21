@@ -11,6 +11,7 @@ import {
 } from '@/lib/event'
 import { shouldHideInteractions } from '@/lib/event-filtering'
 import logger from '@/lib/logger'
+import { normalizeUrl } from '@/lib/url'
 import { toNote } from '@/lib/link'
 import { generateBech32IdFromETag, tagNameEquals } from '@/lib/tag'
 import { useSmartNoteNavigation, useSecondaryPage } from '@/PageManager'
@@ -19,12 +20,13 @@ import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useReply } from '@/providers/ReplyProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
+import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import client from '@/services/client.service'
 import { eventService, queryService } from '@/services/client.service'
 import noteStatsService from '@/services/note-stats.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
-import { buildReplyReadRelayList } from '@/lib/relay-list-builder'
+import { buildReplyReadRelayList, relayHintsFromEventTags } from '@/lib/relay-list-builder'
 import { Filter, Event as NEvent, kinds } from 'nostr-tools'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -63,6 +65,7 @@ function ReplyNoteList({
   const { hideContentMentioningMutedUsers } = useContentPolicy()
   const { relayList: userRelayList, pubkey: userPubkey } = useNostr()
   const { blockedRelays } = useFavoriteRelays()
+  const { relayUrls: browsingRelayUrls } = useCurrentRelays()
   const [rootInfo, setRootInfo] = useState<TRootInfo | undefined>(undefined)
   const { repliesMap, addReplies } = useReply()
 
@@ -324,10 +327,16 @@ function ReplyNoteList({
         try {
           // READ from: FAST_READ_RELAY_URLS + user's inboxes + local relays + OP author's outboxes
           const opAuthorPubkey = rootInfo.type === 'E' || rootInfo.type === 'A' ? rootInfo.pubkey : undefined
+          const seenOn = client.getSeenEventRelayUrls(event.id).map((u) => normalizeUrl(u) || u).filter(Boolean)
+          const fromBrowsingFeed = browsingRelayUrls.map((u) => normalizeUrl(u) || u).filter(Boolean)
+          const threadRelayHints = [
+            ...new Set([...relayHintsFromEventTags(event), ...seenOn, ...fromBrowsingFeed])
+          ]
           const finalRelayUrls = await buildReplyReadRelayList(
             opAuthorPubkey,
             userPubkey || undefined,
-            blockedRelays || []
+            blockedRelays || [],
+            threadRelayHints
           )
 
           const filters: Filter[] = []
@@ -410,7 +419,7 @@ function ReplyNoteList({
     }
 
     init()
-  }, [rootInfo, currentIndex, index, userRelayList, event.kind, addReplies])
+  }, [rootInfo, currentIndex, index, userRelayList, event, blockedRelays, browsingRelayUrls, addReplies])
 
   useEffect(() => {
     if (replies.length === 0 && !loading && timelineKey) {

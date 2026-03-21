@@ -42,14 +42,38 @@ export function fauxFavoriteRelayUrls(favoriteRelays: string[], blockedRelays: s
   return dedupe(base.map((u) => normalizeUrl(u) || u).filter(Boolean) as string[])
 }
 
+/** Same cap/priority as the main Notification list: read/inbox relays first, then favorites, then defaults (few relays → faster EOSE, fewer dead sockets). */
+const NOTIFICATION_FEED_MAX_RELAYS = 5
+
+function relayUrlsUpToUnblocked(urls: string[], blocked: Set<string>, max: number): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const u of urls) {
+    const k = normalizeUrl(u) || u
+    if (!k || blocked.has(k) || seen.has(k)) continue
+    seen.add(k)
+    out.push(k)
+    if (out.length >= max) break
+  }
+  return out
+}
+
 export function notificationRelayUrls(
   relayList: TRelayList | null | undefined,
-  favoriteRelays: string[]
+  favoriteRelays: string[],
+  blockedRelays: string[] = []
 ): string[] {
+  const blocked = new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
   const read = relayList?.read ?? []
-  if (read.length > 0) return dedupe(read.slice(0, 5))
-  if (favoriteRelays.length > 0) return dedupe(favoriteRelays.slice(0, 5))
-  return dedupe(FAST_READ_RELAY_URLS.slice(0, 5))
+  if (read.length > 0) {
+    const fromRead = relayUrlsUpToUnblocked(read, blocked, NOTIFICATION_FEED_MAX_RELAYS)
+    if (fromRead.length > 0) return fromRead
+  }
+  if (favoriteRelays.length > 0) {
+    const fromFav = relayUrlsUpToUnblocked(favoriteRelays, blocked, NOTIFICATION_FEED_MAX_RELAYS)
+    if (fromFav.length > 0) return fromFav
+  }
+  return relayUrlsUpToUnblocked(FAST_READ_RELAY_URLS, blocked, NOTIFICATION_FEED_MAX_RELAYS)
 }
 
 function dedupe(urls: string[]): string[] {

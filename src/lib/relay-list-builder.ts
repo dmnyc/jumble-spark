@@ -257,6 +257,18 @@ export async function buildExploreProfileAndUserRelayList(
   }
 }
 
+/** NIP-10 relay hints from `e` / `E` tags (third value) on the focused event or thread. */
+export function relayHintsFromEventTags(event: { tags: string[][] }): string[] {
+  const out = new Set<string>()
+  for (const tag of event.tags) {
+    if ((tag[0] === 'e' || tag[0] === 'E') && tag[2]) {
+      const n = normalizeUrl(tag[2]) || tag[2]
+      if (n) out.add(n)
+    }
+  }
+  return [...out]
+}
+
 /**
  * Build relay list for reading replies/comments
  * READ from: FAST_READ_RELAY_URLS + user's inboxes + local relays + OP author's outboxes
@@ -264,11 +276,13 @@ export async function buildExploreProfileAndUserRelayList(
 export async function buildReplyReadRelayList(
   opAuthorPubkey: string | undefined,
   userPubkey: string | undefined,
-  blockedRelays: string[] = []
+  blockedRelays: string[] = [],
+  threadRelayHints: string[] = []
 ): Promise<string[]> {
   return buildComprehensiveRelayList({
     authorPubkey: opAuthorPubkey,
     userPubkey,
+    relayHints: threadRelayHints,
     includeFastReadRelays: true,
     includeLocalRelays: true,
     blockedRelays

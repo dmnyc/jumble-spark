@@ -15,12 +15,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle
-} from '@/components/ui/sheet'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
@@ -28,9 +23,11 @@ import { usePrimaryPage } from '@/PageManager'
 import logger from '@/lib/logger'
 import { showPublishingError } from '@/lib/publishing-feedback'
 import { cn } from '@/lib/utils'
+import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useNostr } from '@/providers/NostrProvider'
+import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
@@ -38,6 +35,7 @@ import storage from '@/services/local-storage.service'
 import { ExtendedKind, FAUX_SPELL_ORDER, PROFILE_FEED_KINDS } from '@/constants'
 import { isUserInEventMentions } from '@/lib/event'
 import { formatPubkey } from '@/lib/pubkey'
+import { normalizeUrl } from '@/lib/url'
 import {
   buildSpellCatalogAuthors,
   getRelaysForSpell,
@@ -242,6 +240,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const { navigate: navigatePrimary } = usePrimaryPage()
   const { pubkey, relayList, attemptDelete, bookmarkListEvent, interestListEvent } = useNostr()
   const { hideUntrustedNotifications } = useUserTrust()
+  const { isSmallScreen } = useScreenSize()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const {
     showKinds: kindFilterShowKinds,
@@ -317,6 +316,18 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             o: relayList.originalRelays.map((x) => [x.url, x.scope])
           })
         : '',
+    [relayList]
+  )
+
+  /** Content key only — `relayList` often gets a new object ref from NostrProvider; recomputing spell filters would re-run `resolveRelativeTime` (Date.now) and churn NoteList subscriptions. */
+  const relayListWriteKey = useMemo(
+    () =>
+      JSON.stringify(
+        [...(relayList?.write ?? [])]
+          .map((u) => normalizeUrl(u) || u)
+          .filter(Boolean)
+          .sort()
+      ),
     [relayList]
   )
 
@@ -414,7 +425,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
     if (selectedFauxSpell === 'notifications') {
       if (!pubkey) return []
-      const urls = fauxFavoriteRelayUrls(favoriteRelays, blockedRelays)
+      const urls = notificationRelayUrls(relayList, favoriteRelays, blockedRelays)
       if (!urls.length) return []
       return [{ urls, filter: buildMentionsSpellFilter(pubkey) }]
     }
@@ -441,17 +452,18 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     }
     if (selectedFauxSpell === 'bookmarks') {
       if (!pubkey) return []
-      const urls = notificationRelayUrls(relayList, favoriteRelays)
+      const urls = notificationRelayUrls(relayList, favoriteRelays, blockedRelays)
       return buildBookmarksSubRequests(bookmarkListEvent, urls)
     }
     if (selectedFauxSpell === 'followPacks') {
       return buildFollowPacksSubRequests()
     }
     return []
+    // spellCatalogRelayKey: stable mailbox fingerprint (not relayList ref) so faux feeds don’t rebuild every NostrProvider tick
   }, [
     selectedFauxSpell,
     pubkey,
-    relayList,
+    spellCatalogRelayKey,
     favoriteRelays,
     blockedRelays,
     interestListEvent,
@@ -472,12 +484,31 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     const relays = getRelaysForSpell(selectedSpell, { relayListWrite })
     if (!relays.length) return []
     return [{ urls: relays, filter }]
-  }, [selectedSpell, pubkey, contacts, relayList?.write])
+    // relayListWriteKey + contactsSyncKey: avoid recomputing when relayList/contacts are new refs with same contents (spell filters use Date.now via resolveRelativeTime)
+  }, [selectedSpell, pubkey, contactsSyncKey, relayListWriteKey])
 
   const subRequests = useMemo<TFeedSubRequest[]>(() => {
     if (selectedFauxSpell) return fauxSubRequests
     return spellSubRequests
   }, [selectedFauxSpell, fauxSubRequests, spellSubRequests])
+
+  const spellBrowseRelayUrls = useMemo(() => {
+    const set = new Set<string>()
+    for (const req of subRequests) {
+      for (const u of req.urls) {
+        const n = normalizeUrl(u) || u
+        if (n) set.add(n)
+      }
+    }
+    return [...set]
+  }, [subRequests])
+
+  const { addRelayUrls, removeRelayUrls } = useCurrentRelays()
+  useEffect(() => {
+    if (!spellBrowseRelayUrls.length) return
+    addRelayUrls(spellBrowseRelayUrls)
+    return () => removeRelayUrls(spellBrowseRelayUrls)
+  }, [spellBrowseRelayUrls, addRelayUrls, removeRelayUrls])
 
   const toggleFavorite = useCallback(async (spellId: string) => {
     const ids = await indexedDb.getSpellFavoriteIds()
@@ -645,6 +676,162 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     return t('Nothing to load for this feed.')
   }, [selectedFauxSpell, fauxSubRequests.length, t])
 
+  const spellPickerList = (
+    <>
+      {FAUX_SPELL_ORDER.map((name) => {
+        if (
+          (name === 'notifications' ||
+            name === 'following' ||
+            name === 'bookmarks' ||
+            name === 'interests') &&
+          !pubkey
+        ) {
+          return null
+        }
+        const Icon = FAUX_SPELL_ICON[name]
+        const selected = selectedFauxSpell === name
+        return (
+          <button
+            key={name}
+            type="button"
+            role="option"
+            aria-selected={selected}
+            className={cn(
+              'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+              'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              selected && 'bg-accent/50'
+            )}
+            onClick={() => pickFauxSpell(selected ? null : name)}
+          >
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              {selected ? <Check className="size-4" aria-hidden /> : null}
+            </span>
+            <Icon className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-left font-medium">
+              {t(fauxSpellLabelKey(name))}
+            </span>
+          </button>
+        )
+      })}
+      <button
+        type="button"
+        role="option"
+        aria-selected={!selectedSpell && !selectedFauxSpell}
+        className={cn(
+          'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+          'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          !selectedSpell && !selectedFauxSpell && 'bg-accent/50'
+        )}
+        onClick={clearSpellSelection}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {!selectedSpell && !selectedFauxSpell ? <Check className="size-4" aria-hidden /> : null}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-left font-normal text-muted-foreground">
+          {t('Select a spell…')}
+        </span>
+      </button>
+
+      {ownSpells.length > 0 ? (
+        <>
+          <Separator className="my-2" />
+          <p className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('spellPickerSectionYours')}
+          </p>
+          {ownSpells.map((spell) => (
+            <SpellSheetOptionRow
+              key={spell.id}
+              spell={spell}
+              selected={selectedSpell?.id === spell.id}
+              accountPubkey={pubkey ?? undefined}
+              labelFor={spellMenuLabel}
+              onPick={pickSpell}
+            />
+          ))}
+        </>
+      ) : null}
+
+      {followSpells.length > 0 ? (
+        <>
+          <Separator className="my-2" />
+          <p className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('Spells from follows', { count: followSpells.length })}
+          </p>
+          {followSpellGroups.map(({ pubkey: authorPk, spells: groupSpells }) => (
+            <div key={authorPk} className="mt-2 overflow-hidden rounded-lg border border-border/60">
+              <SpellSheetAuthorHeader userId={authorPk} />
+              <div className="px-0.5 py-0.5">
+                {groupSpells.map((spell) => (
+                  <SpellSheetOptionRow
+                    key={spell.id}
+                    spell={spell}
+                    selected={selectedSpell?.id === spell.id}
+                    accountPubkey={pubkey ?? undefined}
+                    labelFor={spellMenuLabel}
+                    onPick={pickSpell}
+                    groupedUnderAuthor
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      ) : null}
+
+      {otherSpells.length > 0 ? (
+        <>
+          <Separator className="my-2" />
+          <p className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('Other spells', { count: otherSpells.length })}
+          </p>
+          {otherSpellGroups.map(({ pubkey: authorPk, spells: groupSpells }) => (
+            <div key={authorPk} className="mt-2 overflow-hidden rounded-lg border border-border/60">
+              <SpellSheetAuthorHeader userId={authorPk} />
+              <div className="px-0.5 py-0.5">
+                {groupSpells.map((spell) => (
+                  <SpellSheetOptionRow
+                    key={spell.id}
+                    spell={spell}
+                    selected={selectedSpell?.id === spell.id}
+                    accountPubkey={pubkey ?? undefined}
+                    labelFor={spellMenuLabel}
+                    onPick={pickSpell}
+                    groupedUnderAuthor
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      ) : null}
+    </>
+  )
+
+  const spellPickerTriggerButton = (
+    <Button
+      type="button"
+      variant="outline"
+      className="min-w-0 flex-1 justify-between font-normal sm:max-w-md"
+      title={
+        selectedFauxSpell
+          ? t(fauxSpellLabelKey(selectedFauxSpell))
+          : selectedSpell
+            ? spellMenuLabel(selectedSpell)
+            : undefined
+      }
+      aria-expanded={spellPickerOpen}
+    >
+      <span className="truncate">
+        {selectedFauxSpell
+          ? t(fauxSpellLabelKey(selectedFauxSpell))
+          : selectedSpell
+            ? spellMenuLabel(selectedSpell)
+            : t('Select a spell…')}
+      </span>
+      <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
+    </Button>
+  )
+
   return (
     <PrimaryPageLayout
       ref={ref}
@@ -672,174 +859,67 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         {/* Spell picker + actions above the feed */}
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <>
-            <Button
-              type="button"
-              variant="outline"
-              className="min-w-0 flex-1 justify-between font-normal sm:max-w-md"
-              title={
-                selectedFauxSpell
-                  ? t(fauxSpellLabelKey(selectedFauxSpell))
-                  : selectedSpell
-                    ? spellMenuLabel(selectedSpell)
-                    : undefined
-              }
-              aria-haspopup="dialog"
-              aria-expanded={spellPickerOpen}
-              onClick={() => setSpellPickerOpen(true)}
-            >
-              <span className="truncate">
-                {selectedFauxSpell
-                  ? t(fauxSpellLabelKey(selectedFauxSpell))
-                  : selectedSpell
-                    ? spellMenuLabel(selectedSpell)
-                    : t('Select a spell…')}
-              </span>
-              <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
-            </Button>
-
-            <Sheet open={spellPickerOpen} onOpenChange={setSpellPickerOpen}>
-              <SheetContent
-                side="bottom"
-                className="flex max-h-[min(92dvh,40rem)] flex-col gap-0 rounded-t-2xl p-0 sm:max-h-[75vh]"
-              >
-                <SheetHeader className="shrink-0 space-y-0 border-b px-4 py-3 text-left">
-                  <SheetTitle className="text-base">{t('Select a spell…')}</SheetTitle>
-                </SheetHeader>
-
-                <div
-                  className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2"
-                  role="listbox"
-                  aria-label={t('Select a spell…')}
+            {isSmallScreen ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-w-0 flex-1 justify-between font-normal sm:max-w-md"
+                  title={
+                    selectedFauxSpell
+                      ? t(fauxSpellLabelKey(selectedFauxSpell))
+                      : selectedSpell
+                        ? spellMenuLabel(selectedSpell)
+                        : undefined
+                  }
+                  aria-haspopup="dialog"
+                  aria-expanded={spellPickerOpen}
+                  onClick={() => setSpellPickerOpen(true)}
                 >
-                  {FAUX_SPELL_ORDER.map((name) => {
-                    if (
-                      (name === 'notifications' ||
-                        name === 'following' ||
-                        name === 'bookmarks' ||
-                        name === 'interests') &&
-                      !pubkey
-                    ) {
-                      return null
-                    }
-                    const Icon = FAUX_SPELL_ICON[name]
-                    const selected = selectedFauxSpell === name
-                    return (
-                      <button
-                        key={name}
-                        type="button"
-                        role="option"
-                        aria-selected={selected}
-                        className={cn(
-                          'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
-                          'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                          selected && 'bg-accent/50'
-                        )}
-                        onClick={() => pickFauxSpell(selected ? null : name)}
-                      >
-                        <span className="flex size-4 shrink-0 items-center justify-center">
-                          {selected ? <Check className="size-4" aria-hidden /> : null}
-                        </span>
-                        <Icon className="size-4 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate text-left font-medium">
-                          {t(fauxSpellLabelKey(name))}
-                        </span>
-                      </button>
-                    )
-                  })}
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={!selectedSpell && !selectedFauxSpell}
-                    className={cn(
-                      'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
-                      'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      !selectedSpell && !selectedFauxSpell && 'bg-accent/50'
-                    )}
-                    onClick={clearSpellSelection}
-                  >
-                    <span className="flex size-4 shrink-0 items-center justify-center">
-                      {!selectedSpell && !selectedFauxSpell ? <Check className="size-4" aria-hidden /> : null}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-left font-normal text-muted-foreground">
-                      {t('Select a spell…')}
-                    </span>
-                  </button>
-
-                  {ownSpells.length > 0 ? (
-                    <>
-                      <Separator className="my-2" />
-                      <p className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {t('spellPickerSectionYours')}
-                      </p>
-                      {ownSpells.map((spell) => (
-                        <SpellSheetOptionRow
-                          key={spell.id}
-                          spell={spell}
-                          selected={selectedSpell?.id === spell.id}
-                          accountPubkey={pubkey ?? undefined}
-                          labelFor={spellMenuLabel}
-                          onPick={pickSpell}
-                        />
-                      ))}
-                    </>
-                  ) : null}
-
-                  {followSpells.length > 0 ? (
-                    <>
-                      <Separator className="my-2" />
-                      <p className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {t('Spells from follows', { count: followSpells.length })}
-                      </p>
-                      {followSpellGroups.map(({ pubkey: authorPk, spells: groupSpells }) => (
-                        <div key={authorPk} className="mt-2 overflow-hidden rounded-lg border border-border/60">
-                          <SpellSheetAuthorHeader userId={authorPk} />
-                          <div className="px-0.5 py-0.5">
-                            {groupSpells.map((spell) => (
-                              <SpellSheetOptionRow
-                                key={spell.id}
-                                spell={spell}
-                                selected={selectedSpell?.id === spell.id}
-                                accountPubkey={pubkey ?? undefined}
-                                labelFor={spellMenuLabel}
-                                onPick={pickSpell}
-                                groupedUnderAuthor
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  ) : null}
-
-                  {otherSpells.length > 0 ? (
-                    <>
-                      <Separator className="my-2" />
-                      <p className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {t('Other spells', { count: otherSpells.length })}
-                      </p>
-                      {otherSpellGroups.map(({ pubkey: authorPk, spells: groupSpells }) => (
-                        <div key={authorPk} className="mt-2 overflow-hidden rounded-lg border border-border/60">
-                          <SpellSheetAuthorHeader userId={authorPk} />
-                          <div className="px-0.5 py-0.5">
-                            {groupSpells.map((spell) => (
-                              <SpellSheetOptionRow
-                                key={spell.id}
-                                spell={spell}
-                                selected={selectedSpell?.id === spell.id}
-                                accountPubkey={pubkey ?? undefined}
-                                labelFor={spellMenuLabel}
-                                onPick={pickSpell}
-                                groupedUnderAuthor
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  ) : null}
-                </div>
-              </SheetContent>
-            </Sheet>
+                  <span className="truncate">
+                    {selectedFauxSpell
+                      ? t(fauxSpellLabelKey(selectedFauxSpell))
+                      : selectedSpell
+                        ? spellMenuLabel(selectedSpell)
+                        : t('Select a spell…')}
+                  </span>
+                  <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
+                </Button>
+                <Drawer open={spellPickerOpen} onOpenChange={setSpellPickerOpen}>
+                  <DrawerContent className="flex max-h-[min(92dvh,40rem)] flex-col gap-0 p-0 sm:max-h-[75vh]">
+                    <DrawerHeader className="shrink-0 space-y-0 border-b px-4 py-3 text-left">
+                      <DrawerTitle className="text-base">{t('Select a spell…')}</DrawerTitle>
+                    </DrawerHeader>
+                    <div
+                      className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2"
+                      role="listbox"
+                      aria-label={t('Select a spell…')}
+                    >
+                      {spellPickerList}
+                    </div>
+                  </DrawerContent>
+                </Drawer>
+              </>
+            ) : (
+              <DropdownMenu open={spellPickerOpen} onOpenChange={setSpellPickerOpen}>
+                <DropdownMenuTrigger asChild aria-haspopup="menu">
+                  {spellPickerTriggerButton}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  side="bottom"
+                  showScrollButtons
+                  className="max-h-[min(75vh,40rem)] w-[var(--radix-dropdown-menu-trigger-width)] max-w-md p-0"
+                >
+                  <div className="sticky top-0 z-10 border-b bg-popover px-3 py-2 text-left text-sm font-semibold">
+                    {t('Select a spell…')}
+                  </div>
+                  <div className="px-1 py-2" role="listbox" aria-label={t('Select a spell…')}>
+                    {spellPickerList}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">

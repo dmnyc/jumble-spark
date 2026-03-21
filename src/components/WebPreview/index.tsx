@@ -134,7 +134,7 @@ export default function WebPreview({ url, className }: { url: string; className?
   const { isSmallScreen } = useScreenSize()
 
   const cleanedUrl = useMemo(() => cleanUrl(url), [url])
-  const { title, description, image } = useFetchWebMetadata(cleanedUrl)
+  const { title, description, image, ogLoading } = useFetchWebMetadata(cleanedUrl)
 
   const hostname = useMemo(() => {
     try {

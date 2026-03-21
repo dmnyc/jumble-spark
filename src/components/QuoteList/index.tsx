@@ -1,6 +1,7 @@
 import { FAST_READ_RELAY_URLS } from '@/constants'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { normalizeUrl } from '@/lib/url'
+import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import client from '@/services/client.service'
@@ -13,6 +14,8 @@ import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
 const LIMIT = 100
 const SHOW_COUNT = 10
+/** Multi-filter quote subs only set `eosed` after every sub EOSEs; one stuck relay would otherwise leave the UI loading forever. */
+const INITIAL_QUOTE_LOAD_TIMEOUT_MS = 12_000
 
 export default function QuoteList({
   event,
@@ -26,6 +29,7 @@ export default function QuoteList({
 }) {
   const { t } = useTranslation()
   const { relayList: userRelayList } = useNostr()
+  const { relayUrls: browsingRelayUrls } = useCurrentRelays()
   const { hideUntrustedInteractions, isUserTrusted } = useUserTrust()
   const [timelineKey, setTimelineKey] = useState<string | undefined>(undefined)
   const [events, setEvents] = useState<Event[]>([])
@@ -33,19 +37,35 @@ export default function QuoteList({
   const [hasMore, setHasMore] = useState<boolean>(true)
   const [loading, setLoading] = useState(true)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const receivedAnyQuotesRef = useRef(false)
 
   useEffect(() => {
+    let cancelled = false
+    let loadTimeoutId: ReturnType<typeof setTimeout> | undefined
+
     async function init() {
       setLoading(true)
       setEvents([])
       setHasMore(true)
+      receivedAnyQuotesRef.current = false
 
-      // Privacy: Only use user's own relays + defaults, never connect to other users' relays
+      loadTimeoutId = setTimeout(() => {
+        if (cancelled) return
+        setLoading(false)
+        if (!receivedAnyQuotesRef.current) {
+          setHasMore(false)
+        }
+      }, INITIAL_QUOTE_LOAD_TIMEOUT_MS)
+
       const userRelays = userRelayList?.read || []
-      const finalRelayUrls = Array.from(new Set([
-        ...userRelays.map(url => normalizeUrl(url) || url),
-        ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url)
-      ]))
+      const fromFeed = browsingRelayUrls.map((u) => normalizeUrl(u) || u).filter(Boolean)
+      const finalRelayUrls = Array.from(
+        new Set([
+          ...fromFeed,
+          ...userRelays.map((url) => normalizeUrl(url) || url),
+          ...FAST_READ_RELAY_URLS.map((url) => normalizeUrl(url) || url)
+        ])
+      )
 
       const eventId = isReplaceableEvent(event.kind) ? getReplaceableCoordinateFromEvent(event) : event.id
       const eventCoordinate = isReplaceableEvent(event.kind) ? getReplaceableCoordinateFromEvent(event) : `${event.kind}:${event.pubkey}:${event.id}`
@@ -86,21 +106,34 @@ export default function QuoteList({
           }
         ],
         {
-          onEvents: (events, eosed) => {
-            if (events.length > 0) {
-              setEvents(events)
+          onEvents: (batch, eosed) => {
+            if (cancelled) return
+            if (batch.length > 0) {
+              receivedAnyQuotesRef.current = true
+              setEvents(batch)
+            }
+            if (batch.length > 0 || eosed) {
+              setLoading(false)
+              if (loadTimeoutId) {
+                clearTimeout(loadTimeoutId)
+                loadTimeoutId = undefined
+              }
             }
             if (eosed) {
-              setLoading(false)
-              // CRITICAL FIX: Always assume there might be more events
-              // Even if we got fewer events than the limit, there might be more due to filtering
-              // The loadMore logic will handle stopping when we've truly reached the end
-              setHasMore(true)
+              setHasMore(batch.length > 0)
             }
           },
-          onNew: (event) => {
+          onNew: (newEvt) => {
+            if (cancelled) return
+            receivedAnyQuotesRef.current = true
+            setLoading(false)
+            if (loadTimeoutId) {
+              clearTimeout(loadTimeoutId)
+              loadTimeoutId = undefined
+            }
+            setHasMore(true)
             setEvents((oldEvents) =>
-              [event, ...oldEvents].sort((a, b) => b.created_at - a.created_at)
+              [newEvt, ...oldEvents].sort((a, b) => b.created_at - a.created_at)
             )
           }
         },
@@ -108,15 +141,21 @@ export default function QuoteList({
           useCache: false // NO CACHING - stream raw from relays
         }
       )
+      if (cancelled) {
+        closer()
+        return undefined
+      }
       setTimelineKey(timelineKey)
       return closer
     }
 
     const promise = init()
     return () => {
-      promise.then((closer) => closer())
+      cancelled = true
+      if (loadTimeoutId) clearTimeout(loadTimeoutId)
+      promise.then((closer) => closer?.())
     }
-  }, [event])
+  }, [event, browsingRelayUrls, userRelayList?.read])
 
   useEffect(() => {
     const options = {
