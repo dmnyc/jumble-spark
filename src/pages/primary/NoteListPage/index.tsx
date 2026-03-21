@@ -8,7 +8,7 @@ import { useFeed } from '@/providers/FeedProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { TPageRef } from '@/types'
-import { Info } from 'lucide-react'
+import { Compass, Info } from 'lucide-react'
 import React, {
   Dispatch,
   forwardRef,
@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next'
 import HelpAndAccountMenu from '@/components/HelpAndAccountMenu'
 import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
-import { usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryNoteView, usePrimaryPage } from '@/PageManager'
 
 const NoteListPage = forwardRef((_, ref) => {
   const { t } = useTranslation()
@@ -134,11 +134,32 @@ function NoteListPageTitlebar({
 }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
-  const { setPrimaryNoteView } = usePrimaryNoteView()
+  const { navigate, current, display } = usePrimaryPage()
+  const { primaryViewType, setPrimaryNoteView } = usePrimaryNoteView()
+  const exploreActive = display && current === 'explore' && primaryViewType === null
   return (
     <div className="relative flex gap-1 items-center h-full justify-between">
-      <div className="flex gap-2 items-center h-full pl-3">
-        <div className="text-lg font-semibold">{t('Favorites Feed')}</div>
+      <div className="flex min-w-0 flex-1 items-center gap-1 h-full pl-1 sm:pl-3">
+        {isSmallScreen && (
+          <Button
+            variant="ghost"
+            size="titlebar-icon"
+            title={t('Explore')}
+            aria-label={t('Explore')}
+            className={exploreActive ? 'bg-accent/50' : ''}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (primaryViewType !== null) {
+                setPrimaryNoteView(null)
+              } else {
+                navigate('explore')
+              }
+            }}
+          >
+            <Compass />
+          </Button>
+        )}
+        <div className="min-w-0 truncate text-lg font-semibold">{t('Favorites Feed')}</div>
       </div>
       {isSmallScreen && (
         <div className="absolute left-1/2 transform -translate-x-1/2 z-10">

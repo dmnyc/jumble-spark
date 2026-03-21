@@ -1,24 +1,27 @@
 import { usePrimaryPage, usePrimaryNoteView } from '@/PageManager'
-import { Compass } from 'lucide-react'
+import storage from '@/services/local-storage.service'
+import { Rss } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'
 
-/** Relay explore / discovery (primary Explore page). */
-export default function FeedButton() {
+export default function RssButton() {
   const { navigate, current, display } = usePrimaryPage()
   const { primaryViewType, setPrimaryNoteView } = usePrimaryNoteView()
+  const showRssFeed = storage.getShowRssFeed()
+
+  if (!showRssFeed) return null
 
   return (
     <BottomNavigationBarItem
-      active={current === 'explore' && display && primaryViewType === null}
+      active={current === 'rss' && display && primaryViewType === null}
       onClick={() => {
         if (primaryViewType !== null) {
           setPrimaryNoteView(null)
         } else {
-          navigate('explore')
+          navigate('rss')
         }
       }}
     >
-      <Compass />
+      <Rss />
     </BottomNavigationBarItem>
   )
 }

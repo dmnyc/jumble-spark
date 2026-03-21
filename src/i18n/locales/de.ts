@@ -8,7 +8,7 @@ export default {
     Post: 'Beitrag',
     Home: 'Startseite',
     Feed: 'Feed',
-    'Favorites Feed': 'Favoriten-Feed',
+    'Favorites Feed': 'Favoriten',
     'Pinned note': 'Angehefteter Beitrag',
     'Relay settings': 'Relay-Einstellungen',
     Settings: 'Einstellungen',
