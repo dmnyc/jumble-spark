@@ -493,6 +493,7 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
               : undefined
           }
         />
+        <NoteBoostBadges event={finalEvent} className="mt-2" />
         <NoteStats className="mt-3" event={finalEvent} fetchIfNotExisting displayTopZapsAndLikes />
       </div>
       <Separator className="mt-4" />

@@ -5,9 +5,7 @@ import { Event } from 'nostr-tools'
 import { useState } from 'react'
 import HideUntrustedContentButton from '../HideUntrustedContentButton'
 import QuoteList from '../QuoteList'
-import ReactionList from '../ReactionList'
 import ReplyNoteList from '../ReplyNoteList'
-import ZapList from '../ZapList'
 import { Tabs, TTabValue } from './Tabs'
 import ReplySort, { ReplySortOption } from './ReplySort'
 
@@ -36,16 +34,6 @@ export default function NoteInteractions({
       if (isDiscussion) return null // Hide quotes for discussions
       list = <QuoteList event={event} />
       break
-    case 'reactions':
-      list = <ReactionList event={event} />
-      break
-    case 'boosts':
-      if (isDiscussion) return null // Hide boosts for discussions
-      list = <RepostList event={event} />
-      break
-    case 'zaps':
-      list = <ZapList event={event} />
-      break
     default:
       break
   }
@@ -54,7 +42,7 @@ export default function NoteInteractions({
     <>
       <div className="flex items-center justify-between">
         <div className="flex-1 w-0">
-          <Tabs selectedTab={type} onTabChange={setType} hideBoostsAndQuotes={isDiscussion} />
+          <Tabs selectedTab={type} onTabChange={setType} hideQuotesForDiscussion={isDiscussion} />
         </div>
         <Separator orientation="vertical" className="h-6" />
         {type === 'replies' && isDiscussion && (

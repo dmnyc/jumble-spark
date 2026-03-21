@@ -2,11 +2,9 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from 'react-i18next'
 import { useRef, useEffect, useState } from 'react'
 
-export type TTabValue = 'replies' | 'quotes' | 'reactions' | 'zaps'
+export type TTabValue = 'replies' | 'quotes'
 const TABS = [
   { value: 'replies', label: 'Replies' },
-  { value: 'zaps', label: 'Zaps' },
-  { value: 'reactions', label: 'Reactions' },
   { value: 'quotes', label: 'Quotes' }
 ] as { value: TTabValue; label: string }[]
 
@@ -25,10 +23,7 @@ export function Tabs({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [indicatorStyle, setIndicatorStyle] = useState({ width: 0, left: 0, top: 0 })
 
-  // Filter tabs based on hideBoostsAndQuotes
-  const visibleTabs = hideBoostsAndQuotes
-    ? TABS.filter((tab) => tab.value !== 'boosts' && tab.value !== 'quotes')
-    : TABS
+  const visibleTabs = hideQuotesForDiscussion ? TABS.filter((tab) => tab.value !== 'quotes') : TABS
 
   useEffect(() => {
     setTimeout(() => {

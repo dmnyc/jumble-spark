@@ -568,6 +568,7 @@ export default {
     'No zaps yet': 'No zaps yet',
     'No more boosts': 'No more boosts',
     'No boosts yet': 'No boosts yet',
+    'n more boosts': '{{count}} more boosts',
     Boosts: 'Boosts',
     FollowListNotFoundConfirmation:
       'Follow list not found. Do you want to create a new one? If you have followed users before, please DO NOT confirm as this operation will cause you to lose your previous follow list.',

@@ -498,6 +498,7 @@ export default {
     'No zaps yet': 'Noch keine Zaps',
     'No more boosts': 'Keine weiteren Boosts',
     'No boosts yet': 'Noch keine Boosts',
+    'n more boosts': '{{count}} weitere Boosts',
     Boosts: 'Boosts',
     FollowListNotFoundConfirmation:
       'Folgeliste nicht gefunden. Möchten Sie eine neue erstellen? Wenn Sie zuvor Benutzer gefolgt haben, bestätigen Sie bitte NICHT, da diese Operation dazu führt, dass Sie Ihre vorherige Folgeliste verlieren.',

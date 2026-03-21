@@ -1,7 +1,7 @@
+import { ExtendedKind } from '@/constants'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { shouldHideInteractions } from '@/lib/event-filtering'
 import { cn } from '@/lib/utils'
-import { ExtendedKind } from '@/constants'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import { Event } from 'nostr-tools'
 import { useMemo } from 'react'
@@ -51,7 +51,7 @@ export default function NoteBoostBadges({ event, className }: { event: Event; cl
       {overflow > 0 ? (
         <span
           className="-ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground ring-2 ring-background"
-          title={t('No more boosts')}
+          title={t('n more boosts', { count: overflow })}
         >
           +{overflow}
         </span>

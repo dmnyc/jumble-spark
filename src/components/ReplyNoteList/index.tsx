@@ -9,6 +9,7 @@ import {
   isReplaceableEvent,
   isReplyNoteEvent
 } from '@/lib/event'
+import { shouldHideInteractions } from '@/lib/event-filtering'
 import logger from '@/lib/logger'
 import { toNote } from '@/lib/link'
 import { generateBech32IdFromETag, tagNameEquals } from '@/lib/tag'
@@ -25,10 +26,12 @@ import noteStatsService from '@/services/note-stats.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
 import { buildReplyReadRelayList } from '@/lib/relay-list-builder'
 import { Filter, Event as NEvent, kinds } from 'nostr-tools'
+import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LoadingBar } from '../LoadingBar'
 import ReplyNote, { ReplyNoteSkeleton } from '../ReplyNote'
+import ZapReplyFeedRow from './ZapReplyFeedRow'
 
 type TRootInfo =
   | { type: 'E'; id: string; pubkey: string }
@@ -43,6 +46,7 @@ function ReplyNoteList({ index, event, sort = 'oldest' }: { index?: number; even
   const { navigateToNote } = useSmartNoteNavigation()
   const { currentIndex } = useSecondaryPage()
   const { hideUntrustedInteractions, isUserTrusted } = useUserTrust()
+  const noteStats = useNoteStatsById(event.id)
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
   const { relayList: userRelayList, pubkey: userPubkey } = useNostr()
@@ -179,6 +183,14 @@ function ReplyNoteList({ index, event, sort = 'oldest' }: { index?: number; even
         return replyEvents.sort((a, b) => b.created_at - a.created_at)
     }
   }, [event.id, repliesMap, mutePubkeySet, hideContentMentioningMutedUsers, sort])
+
+  const zapsForFeed = useMemo(() => {
+    if (shouldHideInteractions(event)) return []
+    const raw = noteStats?.zaps ?? []
+    const filtered = hideUntrustedInteractions ? raw.filter((z) => isUserTrusted(z.pubkey)) : raw
+    return [...filtered].sort((a, b) => b.amount - a.amount)
+  }, [event, noteStats, hideUntrustedInteractions, isUserTrusted])
+
   const [timelineKey] = useState<string | undefined>(undefined)
   const [until, setUntil] = useState<number | undefined>(undefined)
   const [loading, setLoading] = useState<boolean>(false)
@@ -470,6 +482,9 @@ function ReplyNoteList({ index, event, sort = 'oldest' }: { index?: number; even
   return (
     <div className="min-h-[80vh]">
       {loading && <LoadingBar />}
+      {zapsForFeed.map((zap) => (
+        <ZapReplyFeedRow key={zap.pr} zap={zap} />
+      ))}
       {!loading && until && (
         <div
           className={`text-sm text-center text-muted-foreground border-b py-2 ${!loading ? 'hover:text-foreground cursor-pointer' : ''}`}
