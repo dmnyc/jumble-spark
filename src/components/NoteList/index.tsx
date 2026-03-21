@@ -237,6 +237,9 @@ const NoteList = forwardRef(
         return () => {}
       }
 
+      /** False after cleanup so stale timeline callbacks cannot overwrite state after switching feeds (e.g. Spells discussions → notifications). */
+      let effectActive = true
+
       async function init() {
         setLoading(true)
         setEvents([])
@@ -281,7 +284,10 @@ const NoteList = forwardRef(
 
         let closer: (() => void) | undefined
         let timelineKey: string | undefined
-        
+        let timelineSubscribePromise:
+          | Promise<{ closer: () => void; timelineKey: string }>
+          | undefined
+
         try {
           // Add timeout wrapper to prevent subscribeTimeline from hanging indefinitely
           const timeoutPromise = new Promise<never>((_, reject) => {
@@ -290,11 +296,11 @@ const NoteList = forwardRef(
             }, 5000) // 5 second timeout
           })
           
-          const result = await Promise.race([
-            client.subscribeTimeline(
+          timelineSubscribePromise = client.subscribeTimeline(
             mappedSubRequests,
             {
               onEvents: (events: Event[], eosed: boolean) => {
+                if (!effectActive) return
                 if (events.length > 0) {
                   setEvents(events)
                   // Do not wait for full EOSE across many relays — otherwise loading/skeleton stays up for 10–30s+
@@ -314,6 +320,7 @@ const NoteList = forwardRef(
                       pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.add(p))
                       // Batch fetch in background (non-blocking) with delay to not block initial render
                       setTimeout(() => {
+                        if (!effectActive) return
                         client.fetchProfilesForPubkeys(pubkeysToFetch).catch(() => {
                           // On error, remove from prefetched set so we can retry later
                           pubkeysToFetch.forEach((p) => prefetchedPubkeysRef.current.delete(p))
@@ -337,6 +344,7 @@ const NoteList = forwardRef(
                     eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
                     // Batch fetch embedded events in background (non-blocking) with delay
                     setTimeout(() => {
+                      if (!effectActive) return
                       Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
                         // On error, remove from prefetched set so we can retry later
                         eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
@@ -369,6 +377,7 @@ const NoteList = forwardRef(
                 }
               },
             onNew: (event: Event) => {
+              if (!effectActive) return
               if (!useFilterAsIs && !showKinds.includes(event.kind)) return
               if (event.kind === kinds.ShortTextNote) {
                 const isReply = isReplyNoteEvent(event)
@@ -395,22 +404,34 @@ const NoteList = forwardRef(
             needSort: !areAlgoRelays,
             useCache: false // Main feeds should always fetch fresh from relays, not use cache
           }
-            ),
-            timeoutPromise
-          ])
+          )
+
+          const result = await Promise.race([timelineSubscribePromise, timeoutPromise])
+          if (!effectActive) {
+            result.closer()
+            return () => {}
+          }
           closer = result.closer
           timelineKey = result.timelineKey
         setTimelineKey(timelineKey)
         return closer
       } catch (_error) {
         setLoading(false)
-        // Return a no-op closer function instead of throwing - allows cleanup to work
+        // Race timeout or subscribe failure: if the timeline promise later resolves, close or subs leak (relay slots + stale setEvents).
+        if (timelineSubscribePromise) {
+          void timelineSubscribePromise
+            .then((r) => {
+              r.closer()
+            })
+            .catch(() => {})
+        }
         return () => {}
       }
       }
 
       const promise = init()
       return () => {
+        effectActive = false
         promise.then((closer) => closer?.())
       }
     }, [

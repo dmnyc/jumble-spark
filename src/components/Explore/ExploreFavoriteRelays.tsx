@@ -2,12 +2,12 @@ import RelaySimpleInfo, { RelaySimpleInfoSkeleton } from '@/components/RelaySimp
 import { Button } from '@/components/ui/button'
 import { DEFAULT_FAVORITE_RELAYS } from '@/constants'
 import { useFetchRelayInfo } from '@/hooks'
-import { toRelay } from '@/lib/link'
+import { toRelay, toRelaySettings } from '@/lib/link'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
-import { usePrimaryPage, useSmartRelayNavigation } from '@/PageManager'
+import { usePrimaryPage, useSecondaryPage, useSmartRelayNavigation } from '@/PageManager'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { cn } from '@/lib/utils'
-import { Newspaper } from 'lucide-react'
+import { Newspaper, Settings } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -58,6 +58,7 @@ function FavoriteRelayCard({ url }: { url: string }) {
 export default function ExploreFavoriteRelays() {
   const { t } = useTranslation()
   const { navigate } = usePrimaryPage()
+  const { push } = useSecondaryPage()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
 
   const blockedSet = useMemo(
@@ -99,6 +100,17 @@ export default function ExploreFavoriteRelays() {
           >
             <Newspaper className="size-4 shrink-0" strokeWidth={2.5} />
             <span>{t('Favorites Feed')}</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            aria-label={t('Relays and Storage Settings')}
+            title={t('Relays and Storage Settings')}
+            onClick={() => push(toRelaySettings('favorite-relays'))}
+          >
+            <Settings className="size-4 shrink-0" strokeWidth={2.5} />
           </Button>
         </div>
         {usingDefaults ? (

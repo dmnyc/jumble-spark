@@ -17,6 +17,13 @@ const NOTIFICATION_LIMIT = 500
 const DISCUSSION_LIMIT = 500
 const MAX_BOOKMARK_IDS = 250
 
+/**
+ * Spells “Discussions” uses NoteList → subscribeTimeline → one live REQ per relay.
+ * The same merged list as DiscussionsPage’s one-shot query would open 80+ sockets and exhaust
+ * subscription slots; cap keeps first paint fast. Full coverage remains on /discussions.
+ */
+const DISCUSSION_FAUX_SPELL_MAX_RELAYS = 32
+
 export const MEDIA_SPELL_KINDS = [
   ExtendedKind.PICTURE,
   ExtendedKind.VIDEO,
@@ -66,7 +73,10 @@ export function buildMentionsSpellFilter(pubkey: string): Filter {
   }
 }
 
-/** Relay set for discussion threads (kind 11), aligned with DiscussionsPage’s merged list (sync). */
+/**
+ * Relay set for Spells “Discussions” (kind 11): same merge order as DiscussionsPage, but capped
+ * for subscription-based loading (see DISCUSSION_FAUX_SPELL_MAX_RELAYS).
+ */
 export function discussionRelayUrls(
   relayList: TRelayList | null | undefined,
   favoriteRelays: string[],
@@ -83,6 +93,7 @@ export function discussionRelayUrls(
     if (!k || seen.has(k) || blocked.has(k)) continue
     seen.add(k)
     out.push(k)
+    if (out.length >= DISCUSSION_FAUX_SPELL_MAX_RELAYS) break
   }
   return out
 }

@@ -231,6 +231,33 @@ export async function buildComprehensiveRelayList(options: RelayListBuilderOptio
 }
 
 /**
+ * Explore: Following's Favorites (kind 10012 batch) and Relay reviews tab.
+ * PROFILE_FETCH_RELAY_URLS plus the viewer's read/write and cache (10432) relays — no FAST_READ.
+ */
+export async function buildExploreProfileAndUserRelayList(
+  userPubkey: string | null | undefined
+): Promise<string[]> {
+  if (!userPubkey) {
+    return Array.from(new Set([...PROFILE_FETCH_RELAY_URLS]))
+  }
+  try {
+    const built = await buildComprehensiveRelayList({
+      userPubkey,
+      includeUserOwnRelays: true,
+      includeProfileFetchRelays: true,
+      includeFastReadRelays: false,
+      includeFavoriteRelays: false,
+      includeLocalRelays: true,
+      includeFastWriteRelays: false,
+      includeSearchableRelays: false
+    })
+    return built.length > 0 ? built : Array.from(new Set([...PROFILE_FETCH_RELAY_URLS]))
+  } catch {
+    return Array.from(new Set([...PROFILE_FETCH_RELAY_URLS]))
+  }
+}
+
+/**
  * Build relay list for reading replies/comments
  * READ from: FAST_READ_RELAY_URLS + user's inboxes + local relays + OP author's outboxes
  */

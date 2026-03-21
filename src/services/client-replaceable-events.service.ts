@@ -18,7 +18,7 @@ import indexedDb from './indexed-db.service'
 import type { QueryService } from './client-query.service'
 import logger from '@/lib/logger'
 import client from './client.service'
-import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
+import { buildComprehensiveRelayList, buildExploreProfileAndUserRelayList } from '@/lib/relay-list-builder'
 
 export class ReplaceableEventService {
   private queryService: QueryService
@@ -436,6 +436,8 @@ export class ReplaceableEventService {
         // For metadata with a logged-in user, merge defaults with {@link buildComprehensiveRelayList}: inboxes (read),
         // local/cache relays (10432), favorite relays (10012), plus profile + fast read — same idea as favorites feed
         // / inbox-scoped discovery without per-author relay list fetches.
+        // Following's Favorites (Explore): kind 10012 batch uses PROFILE_FETCH_RELAY_URLS + viewer's own relays only
+        // (no FAST_READ), so outbox data is queried where the user actually reads + profile-index relays.
         let relayUrls: string[]
         if (kind === kinds.Metadata) {
           const userPk = client.pubkey
@@ -457,6 +459,8 @@ export class ReplaceableEventService {
           } else {
             relayUrls = Array.from(new Set([...PROFILE_FETCH_RELAY_URLS, ...FAST_READ_RELAY_URLS]))
           }
+        } else if (kind === ExtendedKind.FAVORITE_RELAYS) {
+          relayUrls = await buildExploreProfileAndUserRelayList(client.pubkey)
         } else {
           relayUrls = [...FAST_READ_RELAY_URLS]
         }

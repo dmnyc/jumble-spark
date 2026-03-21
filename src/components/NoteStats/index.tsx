@@ -74,7 +74,8 @@ export default function NoteStats({
         {displayTopZapsAndLikes && (
           <>
             <TopZaps event={event} />
-            <Likes event={event} />
+            {/* Kind 11: LikeButton already shows ⬆️/⬇️; Likes row would duplicate those pills */}
+            {!isDiscussion && <Likes event={event} />}
           </>
         )}
         <div
@@ -100,7 +101,7 @@ export default function NoteStats({
       {displayTopZapsAndLikes && (
         <>
           <TopZaps event={event} />
-          <Likes event={event} />
+          {!isDiscussion && <Likes event={event} />}
         </>
       )}
       <div className="flex justify-between h-5 [&_svg]:size-4">
