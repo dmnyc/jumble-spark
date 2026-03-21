@@ -29,6 +29,8 @@ const ROUTES = [
   { path: '/search/notes/:id', element: <NotePage /> },
   { path: '/profile/notes/:id', element: <NotePage /> },
   { path: '/explore/notes/:id', element: <NotePage /> },
+  { path: '/home/notes/:id', element: <NotePage /> },
+  { path: '/feed/notes/:id', element: <NotePage /> },
   { path: '/spells/notes/:id', element: <NotePage /> },
   { path: '/users', element: <ProfileListPage /> },
   { path: '/users/:id', element: <ProfilePage /> },
@@ -36,7 +38,8 @@ const ROUTES = [
   { path: '/users/:id/relays', element: <OthersRelaySettingsPage /> },
   { path: '/relays/:url', element: <RelayPage /> },
   { path: '/relays/:url/reviews', element: <RelayReviewsPage /> },
-  // Contextual relay route (only for explore page where you discover relays)
+  // Contextual relay routes (home = explore; legacy /explore)
+  { path: '/home/relays/:url', element: <RelayPage /> },
   { path: '/explore/relays/:url', element: <RelayPage /> },
   { path: '/search', element: <SearchPage /> },
   { path: '/settings', element: <SettingsPage /> },

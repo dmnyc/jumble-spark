@@ -1,22 +1,45 @@
 import NoteCard from '@/components/NoteCard'
 import ProfileSearchBar from '@/components/ui/ProfileSearchBar'
 import RetroRefreshButton from '@/components/ui/RetroRefreshButton'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ExtendedKind, PROFILE_FEED_KINDS } from '@/constants'
+import { isReplyNoteEvent } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { useProfilePins } from '@/hooks/useProfilePins'
 import { useProfileTimeline } from '@/hooks/useProfileTimeline'
+import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useZap } from '@/providers/ZapProvider'
-import { Event } from 'nostr-tools'
+import storage from '@/services/local-storage.service'
+import { Event, kinds } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Skeleton } from '@/components/ui/skeleton'
 
 const INITIAL_SHOW_COUNT = 25
 const LOAD_MORE_COUNT = 25
 
+function useHideRepliesLikeMainFeed() {
+  const [hideReplies, setHideReplies] = useState(() => {
+    const m = storage.getNoteListMode()
+    return m !== 'postsAndReplies'
+  })
+
+  useEffect(() => {
+    const sync = () => {
+      const m = storage.getNoteListMode()
+      setHideReplies(m !== 'postsAndReplies')
+    }
+    window.addEventListener('noteListModeChanged', sync)
+    return () => window.removeEventListener('noteListModeChanged', sync)
+  }, [])
+
+  return hideReplies
+}
+
 const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string }>(({ pubkey }, ref) => {
   const { t } = useTranslation()
   const { zapReplyThreshold } = useZap()
+  const { showKinds, showKind1OPs, showKind1Replies, showKind1111 } = useKindFilter()
+  const hideReplies = useHideRepliesLikeMainFeed()
   const [searchQuery, setSearchQuery] = useState('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [showCount, setShowCount] = useState(INITIAL_SHOW_COUNT)
@@ -49,9 +72,24 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
 
   const pinIds = useMemo(() => new Set(pinEvents.map((e) => e.id)), [pinEvents])
 
+  const passesMainFeedTimelineRules = useCallback(
+    (event: Event) => {
+      if (!showKinds.includes(event.kind)) return false
+      if (event.kind === kinds.ShortTextNote) {
+        const isReply = isReplyNoteEvent(event)
+        if (hideReplies && isReply) return false
+        if (isReply && !showKind1Replies) return false
+        if (!isReply && !showKind1OPs) return false
+      }
+      if (event.kind === ExtendedKind.COMMENT && !showKind1111) return false
+      return true
+    },
+    [showKinds, showKind1OPs, showKind1Replies, showKind1111, hideReplies]
+  )
+
   const restTimeline = useMemo(
-    () => timelineEvents.filter((e) => !pinIds.has(e.id)),
-    [timelineEvents, pinIds]
+    () => timelineEvents.filter((e) => !pinIds.has(e.id)).filter(passesMainFeedTimelineRules),
+    [timelineEvents, pinIds, passesMainFeedTimelineRules]
   )
 
   const applySearch = useCallback(
@@ -70,6 +108,8 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
   const filteredRest = useMemo(() => applySearch(restTimeline), [restTimeline, applySearch])
 
   const mergedDisplay = useMemo(() => [...filteredPins, ...filteredRest], [filteredPins, filteredRest])
+
+  const pinnedDisplayIds = useMemo(() => new Set(filteredPins.map((e) => e.id)), [filteredPins])
 
   useEffect(() => {
     setShowCount(INITIAL_SHOW_COUNT)
@@ -174,10 +214,15 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
           <div key={event.id}>
             {index === filteredPins.length && filteredPins.length > 0 && filteredRest.length > 0 && (
               <div className="text-xs text-muted-foreground px-2 py-1 border-t border-border/60 mt-2 pt-2">
-                {t('Posts')}
+                {t('Feed')}
               </div>
             )}
-            <NoteCard className="w-full" event={event} filterMutedNotes={false} />
+            <NoteCard
+              className="w-full"
+              event={event}
+              filterMutedNotes={false}
+              pinned={pinnedDisplayIds.has(event.id)}
+            />
           </div>
         ))}
       </div>

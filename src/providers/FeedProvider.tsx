@@ -234,13 +234,12 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
 
   // Update relay URLs when favoriteRelays change and we're in all-favorites mode
   useEffect(() => {
-    if (feedInfo.feedType === 'all-favorites') {
-      // Filter out blocked relays
-      const visibleRelays = favoriteRelays.filter(relay => !blockedRelays.includes(relay))
-      logger.debug('Updating relay URLs for all-favorites:', visibleRelays)
-      setRelayUrls(visibleRelays)
-    }
-  }, [pubkey, isInitialized, favoriteRelays, blockedRelays, relaySets])
+    if (feedInfo.feedType !== 'all-favorites') return
+    const visibleRelays = favoriteRelays.filter((relay) => !blockedRelays.includes(relay))
+    const finalRelays = visibleRelays.length > 0 ? visibleRelays : DEFAULT_FAVORITE_RELAYS
+    logger.debug('Updating relay URLs for all-favorites:', finalRelays)
+    setRelayUrls(finalRelays)
+  }, [feedInfo.feedType, favoriteRelays, blockedRelays])
 
   return (
     <FeedContext.Provider

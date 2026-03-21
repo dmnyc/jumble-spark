@@ -21,7 +21,6 @@ import React, {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { KeyboardShortcutsHelpButton } from '@/components/KeyboardShortcutsHelp'
-import ExploreButton from '@/components/Titlebar/ExploreButton'
 import AccountButton from '@/components/Titlebar/AccountButton'
 import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
@@ -111,7 +110,7 @@ const NoteListPage = forwardRef((_, ref) => {
 
   return (
     <PrimaryPageLayout
-      pageName="home"
+      pageName="feed"
       ref={layoutRef}
       titlebar={
         <NoteListPageTitlebar
@@ -144,12 +143,13 @@ function NoteListPageTitlebar({
   showRelayDetails?: boolean
   setShowRelayDetails?: Dispatch<SetStateAction<boolean>>
 }) {
+  const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
   const { setPrimaryNoteView } = usePrimaryNoteView()
   return (
     <div className="relative flex gap-1 items-center h-full justify-between">
-      <div className="flex gap-1 items-center">
-        <ExploreButton />
+      <div className="flex gap-2 items-center h-full pl-3">
+        <div className="text-lg font-semibold">{t('Favorites Feed')}</div>
       </div>
       {isSmallScreen && (
         <div className="absolute left-1/2 transform -translate-x-1/2 z-10">

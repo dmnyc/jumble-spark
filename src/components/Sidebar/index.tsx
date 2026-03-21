@@ -4,7 +4,7 @@ import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import AccountButton from './AccountButton'
 import KeyboardShortcutsHelpSidebarButton from './KeyboardShortcutsHelpSidebarButton'
 import DiscussionsButton from './DiscussionsButton'
-import RelaysButton from './ExploreButton'
+import FeedButton from './FeedButton'
 import HomeButton from './HomeButton'
 import NotificationButton from './NotificationButton'
 import PostButton from './PostButton'
@@ -13,15 +13,13 @@ import SearchButton from './SearchButton'
 import SettingsButton from './SettingsButton'
 import SpellsButton from './SpellsButton'
 import PaneModeToggle from './PaneModeToggle'
-import storage from '@/services/local-storage.service'
 
 export default function PrimaryPageSidebar() {
   const { isSmallScreen } = useScreenSize()
-  const showRssFeed = storage.getShowRssFeed()
   if (isSmallScreen) return null
 
   return (
-    <div className="w-16 xl:w-52 flex flex-col pb-2 pt-4 px-2 xl:px-4 justify-between h-full shrink-0">
+    <div className="w-16 xl:w-52 flex flex-col pb-2 pt-4 px-2 xl:pl-4 xl:pr-6 justify-between h-full shrink-0">
       <div className="space-y-2">
         <div className="px-3 xl:px-4 mb-6 w-full">
           <Icon className="xl:hidden" />
@@ -33,12 +31,12 @@ export default function PrimaryPageSidebar() {
           </div>
         </div>
         <HomeButton />
-        <RelaysButton />
+        <FeedButton />
         <DiscussionsButton />
         <NotificationButton />
         <SearchButton />
         <SpellsButton />
-        {showRssFeed && <RssButton />}
+        <RssButton />
         <SettingsButton />
         <PostButton />
       </div>

@@ -1,10 +1,7 @@
 import HideUntrustedContentButton from '@/components/HideUntrustedContentButton'
 import NoteList from '@/components/NoteList'
-import NotificationList from '@/components/NotificationList'
-import { RefreshButton } from '@/components/RefreshButton'
 import Tabs from '@/components/Tabs'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -28,13 +25,17 @@ import {
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
+import { usePrimaryPage } from '@/PageManager'
 import logger from '@/lib/logger'
 import { showPublishingError } from '@/lib/publishing-feedback'
 import { cn } from '@/lib/utils'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
+import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
-import { ExtendedKind } from '@/constants'
+import storage from '@/services/local-storage.service'
+import { ExtendedKind, FAUX_SPELL_ORDER, PROFILE_FEED_KINDS } from '@/constants'
 import { formatPubkey } from '@/lib/pubkey'
 import {
   buildSpellCatalogAuthors,
@@ -44,23 +45,26 @@ import {
   isSpellEvent,
   SPELL_CATALOG_SYNC_LIMIT,
   SPELL_CATALOG_SYNC_LIMIT_WITH_FOLLOWS,
-  spellEventToFilter,
-  spellHasExplicitRelays,
-  spellIsCount
+  spellEventToFilter
 } from '@/services/spell.service'
-import { TFeedSubRequest } from '@/types'
+import { TFeedSubRequest, type TNotificationType } from '@/types'
 import {
   Bell,
+  Bookmark,
+  CalendarDays,
   Check,
   ChevronDown,
   Copy,
   FileText,
+  Hash,
+  Image as ImageIcon,
   MessageSquare,
   MoreVertical,
   Pencil,
   Plus,
   Star,
   Trash2,
+  Users,
   Wand2
 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
@@ -68,10 +72,20 @@ import { verifyEvent } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
+import {
+  buildBookmarksSubRequests,
+  buildCalendarSpellFilter,
+  buildDiscussionFilter,
+  buildInterestsSubRequests,
+  buildMediaSpellFilter,
+  buildNotificationFilter,
+  discussionRelayUrls,
+  fauxFavoriteRelayUrls,
+  MEDIA_SPELL_KINDS,
+  notificationFilterKinds,
+  notificationRelayUrls
+} from './fauxSpellFeeds'
 import type { TPageRef } from '@/types'
-import type { TNotificationType } from '@/types'
-import { isTouchDevice } from '@/lib/utils'
-import DiscussionsPage from '@/pages/primary/DiscussionsPage'
 
 /** Primary + optional subtitle (npub and/or short id). When grouped under an author header, omit npub. */
 function spellPickerPrimaryAndSecondary(
@@ -166,30 +180,75 @@ function SpellSheetOptionRow({
   )
 }
 
-const FAUX_SPELL_NAMES = ['notifications', 'discussions'] as const
-type FauxSpellName = (typeof FAUX_SPELL_NAMES)[number]
+type FauxSpellName = (typeof FAUX_SPELL_ORDER)[number]
 
 function isFauxSpellName(s: string): s is FauxSpellName {
-  return FAUX_SPELL_NAMES.includes(s as FauxSpellName)
+  return (FAUX_SPELL_ORDER as readonly string[]).includes(s)
 }
 
-const SpellsPage = forwardRef<TPageRef>(function SpellsPage({ spell: spellProp }: { spell?: string }, ref) {
+function useNoteListHideReplies() {
+  const [hideReplies, setHideReplies] = useState(() => storage.getNoteListMode() === 'posts')
+
+  useEffect(() => {
+    const sync = () => setHideReplies(storage.getNoteListMode() === 'posts')
+    window.addEventListener('noteListModeChanged', sync)
+    return () => window.removeEventListener('noteListModeChanged', sync)
+  }, [])
+
+  return hideReplies
+}
+
+function fauxSpellLabelKey(name: FauxSpellName): string {
+  switch (name) {
+    case 'notifications':
+      return 'Notifications'
+    case 'discussions':
+      return 'Discussions'
+    case 'following':
+      return 'Following'
+    case 'media':
+      return 'Media'
+    case 'interests':
+      return 'Interests'
+    case 'bookmarks':
+      return 'Bookmarks'
+    case 'calendar':
+      return 'Calendar'
+    default:
+      return 'Spells'
+  }
+}
+
+const FAUX_SPELL_ICON: Record<FauxSpellName, typeof Bell> = {
+  notifications: Bell,
+  discussions: MessageSquare,
+  following: Users,
+  media: ImageIcon,
+  interests: Hash,
+  bookmarks: Bookmark,
+  calendar: CalendarDays
+}
+
+const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
+  { spell: spellProp }: { spell?: string },
+  ref
+) {
   const { t } = useTranslation()
-  const { pubkey, relayList, attemptDelete } = useNostr()
+  const { navigate: navigatePrimary } = usePrimaryPage()
+  const { pubkey, relayList, attemptDelete, bookmarkListEvent, interestListEvent } = useNostr()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
+  const {
+    showKinds: kindFilterShowKinds,
+    showKind1OPs,
+    showKind1Replies,
+    showKind1111
+  } = useKindFilter()
+  const hideRepliesFollowing = useNoteListHideReplies()
   const [spells, setSpells] = useState<Event[]>([])
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set())
   const [selectedSpell, setSelectedSpell] = useState<Event | null>(null)
   const [selectedFauxSpell, setSelectedFauxSpell] = useState<FauxSpellName | null>(null)
   const [notificationType, setNotificationType] = useState<TNotificationType>('all')
-  const notificationListRef = useRef<{ refresh: () => void }>(null)
-  const supportTouch = useMemo(() => isTouchDevice(), [])
-
-  useEffect(() => {
-    if (spellProp && isFauxSpellName(spellProp)) {
-      setSelectedFauxSpell(spellProp)
-      setSelectedSpell(null)
-    }
-  }, [spellProp])
   const [createOpen, setCreateOpen] = useState(false)
   const [spellToEdit, setSpellToEdit] = useState<Event | null>(null)
   const [spellToClone, setSpellToClone] = useState<Event | null>(null)
@@ -199,22 +258,40 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage({ spell: spellProp }
   const [spellsCatalogSyncing, setSpellsCatalogSyncing] = useState(false)
   const spellCatalogCloserRef = useRef<(() => void) | null>(null)
   const [spellPickerOpen, setSpellPickerOpen] = useState(false)
-  /** COUNT spells: per-relay breakdown + distinct total */
-  const [spellCount, setSpellCount] = useState<{
-    loading: boolean
-    rows: { url: string; count: number | null; error?: string }[]
-    totalDistinct: number | null
-    error: 'none' | 'login' | 'invalid' | 'failed'
-    mayHitLimit: boolean
-    usedExplicitRelays: boolean
-  }>({
-    loading: false,
-    rows: [],
-    totalDistinct: null,
-    error: 'none',
-    mayHitLimit: false,
-    usedExplicitRelays: false
-  })
+
+  useEffect(() => {
+    if (spellProp && isFauxSpellName(spellProp)) {
+      setSelectedFauxSpell(spellProp)
+      setSelectedSpell(null)
+    }
+  }, [spellProp])
+
+  const [followingSubRequests, setFollowingSubRequests] = useState<TFeedSubRequest[]>([])
+  const [followingFeedLoading, setFollowingFeedLoading] = useState(false)
+
+  useEffect(() => {
+    if (selectedFauxSpell !== 'following' || !pubkey) {
+      setFollowingSubRequests([])
+      setFollowingFeedLoading(false)
+      return
+    }
+    let cancelled = false
+    setFollowingFeedLoading(true)
+    void (async () => {
+      try {
+        const followings = await client.fetchFollowings(pubkey)
+        const req = await client.generateSubRequestsForPubkeys([pubkey, ...followings], pubkey)
+        if (!cancelled) setFollowingSubRequests(req)
+      } catch {
+        if (!cancelled) setFollowingSubRequests([])
+      } finally {
+        if (!cancelled) setFollowingFeedLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedFauxSpell, pubkey])
 
   const loadSpells = useCallback(async () => {
     const [events, ids] = await Promise.all([
@@ -327,163 +404,73 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage({ spell: spellProp }
     client.fetchFollowings(pubkey).then(setContacts).catch(() => setContacts([]))
   }, [pubkey])
 
-  // Memoize subRequests to prevent NoteList from re-subscribing when array reference changes
-  // This ensures the array reference only changes when the actual content changes
-  const subRequests = useMemo<TFeedSubRequest[]>(() => {
-    if (!selectedSpell) {
-      return []
+  const syncFauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
+    if (!selectedFauxSpell || selectedFauxSpell === 'following') return []
+
+    if (selectedFauxSpell === 'notifications') {
+      if (!pubkey) return []
+      const urls = notificationRelayUrls(relayList, favoriteRelays)
+      if (!urls.length) return []
+      return [{ urls, filter: buildNotificationFilter(pubkey, notificationType) }]
     }
-    if (spellIsCount(selectedSpell)) {
-      return []
+    if (selectedFauxSpell === 'discussions') {
+      const urls = discussionRelayUrls(relayList, favoriteRelays, blockedRelays)
+      if (!urls.length) return []
+      return [{ urls, filter: buildDiscussionFilter() }]
     }
+    if (selectedFauxSpell === 'media') {
+      const urls = fauxFavoriteRelayUrls(favoriteRelays, blockedRelays)
+      if (!urls.length) return []
+      return [{ urls, filter: buildMediaSpellFilter() }]
+    }
+    if (selectedFauxSpell === 'calendar') {
+      const urls = fauxFavoriteRelayUrls(favoriteRelays, blockedRelays)
+      if (!urls.length) return []
+      return [{ urls, filter: buildCalendarSpellFilter() }]
+    }
+    if (selectedFauxSpell === 'interests') {
+      if (!pubkey || !interestListEvent) return []
+      const topics = interestListEvent.tags.filter((tag) => tag[0] === 't' && tag[1]).map((tag) => tag[1]!)
+      const urls = fauxFavoriteRelayUrls(favoriteRelays, blockedRelays)
+      return buildInterestsSubRequests(urls, topics, PROFILE_FEED_KINDS)
+    }
+    if (selectedFauxSpell === 'bookmarks') {
+      if (!pubkey) return []
+      const urls = notificationRelayUrls(relayList, favoriteRelays)
+      return buildBookmarksSubRequests(bookmarkListEvent, urls)
+    }
+    return []
+  }, [
+    selectedFauxSpell,
+    pubkey,
+    notificationType,
+    relayList,
+    favoriteRelays,
+    blockedRelays,
+    interestListEvent,
+    bookmarkListEvent
+  ])
+
+  const fauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
+    if (selectedFauxSpell === 'following') return followingSubRequests
+    return syncFauxSubRequests
+  }, [selectedFauxSpell, followingSubRequests, syncFauxSubRequests])
+
+  const spellSubRequests = useMemo<TFeedSubRequest[]>(() => {
+    if (!selectedSpell) return []
     const relayListWrite = relayList?.write ?? []
-    const ctx = {
-      pubkey,
-      contacts
-    }
+    const ctx = { pubkey, contacts }
     const filter = spellEventToFilter(selectedSpell, ctx)
-    if (!filter) {
-      return []
-    }
+    if (!filter) return []
     const relays = getRelaysForSpell(selectedSpell, { relayListWrite })
-    if (!relays.length) {
-      return []
-    }
+    if (!relays.length) return []
     return [{ urls: relays, filter }]
   }, [selectedSpell, pubkey, contacts, relayList?.write])
 
-  useEffect(() => {
-    if (!selectedSpell) {
-      setSpellCount({
-        loading: false,
-        rows: [],
-        totalDistinct: null,
-        error: 'none',
-        mayHitLimit: false,
-        usedExplicitRelays: false
-      })
-      return
-    }
-    if (spellIsCount(selectedSpell)) {
-      return
-    }
-    setSpellCount({
-      loading: false,
-      rows: [],
-      totalDistinct: null,
-      error: 'none',
-      mayHitLimit: false,
-      usedExplicitRelays: false
-    })
-  }, [selectedSpell])
-
-  useEffect(() => {
-    if (!selectedSpell || !spellIsCount(selectedSpell)) {
-      return
-    }
-    let cancelled = false
-    const relayListWrite = relayList?.write ?? []
-    const ctx = { pubkey, contacts }
-    const usedExplicitRelays = spellHasExplicitRelays(selectedSpell)
-
-    const needsLogin =
-      !pubkey &&
-      selectedSpell.tags.some(
-        (tag) => tag[0] === 'authors' && (tag.includes('$me') || tag.includes('$contacts'))
-      )
-    if (needsLogin) {
-      setSpellCount({
-        loading: false,
-        rows: [],
-        totalDistinct: null,
-        error: 'login',
-        mayHitLimit: false,
-        usedExplicitRelays
-      })
-      return
-    }
-
-    const filter = spellEventToFilter(selectedSpell, ctx)
-    if (!filter) {
-      setSpellCount({
-        loading: false,
-        rows: [],
-        totalDistinct: null,
-        error: 'invalid',
-        mayHitLimit: false,
-        usedExplicitRelays
-      })
-      return
-    }
-    const relays = getRelaysForSpell(selectedSpell, { relayListWrite }, { mergeDefaultReadRelays: false })
-    if (!relays.length) {
-      setSpellCount({
-        loading: false,
-        rows: [],
-        totalDistinct: null,
-        error: 'failed',
-        mayHitLimit: false,
-        usedExplicitRelays
-      })
-      return
-    }
-
-    setSpellCount({
-      loading: true,
-      rows: [],
-      totalDistinct: null,
-      error: 'none',
-      mayHitLimit: false,
-      usedExplicitRelays
-    })
-    ;(async () => {
-      const rows: { url: string; count: number | null; error?: string }[] = []
-      const allIds = new Set<string>()
-      try {
-        for (const url of relays) {
-          if (cancelled) return
-          const { events, connectionError } = await client.fetchEventsFromSingleRelay(url, filter, {
-            globalTimeout: 28_000
-          })
-          if (cancelled) return
-          if (connectionError) {
-            rows.push({ url, count: null, error: connectionError })
-          } else {
-            const c = new Set(events.map((e) => e.id)).size
-            rows.push({ url, count: c })
-            events.forEach((e) => allIds.add(e.id))
-          }
-        }
-        if (cancelled) return
-        const lim = filter.limit
-        const totalDistinct = allIds.size
-        const mayHitLimit = typeof lim === 'number' && lim > 0 && totalDistinct >= lim
-        setSpellCount({
-          loading: false,
-          rows,
-          totalDistinct,
-          error: 'none',
-          mayHitLimit,
-          usedExplicitRelays
-        })
-      } catch {
-        if (!cancelled) {
-          setSpellCount({
-            loading: false,
-            rows,
-            totalDistinct: null,
-            error: 'failed',
-            mayHitLimit: false,
-            usedExplicitRelays
-          })
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [selectedSpell, pubkey, contacts, relayList?.write])
+  const subRequests = useMemo<TFeedSubRequest[]>(() => {
+    if (selectedFauxSpell) return fauxSubRequests
+    return spellSubRequests
+  }, [selectedFauxSpell, fauxSubRequests, spellSubRequests])
 
   const toggleFavorite = useCallback(async (spellId: string) => {
     const ids = await indexedDb.getSpellFavoriteIds()
@@ -561,38 +548,88 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage({ spell: spellProp }
   }, [selectedSpell?.id])
 
   const showKinds = useMemo(() => {
+    if (selectedFauxSpell === 'notifications') {
+      return notificationFilterKinds(notificationType)
+    }
+    if (selectedFauxSpell === 'discussions') {
+      return [ExtendedKind.DISCUSSION]
+    }
+    if (selectedFauxSpell === 'following') {
+      return kindFilterShowKinds
+    }
+    if (selectedFauxSpell === 'media') {
+      return [...MEDIA_SPELL_KINDS]
+    }
+    if (selectedFauxSpell === 'calendar') {
+      return [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME]
+    }
+    if (selectedFauxSpell === 'interests') {
+      return PROFILE_FEED_KINDS
+    }
+    if (selectedFauxSpell === 'bookmarks') {
+      return PROFILE_FEED_KINDS
+    }
     if (!selectedSpell) return [1]
     const kinds = selectedSpell.tags
       .filter((tag) => tag[0] === 'k')
       .map((tag) => parseInt(tag[1], 10))
       .filter((n) => !Number.isNaN(n))
     return kinds.length ? kinds : [1]
-  }, [selectedSpell?.id, showKindsTagKey])
+  }, [
+    selectedFauxSpell,
+    notificationType,
+    selectedSpell?.id,
+    showKindsTagKey,
+    kindFilterShowKinds
+  ])
 
   const spellMenuLabel = useCallback(
     (spell: Event) => (favoriteIds.has(spell.id) ? `★ ${getSpellName(spell)}` : getSpellName(spell)),
     [favoriteIds]
   )
 
-  const pickSpell = useCallback((spell: Event | null) => {
-    setSelectedSpell(spell)
-    setSelectedFauxSpell(null)
-    setSpellPickerOpen(false)
-  }, [])
+  const pickSpell = useCallback(
+    (spell: Event | null) => {
+      setSelectedSpell(spell)
+      setSelectedFauxSpell(null)
+      setSpellPickerOpen(false)
+      navigatePrimary('spells')
+    },
+    [navigatePrimary]
+  )
 
   const clearSpellSelection = useCallback(() => {
     setSelectedSpell(null)
     setSelectedFauxSpell(null)
     setSpellPickerOpen(false)
-  }, [])
+    navigatePrimary('spells')
+  }, [navigatePrimary])
 
-  const pickFauxSpell = useCallback((name: FauxSpellName | null) => {
-    setSelectedFauxSpell(name)
-    setSelectedSpell(null)
-    setSpellPickerOpen(false)
-  }, [])
+  const pickFauxSpell = useCallback(
+    (name: FauxSpellName | null) => {
+      setSelectedFauxSpell(name)
+      setSelectedSpell(null)
+      setSpellPickerOpen(false)
+      if (name) navigatePrimary('spells', { spell: name })
+      else navigatePrimary('spells')
+    },
+    [navigatePrimary]
+  )
 
   const selectedSpellIsOwn = !!(pubkey && selectedSpell && selectedSpell.pubkey === pubkey)
+
+  const fauxNoteListUseFilterAsIs = useMemo(() => {
+    if (!selectedFauxSpell) return true
+    return selectedFauxSpell !== 'following' && selectedFauxSpell !== 'bookmarks'
+  }, [selectedFauxSpell])
+
+  const fauxFeedEmptyMessage = useMemo(() => {
+    if (!selectedFauxSpell || fauxSubRequests.length > 0) return null
+    if (selectedFauxSpell === 'interests') return t('No subscribed interests yet.')
+    if (selectedFauxSpell === 'bookmarks') return t('No bookmarked notes with id tags yet.')
+    if (selectedFauxSpell === 'following') return t('No follows or relays to load yet.')
+    return t('Nothing to load for this feed.')
+  }, [selectedFauxSpell, fauxSubRequests.length, t])
 
   return (
     <PrimaryPageLayout
@@ -626,26 +663,22 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage({ spell: spellProp }
               variant="outline"
               className="min-w-0 flex-1 justify-between font-normal sm:max-w-md"
               title={
-                selectedFauxSpell === 'notifications'
-                  ? t('Notifications')
-                  : selectedFauxSpell === 'discussions'
-                    ? t('Discussions')
-                    : selectedSpell
-                      ? spellMenuLabel(selectedSpell)
-                      : undefined
+                selectedFauxSpell
+                  ? t(fauxSpellLabelKey(selectedFauxSpell))
+                  : selectedSpell
+                    ? spellMenuLabel(selectedSpell)
+                    : undefined
               }
               aria-haspopup="dialog"
               aria-expanded={spellPickerOpen}
               onClick={() => setSpellPickerOpen(true)}
             >
               <span className="truncate">
-                {selectedFauxSpell === 'notifications'
-                  ? t('Notifications')
-                  : selectedFauxSpell === 'discussions'
-                    ? t('Discussions')
-                    : selectedSpell
-                      ? spellMenuLabel(selectedSpell)
-                      : t('Select a spell…')}
+                {selectedFauxSpell
+                  ? t(fauxSpellLabelKey(selectedFauxSpell))
+                  : selectedSpell
+                    ? spellMenuLabel(selectedSpell)
+                    : t('Select a spell…')}
               </span>
               <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
             </Button>
@@ -664,44 +697,41 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage({ spell: spellProp }
                   role="listbox"
                   aria-label={t('Select a spell…')}
                 >
-                  {pubkey && (
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={selectedFauxSpell === 'notifications'}
-                      className={cn(
-                        'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
-                        'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                        selectedFauxSpell === 'notifications' && 'bg-accent/50'
-                      )}
-                      onClick={() => pickFauxSpell(selectedFauxSpell === 'notifications' ? null : 'notifications')}
-                    >
-                      <span className="flex size-4 shrink-0 items-center justify-center">
-                        {selectedFauxSpell === 'notifications' ? <Check className="size-4" aria-hidden /> : null}
-                      </span>
-                      <Bell className="size-4 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate text-left font-medium">
-                        {t('Notifications')}
-                      </span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={selectedFauxSpell === 'discussions'}
-                    className={cn(
-                      'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
-                      'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      selectedFauxSpell === 'discussions' && 'bg-accent/50'
-                    )}
-                    onClick={() => pickFauxSpell(selectedFauxSpell === 'discussions' ? null : 'discussions')}
-                  >
-                    <span className="flex size-4 shrink-0 items-center justify-center">
-                      {selectedFauxSpell === 'discussions' ? <Check className="size-4" aria-hidden /> : null}
-                    </span>
-                    <MessageSquare className="size-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate text-left font-medium">{t('Discussions')}</span>
-                  </button>
+                  {FAUX_SPELL_ORDER.map((name) => {
+                    if (
+                      (name === 'notifications' ||
+                        name === 'following' ||
+                        name === 'bookmarks' ||
+                        name === 'interests') &&
+                      !pubkey
+                    ) {
+                      return null
+                    }
+                    const Icon = FAUX_SPELL_ICON[name]
+                    const selected = selectedFauxSpell === name
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        className={cn(
+                          'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+                          'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          selected && 'bg-accent/50'
+                        )}
+                        onClick={() => pickFauxSpell(selected ? null : name)}
+                      >
+                        <span className="flex size-4 shrink-0 items-center justify-center">
+                          {selected ? <Check className="size-4" aria-hidden /> : null}
+                        </span>
+                        <Icon className="size-4 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate text-left font-medium">
+                          {t(fauxSpellLabelKey(name))}
+                        </span>
+                      </button>
+                    )
+                  })}
                   <button
                     type="button"
                     role="option"
@@ -891,124 +921,56 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage({ spell: spellProp }
           <p className="text-sm text-muted-foreground">{t('No spells yet. Create one with the button above.')}</p>
         )}
 
-        {/* Feed */}
+        {/* Feed — faux spells and kind-777 spells all use NoteList */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {selectedFauxSpell === 'notifications' ? (
+          {selectedFauxSpell === 'notifications' && !pubkey ? (
+            <div className="py-8 text-center text-muted-foreground">
+              {t('Please log in to view notifications.')}
+            </div>
+          ) : selectedFauxSpell === 'following' && !pubkey ? (
+            <div className="py-8 text-center text-muted-foreground">
+              {t('Please login to view following feed')}
+            </div>
+          ) : selectedFauxSpell === 'bookmarks' && !pubkey ? (
+            <div className="py-8 text-center text-muted-foreground">
+              {t('Please login to view bookmarks')}
+            </div>
+          ) : selectedFauxSpell === 'following' && followingFeedLoading ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">{t('loading...')}</div>
+          ) : selectedFauxSpell && fauxSubRequests.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">{fauxFeedEmptyMessage}</div>
+          ) : selectedFauxSpell && fauxSubRequests.length > 0 ? (
             <>
-              <div className="shrink-0 flex items-center justify-between gap-2 px-1 pb-2">
-                <Tabs
-                  value={notificationType}
-                  tabs={[
-                    { value: 'all', label: t('All') },
-                    { value: 'mentions', label: t('Mentions') },
-                    { value: 'reactions', label: t('Reactions') },
-                    { value: 'zaps', label: t('Zaps') }
-                  ]}
-                  onTabChange={(tab) => setNotificationType(tab as TNotificationType)}
-                  options={!supportTouch ? <RefreshButton onClick={() => notificationListRef.current?.refresh()} /> : null}
-                />
-                <HideUntrustedContentButton type="notifications" size="titlebar-icon" />
-              </div>
+              {selectedFauxSpell === 'notifications' ? (
+                <div className="shrink-0 flex items-center justify-between gap-2 px-1 pb-2">
+                  <Tabs
+                    value={notificationType}
+                    tabs={[
+                      { value: 'all', label: t('All') },
+                      { value: 'mentions', label: t('Mentions') },
+                      { value: 'reactions', label: t('Reactions') },
+                      { value: 'zaps', label: t('Zaps') }
+                    ]}
+                    onTabChange={(tab) => setNotificationType(tab as TNotificationType)}
+                  />
+                  <HideUntrustedContentButton type="notifications" size="titlebar-icon" />
+                </div>
+              ) : null}
               <div className="min-h-0 min-w-0 flex-1">
-                <NotificationList
-                  ref={notificationListRef}
-                  notificationType={notificationType}
+                <NoteList
+                  subRequests={subRequests}
+                  showKinds={showKinds}
+                  useFilterAsIs={fauxNoteListUseFilterAsIs}
+                  showKind1OPs={selectedFauxSpell === 'following' ? showKind1OPs : true}
+                  showKind1Replies={selectedFauxSpell === 'following' ? showKind1Replies : true}
+                  showKind1111={selectedFauxSpell === 'following' ? showKind1111 : true}
+                  hideReplies={selectedFauxSpell === 'following' ? hideRepliesFollowing : false}
                 />
               </div>
             </>
-          ) : selectedFauxSpell === 'discussions' ? (
-            <div className="min-h-0 min-w-0 flex-1">
-              <DiscussionsPage embedded />
-            </div>
           ) : selectedSpell ? (
-            spellIsCount(selectedSpell) ? (
-              <div className="flex flex-col items-center justify-center gap-3 py-10 px-4">
-                {spellCount.error === 'login' ? (
-                  <p className="text-center text-muted-foreground">
-                    {t('Log in to run this spell (it uses $me or $contacts).')}
-                  </p>
-                ) : spellCount.error === 'invalid' ? (
-                  <p className="text-center text-muted-foreground">
-                    {t(
-                      'Could not run this spell. Check that it has a valid REQ/COUNT command, or add write relays in settings.'
-                    )}
-                  </p>
-                ) : spellCount.error === 'failed' ? (
-                  <p className="text-center text-muted-foreground">
-                    {t('Spell count failed. Check relays or try again.')}
-                  </p>
-                ) : spellCount.loading ? (
-                  <div className="flex w-full max-w-md flex-col items-center gap-3">
-                    <Skeleton className="h-12 w-24" />
-                    <Skeleton className="h-32 w-full max-w-lg" />
-                    <p className="text-sm text-muted-foreground">{t('Counting matching events…')}</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="text-5xl font-semibold tabular-nums tracking-tight text-foreground">
-                      {spellCount.totalDistinct ?? '—'}
-                    </div>
-                    <p className="max-w-md text-center text-sm text-muted-foreground">
-                      {t('COUNT spell total distinct explanation')}
-                    </p>
-                    <div className="w-full max-w-3xl overflow-x-auto rounded-md border border-border">
-                      <table className="w-full min-w-[20rem] border-collapse text-sm">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
-                            <th className="px-3 py-2 font-medium">{t('Relay URL')}</th>
-                            <th className="w-28 px-3 py-2 font-medium">{t('Count')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {spellCount.rows.map((r) => (
-                            <tr key={r.url} className="border-b border-border/60 last:border-0">
-                              <td className="break-all px-3 py-2 align-top font-mono text-xs">{r.url}</td>
-                              <td className="px-3 py-2 align-top tabular-nums">
-                                {r.error ? (
-                                  <span className="text-destructive">{r.error}</span>
-                                ) : (
-                                  (r.count ?? '—')
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {spellCount.usedExplicitRelays &&
-                    spellCount.rows.some((r) => r.error) &&
-                    !spellCount.loading ? (
-                      <div className="flex max-w-md flex-col items-center gap-2 text-center">
-                        <p className="text-sm text-muted-foreground">
-                          {t('COUNT spell relay errors hint')}
-                        </p>
-                        <Button
-                          variant="outline"
-                          className="gap-2"
-                          onClick={() => {
-                            setSpellToEdit(selectedSpell)
-                            setCreateOpen(true)
-                          }}
-                        >
-                          <Wand2 className="size-4" />
-                          {t('Edit spell relays')}
-                        </Button>
-                      </div>
-                    ) : null}
-                    {spellCount.mayHitLimit ? (
-                      <p className="max-w-md text-center text-xs text-amber-600 dark:text-amber-500">
-                        {t('COUNT spell may be capped by limit')}
-                      </p>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            ) : subRequests.length > 0 ? (
-              <NoteList
-                subRequests={subRequests}
-                showKinds={showKinds}
-                useFilterAsIs
-              />
+            subRequests.length > 0 ? (
+              <NoteList subRequests={subRequests} showKinds={showKinds} useFilterAsIs />
             ) : !pubkey &&
               selectedSpell.tags.some(
                 (tag) => tag[0] === 'authors' && (tag.includes('$me') || tag.includes('$contacts'))

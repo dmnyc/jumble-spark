@@ -8,9 +8,12 @@ import { kinds } from 'nostr-tools'
 import React, { useEffect, useMemo, useState, useRef } from 'react'
 
 export default function RelaysFeed({
-  setSubHeader
+  setSubHeader,
+  kindsOverride
 }: {
   setSubHeader?: (node: React.ReactNode) => void
+  /** When set, subscription kinds (fixed list); otherwise uses KindFilterProvider. */
+  kindsOverride?: number[]
 }) {
   logger.debug('RelaysFeed component rendering')
   const { feedInfo, relayUrls } = useFeed()
@@ -75,30 +78,38 @@ export default function RelaysFeed({
     relayInfoFetchedRef.current = false
   }, [relayUrls])
 
-  // Early returns for invalid feed types
-  if (feedInfo.feedType !== 'relay' && feedInfo.feedType !== 'relays' && feedInfo.feedType !== 'all-favorites') {
-    return null
-  }
+  const defaultKinds =
+    kindsOverride && kindsOverride.length > 0
+      ? kindsOverride
+      : showKinds.length > 0
+        ? showKinds
+        : [kinds.ShortTextNote]
 
-  // CRITICAL: Don't render feed if relayUrls is empty - this would cause subscription to fail
-  if (relayUrls.length === 0) {
-    logger.debug('RelaysFeed: relayUrls is empty, not rendering feed')
-    return null
-  }
+  const canRenderFeed =
+    (feedInfo.feedType === 'relay' ||
+      feedInfo.feedType === 'relays' ||
+      feedInfo.feedType === 'all-favorites') &&
+    relayUrls.length > 0
 
-  // CRITICAL: Provide proper filter with default kinds - NoteList requires kinds in filter
-  // Use showKinds from KindFilterProvider if available, otherwise default to kind 1
-  const defaultKinds = showKinds.length > 0 ? showKinds : [kinds.ShortTextNote]
-  
-  // Memoize subRequests with proper filter - this ensures NoteList gets valid filter
+  // Hooks must run every render — never place useMemo after conditional returns.
   const subRequests = useMemo(() => {
-    return [{
-      urls: relayUrls,
-      filter: {
-        kinds: defaultKinds
+    if (!canRenderFeed) return []
+    return [
+      {
+        urls: relayUrls,
+        filter: {
+          kinds: defaultKinds
+        }
       }
-    }]
-  }, [relayUrls, defaultKinds])
+    ]
+  }, [canRenderFeed, relayUrls, defaultKinds, kindsOverride])
+
+  if (!canRenderFeed) {
+    if (relayUrls.length === 0) {
+      logger.debug('RelaysFeed: relayUrls is empty, not rendering feed')
+    }
+    return null
+  }
 
   logger.component('RelaysFeed', 'Rendering NormalFeed', { 
     subRequests: subRequests.length, 

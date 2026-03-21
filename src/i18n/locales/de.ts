@@ -453,6 +453,14 @@ export default {
     'Refresh results': 'Ergebnisse aktualisieren',
     Poll: 'Umfrage',
     Media: 'Medien',
+    Interests: 'Interessen',
+    Calendar: 'Kalender',
+    'No subscribed interests yet.':
+      'Noch keine Interessen abonniert. Themen in den Einstellungen hinzufügen, um sie hier zu sehen.',
+    'No bookmarked notes with id tags yet.':
+      'Noch keine Lesezeichen mit Ereignis-IDs. Nur klassische (e-Tag-) Lesezeichen erscheinen in diesem Feed.',
+    'No follows or relays to load yet.': 'Noch keine Follows oder Relays zum Laden.',
+    'Nothing to load for this feed.': 'Für diesen Feed gibt es nichts zu laden.',
     'Republish to ...': 'Erneut veröffentlichen zu ...',
     'Successfully republish to your write relays':
       'Erfolgreich erneut zu deinen Schreib-Relays veröffentlicht',
@@ -710,6 +718,8 @@ export default {
     'Comma-separated topics': 'Themen, komma-getrennt',
     Mode: 'Modus',
     Feed: 'Feed',
+    'Favorites Feed': 'Favoriten-Feed',
+    'Pinned note': 'Angehefteter Beitrag',
     Fetch: 'Abrufen',
     'Fetch once, then stop.': 'Einmal abrufen, dann stoppen.',
     'Live feed; keeps updating.': 'Live-Feed; wird fortgesetzt aktualisiert.',

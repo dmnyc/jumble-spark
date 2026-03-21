@@ -19,7 +19,7 @@ export default function FeedSwitcher({ close }: { close?: () => void }) {
   // Filter out blocked relays for display
   const visibleRelays = favoriteRelays.filter(relay => !blockedRelays.includes(relay))
 
-  // Feed rows that exist here follow FAUX_SPELL_ORDER where applicable: favorite-relays → following → bookmarks.
+  // Feed rows: aggregate favorites → following → bookmarks (see FAUX_SPELL_ORDER for spell picker order).
   return (
     <div className="space-y-2">
       {visibleRelays.length > 0 && (

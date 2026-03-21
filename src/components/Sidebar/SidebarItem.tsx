@@ -12,7 +12,7 @@ const SidebarItem = forwardRef<
   return (
     <Button
       className={cn(
-        'flex shadow-none items-center transition-colors duration-500 bg-transparent w-12 h-12 xl:w-full xl:h-auto p-3 m-0 xl:py-2 xl:px-3 rounded-lg xl:justify-start gap-4 text-lg font-semibold [&_svg]:size-full xl:[&_svg]:size-4',
+        'flex shadow-none items-center transition-colors duration-500 bg-transparent w-12 h-12 xl:w-full xl:h-auto xl:min-w-0 p-3 m-0 xl:py-2 xl:pl-3 xl:pr-4 rounded-lg xl:justify-start gap-3 text-lg font-semibold [&_svg]:size-full xl:[&_svg]:size-4 xl:[&_svg]:shrink-0',
         active && 'text-primary hover:text-primary bg-primary/10 hover:bg-primary/10',
         className
       )}
@@ -22,7 +22,9 @@ const SidebarItem = forwardRef<
       {...props}
     >
       {children}
-      <div className="max-xl:hidden">{t(description ?? title)}</div>
+      <div className="max-xl:hidden min-w-0 flex-1 text-left break-words leading-snug pr-0.5">
+        {t(description ?? title)}
+      </div>
     </Button>
   )
 })

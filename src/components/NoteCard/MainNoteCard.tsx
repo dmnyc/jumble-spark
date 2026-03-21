@@ -2,7 +2,9 @@ import { Separator } from '@/components/ui/separator'
 import { toNote } from '@/lib/link'
 import { useSmartNoteNavigation } from '@/PageManager'
 import client from '@/services/client.service'
+import { Pin } from 'lucide-react'
 import { Event } from 'nostr-tools'
+import { useTranslation } from 'react-i18next'
 import Collapsible from '../Collapsible'
 import Note from '../Note'
 import NoteStats from '../NoteStats'
@@ -13,14 +15,18 @@ export default function MainNoteCard({
   className,
   reposter,
   embedded,
-  originalNoteId
+  originalNoteId,
+  pinned = false
 }: {
   event: Event
   className?: string
   reposter?: string
   embedded?: boolean
   originalNoteId?: string
+  /** Profile (or other) pinned highlight */
+  pinned?: boolean
 }) {
+  const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigation()
 
   return (
@@ -48,6 +54,15 @@ export default function MainNoteCard({
       }}
     >
       <div className={`clickable ${embedded ? 'p-2 sm:p-3 border rounded-lg' : 'py-3'}`} style={embedded ? { position: 'relative', isolation: 'isolate', overflow: 'visible' } : undefined}>
+        {pinned && !embedded && (
+          <div
+            className="flex items-center gap-1.5 px-4 pb-1 text-muted-foreground"
+            role="img"
+            aria-label={t('Pinned note')}
+          >
+            <Pin className="size-4 shrink-0" strokeWidth={1.5} aria-hidden />
+          </div>
+        )}
         <Collapsible alwaysExpand={embedded}>
           <RepostDescription className={embedded ? '' : 'px-4'} reposter={reposter} />
           <Note

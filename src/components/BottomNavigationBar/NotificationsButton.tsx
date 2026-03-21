@@ -4,12 +4,13 @@ import { Bell } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'
 
 export default function NotificationsButton() {
-  const { navigate } = usePrimaryPage()
+  const { navigate, current, currentPageProps, display } = usePrimaryPage()
   const { checkLogin } = useNostr()
+  const spell = (currentPageProps as { spell?: string } | undefined)?.spell
 
   return (
     <BottomNavigationBarItem
-      active={false}
+      active={current === 'spells' && display && spell === 'notifications'}
       onClick={() => checkLogin(() => navigate('spells', { spell: 'notifications' }))}
     >
       <Bell />

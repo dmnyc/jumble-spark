@@ -279,7 +279,6 @@ export const PROFILE_FEED_KINDS = SUPPORTED_KINDS.filter(
 
 /** Order for faux-spells in the feed / spell picker. */
 export const FAUX_SPELL_ORDER = [
-  'favorite-relays',
   'notifications',
   'discussions',
   'following',

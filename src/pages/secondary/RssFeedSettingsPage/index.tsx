@@ -487,7 +487,7 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
             />
           </div>
           <div className="text-muted-foreground text-xs">
-            {t('Show or hide the RSS feed tab in the main feed')}
+            {t('Show or hide the RSS page and sidebar entry')}
           </div>
         </div>
 

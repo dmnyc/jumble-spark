@@ -34,13 +34,15 @@ import {
   cloneElement,
   createContext,
   createRef,
+  isValidElement,
   lazy,
-  ReactNode,
+  type ReactNode,
   RefObject,
   Suspense,
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState
 } from 'react'
@@ -53,6 +55,7 @@ import MePage from './pages/primary/MePage'
 import ProfilePage from './pages/primary/ProfilePage'
 import RelayPage from './pages/primary/RelayPage'
 import SearchPage from './pages/primary/SearchPage'
+import RssPage from './pages/primary/RssPage'
 import { useScreenSize } from './providers/ScreenSizeProvider'
 
 /** Lazy-loaded so PageManager does not synchronously import SpellsPage (avoids HMR cycle: SpellsPage → PrimaryPageLayout → PageManager → SpellsPage). */
@@ -66,6 +69,8 @@ import { KeyboardShortcutsHelpProvider } from '@/components/KeyboardShortcutsHel
 type TPrimaryPageContext = {
   navigate: (page: TPrimaryPageName, props?: object) => void
   current: TPrimaryPageName | null
+  /** Props passed to the current primary page (e.g. `{ spell: 'discussions' }` for spells). */
+  currentPageProps: object | undefined
   display: boolean
 }
 
@@ -85,23 +90,25 @@ type TStackItem = {
 
 const PRIMARY_PAGE_REF_MAP = {
   home: createRef<TPageRef>(),
-  explore: createRef<TPageRef>(),
+  feed: createRef<TPageRef>(),
   me: createRef<TPageRef>(),
   profile: createRef<TPageRef>(),
   relay: createRef<TPageRef>(),
   search: createRef<TPageRef>(),
+  rss: createRef<TPageRef>(),
   spells: createRef<TPageRef>()
 }
 
 // Lazy function to create PRIMARY_PAGE_MAP to avoid circular dependency
 // This is only evaluated when called, not at module load time
 const getPrimaryPageMap = () => ({
-  home: <NoteListPage ref={PRIMARY_PAGE_REF_MAP.home} />,
-  explore: <ExplorePage ref={PRIMARY_PAGE_REF_MAP.explore} />,
+  home: <ExplorePage ref={PRIMARY_PAGE_REF_MAP.home} />,
+  feed: <NoteListPage ref={PRIMARY_PAGE_REF_MAP.feed} />,
   me: <MePage ref={PRIMARY_PAGE_REF_MAP.me} />,
   profile: <ProfilePage ref={PRIMARY_PAGE_REF_MAP.profile} />,
   relay: <RelayPage ref={PRIMARY_PAGE_REF_MAP.relay} />,
   search: <SearchPage ref={PRIMARY_PAGE_REF_MAP.search} />,
+  rss: <RssPage ref={PRIMARY_PAGE_REF_MAP.rss} />,
   spells: (
     <Suspense
       fallback={
@@ -115,15 +122,29 @@ const getPrimaryPageMap = () => ({
   )
 })
 
+/** Spells is wrapped in `<Suspense>`; navigated props must go to the lazy page, not the boundary. */
+function applyPrimaryPageProps(element: ReactNode, props: object): ReactNode {
+  if (!isValidElement(element)) return element
+  if (element.type === Suspense) {
+    const inner = element.props.children
+    if (isValidElement(inner)) {
+      return cloneElement(element, undefined, cloneElement(inner, props))
+    }
+  }
+  return cloneElement(element, props)
+}
+
 // Type for primary page names - use the return type of getPrimaryPageMap
 export type TPrimaryPageName = keyof ReturnType<typeof getPrimaryPageMap>
 
 type TPrimaryPageStateEntry = { name: TPrimaryPageName; element: ReactNode; props?: any }
 
-/** /discussions and contextual /discussions/notes/* map to spells + faux discussions. */
 function noteContextToPrimaryEntry(pageContext: string): { name: TPrimaryPageName; props?: object } | null {
   if (pageContext === 'discussions') {
     return { name: 'spells', props: { spell: 'discussions' } }
+  }
+  if (pageContext === 'explore') {
+    return { name: 'home' }
   }
   const map = getPrimaryPageMap()
   if (pageContext in map) {
@@ -202,9 +223,9 @@ export function useNoteDrawer() {
 // Helper function to build contextual note URL
 function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): string {
   // Pages that should preserve context in the URL
-  const contextualPages: TPrimaryPageName[] = ['search', 'profile', 'explore', 'spells']
+  const contextualPages: TPrimaryPageName[] = ['search', 'profile', 'feed', 'spells', 'rss', 'home']
   
-  if (currentPage && contextualPages.includes(currentPage) && currentPage !== 'home') {
+  if (currentPage && contextualPages.includes(currentPage)) {
     return `/${currentPage}/notes/${noteId}`
   }
   
@@ -215,9 +236,8 @@ function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): str
 function buildRelayUrl(relayUrl: string, currentPage: TPrimaryPageName | null): string {
   const encodedRelayUrl = encodeURIComponent(relayUrl)
   
-  // Only preserve context for explore page (where you discover relays)
-  if (currentPage === 'explore') {
-    return `/explore/relays/${encodedRelayUrl}`
+  if (currentPage === 'home') {
+    return `/home/relays/${encodedRelayUrl}`
   }
   
   return `/relays/${encodedRelayUrl}`
@@ -226,7 +246,9 @@ function buildRelayUrl(relayUrl: string, currentPage: TPrimaryPageName | null): 
 // Helper function to extract noteId and context from URL
 function parseNoteUrl(url: string): { noteId: string; context?: string } {
   // Match patterns like /discussions/notes/{noteId} or /notes/{noteId}
-  const contextualMatch = url.match(/\/(discussions|search|profile|explore|spells)\/notes\/(.+)$/)
+  const contextualMatch = url.match(
+    /\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/
+  )
   if (contextualMatch) {
     return { noteId: contextualMatch[2], context: contextualMatch[1] }
   }
@@ -302,8 +324,9 @@ export function useSmartRelayNavigation() {
   
   const navigateToRelay = (url: string) => {
     // Extract relay URL from path (handles both /relays/{url} and /{context}/relays/{url})
-    const relayUrlMatch = url.match(/\/(discussions|search|profile|explore|spells)\/relays\/(.+)$/) || 
-                          url.match(/\/relays\/(.+)$/)
+    const relayUrlMatch =
+      url.match(/\/(discussions|search|profile|home|feed|spells|explore)\/relays\/(.+)$/) ||
+      url.match(/\/relays\/(.+)$/)
     const relayUrl = relayUrlMatch ? decodeURIComponent(relayUrlMatch[relayUrlMatch.length - 1]) : decodeURIComponent(url.replace(/.*\/relays\//, ''))
     
     // Build contextual URL based on current page
@@ -596,7 +619,7 @@ function MainContentArea({
                 {(() => {
                   try {
                     logger.debug(`Rendering ${name} component`)
-                    return props ? cloneElement(element as React.ReactElement, props) : element
+                    return props ? applyPrimaryPageProps(element, props) : element
                   } catch (error) {
                     logger.error(`Error rendering ${name} component:`, error)
                     return <div>Error rendering {name}: {error instanceof Error ? error.message : String(error)}</div>
@@ -635,11 +658,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   const navigationCounterRef = useRef(0)
   const savedFeedStateRef = useRef<Map<TPrimaryPageName, { 
     tab?: string,
-    discussionsState?: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' },
     trendingTab?: 'relays' | 'hashtags' | 'calendar'
   }>>(new Map())
   const currentTabStateRef = useRef<Map<TPrimaryPageName, string>>(new Map()) // Track current tab state for each page
-  
+
+  const currentPageProps = useMemo((): object | undefined => {
+    const entry = primaryPages.find((p) => p.name === currentPrimaryPage)
+    return entry?.props as object | undefined
+  }, [primaryPages, currentPrimaryPage])
+
   const setPrimaryNoteView = (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => {
     if (view && !primaryNoteView) {
       // Saving current primary page before showing overlay
@@ -648,39 +675,18 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       // Get current tab state from ref (updated by components via events)
       const currentTab = currentTabStateRef.current.get(currentPrimaryPage)
       
-      // Discussions list state when Spells page may host embedded Discussions
-      let discussionsState: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' } | undefined = undefined
-      if (currentPrimaryPage === 'spells') {
-        // Request discussions state from embedded Discussions (faux-spell) when mounted
-        const stateEvent = new CustomEvent('requestDiscussionsState')
-        let receivedState: { selectedTopic: string, timeSpan: '30days' | '90days' | 'all' } | null = null
-        const handler = ((e: CustomEvent) => {
-          receivedState = e.detail
-        }) as EventListener
-        window.addEventListener('discussionsStateResponse', handler)
-        window.dispatchEvent(stateEvent)
-        setTimeout(() => {
-          window.removeEventListener('discussionsStateResponse', handler)
-          if (receivedState) {
-            discussionsState = receivedState
-          }
-        }, 10)
-      }
-      
       // Get trending tab if on search page
       const trendingTab = currentTabStateRef.current.get('search') as 'relays' | 'hashtags' | 'calendar' | undefined
       
-      // Save state (tab, discussions, trending) if any exists
-      if (currentTab || discussionsState || trendingTab) {
+      // Save state (tab, trending) if any exists
+      if (currentTab || trendingTab) {
         logger.info('PageManager: Saving page state', { 
           page: currentPrimaryPage, 
           tab: currentTab,
-          discussionsState,
           trendingTab
         })
         savedFeedStateRef.current.set(currentPrimaryPage, { 
           tab: currentTab,
-          discussionsState,
           trendingTab
         })
       }
@@ -711,17 +717,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           detail: { page: savedPrimaryPage, tab: savedFeedState.tab } 
         }))
         currentTabStateRef.current.set(savedPrimaryPage, savedFeedState.tab)
-      }
-      
-      // Restore Discussions state
-      if (savedFeedState?.discussionsState && savedPrimaryPage === 'spells') {
-        logger.info('PageManager: Restoring Discussions state', { 
-          page: savedPrimaryPage, 
-          discussionsState: savedFeedState.discussionsState 
-        })
-        window.dispatchEvent(new CustomEvent('restoreDiscussionsState', { 
-          detail: { page: savedPrimaryPage, discussionsState: savedFeedState.discussionsState } 
-        }))
       }
       
       // Restore trending tab for search page (map legacy 'nostr' to 'relays')
@@ -812,7 +807,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       const pathname = window.location.pathname
       
       // Check if this is a note URL - handle both /notes/{id} and /{context}/notes/{id}
-      const contextualNoteMatch = pathname.match(/\/(discussions|search|profile|explore|spells)\/notes\/(.+)$/)
+      const contextualNoteMatch = pathname.match(/\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/)
       const standardNoteMatch = pathname.match(/\/notes\/(.+)$/)
       const noteUrlMatch = contextualNoteMatch || standardNoteMatch
       
@@ -881,22 +876,31 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       
       // Check if this is a primary page URL - don't push primary pages to secondary stack
       const pathnameOnly = pathname.split('?')[0].split('#')[0]
-      const firstSeg = pathnameOnly.slice(1).split('/')[0]
+      const segments = pathnameOnly.split('/').filter(Boolean)
+      const firstSeg = segments[0] ?? ''
+      const primaryMap = getPrimaryPageMap()
       const isPrimaryPageUrl =
-        pathnameOnly === '/' ||
-        pathnameOnly === '/home' ||
-        firstSeg === 'discussions' ||
-        (pathnameOnly.startsWith('/') &&
-          firstSeg in getPrimaryPageMap() &&
-          !pathnameOnly.match(/^\/(notes|users|relays|settings|profile-editor|mutes|follow-packs)/))
+        segments.length === 0 ||
+        (segments.length === 1 &&
+          (firstSeg === 'discussions' ||
+            firstSeg === 'home' ||
+            firstSeg === 'explore' ||
+            firstSeg in primaryMap))
 
       if (isPrimaryPageUrl) {
         // This is a primary page - just navigate to it, don't push to secondary stack
         const pageName =
-          pathnameOnly === '/' || pathnameOnly === '/home' ? 'home' : firstSeg
-        if (pageName === 'discussions') {
+          segments.length === 0 || (segments.length === 1 && firstSeg === 'home') ? 'home' : firstSeg
+        if (pageName === 'explore') {
+          navigatePrimaryPage('home')
+          requestAnimationFrame(() => {
+            window.dispatchEvent(
+              new CustomEvent('restorePageTab', { detail: { page: 'home', tab: 'explore' } })
+            )
+          })
+        } else if (pageName === 'discussions') {
           navigatePrimaryPage('spells', { spell: 'discussions' })
-        } else if (pageName in getPrimaryPageMap()) {
+        } else if (pageName in primaryMap) {
           navigatePrimaryPage(pageName as TPrimaryPageName)
         }
         return
@@ -940,7 +944,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       } else {
         // Check if pathname matches a primary page name
         // First, check if it's a contextual note URL (e.g., /discussions/notes/...)
-        const contextualNoteMatch = pathname.match(/^\/(discussions|search|profile|explore|spells)\/notes\//)
+        const contextualNoteMatch = pathname.match(
+          /^\/(discussions|search|profile|home|feed|spells|explore)\/notes\//
+        )
         if (contextualNoteMatch) {
           const pageContext = contextualNoteMatch[1]
           const resolved = noteContextToPrimaryEntry(pageContext)
@@ -955,6 +961,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         const pageName: string = pathname.slice(1).split('/')[0] // Get first segment after slash
         if (pageName === 'discussions') {
           navigatePrimaryPage('spells', { spell: 'discussions' })
+          return
+        }
+        if (pageName === 'explore') {
+          navigatePrimaryPage('home')
+          requestAnimationFrame(() => {
+            window.dispatchEvent(
+              new CustomEvent('restorePageTab', { detail: { page: 'home', tab: 'explore' } })
+            )
+          })
           return
         }
         if (pageName && pageName in getPrimaryPageMap()) {
@@ -990,7 +1005,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       const urlToCheck = state?.url || window.location.pathname
       
       // Check if it's a note URL (we'll update drawer after stack is synced)
-      const noteUrlMatch = urlToCheck.match(/\/(discussions|search|profile|explore|spells)\/notes\/(.+)$/) || 
+      const noteUrlMatch = urlToCheck.match(/\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/) || 
                           urlToCheck.match(/\/notes\/(.+)$/)
       const noteIdToShow = noteUrlMatch ? noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0] : null
       
@@ -1036,14 +1051,16 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         if (!topItem) {
           // Stack is empty - check if this is a primary page URL or a secondary route
           const pathname = state.url.split('?')[0].split('#')[0]
-          const popFirstSeg = pathname.slice(1).split('/')[0]
+          const popSegments = pathname.split('/').filter(Boolean)
+          const popFirstSeg = popSegments[0] ?? ''
+          const popPrimaryMap = getPrimaryPageMap()
           const isPrimaryPage =
-            pathname === '/' ||
-            pathname === '/home' ||
-            popFirstSeg === 'discussions' ||
-            (pathname.startsWith('/') &&
-              popFirstSeg in getPrimaryPageMap() &&
-              !pathname.match(/^\/(notes|users|relays|settings|profile-editor|mutes|follow-packs)/))
+            popSegments.length === 0 ||
+            (popSegments.length === 1 &&
+              (popFirstSeg === 'discussions' ||
+                popFirstSeg === 'home' ||
+                popFirstSeg === 'explore' ||
+                popFirstSeg in popPrimaryMap))
           
           // If it's a primary page URL, return empty stack (right panel will close)
           if (isPrimaryPage) {
@@ -1053,7 +1070,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               setTimeout(() => {
                 setDrawerNoteId(null)
                 // Ensure URL matches the primary page
-                const pageUrl = pathname === '/' || pathname === '/home' ? '/' : pathname
+                const pageUrl =
+                  popSegments.length === 0 || (popSegments.length === 1 && popFirstSeg === 'home')
+                    ? '/'
+                    : `/${popFirstSeg}`
                 window.history.replaceState(null, '', pageUrl)
               }, 350)
             }
@@ -1061,7 +1081,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           }
           
           // Check if navigating to a note URL (supports both /notes/{id} and /{context}/notes/{id})
-          const noteUrlMatch = state.url.match(/\/(discussions|search|profile|explore|spells)\/notes\/(.+)$/) || 
+          const noteUrlMatch = state.url.match(/\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/) || 
                               state.url.match(/\/notes\/(.+)$/)
           if (noteUrlMatch) {
             const noteId = noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0]
@@ -1112,7 +1132,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             // Extract noteId from top item's URL or from state.url
             const topItemUrl = newStack[newStack.length - 1]?.url || state?.url
             if (topItemUrl) {
-              const topNoteUrlMatch = topItemUrl.match(/\/(discussions|search|profile|explore|spells)\/notes\/(.+)$/) || 
+              const topNoteUrlMatch = topItemUrl.match(/\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/) || 
                                      topItemUrl.match(/\/notes\/(.+)$/)
               if (topNoteUrlMatch) {
                 const topNoteId = topNoteUrlMatch[topNoteUrlMatch.length - 1].split('?')[0].split('#')[0]
@@ -1182,17 +1202,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
       }
       
-      // Restore Discussions state
-      if (savedFeedState?.discussionsState && currentPrimaryPage === 'spells') {
-        logger.info('PageManager: Browser back - Restoring Discussions state', { 
-          page: currentPrimaryPage, 
-          discussionsState: savedFeedState.discussionsState 
-        })
-        window.dispatchEvent(new CustomEvent('restoreDiscussionsState', { 
-          detail: { page: currentPrimaryPage, discussionsState: savedFeedState.discussionsState } 
-        }))
-      }
-      
       // Restore trending tab for search page
       if (savedFeedState?.trendingTab && currentPrimaryPage === 'search') {
         const tab = (savedFeedState.trendingTab as string) === 'nostr' ? 'relays' : savedFeedState.trendingTab
@@ -1221,13 +1230,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     // Update primary pages and current page
     setPrimaryPages((prev) => {
       const exists = prev.find((p) => p.name === page)
-      if (exists && props) {
+      if (exists) {
         exists.props = props
         return [...prev]
-      } else if (!exists) {
-        return [...prev, { name: page, element: getPrimaryPageMap()[page], props }]
       }
-      return prev
+      return [...prev, { name: page, element: getPrimaryPageMap()[page], props }]
     })
     setCurrentPrimaryPage(page)
     
@@ -1260,7 +1267,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       logger.component('PageManager', 'Current secondary stack length', { length: prevStack.length })
       
       // For relay pages, clear the stack and start fresh to avoid confusion
-      if (url.startsWith('/relays/')) {
+      if (
+        url.startsWith('/relays/') ||
+        url.startsWith('/home/relays/') ||
+        url.startsWith('/explore/relays/')
+      ) {
         logger.component('PageManager', 'Clearing stack for relay navigation')
         const { newStack, newItem } = pushNewPageToStack([], url, maxStackSize, 0)
         logger.component('PageManager', 'New stack created', { 
@@ -1314,17 +1325,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             detail: { page: currentPrimaryPage, tab: savedFeedState.tab } 
           }))
           currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
-        }
-        
-        // Restore Discussions state
-        if (savedFeedState?.discussionsState && currentPrimaryPage === 'spells') {
-          logger.info('PageManager: Desktop - Restoring Discussions state', { 
-            page: currentPrimaryPage, 
-            discussionsState: savedFeedState.discussionsState 
-          })
-          window.dispatchEvent(new CustomEvent('restoreDiscussionsState', { 
-            detail: { page: currentPrimaryPage, discussionsState: savedFeedState.discussionsState } 
-          }))
         }
         
         // Restore trending tab for search page
@@ -1385,17 +1385,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
       }
       
-      // Restore Discussions state
-      if (savedFeedState?.discussionsState && currentPrimaryPage === 'spells') {
-        logger.info('PageManager: Mobile/Single-pane - Restoring Discussions state', { 
-          page: currentPrimaryPage, 
-          discussionsState: savedFeedState.discussionsState 
-        })
-        window.dispatchEvent(new CustomEvent('restoreDiscussionsState', { 
-          detail: { page: currentPrimaryPage, discussionsState: savedFeedState.discussionsState } 
-        }))
-      }
-      
       // Restore trending tab for search page
       if (savedFeedState?.trendingTab && currentPrimaryPage === 'search') {
         const tab = (savedFeedState.trendingTab as string) === 'nostr' ? 'relays' : savedFeedState.trendingTab
@@ -1425,17 +1414,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           detail: { page: currentPrimaryPage, tab: savedFeedState.tab } 
         }))
         currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
-      }
-      
-      // Restore Discussions state
-      if (savedFeedState?.discussionsState && currentPrimaryPage === 'spells') {
-        logger.info('PageManager: Desktop - Restoring Discussions state', { 
-          page: currentPrimaryPage, 
-          discussionsState: savedFeedState.discussionsState 
-        })
-        window.dispatchEvent(new CustomEvent('restoreDiscussionsState', { 
-          detail: { page: currentPrimaryPage, discussionsState: savedFeedState.discussionsState } 
-        }))
       }
       
       // Restore trending tab for search page
@@ -1481,6 +1459,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         value={{
           navigate: navigatePrimaryPage,
           current: currentPrimaryPage,
+          currentPageProps,
           display: secondaryStack.length === 0
         }}
       >
@@ -1562,7 +1541,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                         secondaryStack.length === 0 && currentPrimaryPage === name ? 'block' : 'none'
                     }}
                   >
-                    {props ? cloneElement(element as React.ReactElement, props) : element}
+                    {props ? applyPrimaryPageProps(element, props) : element}
                   </div>
                 ))}
               </>
@@ -1602,6 +1581,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       value={{
         navigate: navigatePrimaryPage,
         current: currentPrimaryPage,
+        currentPageProps,
         display: true
       }}
     >

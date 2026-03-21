@@ -10,11 +10,13 @@ import RepostNoteCard from './RepostNoteCard'
 const NoteCard = memo(function NoteCard({
   event,
   className,
-  filterMutedNotes = true
+  filterMutedNotes = true,
+  pinned = false
 }: {
   event: Event
   className?: string
   filterMutedNotes?: boolean
+  pinned?: boolean
 }) {
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
@@ -31,17 +33,23 @@ const NoteCard = memo(function NoteCard({
 
   if (event.kind === kinds.Repost) {
     return (
-      <RepostNoteCard event={event} className={className} filterMutedNotes={filterMutedNotes} />
+      <RepostNoteCard
+        event={event}
+        className={className}
+        filterMutedNotes={filterMutedNotes}
+        pinned={pinned}
+      />
     )
   }
-  return <MainNoteCard event={event} className={className} />
+  return <MainNoteCard event={event} className={className} pinned={pinned} />
 }, (prevProps, nextProps) => {
   // Custom comparison function for memo
   return (
     prevProps.event.id === nextProps.event.id &&
     prevProps.event.created_at === nextProps.event.created_at &&
     prevProps.className === nextProps.className &&
-    prevProps.filterMutedNotes === nextProps.filterMutedNotes
+    prevProps.filterMutedNotes === nextProps.filterMutedNotes &&
+    prevProps.pinned === nextProps.pinned
   )
 })
 

@@ -72,7 +72,17 @@ const HomePage = forwardRef(({ index }: { index?: number }, ref) => {
           ))}
         </div>
         <div className="flex mt-2 justify-center">
-          <Button variant="ghost" onClick={() => navigateToPrimaryPage('explore')}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              navigateToPrimaryPage('home')
+              requestAnimationFrame(() => {
+                window.dispatchEvent(
+                  new CustomEvent('restorePageTab', { detail: { page: 'home', tab: 'explore' } })
+                )
+              })
+            }}
+          >
             <div>{t('Explore more')}</div>
             <ArrowRight />
           </Button>
