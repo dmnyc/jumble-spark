@@ -53,6 +53,21 @@ import { QueryService } from './client-query.service'
 /** Live timeline REQ: dead relays fail fast; EOSE caps “connected but silent” relays. */
 const SUBSCRIBE_RELAY_CONNECTION_TIMEOUT_MS = 2800
 const SUBSCRIBE_RELAY_EOSE_TIMEOUT_MS = 4800
+
+function summarizeFiltersForRelayLog(filters: Filter[]): Record<string, unknown> {
+  const f = filters[0]
+  if (!f) return {}
+  const out: Record<string, unknown> = {}
+  if (f.kinds != null) out.kinds = f.kinds
+  if (f.limit != null) out.limit = f.limit
+  if (f.authors?.length) out.authorCount = f.authors.length
+  if (f.ids?.length) out.idCount = f.ids.length
+  if (f.search) out.search = true
+  if (f['#p']?.length) out.pTagCount = f['#p'].length
+  if (f['#e']?.length) out.eTagCount = f['#e'].length
+  if (f['#t']?.length) out.tTagCount = f['#t'].length
+  return out
+}
 import { EventService } from './client-events.service'
 import { ReplaceableEventService } from './client-replaceable-events.service'
 import { MacroService, createBookstrService } from './client-macro.service'
@@ -869,6 +884,14 @@ class ClientService extends EventTarget {
       firstRelayResultGraceMs?: number
     } = {}
   ) {
+    const timelineBatchId = `tl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+    const timelineT0 = performance.now()
+    logger.info('[relay-req] timeline_batch_start', {
+      timelineBatchId,
+      subRequestCount: subRequests.length,
+      relayCounts: subRequests.map((r) => r.urls.length)
+    })
+
     const newEventIdSet = new Set<string>()
     const requestCount = subRequests.length
     let eventIdSet = new Set<string>()
@@ -882,6 +905,30 @@ class ClientService extends EventTarget {
       )
     )
 
+    let firstPaintLogged = false
+    const deliverTimelineToConsumer = (snapshot: NEvent[], allEosed: boolean) => {
+      if (!firstPaintLogged && snapshot.length > 0) {
+        firstPaintLogged = true
+        logger.info('[relay-req] first_paint', {
+          timelineBatchId,
+          phase: 'data_to_feed',
+          rowCount: snapshot.length,
+          allEosed,
+          ms: Math.round(performance.now() - timelineT0)
+        })
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => {
+            logger.info('[relay-req] first_paint', {
+              timelineBatchId,
+              phase: 'raf',
+              ms: Math.round(performance.now() - timelineT0)
+            })
+          })
+        }
+      }
+      onEvents(snapshot, allEosed)
+    }
+
     let outerFlushQueued = false
     let outerFlushBump = 0
     const scheduleOuterFlush = (immediate = false) => {
@@ -889,7 +936,7 @@ class ClientService extends EventTarget {
         outerFlushQueued = false
         const snapshot = events.length ? [...events] : []
         const allEosed = eosedCount >= requestCount
-        onEvents(snapshot, allEosed)
+        deliverTimelineToConsumer(snapshot, allEosed)
       }
       if (immediate || eosedCount >= requestCount || events.length <= 1) {
         outerFlushBump++
@@ -908,7 +955,7 @@ class ClientService extends EventTarget {
     }
 
     const subs = await Promise.all(
-      subRequests.map(({ urls, filter }) => {
+      subRequests.map(({ urls, filter }, shardIndex) => {
         return this._subscribeTimeline(
           urls,
           filter,
@@ -937,7 +984,12 @@ class ClientService extends EventTarget {
             },
             onClose
           },
-          { startLogin, needSort, firstRelayResultGraceMs }
+          {
+            startLogin,
+            needSort,
+            firstRelayResultGraceMs,
+            relayReqLog: { groupId: `${timelineBatchId}:shard${shardIndex}` }
+          }
         )
       })
     )
@@ -1018,7 +1070,8 @@ class ClientService extends EventTarget {
       onclose?: (url: string, reason: string) => void
       startLogin?: () => void
       onAllClose?: (reasons: string[]) => void
-    }
+    },
+    relayReqLog?: { groupId?: string }
   ) {
     let relays = Array.from(new Set(urls))
     const filters = Array.isArray(filter) ? filter : [filter]
@@ -1053,17 +1106,60 @@ class ClientService extends EventTarget {
     // Kind-1 queries drop KIND_1_BLOCKED_RELAY_URLS; if every URL was removed, no subs run and
     // oneose would never fire — timelines stay loading forever (e.g. favorites feed).
     if (groupedRequests.length === 0) {
+      logger.info('[relay-req] batch_skip', {
+        reason: 'no_relays_after_filters',
+        filterSummary: summarizeFiltersForRelayLog(filters)
+      })
       queueMicrotask(() => oneose?.(true))
       return {
         close: () => {}
       }
     }
 
+    const reqGroupId =
+      relayReqLog?.groupId ??
+      `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    const reqT0 = performance.now()
+    let firstRelayResponseLogged = false
+    /** When the first `first_response` was `eose` (no row yet), log once when the first EVENT arrives. */
+    let awaitingFirstEventAfterEoseFirstResponse = false
+    const logFirstRelayResponse = (kind: 'event' | 'eose', relayUrl: string) => {
+      if (firstRelayResponseLogged) return
+      firstRelayResponseLogged = true
+      if (kind === 'eose') awaitingFirstEventAfterEoseFirstResponse = true
+      logger.info('[relay-req] first_response', {
+        reqGroupId,
+        kind,
+        relayUrl,
+        ms: Math.round(performance.now() - reqT0)
+      })
+    }
+    const logFirstEventIfFirstResponseWasEmpty = (evt: NEvent, relayKey: string) => {
+      if (!awaitingFirstEventAfterEoseFirstResponse) return
+      awaitingFirstEventAfterEoseFirstResponse = false
+      logger.info('[relay-req] first_event', {
+        reqGroupId,
+        relayUrl: relayKey,
+        eventId: evt.id,
+        eventKind: evt.kind,
+        ms: Math.round(performance.now() - reqT0),
+        note: 'first_relay_response_was_eose_not_event'
+      })
+    }
+
+    logger.info('[relay-req] batch_start', {
+      reqGroupId,
+      relayCount: groupedRequests.length,
+      relays: groupedRequests.map((r) => r.url),
+      filterSummary: summarizeFiltersForRelayLog(filters)
+    })
+
     const eosesReceived: boolean[] = []
     const closesReceived: (string | undefined)[] = []
     const handleEose = (i: number) => {
       if (eosesReceived[i]) return
       eosesReceived[i] = true
+      logFirstRelayResponse('eose', groupedRequests[i]!.url)
       if (eosesReceived.filter(Boolean).length === groupedRequests.length) {
         oneose?.(true)
       }
@@ -1110,7 +1206,11 @@ class ClientService extends EventTarget {
 
         const sub = relay.subscribe(relayFilters, {
           receivedEvent: (_relay, id) => that.trackEventSeenOn(id, _relay),
-          onevent: (evt: NEvent) => onevent?.(evt),
+          onevent: (evt: NEvent) => {
+            logFirstEventIfFirstResponseWasEmpty(evt, relayKey)
+            logFirstRelayResponse('event', relayKey)
+            onevent?.(evt)
+          },
           oneose: () => handleEose(i),
           onclose: (reason: string) => {
             releaseOnce()
@@ -1145,7 +1245,11 @@ class ClientService extends EventTarget {
                   try {
                     const sub2 = liveRelay.subscribe(relayFilters, {
                       receivedEvent: (_relay, id) => that.trackEventSeenOn(id, _relay),
-                      onevent: (evt: NEvent) => onevent?.(evt),
+                      onevent: (evt: NEvent) => {
+                        logFirstEventIfFirstResponseWasEmpty(evt, relayKey)
+                        logFirstRelayResponse('event', relayKey)
+                        onevent?.(evt)
+                      },
                       oneose: () => handleEose(i),
                       onclose: (reason2: string) => {
                         releaseSlot2()
@@ -1153,6 +1257,12 @@ class ClientService extends EventTarget {
                       },
                       alreadyHaveEvent: localAlreadyHaveEvent,
                       eoseTimeout: SUBSCRIBE_RELAY_EOSE_TIMEOUT_MS
+                    })
+                    logger.info('[relay-req] req_sent', {
+                      reqGroupId,
+                      url: relayKey,
+                      ms: Math.round(performance.now() - reqT0),
+                      note: 'after_auth'
                     })
                     subs.push({
                       relayKey,
@@ -1178,6 +1288,11 @@ class ClientService extends EventTarget {
           },
           alreadyHaveEvent: localAlreadyHaveEvent,
           eoseTimeout: SUBSCRIBE_RELAY_EOSE_TIMEOUT_MS
+        })
+        logger.info('[relay-req] req_sent', {
+          reqGroupId,
+          url: relayKey,
+          ms: Math.round(performance.now() - reqT0)
         })
         subs.push({
           relayKey,
@@ -1230,11 +1345,14 @@ class ClientService extends EventTarget {
       startLogin,
       needSort = true,
       /** @deprecated No longer used; streaming does not fake EOSE (see flushStreamingSnapshot). Kept for call-site compatibility. */
-      firstRelayResultGraceMs: _unusedFirstRelayGraceMs = FIRST_RELAY_RESULT_GRACE_MS
+      firstRelayResultGraceMs: _unusedFirstRelayGraceMs = FIRST_RELAY_RESULT_GRACE_MS,
+      relayReqLog
     }: {
       startLogin?: () => void
       needSort?: boolean
       firstRelayResultGraceMs?: number
+      /** Correlate {@link ClientService.subscribe} logs with a timeline shard */
+      relayReqLog?: { groupId: string }
     } = {}
   ) {
     void _unusedFirstRelayGraceMs
@@ -1366,7 +1484,8 @@ class ClientService extends EventTarget {
       },
       oneose: handleTimelineEose,
       onclose: onClose
-    })
+    },
+    relayReqLog)
 
     return {
       timelineKey: key,
