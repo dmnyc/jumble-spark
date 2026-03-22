@@ -19,7 +19,8 @@ export default function ExploreRelayReviews() {
       getRelayUrlsWithFavoritesFastReadAndInbox(
         favoriteRelays,
         blockedRelays,
-        relayList?.read ?? []
+        relayList?.read ?? [],
+        { userWriteRelays: relayList?.write ?? [] }
       ),
     [favoriteRelays, blockedRelays, relayList]
   )

@@ -1,13 +1,32 @@
-import { DEFAULT_FAVORITE_RELAYS, FAST_READ_RELAY_URLS } from '@/constants'
+import { DEFAULT_FAVORITE_RELAYS } from '@/constants'
 import type { TFeedSubRequest } from '@/types'
 import { normalizeUrl } from '@/lib/url'
+import type { Filter } from 'nostr-tools'
+import {
+  buildPrioritizedReadRelayUrls,
+  buildReadRelayPriorityLayers,
+  dedupeNormalizeRelayUrlsOrdered,
+  MAX_REQ_RELAY_URLS,
+  mergeRelayPriorityLayers,
+  relayUrlsLocalsFirst
+} from '@/lib/relay-url-priority'
+
+/** True when the filter is unrestricted by kind or explicitly includes kind 1 (short notes). */
+export function relayFilterLikelyIncludesKind1(filter: Filter): boolean {
+  const k = filter.kinds
+  if (k === undefined) return true
+  const arr = Array.isArray(k) ? k : [k]
+  return arr.includes(1)
+}
 
 const blockedSet = (blockedRelays: string[]) =>
   new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
 
 /**
- * Relay URLs for the “all favorites” home feed only (`FeedProvider` `all-favorites` / that `RelaysFeed` mode).
- * Non-blocked user favorites, or {@link DEFAULT_FAVORITE_RELAYS} when none remain.
+ * Logged-in user’s favorite relays (kind 10012 `relay` tags via {@link useFavoriteRelays}, plus bootstrap defaults
+ * when the event is missing): drop blocked, dedupe, normalize. If no non-blocked entries remain, use
+ * {@link DEFAULT_FAVORITE_RELAYS}. Same list drives the favorites tier in REQ/publish prioritization and the
+ * all-favorites home feed.
  */
 export function getFavoritesFeedRelayUrls(
   favoriteRelays: string[],
@@ -48,34 +67,108 @@ export function mergeRelayUrlLayers(layers: string[][], blockedRelays: string[])
   return out
 }
 
+export type ReadRelayPriorityOptions = {
+  /** User NIP-65 write list — local URLs are promoted with inboxes for REQ. */
+  userWriteRelays?: string[]
+  /** Profile/timeline author outboxes (write relays) when known. */
+  authorWriteRelays?: string[]
+  maxRelays?: number
+  /**
+   * When set, applies to all subrequests. When unset, each subrequest uses {@link relayFilterLikelyIncludesKind1}
+   * on its filter to decide whether to strip kind-1-blocklisted relays before capping.
+   */
+  applyKind1BlockedFilter?: boolean
+  /**
+   * When false, ignore each subrequest’s `urls` and use only the shared prioritized stack (rare).
+   * Default true.
+   */
+  mergeSubrequestRelayUrls?: boolean
+  /**
+   * When true, fold `r.urls` into the author-outbox tier only (no extra first layer). Use for GIF / explicit spell relays
+   * that should rank with author outboxes, not ahead of user inboxes. Default false: prepend `r.urls` before user tiers.
+   */
+  mergeSubrequestRelaysIntoAuthorTier?: boolean
+}
+
 /**
- * Favorites (same set as the favorites feed) plus {@link FAST_READ_RELAY_URLS} and the user’s NIP-65 **read** / inbox relays.
- * Fast-read URLs are merged first so REQ setup hits responsive indexers early (same deduped set).
+ * REQ order: user inboxes + locals → author outboxes → favorites → {@link FAST_READ_RELAY_URLS}.
  */
 export function getRelayUrlsWithFavoritesFastReadAndInbox(
   favoriteRelays: string[],
   blockedRelays: string[],
-  userInboxReadRelays: string[]
+  userInboxReadRelays: string[],
+  options?: ReadRelayPriorityOptions
 ): string[] {
   const favorites = getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
-  const fast = FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean) as string[]
-  return mergeRelayUrlLayers([fast, favorites, userInboxReadRelays], blockedRelays)
+  return buildPrioritizedReadRelayUrls({
+    userReadRelays: userInboxReadRelays,
+    userWriteRelays: options?.userWriteRelays ?? [],
+    authorWriteRelays: options?.authorWriteRelays ?? [],
+    favoriteRelays: favorites,
+    blockedRelays,
+    maxRelays: options?.maxRelays,
+    applyKind1BlockedFilter: options?.applyKind1BlockedFilter
+  })
 }
 
-/** Prefix each subrequest’s `urls` with the extended read set (favorites + fast read + inboxes). */
+/**
+ * Per subrequest: shared inbox → author/favorites → fast read stack, normalized, user-blocked and (when applicable)
+ * kind-1-blocked stripped, deduped, capped. Subrequest `urls` are prepended first by default (following shards);
+ * set {@link ReadRelayPriorityOptions.mergeSubrequestRelaysIntoAuthorTier} to fold them into the author tier only
+ * (e.g. curated GIF / spell relay lists).
+ */
 export function augmentSubRequestsWithFavoritesFastReadAndInbox(
   requests: TFeedSubRequest[],
   favoriteRelays: string[],
   blockedRelays: string[],
-  userInboxReadRelays: string[]
+  userInboxReadRelays: string[],
+  options?: ReadRelayPriorityOptions
 ): TFeedSubRequest[] {
-  const base = getRelayUrlsWithFavoritesFastReadAndInbox(
-    favoriteRelays,
-    blockedRelays,
-    userInboxReadRelays
-  )
-  return requests.map((r) => ({
-    ...r,
-    urls: mergeRelayUrlLayers([base, r.urls], blockedRelays)
-  }))
+  const max = options?.maxRelays ?? MAX_REQ_RELAY_URLS
+  return requests.map((r) => {
+    const useSubUrls = options?.mergeSubrequestRelayUrls !== false
+    const foldIntoAuthor = options?.mergeSubrequestRelaysIntoAuthorTier === true
+    const applyK1 =
+      options?.applyKind1BlockedFilter !== undefined
+        ? options.applyKind1BlockedFilter
+        : relayFilterLikelyIncludesKind1(r.filter)
+
+    const favorites = getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
+
+    if (!useSubUrls) {
+      return {
+        ...r,
+        urls: buildPrioritizedReadRelayUrls({
+          userReadRelays: userInboxReadRelays,
+          userWriteRelays: options?.userWriteRelays ?? [],
+          authorWriteRelays: options?.authorWriteRelays ?? [],
+          favoriteRelays: favorites,
+          blockedRelays,
+          maxRelays: max,
+          applyKind1BlockedFilter: applyK1
+        })
+      }
+    }
+
+    const authorOnly = dedupeNormalizeRelayUrlsOrdered(options?.authorWriteRelays ?? [])
+    const authorTier = foldIntoAuthor
+      ? dedupeNormalizeRelayUrlsOrdered([...authorOnly, ...r.urls])
+      : authorOnly
+
+    const coreLayers = buildReadRelayPriorityLayers({
+      userReadRelays: userInboxReadRelays,
+      userWriteRelays: options?.userWriteRelays ?? [],
+      authorWriteRelays: authorTier,
+      favoriteRelays: favorites
+    })
+
+    const layers = foldIntoAuthor ? coreLayers : [relayUrlsLocalsFirst(r.urls), ...coreLayers]
+
+    return {
+      ...r,
+      urls: mergeRelayPriorityLayers(layers, blockedRelays, max, {
+        applyKind1BlockedFilter: applyK1
+      })
+    }
+  })
 }

@@ -87,9 +87,13 @@ export function buildSpellCatalogAuthors(pubkey: string, contacts: string[]): st
 export function getRelaysForSpellCatalogSync(
   favoriteRelays: string[],
   blockedRelays: string[],
-  userInboxReadRelays: string[]
+  userInboxReadRelays: string[],
+  options?: { userWriteRelays?: string[] }
 ): string[] {
-  return getRelayUrlsWithFavoritesFastReadAndInbox(favoriteRelays, blockedRelays, userInboxReadRelays)
+  return getRelayUrlsWithFavoritesFastReadAndInbox(favoriteRelays, blockedRelays, userInboxReadRelays, {
+    userWriteRelays: options?.userWriteRelays ?? [],
+    applyKind1BlockedFilter: false
+  })
 }
 
 function dedupeRelayUrls(urls: string[]): string[] {

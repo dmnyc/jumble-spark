@@ -1,6 +1,7 @@
 import {
   ExtendedKind,
   FAST_READ_RELAY_URLS,
+  MAX_CONCURRENT_RELAY_CONNECTIONS,
   METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS,
   METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS,
   PROFILE_FETCH_RELAY_URLS
@@ -21,6 +22,32 @@ import client from './client.service'
 import { buildComprehensiveRelayList, buildExploreProfileAndUserRelayList } from '@/lib/relay-list-builder'
 
 export class ReplaceableEventService {
+  /** Limits parallel Step 2/3 profile network work (relay list + wide metadata REQ). */
+  private static profileFallbackSlotsInUse = 0
+  private static profileFallbackWaitQueue: Array<() => void> = []
+
+  private static async acquireProfileFallbackNetworkSlot(): Promise<void> {
+    if (ReplaceableEventService.profileFallbackSlotsInUse < MAX_CONCURRENT_RELAY_CONNECTIONS) {
+      ReplaceableEventService.profileFallbackSlotsInUse++
+      return
+    }
+    await new Promise<void>((resolve) => {
+      ReplaceableEventService.profileFallbackWaitQueue.push(() => {
+        ReplaceableEventService.profileFallbackSlotsInUse++
+        resolve()
+      })
+    })
+  }
+
+  private static releaseProfileFallbackNetworkSlot(): void {
+    ReplaceableEventService.profileFallbackSlotsInUse = Math.max(
+      0,
+      ReplaceableEventService.profileFallbackSlotsInUse - 1
+    )
+    const next = ReplaceableEventService.profileFallbackWaitQueue.shift()
+    if (next) next()
+  }
+
   private queryService: QueryService
   private onProfileIndexed?: (profileEvent: NEvent) => void | Promise<void>
   private followingFavoriteRelaysCache = new LRUCache<string, Promise<[string, string[]][]>>({
@@ -745,6 +772,8 @@ export class ReplaceableEventService {
       return profileEvent
     }
 
+    await ReplaceableEventService.acquireProfileFallbackNetworkSlot()
+    try {
     // Step 2: Only after cache + default relays miss — NIP-65 relay list (timeout-capped), then hints + outbox/inbox + defaults.
     logger.debug('[ReplaceableEventService] Step 2: Fetching author relay list as fallback', {
       pubkey,
@@ -862,6 +891,9 @@ export class ReplaceableEventService {
         pubkey,
         error: error instanceof Error ? error.message : String(error)
       })
+    }
+    } finally {
+      ReplaceableEventService.releaseProfileFallbackNetworkSlot()
     }
 
     logger.warn('[ReplaceableEventService] Profile not found after cache, relay-list fallback, and comprehensive search', {

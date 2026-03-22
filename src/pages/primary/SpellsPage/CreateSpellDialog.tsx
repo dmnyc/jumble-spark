@@ -321,11 +321,9 @@ export default function CreateSpellDialog({
       const { draft, notices, pendingATags } = applyListEventToSpellDraft(base, ev)
       setForm(draft)
       setListImportNotices(notices)
-      const urls = getRelaysForSpellCatalogSync(
-        favoriteRelays,
-        blockedRelays,
-        relayList?.read ?? []
-      )
+      const urls = getRelaysForSpellCatalogSync(favoriteRelays, blockedRelays, relayList?.read ?? [], {
+        userWriteRelays: relayList?.write ?? []
+      })
       if (pendingATags.length === 0) return
       void resolveSpellListATags(pendingATags, urls).then(({ ids, notices: extra }) => {
         if (ids.length) {

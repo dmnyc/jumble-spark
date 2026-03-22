@@ -4,6 +4,7 @@ import {
   FAST_WRITE_RELAY_URLS,
   FIRST_RELAY_RESULT_GRACE_MS,
   KIND_1_BLOCKED_RELAY_URLS,
+  MAX_PUBLISH_RELAYS,
   NIP66_DISCOVERY_RELAY_URLS,
   PROFILE_FETCH_RELAY_URLS,
   READ_ONLY_RELAY_URLS,
@@ -21,6 +22,12 @@ import logger from '@/lib/logger'
 import { dispatchTombstonesUpdated } from '@/lib/tombstone-events'
 import { isValidPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { getPubkeysFromPTags, tagNameEquals } from '@/lib/tag'
+import {
+  buildPrioritizedWriteRelayUrls,
+  dedupeNormalizeRelayUrlsOrdered,
+  mergeRelayPriorityLayers,
+  relayUrlsLocalsFirst
+} from '@/lib/relay-url-priority'
 import { isLocalNetworkUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import { isSafari } from '@/lib/utils'
 import {
@@ -159,16 +166,17 @@ class ClientService extends EventTarget {
       const discoveryRelays = Array.from(new Set([...FAST_READ_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
       const events = await this.queryService.query(
         discoveryRelays,
-        { kinds: [ExtendedKind.RELAY_DISCOVERY] },
+        { kinds: [ExtendedKind.RELAY_DISCOVERY], limit: 2000 },
         undefined,
         { eoseTimeout: 4000, globalTimeout: 8000 }
       )
       if (events.length > 0) {
-        nip66Service.loadFromEvents(events)
-        logger.info('NIP-66: loaded relay discovery events', { count: events.length })
+        const capped = events.length > 2000 ? events.slice(0, 2000) : events
+        nip66Service.loadFromEvents(capped)
+        logger.debug('NIP-66: loaded relay discovery events', { count: capped.length })
       }
     } catch (err) {
-      logger.info('NIP-66: failed to fetch relay discovery', { err })
+      logger.debug('NIP-66: failed to fetch relay discovery', { err })
     }
   }
 
@@ -204,6 +212,121 @@ class ClientService extends EventTarget {
   }
 
   /**
+   * Pubkeys to pull **read** (inbox) relays for: `p`/`P` mentions and `e` tag relay pubkey hint (NIP-10).
+   * Excludes the event author.
+   */
+  private collectReplyAndMentionPubkeys(event: NEvent): string[] {
+    const out: string[] = []
+    const seen = new Set<string>()
+    const add = (pk: string | undefined) => {
+      if (!pk || !isValidPubkey(pk) || pk === event.pubkey || seen.has(pk)) return
+      seen.add(pk)
+      out.push(pk)
+    }
+    for (const t of event.tags) {
+      const name = t[0]
+      const v = t[1]
+      const hint = t[3]
+      if ((name === 'p' || name === 'P') && v) add(v)
+      if (name === 'e' && hint) add(hint)
+    }
+    return out
+  }
+
+  /**
+   * Write publish order: user outboxes → author inboxes → favorites → FAST_WRITE → FAST_READ → other.
+   * Normalize, dedupe, then cap at {@link MAX_PUBLISH_RELAYS}.
+   */
+  private filterPublishingRelays(relays: string[], event: NEvent): string[] {
+    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    return dedupeNormalizeRelayUrlsOrdered(
+      relays.filter((url) => {
+        const n = normalizeUrl(url) || url
+        if (readOnlySet.has(n)) return false
+        if (event.kind === kinds.ShortTextNote && kind1BlockedSet.has(n)) return false
+        return true
+      })
+    )
+  }
+
+  private async prioritizePublishUrlList(
+    relayUrls: string[],
+    event: NEvent,
+    favoriteRelayUrls: string[] = []
+  ): Promise<string[]> {
+    let userWriteSet = new Set<string>()
+    try {
+      const rl = await this.fetchRelayList(event.pubkey)
+      userWriteSet = new Set(
+        (rl?.write ?? [])
+          .map((u) => normalizeUrl(u) || u)
+          .filter((u): u is string => !!u)
+      )
+    } catch {
+      // ignore
+    }
+
+    const ctx = this.collectReplyAndMentionPubkeys(event)
+    let authorReadSet = new Set<string>()
+    if (ctx.length > 0) {
+      const lists = await this.fetchRelayLists(ctx)
+      for (const list of lists) {
+        for (const u of list?.read ?? []) {
+          const n = normalizeUrl(u) || u
+          if (n) authorReadSet.add(n)
+        }
+      }
+    }
+
+    const favSet = new Set(
+      favoriteRelayUrls.map((f) => normalizeUrl(f) || f).filter((u): u is string => !!u)
+    )
+    const fastWSet = new Set(
+      FAST_WRITE_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter((u): u is string => !!u)
+    )
+    const fastRSet = new Set(
+      FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter((u): u is string => !!u)
+    )
+
+    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+
+    const t0: string[] = []
+    const t1: string[] = []
+    const t2: string[] = []
+    const t3: string[] = []
+    const t4: string[] = []
+    const t5: string[] = []
+    for (const u of relayUrls) {
+      const n = normalizeUrl(u) || u
+      if (!n) continue
+      if (userWriteSet.has(n)) t0.push(n)
+      else if (authorReadSet.has(n)) t1.push(n)
+      else if (favSet.has(n)) t2.push(n)
+      else if (fastWSet.has(n)) t3.push(n)
+      else if (fastRSet.has(n)) t4.push(n)
+      else t5.push(n)
+    }
+    return dedupeNormalizeRelayUrlsOrdered([...t0, ...t1, ...t2, ...t3, ...t4, ...t5])
+      .filter((url) => {
+        const n = normalizeUrl(url) || url
+        if (readOnlySet.has(n)) return false
+        if (event.kind === kinds.ShortTextNote && kind1BlockedSet.has(n)) return false
+        return true
+      })
+      .slice(0, MAX_PUBLISH_RELAYS)
+  }
+
+  private async capPublishRelayUrlsForPublish(
+    relayUrls: string[],
+    event: NEvent,
+    favoriteRelayUrls: string[] = []
+  ): Promise<string[]> {
+    return this.prioritizePublishUrlList(relayUrls, event, favoriteRelayUrls)
+  }
+
+  /**
    * Determine which relays to publish an event to.
    * Fallbacks (used when user relay list is empty or fetch fails):
    * - General events (reactions, notes, etc.): FAST_WRITE_RELAY_URLS
@@ -213,8 +336,12 @@ class ClientService extends EventTarget {
    */
   async determineTargetRelays(
     event: NEvent,
-    { specifiedRelayUrls, additionalRelayUrls }: TPublishOptions = {}
+    { specifiedRelayUrls, additionalRelayUrls, favoriteRelayUrls, blockedRelayUrls }: TPublishOptions = {}
   ) {
+    const writeRelayPubOpts = {
+      blockedRelays: blockedRelayUrls,
+      applyKind1BlockedFilter: event.kind === kinds.ShortTextNote
+    }
     if (event.kind === kinds.RelayList) {
       logger.info('[DetermineTargetRelays] Determining target relays for relay list event', {
         pubkey: event.pubkey,
@@ -228,7 +355,9 @@ class ClientService extends EventTarget {
     if (event.kind === kinds.Report) {
       // Start with user's write relays (outboxes) - these are the primary targets for reports
       const relayList = await this.fetchRelayList(event.pubkey)
-      const userWriteRelays = relayList?.write.slice(0, 10) ?? []
+      const userWriteRelays = dedupeNormalizeRelayUrlsOrdered(
+        (relayList?.write ?? []).map((url) => normalizeUrl(url) || url).filter((u): u is string => !!u)
+      )
       
       // Get seen relays where the reported event was found
       const targetEventId = event.tags.find(tagNameEquals('e'))?.[1]
@@ -245,21 +374,32 @@ class ClientService extends EventTarget {
         }))
       }
       
-      // Combine: user's write relays first (primary), then seen write relays (additional context)
-      const reportRelays = Array.from(new Set([
-        ...userWriteRelays,
-        ...seenRelays
-      ]))
-      
-      // If we still don't have any relays, fall back to fast write relays
-      if (reportRelays.length === 0) {
-        reportRelays.push(...FAST_WRITE_RELAY_URLS)
+      if (userWriteRelays.length === 0 && seenRelays.length === 0) {
+        return this.filterPublishingRelays(
+          buildPrioritizedWriteRelayUrls({
+            userWriteRelays: [...FAST_WRITE_RELAY_URLS],
+            favoriteRelays: favoriteRelayUrls ?? [],
+            maxRelays: MAX_PUBLISH_RELAYS,
+            ...writeRelayPubOpts
+          }),
+          event
+        )
       }
-      
-      return reportRelays
+      return this.filterPublishingRelays(
+        buildPrioritizedWriteRelayUrls({
+          userWriteRelays: userWriteRelays,
+          authorReadRelays: [],
+          favoriteRelays: favoriteRelayUrls ?? [],
+          extraRelays: seenRelays,
+          maxRelays: MAX_PUBLISH_RELAYS,
+          ...writeRelayPubOpts
+        }),
+        event
+      )
     }
 
-    // Public messages (kind 24) and calendar RSVPs (kind 31925): only author's outboxes + each recipient's inboxes
+    // Public messages (kind 24) and calendar RSVPs (kind 31925): only author's outboxes + each recipient's
+    // inboxes — no user favorites, FAST_WRITE, or FAST_READ padding (see relay-selection getPublicMessageRelays).
     if (
       event.kind === ExtendedKind.PUBLIC_MESSAGE ||
       event.kind === ExtendedKind.CALENDAR_EVENT_RSVP
@@ -282,14 +422,29 @@ class ClientService extends EventTarget {
           .map((url) => normalizeUrl(url))
           .filter((url): url is string => !!url && !isLocalNetworkUrl(url))
       }
-      const relays = Array.from(new Set([...authorWrite, ...recipientRead]))
+      let pubRelays = mergeRelayPriorityLayers(
+        [relayUrlsLocalsFirst(authorWrite), dedupeNormalizeRelayUrlsOrdered(recipientRead)],
+        blockedRelayUrls,
+        MAX_PUBLISH_RELAYS,
+        { applyKind1BlockedFilter: false }
+      )
+      pubRelays = this.filterPublishingRelays(pubRelays, event)
       logger.debug('[DetermineTargetRelays] Public message / calendar RSVP: author outbox + recipient inboxes only', {
         kind: event.kind,
-        relayCount: relays.length,
+        relayCount: pubRelays.length,
         authorWriteCount: authorWrite.length,
         recipientReadCount: recipientRead.length
       })
-      return relays.length > 0 ? relays : [...FAST_WRITE_RELAY_URLS]
+      if (pubRelays.length > 0) return pubRelays
+      return this.filterPublishingRelays(
+        mergeRelayPriorityLayers(
+          [relayUrlsLocalsFirst([...FAST_WRITE_RELAY_URLS])],
+          blockedRelayUrls,
+          MAX_PUBLISH_RELAYS,
+          { applyKind1BlockedFilter: false }
+        ),
+        event
+      )
     }
 
     let relays: string[]
@@ -308,47 +463,42 @@ class ClientService extends EventTarget {
           })
           spellRelayList = { write: [], read: [], originalRelays: [] }
         }
-        const normalizedWrite = (spellRelayList?.write ?? [])
-          .map((url) => normalizeUrl(url))
-          .filter((url): url is string => !!url)
-        const cappedWrite = normalizedWrite.slice(0, 10)
-        const merged = [...cappedWrite, ...FAST_WRITE_RELAY_URLS]
-        const seen = new Set<string>()
-        let spellRelays: string[] = []
-        for (const u of merged) {
-          const n = normalizeUrl(u) || u
-          if (!n || seen.has(n)) continue
-          seen.add(n)
-          spellRelays.push(n)
-        }
-        if (!spellRelays.length) {
-          spellRelays = [...FAST_WRITE_RELAY_URLS]
-        }
+        const normalizedWrite = dedupeNormalizeRelayUrlsOrdered(
+          (spellRelayList?.write ?? [])
+            .map((url) => normalizeUrl(url))
+            .filter((url): url is string => !!url)
+        )
         const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-        spellRelays = spellRelays.filter((url) => {
+        const spellWriteFiltered = normalizedWrite.filter((url) => {
           const n = normalizeUrl(url) || url
           return !readOnlySet.has(n)
         })
-        return spellRelays.length > 0 ? spellRelays : [...FAST_WRITE_RELAY_URLS]
+        return this.filterPublishingRelays(
+          buildPrioritizedWriteRelayUrls({
+            userWriteRelays:
+              spellWriteFiltered.length > 0
+                ? spellWriteFiltered
+                : dedupeNormalizeRelayUrlsOrdered(FAST_WRITE_RELAY_URLS),
+            favoriteRelays: favoriteRelayUrls ?? [],
+            extraRelays: [],
+            maxRelays: MAX_PUBLISH_RELAYS,
+            ...writeRelayPubOpts
+          }),
+          event
+        )
       }
 
-      const _additionalRelayUrls: string[] = additionalRelayUrls ?? []
+      const bootstrapExtras: string[] = [...(additionalRelayUrls ?? [])]
+      let authorInboxFromContext: string[] = []
       if (!specifiedRelayUrls?.length && ![kinds.Contacts, kinds.Mutelist].includes(event.kind)) {
-        const mentions: string[] = []
-        event.tags.forEach(([tagName, tagValue]) => {
-          if (
-            ['p', 'P'].includes(tagName) &&
-            !!tagValue &&
-            isValidPubkey(tagValue) &&
-            !mentions.includes(tagValue)
-          ) {
-            mentions.push(tagValue)
-          }
-        })
-        if (mentions.length > 0) {
-          const relayLists = await this.fetchRelayLists(mentions)
+        const ctxPubkeys = this.collectReplyAndMentionPubkeys(event)
+        if (ctxPubkeys.length > 0) {
+          const relayLists = await this.fetchRelayLists(ctxPubkeys)
           relayLists.forEach((relayList) => {
-            _additionalRelayUrls.push(...relayList.read.slice(0, 4))
+            for (const u of relayList.read ?? []) {
+              const n = normalizeUrl(u) || u
+              if (n) authorInboxFromContext.push(n)
+            }
           })
         }
       }
@@ -361,22 +511,22 @@ class ClientService extends EventTarget {
           ExtendedKind.RELAY_REVIEW
         ].includes(event.kind)
       ) {
-        _additionalRelayUrls.push(...PROFILE_FETCH_RELAY_URLS)
+        bootstrapExtras.push(...PROFILE_FETCH_RELAY_URLS)
         logger.debug('[DetermineTargetRelays] Relay list event detected, adding PROFILE_FETCH_RELAY_URLS', {
           kind: event.kind,
           profileFetchRelays: PROFILE_FETCH_RELAY_URLS,
-          additionalRelayCount: _additionalRelayUrls.length
+          additionalRelayCount: bootstrapExtras.length
         })
       } else if (event.kind === ExtendedKind.FAVORITE_RELAYS) {
         // Use fast write relays for favorite relays to avoid timeouts and payment requirements
-        _additionalRelayUrls.push(...FAST_WRITE_RELAY_URLS)
+        bootstrapExtras.push(...FAST_WRITE_RELAY_URLS)
         logger.debug('[DetermineTargetRelays] Favorite relays event detected, adding FAST_WRITE_RELAY_URLS', {
           kind: event.kind,
           fastWriteRelays: FAST_WRITE_RELAY_URLS,
-          additionalRelayCount: _additionalRelayUrls.length
+          additionalRelayCount: bootstrapExtras.length
         })
       } else if (event.kind === ExtendedKind.RSS_FEED_LIST) {
-        _additionalRelayUrls.push(...FAST_WRITE_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS)
+        bootstrapExtras.push(...FAST_WRITE_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS)
       }
 
       if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
@@ -403,15 +553,26 @@ class ClientService extends EventTarget {
           writeRelays: relayList?.write?.slice(0, 10) ?? []
         })
       }
-      relays = (relayList?.write.slice(0, 10) ?? []).concat(
-        Array.from(new Set(_additionalRelayUrls)) ?? []
+      const userWritesOrdered = dedupeNormalizeRelayUrlsOrdered(
+        (relayList?.write ?? []).map((u) => normalizeUrl(u) || u).filter((u): u is string => !!u)
+      )
+      relays = this.filterPublishingRelays(
+        buildPrioritizedWriteRelayUrls({
+          userWriteRelays: userWritesOrdered,
+          authorReadRelays: authorInboxFromContext,
+          favoriteRelays: favoriteRelayUrls ?? [],
+          extraRelays: bootstrapExtras,
+          maxRelays: MAX_PUBLISH_RELAYS,
+          ...writeRelayPubOpts
+        }),
+        event
       )
       if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
         logger.info('[DetermineTargetRelays] Final relay list for event publication', {
           kind: event.kind,
           totalRelayCount: relays.length,
-          userWriteRelays: relayList?.write?.slice(0, 10) ?? [],
-          additionalRelays: Array.from(new Set(_additionalRelayUrls)),
+          userWriteRelays: userWritesOrdered.slice(0, MAX_PUBLISH_RELAYS),
+          additionalRelays: dedupeNormalizeRelayUrlsOrdered(bootstrapExtras),
           allRelays: relays
         })
       }
@@ -426,15 +587,13 @@ class ClientService extends EventTarget {
       })
     }
 
-    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-    const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-    relays = relays.filter((url) => {
-      const n = normalizeUrl(url) || url
-      if (readOnlySet.has(n)) return false
-      if (event.kind === kinds.ShortTextNote && kind1BlockedSet.has(n)) return false
-      return true
-    })
+    relays = this.filterPublishingRelays(relays, event)
 
+    if (specifiedRelayUrls?.length) {
+      relays = await this.prioritizePublishUrlList(relays, event, favoriteRelayUrls ?? [])
+    } else {
+      relays = dedupeNormalizeRelayUrlsOrdered(relays).slice(0, MAX_PUBLISH_RELAYS)
+    }
     return relays
   }
 
@@ -555,7 +714,11 @@ class ClientService extends EventTarget {
     return result.slice(0, count)
   }
 
-  async publishEvent(relayUrls: string[], event: NEvent) {
+  async publishEvent(
+    relayUrls: string[],
+    event: NEvent,
+    publishExtras?: { favoriteRelayUrls?: string[] }
+  ) {
     const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
     const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
     let filtered = relayUrls.filter((url) => {
@@ -567,6 +730,11 @@ class ClientService extends EventTarget {
       return true
     })
     filtered = Array.from(new Set(filtered))
+    filtered = await this.capPublishRelayUrlsForPublish(
+      filtered,
+      event,
+      publishExtras?.favoriteRelayUrls ?? []
+    )
 
     logger.debug('[PublishEvent] Starting publishEvent', {
       eventId: event.id?.substring(0, 8),
@@ -886,7 +1054,7 @@ class ClientService extends EventTarget {
   ) {
     const timelineBatchId = `tl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
     const timelineT0 = performance.now()
-    logger.info('[relay-req] timeline_batch_start', {
+    logger.debug('[relay-req] timeline_batch_start', {
       timelineBatchId,
       subRequestCount: subRequests.length,
       relayCounts: subRequests.map((r) => r.urls.length)
@@ -909,22 +1077,13 @@ class ClientService extends EventTarget {
     const deliverTimelineToConsumer = (snapshot: NEvent[], allEosed: boolean) => {
       if (!firstPaintLogged && snapshot.length > 0) {
         firstPaintLogged = true
-        logger.info('[relay-req] first_paint', {
+        logger.debug('[relay-req] first_paint', {
           timelineBatchId,
           phase: 'data_to_feed',
           rowCount: snapshot.length,
           allEosed,
           ms: Math.round(performance.now() - timelineT0)
         })
-        if (typeof requestAnimationFrame === 'function') {
-          requestAnimationFrame(() => {
-            logger.info('[relay-req] first_paint', {
-              timelineBatchId,
-              phase: 'raf',
-              ms: Math.round(performance.now() - timelineT0)
-            })
-          })
-        }
       }
       onEvents(snapshot, allEosed)
     }
@@ -1106,7 +1265,7 @@ class ClientService extends EventTarget {
     // Kind-1 queries drop KIND_1_BLOCKED_RELAY_URLS; if every URL was removed, no subs run and
     // oneose would never fire — timelines stay loading forever (e.g. favorites feed).
     if (groupedRequests.length === 0) {
-      logger.info('[relay-req] batch_skip', {
+      logger.debug('[relay-req] batch_skip', {
         reason: 'no_relays_after_filters',
         filterSummary: summarizeFiltersForRelayLog(filters)
       })
@@ -1127,7 +1286,7 @@ class ClientService extends EventTarget {
       if (firstRelayResponseLogged) return
       firstRelayResponseLogged = true
       if (kind === 'eose') awaitingFirstEventAfterEoseFirstResponse = true
-      logger.info('[relay-req] first_response', {
+      logger.debug('[relay-req] first_response', {
         reqGroupId,
         kind,
         relayUrl,
@@ -1137,7 +1296,7 @@ class ClientService extends EventTarget {
     const logFirstEventIfFirstResponseWasEmpty = (evt: NEvent, relayKey: string) => {
       if (!awaitingFirstEventAfterEoseFirstResponse) return
       awaitingFirstEventAfterEoseFirstResponse = false
-      logger.info('[relay-req] first_event', {
+      logger.debug('[relay-req] first_event', {
         reqGroupId,
         relayUrl: relayKey,
         eventId: evt.id,
@@ -1147,7 +1306,7 @@ class ClientService extends EventTarget {
       })
     }
 
-    logger.info('[relay-req] batch_start', {
+    logger.debug('[relay-req] batch_start', {
       reqGroupId,
       relayCount: groupedRequests.length,
       relays: groupedRequests.map((r) => r.url),
@@ -1185,122 +1344,132 @@ class ClientService extends EventTarget {
     const subs: { relayKey: string; close: () => void }[] = []
     const allOpened = Promise.all(
       groupedRequests.map(async ({ url, filters: relayFilters }, i) => {
-        const relayKey = normalizeUrl(url) || url
-        await that.queryService.acquireSubSlot(relayKey)
-        let relay: AbstractRelay
+        await that.queryService.acquireGlobalRelayConnectionSlot()
         try {
-          relay = await that.pool.ensureRelay(url, { connectionTimeout: SUBSCRIBE_RELAY_CONNECTION_TIMEOUT_MS })
-        } catch (err) {
-          that.queryService.releaseSubSlot(relayKey)
-          handleClose(i, (err as Error)?.message ?? String(err))
-          return
-        }
-
-        let slotReleased = false
-        const releaseOnce = () => {
-          if (!slotReleased) {
-            slotReleased = true
+          const relayKey = normalizeUrl(url) || url
+          await that.queryService.acquireSubSlot(relayKey)
+          let relay: AbstractRelay
+          try {
+            relay = await that.pool.ensureRelay(url, { connectionTimeout: SUBSCRIBE_RELAY_CONNECTION_TIMEOUT_MS })
+          } catch (err) {
             that.queryService.releaseSubSlot(relayKey)
+            handleClose(i, (err as Error)?.message ?? String(err))
+            return
           }
-        }
 
-        const sub = relay.subscribe(relayFilters, {
-          receivedEvent: (_relay, id) => that.trackEventSeenOn(id, _relay),
-          onevent: (evt: NEvent) => {
-            logFirstEventIfFirstResponseWasEmpty(evt, relayKey)
-            logFirstRelayResponse('event', relayKey)
-            onevent?.(evt)
-          },
-          oneose: () => handleEose(i),
-          onclose: (reason: string) => {
-            releaseOnce()
-            if (reason.startsWith('auth-required: ') && that.canSignerAuthenticateRelay()) {
-              relay
-                .auth(async (authEvt: EventTemplate) => {
-                  const evt = await that.signer!.signEvent(authEvt)
-                  if (!evt) throw new Error('sign event failed')
-                  return evt as VerifiedEvent
-                })
-                .then(async () => {
-                  await that.queryService.acquireSubSlot(relayKey)
-                  // After AUTH the socket may be closed or the relay dropped from the pool;
-                  // resubscribe on a fresh connection from ensureRelay (fixes SendingOnClosedConnection).
-                  let liveRelay: AbstractRelay
-                  try {
-                    liveRelay = await that.pool.ensureRelay(url, {
-                      connectionTimeout: SUBSCRIBE_RELAY_CONNECTION_TIMEOUT_MS
-                    })
-                  } catch (err) {
-                    that.queryService.releaseSubSlot(relayKey)
-                    handleClose(i, (err as Error)?.message ?? String(err))
-                    return
-                  }
-                  let slotReleased2 = false
-                  const releaseSlot2 = () => {
-                    if (!slotReleased2) {
-                      slotReleased2 = true
-                      that.queryService.releaseSubSlot(relayKey)
-                    }
-                  }
-                  try {
-                    const sub2 = liveRelay.subscribe(relayFilters, {
-                      receivedEvent: (_relay, id) => that.trackEventSeenOn(id, _relay),
-                      onevent: (evt: NEvent) => {
-                        logFirstEventIfFirstResponseWasEmpty(evt, relayKey)
-                        logFirstRelayResponse('event', relayKey)
-                        onevent?.(evt)
-                      },
-                      oneose: () => handleEose(i),
-                      onclose: (reason2: string) => {
-                        releaseSlot2()
-                        handleClose(i, reason2)
-                      },
-                      alreadyHaveEvent: localAlreadyHaveEvent,
-                      eoseTimeout: SUBSCRIBE_RELAY_EOSE_TIMEOUT_MS
-                    })
-                    logger.info('[relay-req] req_sent', {
-                      reqGroupId,
-                      url: relayKey,
-                      ms: Math.round(performance.now() - reqT0),
-                      note: 'after_auth'
-                    })
-                    subs.push({
-                      relayKey,
-                      close: () => {
-                        releaseSlot2()
-                        sub2.close()
-                      }
-                    })
-                  } catch (err) {
-                    releaseSlot2()
-                    handleClose(i, (err as Error)?.message ?? String(err))
-                  }
-                })
-                .catch((err) => {
-                  handleClose(i, `auth failed: ${(err as Error)?.message ?? err}`)
-                })
-              return
+          let slotReleased = false
+          const releaseOnce = () => {
+            if (!slotReleased) {
+              slotReleased = true
+              that.queryService.releaseSubSlot(relayKey)
             }
-            if (reason.startsWith('auth-required: ')) {
-              startLogin?.()
-            }
-            handleClose(i, reason)
-          },
-          alreadyHaveEvent: localAlreadyHaveEvent,
-          eoseTimeout: SUBSCRIBE_RELAY_EOSE_TIMEOUT_MS
-        })
-        logger.info('[relay-req] req_sent', {
-          reqGroupId,
-          url: relayKey,
-          ms: Math.round(performance.now() - reqT0)
-        })
-        subs.push({
-          relayKey,
-          close: () => {
-            releaseOnce()
-            sub.close()
           }
-        })
+
+          const sub = relay.subscribe(relayFilters, {
+            receivedEvent: (_relay, id) => that.trackEventSeenOn(id, _relay),
+            onevent: (evt: NEvent) => {
+              logFirstEventIfFirstResponseWasEmpty(evt, relayKey)
+              logFirstRelayResponse('event', relayKey)
+              onevent?.(evt)
+            },
+            oneose: () => handleEose(i),
+            onclose: (reason: string) => {
+              releaseOnce()
+              if (reason.startsWith('auth-required: ') && that.canSignerAuthenticateRelay()) {
+                relay
+                  .auth(async (authEvt: EventTemplate) => {
+                    const evt = await that.signer!.signEvent(authEvt)
+                    if (!evt) throw new Error('sign event failed')
+                    return evt as VerifiedEvent
+                  })
+                  .then(async () => {
+                    await that.queryService.acquireGlobalRelayConnectionSlot()
+                    try {
+                      await that.queryService.acquireSubSlot(relayKey)
+                      // After AUTH the socket may be closed or the relay dropped from the pool;
+                      // resubscribe on a fresh connection from ensureRelay (fixes SendingOnClosedConnection).
+                      let liveRelay: AbstractRelay
+                      try {
+                        liveRelay = await that.pool.ensureRelay(url, {
+                          connectionTimeout: SUBSCRIBE_RELAY_CONNECTION_TIMEOUT_MS
+                        })
+                      } catch (err) {
+                        that.queryService.releaseSubSlot(relayKey)
+                        handleClose(i, (err as Error)?.message ?? String(err))
+                        return
+                      }
+                      let slotReleased2 = false
+                      const releaseSlot2 = () => {
+                        if (!slotReleased2) {
+                          slotReleased2 = true
+                          that.queryService.releaseSubSlot(relayKey)
+                        }
+                      }
+                      try {
+                        const sub2 = liveRelay.subscribe(relayFilters, {
+                          receivedEvent: (_relay, id) => that.trackEventSeenOn(id, _relay),
+                          onevent: (evt: NEvent) => {
+                            logFirstEventIfFirstResponseWasEmpty(evt, relayKey)
+                            logFirstRelayResponse('event', relayKey)
+                            onevent?.(evt)
+                          },
+                          oneose: () => handleEose(i),
+                          onclose: (reason2: string) => {
+                            releaseSlot2()
+                            handleClose(i, reason2)
+                          },
+                          alreadyHaveEvent: localAlreadyHaveEvent,
+                          eoseTimeout: SUBSCRIBE_RELAY_EOSE_TIMEOUT_MS
+                        })
+                        logger.debug('[relay-req] req_sent', {
+                          reqGroupId,
+                          url: relayKey,
+                          ms: Math.round(performance.now() - reqT0),
+                          note: 'after_auth'
+                        })
+                        subs.push({
+                          relayKey,
+                          close: () => {
+                            releaseSlot2()
+                            sub2.close()
+                          }
+                        })
+                      } catch (err) {
+                        releaseSlot2()
+                        handleClose(i, (err as Error)?.message ?? String(err))
+                      }
+                    } finally {
+                      that.queryService.releaseGlobalRelayConnectionSlot()
+                    }
+                  })
+                  .catch((err) => {
+                    handleClose(i, `auth failed: ${(err as Error)?.message ?? err}`)
+                  })
+                return
+              }
+              if (reason.startsWith('auth-required: ')) {
+                startLogin?.()
+              }
+              handleClose(i, reason)
+            },
+            alreadyHaveEvent: localAlreadyHaveEvent,
+            eoseTimeout: SUBSCRIBE_RELAY_EOSE_TIMEOUT_MS
+          })
+          logger.debug('[relay-req] req_sent', {
+            reqGroupId,
+            url: relayKey,
+            ms: Math.round(performance.now() - reqT0)
+          })
+          subs.push({
+            relayKey,
+            close: () => {
+              releaseOnce()
+              sub.close()
+            }
+          })
+        } finally {
+          that.queryService.releaseGlobalRelayConnectionSlot()
+        }
       })
     )
 

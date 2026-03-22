@@ -6,10 +6,8 @@ import { Button } from '@/components/ui/button'
 import { SEARCHABLE_RELAY_URLS } from '@/constants'
 import {
   augmentSubRequestsWithFavoritesFastReadAndInbox,
-  getRelayUrlsWithFavoritesFastReadAndInbox,
-  mergeRelayUrlLayers
+  getRelayUrlsWithFavoritesFastReadAndInbox
 } from '@/lib/favorites-feed-relays'
-import { normalizeUrl } from '@/lib/url'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { toProfileList } from '@/lib/link'
 import { fetchPubkeysFromDomain, getWellKnownNip05Url } from '@/lib/nip05'
@@ -84,6 +82,10 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
       .getAll('k')
       .map((k) => parseInt(k))
       .filter((k) => !isNaN(k))
+    const readUrlOpts = {
+      userWriteRelays: relayList?.write ?? [],
+      applyKind1BlockedFilter: kinds.length === 0 || kinds.includes(1)
+    }
     const hashtag = searchParams.get('t')
     if (hashtag) {
       setData({ type: 'hashtag' })
@@ -94,7 +96,8 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
           urls: getRelayUrlsWithFavoritesFastReadAndInbox(
             favoriteRelays,
             blockedRelays,
-            relayList?.read ?? []
+            relayList?.read ?? [],
+            readUrlOpts
           )
         }
       ])
@@ -133,16 +136,11 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
         setSubRequests([
           {
             filter: { '#I': [externalContentId], ...(kinds.length > 0 ? { kinds } : {}) },
-            urls: mergeRelayUrlLayers(
-              [
-                getRelayUrlsWithFavoritesFastReadAndInbox(
-                  favoriteRelays,
-                  blockedRelays,
-                  relayList?.read ?? []
-                ),
-                (relayList?.write || []).map((url) => normalizeUrl(url) || url).filter(Boolean) as string[]
-              ],
-              blockedRelays
+            urls: getRelayUrlsWithFavoritesFastReadAndInbox(
+              favoriteRelays,
+              blockedRelays,
+              relayList?.read ?? [],
+              { userWriteRelays: relayList?.write ?? [] }
             )
           }
         ])
@@ -173,7 +171,8 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
                 raw,
                 favoriteRelays,
                 blockedRelays,
-                relayList?.read ?? []
+                relayList?.read ?? [],
+                { userWriteRelays: relayList?.write ?? [] }
               )
             )
             setControls(
@@ -210,7 +209,8 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
               urls: getRelayUrlsWithFavoritesFastReadAndInbox(
                 favoriteRelays,
                 blockedRelays,
-                relayList?.read ?? []
+                relayList?.read ?? [],
+                readUrlOpts
               )
             }
           ])

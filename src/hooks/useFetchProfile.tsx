@@ -175,9 +175,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
         ])
         const fetchTime = Date.now() - startTime
         
-        // Only log at info level if profile was found or if fetch took a long time
         if (profileEvent || fetchTime > 1000) {
-          logger.info('[useFetchProfile] fetchProfileEvent completed', {
+          logger.debug('[useFetchProfile] fetchProfileEvent completed', {
             pubkey: pubkey.substring(0, 8),
             hasEvent: !!profileEvent,
             eventId: profileEvent?.id?.substring(0, 8),
@@ -441,7 +440,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
     }
     
     if (profile && profile.pubkey === extractedPubkey) {
-      logger.info('[useFetchProfile] Already have profile for this pubkey (safety check)', {
+      logger.debug('[useFetchProfile] Already have profile for this pubkey (safety check)', {
         extractedPubkey
       })
       setIsFetching(false)
@@ -481,7 +480,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
         }
         
         if (cancelled.current) {
-          logger.info('[useFetchProfile] Cancelled after checkProfile, cleaning up')
+          logger.debug('[useFetchProfile] Cancelled after checkProfile, cleaning up')
           setIsFetching(false)
           return
         }

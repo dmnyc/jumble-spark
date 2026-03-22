@@ -1,7 +1,7 @@
 import { buildATag, buildETag, createBookmarkDraftEvent } from '@/lib/draft-event'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
-import { normalizeUrl } from '@/lib/url'
-import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
+import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
+import { buildPrioritizedReadRelayUrls, buildPrioritizedWriteRelayUrls } from '@/lib/relay-url-priority'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
 import { replaceableEventService } from '@/services/client.service'
@@ -28,25 +28,29 @@ export const useBookmarks = () => {
 
 export function BookmarksProvider({ children }: { children: React.ReactNode }) {
   const { pubkey: accountPubkey, publish, updateBookmarkListEvent } = useNostr()
-  const { favoriteRelays } = useFavoriteRelays()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
 
   // Build comprehensive relay list for publishing (same as ProfileFeed)
   const buildComprehensiveRelayList = useCallback(async () => {
     const myRelayList = accountPubkey ? await client.fetchRelayList(accountPubkey) : { write: [], read: [] }
-    const allRelays = [
-      ...(myRelayList.read || []), // User's inboxes (kind 10002)
-      ...(myRelayList.write || []), // User's outboxes (kind 10002)
-      ...(favoriteRelays || []), // User's favorite relays (kind 10012)
-      ...FAST_READ_RELAY_URLS,   // Fast read relays
-      ...FAST_WRITE_RELAY_URLS   // Fast write relays
-    ]
-    
-    const normalizedRelays = allRelays
-      .map(url => normalizeUrl(url))
-      .filter((url): url is string => !!url)
-    
-    return Array.from(new Set(normalizedRelays))
-  }, [accountPubkey, favoriteRelays])
+    const favoritesTier = getFavoritesFeedRelayUrls(favoriteRelays ?? [], blockedRelays)
+    const read = buildPrioritizedReadRelayUrls({
+      userReadRelays: myRelayList.read ?? [],
+      userWriteRelays: myRelayList.write ?? [],
+      favoriteRelays: favoritesTier,
+      blockedRelays,
+      maxRelays: 100,
+      applyKind1BlockedFilter: false
+    })
+    const write = buildPrioritizedWriteRelayUrls({
+      userWriteRelays: myRelayList.write ?? [],
+      favoriteRelays: favoritesTier,
+      blockedRelays,
+      maxRelays: 100,
+      applyKind1BlockedFilter: false
+    })
+    return [...new Set([...read, ...write])]
+  }, [accountPubkey, favoriteRelays, blockedRelays])
 
   const addBookmark = async (event: Event) => {
     if (!accountPubkey) return

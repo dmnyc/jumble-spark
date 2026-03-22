@@ -14,6 +14,18 @@ export const DEFAULT_FAVORITE_RELAYS = [
   'wss://nostr.land'
 ]
 
+/**
+ * Max concurrent relay connection + REQ setups (ensureRelay + subscribe) app-wide.
+ * Limits parallel WebSocket handshakes when many relays or timeline shards open at once.
+ */
+export const MAX_CONCURRENT_RELAY_CONNECTIONS = 10
+
+/** Max relays to publish each event to (outboxes first, then targets' inboxes, then extras). */
+export const MAX_PUBLISH_RELAYS = MAX_CONCURRENT_RELAY_CONNECTIONS
+
+/** Max merged URLs per REQ / timeline relay list (see `relay-url-priority`). */
+export const MAX_REQ_RELAY_URLS = MAX_CONCURRENT_RELAY_CONNECTIONS
+
 /** Multi-relay queries and timeline initial REQ: after the first event, wait this long then close (query) or finalize EOSE (live feed) while keeping the subscription open for new events. */
 export const FIRST_RELAY_RESULT_GRACE_MS = 2000
 

@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useState, useCallback, useMemo } 
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { ExtendedKind } from '@/constants'
-import { normalizeUrl } from '@/lib/url'
-import { FAST_READ_RELAY_URLS } from '@/constants'
+import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
+import { buildPrioritizedReadRelayUrls } from '@/lib/relay-url-priority'
 import client from '@/services/client.service'
 import { queryService } from '@/services/client.service'
 import logger from '@/lib/logger'
@@ -27,26 +27,22 @@ export const useGroupList = () => {
 
 export function GroupListProvider({ children }: { children: React.ReactNode }) {
   const { pubkey: accountPubkey } = useNostr()
-  const { favoriteRelays } = useFavoriteRelays()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const [userGroups, setUserGroups] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
   // Build comprehensive relay list for fetching group list
   const buildComprehensiveRelayList = useCallback(async () => {
     const myRelayList = accountPubkey ? await client.fetchRelayList(accountPubkey) : { write: [], read: [] }
-    const allRelays = [
-      ...(myRelayList.read || []), // User's inboxes (kind 10002)
-      ...(myRelayList.write || []), // User's outboxes (kind 10002)
-      ...(favoriteRelays || []), // User's favorite relays (kind 10012)
-      ...FAST_READ_RELAY_URLS    // Fast read relays
-    ]
-    
-    const normalizedRelays = allRelays
-      .map(url => normalizeUrl(url))
-      .filter((url): url is string => !!url)
-    
-    return Array.from(new Set(normalizedRelays))
-  }, [accountPubkey, favoriteRelays])
+    const favoritesTier = getFavoritesFeedRelayUrls(favoriteRelays ?? [], blockedRelays)
+    return buildPrioritizedReadRelayUrls({
+      userReadRelays: myRelayList.read ?? [],
+      userWriteRelays: myRelayList.write ?? [],
+      favoriteRelays: favoritesTier,
+      blockedRelays,
+      applyKind1BlockedFilter: false
+    })
+  }, [accountPubkey, favoriteRelays, blockedRelays])
 
   // Fetch user's group list (kind 10009)
   const fetchGroupList = useCallback(async () => {

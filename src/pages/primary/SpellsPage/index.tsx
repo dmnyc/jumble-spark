@@ -411,11 +411,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         if (!cancelled) void loadSpells()
       }, 120)
     }
-    const urls = getRelaysForSpellCatalogSync(
-      favoriteRelays,
-      blockedRelays,
-      relayList?.read ?? []
-    )
+    const urls = getRelaysForSpellCatalogSync(favoriteRelays, blockedRelays, relayList?.read ?? [], {
+      userWriteRelays: relayList?.write ?? []
+    })
     const catalogAuthors = buildSpellCatalogAuthors(pubkey, contacts)
     const authorAllowlist = new Set(catalogAuthors)
     const filter = {
@@ -560,7 +558,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
           req,
           favoriteRelays,
           blockedRelays,
-          relayList?.read ?? []
+          relayList?.read ?? [],
+          { userWriteRelays: relayList?.write ?? [] }
         )
         const withReadOnly = merged.map((r) => ({
           ...r,
@@ -609,10 +608,18 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const syncFauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
     if (!selectedFauxSpell || selectedFauxSpell === 'following') return []
+    const fauxSpellSkipKind1Blocked =
+      selectedFauxSpell === 'calendar' ||
+      selectedFauxSpell === 'discussions' ||
+      selectedFauxSpell === 'followPacks'
     const feedUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
       favoriteRelays,
       blockedRelays,
-      relayList?.read ?? []
+      relayList?.read ?? [],
+      {
+        userWriteRelays: relayList?.write ?? [],
+        applyKind1BlockedFilter: fauxSpellSkipKind1Blocked ? false : undefined
+      }
     )
 
     if (selectedFauxSpell === 'notifications') {

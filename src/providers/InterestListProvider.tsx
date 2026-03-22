@@ -1,7 +1,7 @@
 import { createInterestListDraftEvent } from '@/lib/draft-event'
 import { normalizeTopic } from '@/lib/discussion-topics'
-import { normalizeUrl } from '@/lib/url'
-import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
+import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
+import { buildPrioritizedReadRelayUrls, buildPrioritizedWriteRelayUrls } from '@/lib/relay-url-priority'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
@@ -32,7 +32,7 @@ export const useInterestList = () => {
 export function InterestListProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   const { pubkey: accountPubkey, interestListEvent, publish, updateInterestListEvent } = useNostr()
-  const { favoriteRelays } = useFavoriteRelays()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const [topics, setTopics] = useState<string[]>([])
   const subscribedTopics = useMemo(() => new Set(topics), [topics])
   const [changing, setChanging] = useState(false)
@@ -40,20 +40,24 @@ export function InterestListProvider({ children }: { children: React.ReactNode }
   // Build comprehensive relay list for publishing (same as ProfileFeed)
   const buildComprehensiveRelayList = useCallback(async () => {
     const myRelayList = accountPubkey ? await client.fetchRelayList(accountPubkey) : { write: [], read: [] }
-    const allRelays = [
-      ...(myRelayList.read || []), // User's inboxes (kind 10002)
-      ...(myRelayList.write || []), // User's outboxes (kind 10002)
-      ...(favoriteRelays || []), // User's favorite relays (kind 10012)
-      ...FAST_READ_RELAY_URLS,   // Fast read relays
-      ...FAST_WRITE_RELAY_URLS   // Fast write relays
-    ]
-    
-    const normalizedRelays = allRelays
-      .map(url => normalizeUrl(url))
-      .filter((url): url is string => !!url)
-    
-    return Array.from(new Set(normalizedRelays))
-  }, [accountPubkey, favoriteRelays])
+    const favoritesTier = getFavoritesFeedRelayUrls(favoriteRelays ?? [], blockedRelays)
+    const read = buildPrioritizedReadRelayUrls({
+      userReadRelays: myRelayList.read ?? [],
+      userWriteRelays: myRelayList.write ?? [],
+      favoriteRelays: favoritesTier,
+      blockedRelays,
+      maxRelays: 100,
+      applyKind1BlockedFilter: false
+    })
+    const write = buildPrioritizedWriteRelayUrls({
+      userWriteRelays: myRelayList.write ?? [],
+      favoriteRelays: favoritesTier,
+      blockedRelays,
+      maxRelays: 100,
+      applyKind1BlockedFilter: false
+    })
+    return [...new Set([...read, ...write])]
+  }, [accountPubkey, favoriteRelays, blockedRelays])
 
   useEffect(() => {
     const updateTopics = () => {

@@ -34,7 +34,8 @@ const FollowingFeed = forwardRef<
           raw,
           favoriteRelays,
           blockedRelays,
-          relayList?.read ?? []
+          relayList?.read ?? [],
+          { userWriteRelays: relayList?.write ?? [] }
         )
       )
     }

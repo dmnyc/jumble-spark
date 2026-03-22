@@ -1,5 +1,12 @@
 import LoginDialog from '@/components/LoginDialog'
-import { FAST_READ_RELAY_URLS, ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, PROFILE_RELAY_URLS } from '@/constants'
+import {
+  DEFAULT_FAVORITE_RELAYS,
+  FAST_READ_RELAY_URLS,
+  ExtendedKind,
+  FAST_WRITE_RELAY_URLS,
+  PROFILE_FETCH_RELAY_URLS,
+  PROFILE_RELAY_URLS
+} from '@/constants'
 import {
   buildAltTag,
   buildClientTag,
@@ -47,6 +54,33 @@ import { NsecSigner } from './nsec.signer'
 
 export { useNostr } from '@/providers/nostr-context'
 export type { TNostrContext } from '@/providers/nostr-context'
+
+/** Kind 10012 `relay` tags for publish / target-relay prioritization. */
+function favoriteRelayUrlsForPublish(favoriteRelaysEvent: Event | null, pubkey: string | null): string[] {
+  if (!favoriteRelaysEvent) {
+    return pubkey ? [...DEFAULT_FAVORITE_RELAYS] : []
+  }
+  const urls: string[] = []
+  favoriteRelaysEvent.tags.forEach(([name, v]) => {
+    if (name === 'relay' && v) {
+      const n = normalizeUrl(v) || v
+      if (n && !urls.includes(n)) urls.push(n)
+    }
+  })
+  return urls.length > 0 ? urls : pubkey ? [...DEFAULT_FAVORITE_RELAYS] : []
+}
+
+function blockedRelayUrlsFromEvent(blockedRelaysEvent: Event | null): string[] {
+  const out: string[] = []
+  if (!blockedRelaysEvent) return out
+  blockedRelaysEvent.tags.forEach(([tagName, tagValue]) => {
+    if (tagName === 'relay' && tagValue) {
+      const n = normalizeUrl(tagValue)
+      if (n && !out.includes(n)) out.push(n)
+    }
+  })
+  return out
+}
 
 export function NostrProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
@@ -829,12 +863,17 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     }
 
     logger.debug('[Publish] Determining target relays...', { kind: event.kind, pubkey: event.pubkey?.substring(0, 8) })
-    const relays = await client.determineTargetRelays(event, options)
+    const favoriteRelayUrls = favoriteRelayUrlsForPublish(favoriteRelaysEvent, account.pubkey)
+    const relays = await client.determineTargetRelays(event, {
+      ...options,
+      favoriteRelayUrls,
+      blockedRelayUrls: options.blockedRelayUrls ?? blockedRelayUrlsFromEvent(blockedRelaysEvent)
+    })
     logger.debug('[Publish] Target relays determined', { relayCount: relays.length, relays: relays.slice(0, 5) })
 
     try {
       logger.debug('[Publish] Calling client.publishEvent()...', { relayCount: relays.length, eventId: event.id?.substring(0, 8) })
-      const publishResult = await client.publishEvent(relays, event)
+      const publishResult = await client.publishEvent(relays, event, { favoriteRelayUrls })
       logger.debug('[Publish] publishEvent completed', {
         success: publishResult.success,
         successCount: publishResult.successCount,
@@ -922,9 +961,13 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     const deletionRequest = await signEvent(createDeletionRequestDraftEvent(targetEvent))
 
     // Privacy: Only use user's own relays, never connect to "seen on" relays
-    const relays = await client.determineTargetRelays(targetEvent)
+    const favUrls = favoriteRelayUrlsForPublish(favoriteRelaysEvent, account?.pubkey ?? null)
+    const relays = await client.determineTargetRelays(targetEvent, {
+      favoriteRelayUrls: favUrls,
+      blockedRelayUrls: blockedRelayUrlsFromEvent(blockedRelaysEvent)
+    })
 
-    const result = await client.publishEvent(relays, deletionRequest)
+    const result = await client.publishEvent(relays, deletionRequest, { favoriteRelayUrls: favUrls })
 
     await client.applyDeletionRequestToLocalCache(deletionRequest)
 

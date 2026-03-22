@@ -171,6 +171,10 @@ export type TImetaInfo = {
 export type TPublishOptions = {
   specifiedRelayUrls?: string[]
   additionalRelayUrls?: string[]
+  /** Kind 10012 `relay` URLs for publish priority (outboxes → author inboxes → favorites → fast relays). */
+  favoriteRelayUrls?: string[]
+  /** User-blocked relay URLs (normalized); excluded from prioritized publish lists before capping. */
+  blockedRelayUrls?: string[]
   minPow?: number
   disableFallbacks?: boolean // If true, don't use fallback relays when publishing fails
   /** Override global "Add client tag" preference for this publish (default: read from localStorage) */

@@ -105,7 +105,20 @@ export function useProfileTimeline({
   const [events, setEvents] = useState<Event[]>(cachedEntry?.events ?? [])
   const [isLoading, setIsLoading] = useState(!cachedEntry)
   const [refreshToken, setRefreshToken] = useState(0)
+  const [authorOutboxWrite, setAuthorOutboxWrite] = useState<string[]>([])
   const subscriptionRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    let cancelled = false
+    setAuthorOutboxWrite([])
+    void client.fetchRelayList(pubkey).then((rl) => {
+      if (cancelled || !rl?.write?.length) return
+      setAuthorOutboxWrite(rl.write)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [pubkey])
 
   useEffect(() => {
     setEvents((prev) => {
@@ -168,7 +181,12 @@ export function useProfileTimeline({
       const feedRelayUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
         favoriteRelays,
         blockedRelays,
-        relayList?.read ?? []
+        relayList?.read ?? [],
+        {
+          userWriteRelays: relayList?.write ?? [],
+          authorWriteRelays: authorOutboxWrite,
+          applyKind1BlockedFilter: kinds.includes(1)
+        }
       )
 
       const startWave = async (subRequests: ReturnType<typeof buildSubRequests>) => {
@@ -222,7 +240,8 @@ export function useProfileTimeline({
     refreshToken,
     favoriteRelays,
     blockedRelays,
-    relayList
+    relayList,
+    authorOutboxWrite
   ])
 
   const refresh = useCallback(() => {
