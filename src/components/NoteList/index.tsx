@@ -2,7 +2,7 @@ import NewNotesButton from '@/components/NewNotesButton'
 import { Button } from '@/components/ui/button'
 import { ExtendedKind, FIRST_RELAY_RESULT_GRACE_MS } from '@/constants'
 import {
-  getEmbeddedNoteBech32Ids,
+  collectEmbeddedEventPrefetchTargets,
   getReplaceableCoordinateFromEvent,
   isMentioningMutedUsers,
   isReplaceableEvent,
@@ -566,18 +566,22 @@ const NoteList = forwardRef(
                     const evs = lastEventsForTimelinePrefetchRef.current
                     if (evs.length === 0) return
 
-                    const initialEmbeddedEventIds = new Set<string>()
-                    evs.slice(0, 50).forEach((ev: Event) => {
-                      extractEmbeddedEventIds(ev).forEach((id: string) => initialEmbeddedEventIds.add(id))
-                    })
-                    const eventIdsToFetch = Array.from(initialEmbeddedEventIds).filter(
-                      (id) => !prefetchedEventIdsRef.current.has(id)
-                    )
-                    if (eventIdsToFetch.length > 0) {
-                      eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
-                      Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
-                        eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
-                      })
+                    const { hexIds, nip19Pointers } = mergePrefetchTargetsFromEvents(evs.slice(0, 50))
+                    const hexIdsToFetch = hexIds.filter((id) => !prefetchedEventIdsRef.current.has(id))
+                    const nip19ToFetch = nip19Pointers.filter((p) => !prefetchedEventIdsRef.current.has(p))
+                    if (hexIdsToFetch.length > 0 || nip19ToFetch.length > 0) {
+                      hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
+                      nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.add(p))
+                      const run = async () => {
+                        try {
+                          await client.prefetchHexEventIds(hexIdsToFetch)
+                          await Promise.all(nip19ToFetch.map((p) => client.fetchEvent(p)))
+                        } catch {
+                          hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
+                          nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.delete(p))
+                        }
+                      }
+                      void run()
                     }
                   }, 450)
                 } else if (eosed) {
@@ -874,25 +878,22 @@ const NoteList = forwardRef(
               }
               
               schedulePrefetch(() => {
-                // CRITICAL: Prefetch embedded events for newly loaded events (throttled)
-                const newEmbeddedEventIds = new Set<string>()
-                // Only prefetch for first 30 events to reduce load
-                newEvents.slice(0, 30).forEach((ev) => {
-                  const embeddedIds = extractEmbeddedEventIds(ev)
-                  embeddedIds.forEach((id) => newEmbeddedEventIds.add(id))
-                })
-                const eventIdsToFetch = Array.from(newEmbeddedEventIds).filter(
-                  (id) => !prefetchedEventIdsRef.current.has(id)
-                )
-                if (eventIdsToFetch.length > 0) {
-                  // Mark as prefetched immediately to prevent duplicate requests
-                  eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
-                  // Batch fetch embedded events in background (non-blocking)
-                  Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
-                    // On error, remove from prefetched set so we can retry later
-                    eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
-                  })
+                const { hexIds, nip19Pointers } = mergePrefetchTargetsFromEvents(newEvents.slice(0, 30))
+                const hexIdsToFetch = hexIds.filter((id) => !prefetchedEventIdsRef.current.has(id))
+                const nip19ToFetch = nip19Pointers.filter((p) => !prefetchedEventIdsRef.current.has(p))
+                if (hexIdsToFetch.length === 0 && nip19ToFetch.length === 0) return
+                hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
+                nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.add(p))
+                const run = async () => {
+                  try {
+                    await client.prefetchHexEventIds(hexIdsToFetch)
+                    await Promise.all(nip19ToFetch.map((p) => client.fetchEvent(p)))
+                  } catch {
+                    hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
+                    nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.delete(p))
+                  }
                 }
+                void run()
               })
             }
           } catch (_error) {
@@ -942,41 +943,15 @@ const NoteList = forwardRef(
     const prefetchedEventIdsRef = useRef<Set<string>>(new Set())
     const prefetchEmbeddedEventsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     
-    // Helper function to extract all embedded event IDs from an event
-    const extractEmbeddedEventIds = useCallback((evt: Event): string[] => {
-      const eventIds: string[] = []
-      
-      // 1. Extract from 'e' tags (event references)
-      evt.tags
-        .filter((tag) => tag[0] === 'e' && tag[1] && tag[1].length === 64)
-        .forEach((tag) => {
-          const eventId = tag[1]
-          if (eventId && /^[0-9a-f]{64}$/.test(eventId)) {
-            eventIds.push(eventId)
-          }
-        })
-      
-      // 2. Extract from 'a' tags (addressable events) - get event ID if present
-      evt.tags
-        .filter((tag) => tag[0] === 'a' && tag[3]) // tag[3] is the event ID for version tracking
-        .forEach((tag) => {
-          const eventId = tag[3]
-          if (eventId && /^[0-9a-f]{64}$/.test(eventId)) {
-            eventIds.push(eventId)
-          }
-        })
-      
-      // 3. Extract from content (nostr: links)
-      // Note: getEmbeddedNoteBech32Ids returns hex IDs (despite the name)
-      const embeddedNoteIds = getEmbeddedNoteBech32Ids(evt)
-      embeddedNoteIds.forEach((id) => {
-        // The function already returns hex IDs, so use them directly
-        if (id && /^[0-9a-f]{64}$/.test(id)) {
-          eventIds.push(id)
-        }
-      })
-      
-      return Array.from(new Set(eventIds)) // Deduplicate
+    const mergePrefetchTargetsFromEvents = useCallback((evts: Event[]) => {
+      const hex = new Set<string>()
+      const nip19 = new Set<string>()
+      for (const e of evts) {
+        const t = collectEmbeddedEventPrefetchTargets(e)
+        t.hexIds.forEach((id) => hex.add(id))
+        t.nip19Pointers.forEach((p) => nip19.add(p))
+      }
+      return { hexIds: Array.from(hex), nip19Pointers: Array.from(nip19) }
     }, [])
     
     // CRITICAL: Prefetch embedded events for visible events
@@ -989,39 +964,22 @@ const NoteList = forwardRef(
       
       // Debounce embedded event prefetching by 400ms to reduce frequency during rapid scrolling
       prefetchEmbeddedEventsTimeoutRef.current = setTimeout(() => {
-        // Extract embedded event IDs from visible events (first 40, reduced to reduce load)
-        const visibleEmbeddedEventIds = new Set<string>()
-        filteredEvents.slice(0, 40).forEach((ev) => {
-          const embeddedIds = extractEmbeddedEventIds(ev)
-          embeddedIds.forEach((id) => visibleEmbeddedEventIds.add(id))
-        })
-        
-        // Also extract from upcoming events (next 80, reduced to reduce load)
-        const upcomingEmbeddedEventIds = new Set<string>()
-        events.slice(0, 80).forEach((ev) => {
-          const embeddedIds = extractEmbeddedEventIds(ev)
-          embeddedIds.forEach((id) => upcomingEmbeddedEventIds.add(id))
-        })
-        
-        // Combine visible and upcoming
-        const allEmbeddedEventIds = Array.from(
-          new Set([...visibleEmbeddedEventIds, ...upcomingEmbeddedEventIds])
+        const visibleTargets = mergePrefetchTargetsFromEvents(filteredEvents.slice(0, 40))
+        const upcomingTargets = mergePrefetchTargetsFromEvents(events.slice(0, 80))
+        const hexIds = Array.from(
+          new Set([...visibleTargets.hexIds, ...upcomingTargets.hexIds])
         )
-        
-        if (allEmbeddedEventIds.length === 0) return
-        
-        // Filter out already prefetched event IDs
-        const eventIdsToFetch = allEmbeddedEventIds.filter(
-          (id) => !prefetchedEventIdsRef.current.has(id)
+        const nip19Pointers = Array.from(
+          new Set([...visibleTargets.nip19Pointers, ...upcomingTargets.nip19Pointers])
         )
-        
-        if (eventIdsToFetch.length === 0) return
-        
-        // Mark as prefetched immediately to prevent duplicate requests
-        eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
-        
-        // Batch fetch embedded events in background (non-blocking)
-        // Use requestIdleCallback if available to avoid blocking scroll
+
+        const hexIdsToFetch = hexIds.filter((id) => !prefetchedEventIdsRef.current.has(id))
+        const nip19ToFetch = nip19Pointers.filter((p) => !prefetchedEventIdsRef.current.has(p))
+        if (hexIdsToFetch.length === 0 && nip19ToFetch.length === 0) return
+
+        hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
+        nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.add(p))
+
         const scheduleFetch = (callback: () => void) => {
           if (typeof requestIdleCallback !== 'undefined') {
             requestIdleCallback(callback, { timeout: 500 })
@@ -1029,12 +987,18 @@ const NoteList = forwardRef(
             setTimeout(callback, 0)
           }
         }
-        
+
         scheduleFetch(() => {
-          Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
-            // On error, remove from prefetched set so we can retry later
-            eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
-          })
+          const run = async () => {
+            try {
+              await client.prefetchHexEventIds(hexIdsToFetch)
+              await Promise.all(nip19ToFetch.map((p) => client.fetchEvent(p)))
+            } catch {
+              hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
+              nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.delete(p))
+            }
+          }
+          void run()
         })
       }, 400) // Debounce by 400ms to reduce frequency during rapid scrolling
       
@@ -1044,7 +1008,7 @@ const NoteList = forwardRef(
           prefetchEmbeddedEventsTimeoutRef.current = null
         }
       }
-    }, [filteredEvents, events, extractEmbeddedEventIds])
+    }, [filteredEvents, events, mergePrefetchTargetsFromEvents])
     
     // Also prefetch when loading more events (scrolling down)
     // Throttled to reduce frequency during rapid scrolling
@@ -1059,34 +1023,36 @@ const NoteList = forwardRef(
       
       // Debounce embedded-event prefetch for newly revealed rows (profiles use NoteFeed batcher above)
       prefetchNewEventsTimeoutRef.current = setTimeout(() => {
-        // CRITICAL: Prefetch embedded events for newly loaded events (reduced scope)
-        const newlyLoadedEmbeddedEventIds = new Set<string>()
-        events.slice(showCount, showCount + 50).forEach((ev) => {
-          const embeddedIds = extractEmbeddedEventIds(ev)
-          embeddedIds.forEach((id) => newlyLoadedEmbeddedEventIds.add(id))
-        })
-        const eventIdsToFetch = Array.from(newlyLoadedEmbeddedEventIds).filter(
-          (id) => !prefetchedEventIdsRef.current.has(id)
+        const { hexIds, nip19Pointers } = mergePrefetchTargetsFromEvents(
+          events.slice(showCount, showCount + 50)
         )
-        if (eventIdsToFetch.length > 0) {
-          // Mark as prefetched immediately to prevent duplicate requests
-          eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
-          // Batch fetch embedded events in background (non-blocking) using requestIdleCallback
-          const scheduleFetch = (callback: () => void) => {
-            if (typeof requestIdleCallback !== 'undefined') {
-              requestIdleCallback(callback, { timeout: 500 })
-            } else {
-              setTimeout(callback, 0)
+        const hexIdsToFetch = hexIds.filter((id) => !prefetchedEventIdsRef.current.has(id))
+        const nip19ToFetch = nip19Pointers.filter((p) => !prefetchedEventIdsRef.current.has(p))
+        if (hexIdsToFetch.length === 0 && nip19ToFetch.length === 0) return
+
+        hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
+        nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.add(p))
+
+        const scheduleFetch = (callback: () => void) => {
+          if (typeof requestIdleCallback !== 'undefined') {
+            requestIdleCallback(callback, { timeout: 500 })
+          } else {
+            setTimeout(callback, 0)
+          }
+        }
+
+        scheduleFetch(() => {
+          const run = async () => {
+            try {
+              await client.prefetchHexEventIds(hexIdsToFetch)
+              await Promise.all(nip19ToFetch.map((p) => client.fetchEvent(p)))
+            } catch {
+              hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
+              nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.delete(p))
             }
           }
-          
-          scheduleFetch(() => {
-            Promise.all(eventIdsToFetch.map((id) => client.fetchEvent(id))).catch(() => {
-              // On error, remove from prefetched set so we can retry later
-              eventIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
-            })
-          })
-        }
+          void run()
+        })
       }, 400) // Debounce by 400ms to reduce frequency during rapid scrolling
       
       return () => {
@@ -1095,7 +1061,7 @@ const NoteList = forwardRef(
           prefetchNewEventsTimeoutRef.current = null
         }
       }
-    }, [events.length, showCount, loading, hasMore])
+    }, [events.length, showCount, loading, hasMore, mergePrefetchTargetsFromEvents])
 
     const showNewEvents = () => {
       setEvents((oldEvents) => [...newEvents, ...oldEvents])

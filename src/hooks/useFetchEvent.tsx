@@ -55,8 +55,12 @@ export function useFetchEvent(eventId?: string, initialEvent?: Event) {
 
     const fetchEvent = async () => {
       try {
-        // fetchEvent uses DataLoader which handles caching automatically
-        const fetchedEvent = await eventService.fetchEvent(eventId)
+        // First load: DataLoader dedupes. Refetches (incl. session-waiter) clear a prior undefined so
+        // timeline-cached events resolve after the embed mounted first.
+        const fetchedEvent =
+          skipShortcuts
+            ? await eventService.fetchEventForceRetry(eventId)
+            : await eventService.fetchEvent(eventId)
         if (fetchedEvent && !isEventDeleted(fetchedEvent)) {
           setEvent(fetchedEvent)
           addReplies([fetchedEvent])
@@ -76,6 +80,12 @@ export function useFetchEvent(eventId?: string, initialEvent?: Event) {
       setEvent(undefined)
     }
   }, [isEventDeleted, event])
+
+  // Parent notes often render before the embedded event arrives from the same timeline; refetch when it hits session cache.
+  useEffect(() => {
+    if (!eventId || event !== undefined) return undefined
+    return eventService.subscribeWhenSessionHasEvent(eventId, refetch)
+  }, [eventId, event, refetch])
 
   return { isFetching, error, event, refetch }
 }

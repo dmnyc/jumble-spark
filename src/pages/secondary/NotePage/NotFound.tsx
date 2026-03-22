@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import client from '@/services/client.service'
+import indexedDb from '@/services/indexed-db.service'
 import { AlertCircle, Search } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { useEffect, useState } from 'react'
@@ -22,26 +23,18 @@ export default function NotFound({
   const [externalRelays, setExternalRelays] = useState<string[]>([])
   const [hexEventId, setHexEventId] = useState<string | null>(null)
 
-  // Calculate which external relays would be tried (excluding already-tried relays)
+  // Hints + seen + searchable + FAST_READ (second pass uses longer timeouts; include defaults again)
   useEffect(() => {
     if (!bech32Id) return
 
     const getExternalRelays = async () => {
       try {
-        // Get all relays that have already been tried (FAST_READ_RELAY_URLS)
-        // These are the relays used in the initial fetch
-        const alreadyTriedRelaysSet = new Set<string>()
-        ;[...FAST_READ_RELAY_URLS].forEach(url => {
-          const normalized = normalizeUrl(url)
-          if (normalized) alreadyTriedRelaysSet.add(normalized)
-        })
-        
         let bech32HintRelays: string[] = [] // Relay hints from bech32 (highest priority)
         let extractedHexEventId: string | null = null
         
         // CRITICAL: Parse relay hints from bech32 ID FIRST (highest priority)
         // These are explicit hints from the bech32 address and should always be used
-        if (!/^[0-9a-f]{64}$/.test(bech32Id)) {
+        if (!/^[0-9a-f]{64}$/i.test(bech32Id)) {
           try {
             const { type, data } = nip19.decode(bech32Id)
             
@@ -76,7 +69,7 @@ export default function NotFound({
             logger.error('Failed to parse bech32 ID for relay hints', { error: err, bech32Id })
           }
         } else {
-          extractedHexEventId = bech32Id
+          extractedHexEventId = bech32Id.toLowerCase()
         }
         
         setHexEventId(extractedHexEventId)
@@ -94,31 +87,34 @@ export default function NotFound({
           .map(url => normalizeUrl(url))
           .filter((url): url is string => Boolean(url))
         
-        // Normalize SEARCHABLE_RELAY_URLS (fallback)
         const normalizedSearchableRelays = SEARCHABLE_RELAY_URLS
           .map(url => normalizeUrl(url))
           .filter((url): url is string => Boolean(url))
-        
-        // CRITICAL: Preserve order - bech32 hints first, then seen, then searchable
-        // This ensures relay hints from bech32 are shown first in the UI
-        // Order matters: bech32 hints (explicit) > seen relays > searchable (fallback)
-        const orderedExternalRelays = [
-          ...normalizedBech32Hints.filter(r => !alreadyTriedRelaysSet.has(r)),
-          ...normalizedSeenRelays.filter(r => !alreadyTriedRelaysSet.has(r) && !normalizedBech32Hints.includes(r)),
-          ...normalizedSearchableRelays.filter(r => !alreadyTriedRelaysSet.has(r) && !normalizedBech32Hints.includes(r) && !normalizedSeenRelays.includes(r))
-        ]
-        
+
+        const normalizedFastRead = FAST_READ_RELAY_URLS
+          .map(url => normalizeUrl(url))
+          .filter((url): url is string => Boolean(url))
+
+        const orderedExternalRelays = Array.from(
+          new Set([
+            ...normalizedBech32Hints,
+            ...normalizedSeenRelays,
+            ...normalizedSearchableRelays,
+            ...normalizedFastRead
+          ])
+        )
+
         setExternalRelays(orderedExternalRelays)
-        
+
         logger.debug('External relays calculated (NotFound)', {
           bech32Id,
           bech32HintCount: normalizedBech32Hints.length,
           seenRelayCount: normalizedSeenRelays.length,
           searchableRelaysCount: normalizedSearchableRelays.length,
-          alreadyTriedCount: alreadyTriedRelaysSet.size,
+          fastReadRelaysCount: normalizedFastRead.length,
           externalRelaysCount: orderedExternalRelays.length,
           bech32Hints: normalizedBech32Hints,
-          externalRelays: orderedExternalRelays.slice(0, 10) // Log first 10
+          externalRelays: orderedExternalRelays.slice(0, 10)
         })
       } catch (error) {
         logger.error('Error calculating external relays (NotFound)', { 
@@ -144,33 +140,71 @@ export default function NotFound({
     }
 
     setIsSearchingExternal(true)
+    let found = false
     try {
-      logger.info('Searching external relays (NotFound)', {
-        bech32Id,
-        hexEventId,
-        relayCount: externalRelays.length,
-        relays: externalRelays.slice(0, 5) // Log first 5 relays
-      })
+      const idHex =
+        hexEventId ??
+        (/^[0-9a-f]{64}$/i.test(bech32Id) ? bech32Id.toLowerCase() : null) ??
+        (() => {
+          try {
+            const { type, data } = nip19.decode(bech32Id)
+            if (type === 'note') return data as string
+            if (type === 'nevent') return data.id
+          } catch {
+            /* ignore */
+          }
+          return null
+        })()
 
-      const event = await client.fetchEventWithExternalRelays(bech32Id, externalRelays)
-      
-      if (event) {
-        logger.info('Event found on external relay (NotFound)', { bech32Id, hexEventId })
-        if (onEventFound) {
-          onEventFound(event)
+      if (idHex) {
+        const fromDb = await indexedDb.getEventFromPublicationStore(idHex)
+        if (fromDb) {
+          client.addEventToCache(fromDb)
+          onEventFound?.(fromDb)
+          found = true
+          logger.info('Event found in IndexedDB (NotFound try-harder)', { bech32Id })
         }
-      } else {
-        logger.info('Event not found on external relays (NotFound)', { 
-          bech32Id, 
-          hexEventId, 
-          relayCount: externalRelays.length 
+      }
+
+      if (!found) {
+        const retried = await client.fetchEventForceRetry(bech32Id)
+        if (retried) {
+          onEventFound?.(retried)
+          found = true
+          logger.info('Event found after fetchEventForceRetry (NotFound)', { bech32Id })
+        }
+      }
+
+      if (!found) {
+        logger.info('Searching external relays (NotFound)', {
+          bech32Id,
+          hexEventId: idHex ?? hexEventId,
+          relayCount: externalRelays.length,
+          relays: externalRelays.slice(0, 5)
         })
+
+        const event = await client.fetchEventWithExternalRelays(bech32Id, externalRelays)
+
+        if (event) {
+          logger.info('Event found on external relay (NotFound)', { bech32Id, hexEventId })
+          client.addEventToCache(event)
+          onEventFound?.(event)
+          found = true
+        } else {
+          logger.info('Event not found on external relays (NotFound)', {
+            bech32Id,
+            hexEventId,
+            relayCount: externalRelays.length
+          })
+        }
       }
     } catch (error) {
       logger.error('External relay fetch failed (NotFound)', { error, bech32Id, hexEventId, externalRelays })
     } finally {
       setIsSearchingExternal(false)
-      setTriedExternal(true)
+      if (!found) {
+        setTriedExternal(true)
+      }
     }
   }
 

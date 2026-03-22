@@ -237,20 +237,35 @@ function ReplyNoteList({
           relay: client.getEventHint(event.id)
         }
       } else {
-        root = { type: 'E', id: event.id, pubkey: event.pubkey }
+        const eid = event.id
+        root = {
+          type: 'E',
+          id: /^[0-9a-f]{64}$/i.test(eid) ? eid.toLowerCase() : eid,
+          pubkey: event.pubkey
+        }
       }
       
       const rootETag = getRootETag(event)
       if (rootETag) {
         const [, rootEventHexId, , , rootEventPubkey] = rootETag
         if (rootEventHexId && rootEventPubkey) {
-          root = { type: 'E', id: rootEventHexId, pubkey: rootEventPubkey }
+          const hid = rootEventHexId
+          root = {
+            type: 'E',
+            id: /^[0-9a-f]{64}$/i.test(hid) ? hid.toLowerCase() : hid,
+            pubkey: rootEventPubkey
+          }
         } else {
           const rootEventId = generateBech32IdFromETag(rootETag)
           if (rootEventId) {
             const rootEvent = await eventService.fetchEvent(rootEventId)
             if (rootEvent) {
-              root = { type: 'E', id: rootEvent.id, pubkey: rootEvent.pubkey }
+              const rid = rootEvent.id
+              root = {
+                type: 'E',
+                id: /^[0-9a-f]{64}$/i.test(rid) ? rid.toLowerCase() : rid,
+                pubkey: rootEvent.pubkey
+              }
             }
           }
         }

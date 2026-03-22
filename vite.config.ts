@@ -56,6 +56,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     }
   },
+  server: {
+    // OG/link preview uses `/sites/?url=…`. Without this, Vite serves `index.html` and WebService parses the app shell.
+    // Run the scraper on 8090 per PROXY_SETUP.md, or rely on allorigins fallback in dev (web.service.ts).
+    proxy: {
+      '/sites': {
+        target: 'http://127.0.0.1:8090',
+        changeOrigin: true
+      }
+    }
+  },
   build: {
     rollupOptions: {
       output: {

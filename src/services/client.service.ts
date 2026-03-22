@@ -1843,6 +1843,11 @@ class ClientService extends EventTarget {
     return this.eventService.fetchEventForceRetry(eventId)
   }
 
+  /** Batch-prefetch by hex id into session cache (feed embeds). */
+  async prefetchHexEventIds(hexIds: readonly string[]): Promise<void> {
+    return this.eventService.prefetchHexEventIds(hexIds)
+  }
+
   async fetchEventWithExternalRelays(eventId: string, externalRelays: string[]): Promise<NEvent | undefined> {
     return this.eventService.fetchEventWithExternalRelays(eventId, externalRelays)
   }

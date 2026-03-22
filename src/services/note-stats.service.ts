@@ -324,7 +324,7 @@ class NoteStatsService {
       }
     }
 
-    if (emoji.startsWith(':') && emoji.endsWith(':')) {
+    if (typeof emoji === 'string' && emoji.startsWith(':') && emoji.endsWith(':')) {
       const emojiInfos = getEmojiInfosFromEmojiTags(evt.tags)
       const shortcode = emoji.split(':')[1]
       const emojiInfo = emojiInfos.find((info) => info.shortcode === shortcode)

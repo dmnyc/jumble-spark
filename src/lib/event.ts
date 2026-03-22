@@ -1,5 +1,5 @@
 import { CALENDAR_EVENT_KINDS, ExtendedKind } from '@/constants'
-import { EMBEDDED_MENTION_REGEX, NOSTR_EMBEDDED_NOTE_REGEX } from '@/lib/content-patterns'
+import { EMBEDDED_EVENT_REGEX, EMBEDDED_MENTION_REGEX, NOSTR_EMBEDDED_NOTE_REGEX } from '@/lib/content-patterns'
 import { cleanUrl } from '@/lib/url'
 import client from '@/services/client.service'
 import { TImetaInfo } from '@/types'
@@ -249,6 +249,49 @@ export function getEmbeddedNoteBech32Ids(event: Event) {
   })
   EVENT_EMBEDDED_NOTES_CACHE.set(event.id, embeddedNoteBech32Ids)
   return embeddedNoteBech32Ids
+}
+
+/**
+ * Collect targets to prefetch so embedded notes (and reply roots) resolve into session cache.
+ * - `hexIds`: lowercase event ids (e tags, a-tag snapshot, nostr:note1 / nevent1 in content).
+ * - `nip19Pointers`: bech32 strings (e.g. naddr) for per-pointer fetches — not batchable as a single `ids` filter.
+ */
+export function collectEmbeddedEventPrefetchTargets(event: Event): {
+  hexIds: string[]
+  nip19Pointers: string[]
+} {
+  const hexSet = new Set<string>()
+  const nip19Set = new Set<string>()
+
+  const addHex = (id: string | undefined) => {
+    if (!id) return
+    const t = id.trim().toLowerCase()
+    if (/^[0-9a-f]{64}$/.test(t)) hexSet.add(t)
+  }
+
+  for (const tag of event.tags) {
+    if (tag[0] === 'e' && tag[1]) addHex(tag[1])
+    if (tag[0] === 'a' && tag[3]) addHex(tag[3])
+  }
+
+  for (const full of event.content.match(EMBEDDED_EVENT_REGEX) ?? []) {
+    const colon = full.indexOf(':')
+    if (colon < 0) continue
+    const bech32 = full.slice(colon + 1)
+    try {
+      const { type, data } = nip19.decode(bech32)
+      if (type === 'note') addHex(data)
+      else if (type === 'nevent') addHex(data.id)
+      else if (type === 'naddr') nip19Set.add(bech32)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return {
+    hexIds: Array.from(hexSet),
+    nip19Pointers: Array.from(nip19Set)
+  }
 }
 
 export function getEmbeddedPubkeys(event: Event) {

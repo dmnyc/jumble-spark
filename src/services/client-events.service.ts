@@ -31,10 +31,14 @@ async function buildComprehensiveRelayListForEvents(
   })
 }
 
+const PREFETCH_HEX_IDS_CHUNK = 48
+
 export class EventService {
   private queryService: QueryService
   private eventCacheMap = new Map<string, Promise<NEvent | undefined>>()
   private sessionEventCache = new LRUCache<string, NEvent>({ max: 500, ttl: 1000 * 60 * 30 })
+  /** Callbacks waiting for an event id to appear in {@link sessionEventCache} (e.g. embed loads before timeline caches the note). */
+  private sessionEventWaiters = new Map<string, Set<() => void>>()
   private eventDataLoader: DataLoader<string, NEvent | undefined>
   private fetchEventFromBigRelaysDataloader: DataLoader<string, NEvent | undefined>
 
@@ -51,39 +55,176 @@ export class EventService {
   }
 
   /**
+   * Lowercase hex id for note/nevent/raw hex; `null` for naddr or invalid ids.
+   */
+  private resolveHexWaiterKey(id: string): string | null {
+    const trimmed = id.trim()
+    if (/^[0-9a-f]{64}$/i.test(trimmed)) return trimmed.toLowerCase()
+    try {
+      const { type, data } = nip19.decode(trimmed)
+      if (type === 'note') return data
+      if (type === 'nevent') return data.id
+    } catch {
+      /* invalid */
+    }
+    return null
+  }
+
+  private notifySessionEventWaiters(hexId: string): void {
+    const waiters = this.sessionEventWaiters.get(hexId)
+    if (!waiters?.size) return
+    for (const cb of [...waiters]) {
+      try {
+        cb()
+      } catch (e) {
+        logger.warn('[EventService] sessionEventWaiter failed', { hexId: hexId.slice(0, 8), e })
+      }
+    }
+  }
+
+  /**
+   * When an event with this id is added to the session cache, invoke `callback` (and when already cached).
+   * Only supports hex, note1, and nevent1 (not naddr).
+   */
+  subscribeWhenSessionHasEvent(eventId: string, callback: () => void): () => void {
+    const hex = this.resolveHexWaiterKey(eventId)
+    if (!hex) return () => {}
+
+    if (this.sessionEventCache.has(hex)) {
+      queueMicrotask(() => callback())
+    }
+
+    let set = this.sessionEventWaiters.get(hex)
+    if (!set) {
+      set = new Set()
+      this.sessionEventWaiters.set(hex, set)
+    }
+    set.add(callback)
+    return () => {
+      set!.delete(callback)
+      if (set!.size === 0) {
+        this.sessionEventWaiters.delete(hex)
+      }
+    }
+  }
+
+  /**
    * Fetch single event by ID (hex, note1, nevent1, naddr1)
    */
   async fetchEvent(id: string): Promise<NEvent | undefined> {
+    const trimmed = id.trim()
     let hexId: string | undefined
-    if (/^[0-9a-f]{64}$/.test(id)) {
-      hexId = id
+    if (/^[0-9a-f]{64}$/i.test(trimmed)) {
+      hexId = trimmed.toLowerCase()
     } else {
-      const { type, data } = nip19.decode(id)
-      switch (type) {
-        case 'note':
-          hexId = data
-          break
-        case 'nevent':
-          hexId = data.id
-          break
-        case 'naddr':
-          break
+      try {
+        const { type, data } = nip19.decode(trimmed)
+        switch (type) {
+          case 'note':
+            hexId = data
+            break
+          case 'nevent':
+            hexId = data.id
+            break
+          case 'naddr':
+            break
+        }
+      } catch {
+        return undefined
       }
     }
     if (hexId) {
       const fromSession = this.sessionEventCache.get(hexId)
       if (fromSession) return fromSession
       const cachedPromise = this.eventCacheMap.get(hexId)
-      if (cachedPromise) return cachedPromise
+      if (cachedPromise) {
+        const resolved = await cachedPromise
+        if (resolved) return resolved
+        const fromSessionAfterMiss = this.sessionEventCache.get(hexId)
+        if (fromSessionAfterMiss) return fromSessionAfterMiss
+        const fromDb = await indexedDb.getEventFromPublicationStore(hexId)
+        if (fromDb) {
+          this.addEventToCache(fromDb)
+          return fromDb
+        }
+        // Prior load() finished with undefined but left the promise in cacheMap — never retrying.
+        this.eventDataLoader.clear(hexId)
+      }
     }
-    return this.eventDataLoader.load(hexId ?? id)
+    const loaded = await this.eventDataLoader.load(hexId ?? trimmed)
+    if (hexId) {
+      const fromSessionAfter = this.sessionEventCache.get(hexId)
+      if (fromSessionAfter) return fromSessionAfter
+    }
+    return loaded
+  }
+
+  /**
+   * Invalidate DataLoader cache for this id so the next fetch hits IndexedDB/relays again.
+   * (Otherwise a prior `undefined` result stays cached forever.)
+   */
+  private clearDataloaderCacheForFetchId(id: string): void {
+    const trimmed = id.trim()
+    if (/^[0-9a-f]{64}$/i.test(trimmed)) {
+      this.eventDataLoader.clear(trimmed.toLowerCase())
+      return
+    }
+    try {
+      const { type, data } = nip19.decode(trimmed)
+      if (type === 'note') {
+        this.eventDataLoader.clear(data)
+      } else if (type === 'nevent') {
+        this.eventDataLoader.clear(data.id)
+      } else {
+        this.eventDataLoader.clear(trimmed)
+      }
+    } catch {
+      /* ignore */
+    }
   }
 
   /**
    * Force retry fetch event
    */
   async fetchEventForceRetry(eventId: string): Promise<NEvent | undefined> {
-    return await this.fetchEvent(eventId)
+    this.clearDataloaderCacheForFetchId(eventId)
+    return this.fetchEvent(eventId)
+  }
+
+  /**
+   * Batch-prefetch events by hex id into session cache (single REQ per chunk).
+   * Used by feeds so embedded notes resolve without N parallel fetches.
+   */
+  async prefetchHexEventIds(rawIds: readonly string[]): Promise<void> {
+    const hexIds = [
+      ...new Set(
+        rawIds
+          .map((id) => id.trim().toLowerCase())
+          .filter((id) => /^[0-9a-f]{64}$/.test(id))
+      )
+    ]
+    const toFetch = hexIds.filter((id) => !this.sessionEventCache.has(id))
+    if (toFetch.length === 0) return
+
+    const relayUrls = await buildComprehensiveRelayListForEvents(undefined, [], [], [])
+    if (!relayUrls.length) return
+
+    for (let i = 0; i < toFetch.length; i += PREFETCH_HEX_IDS_CHUNK) {
+      const chunk = toFetch.slice(i, i + PREFETCH_HEX_IDS_CHUNK)
+      const events = await this.queryService.query(
+        relayUrls,
+        { ids: chunk, limit: chunk.length },
+        undefined,
+        {
+          immediateReturn: false,
+          eoseTimeout: 2500,
+          globalTimeout: 12000
+        }
+      )
+      for (const ev of events) {
+        this.addEventToCache(ev)
+      }
+    }
   }
 
   /**
@@ -164,7 +305,15 @@ export class EventService {
   addEventToCache(event: NEvent): void {
     const cleanEvent = { ...event }
     delete (cleanEvent as any).relayStatuses
-    this.sessionEventCache.set(event.id, cleanEvent)
+    // REQ filters and nip19 decode use lowercase hex; some relays/clients emit uppercase ids.
+    // Session lookups and waiters must use the same canonical key or embeds miss events already on the timeline.
+    const id =
+      /^[0-9a-f]{64}$/i.test(cleanEvent.id) ? cleanEvent.id.toLowerCase() : cleanEvent.id
+    if (id !== cleanEvent.id) {
+      ;(cleanEvent as NEvent).id = id
+    }
+    this.sessionEventCache.set(id, cleanEvent as NEvent)
+    this.notifySessionEventWaiters(id)
   }
 
   /**
@@ -227,6 +376,7 @@ export class EventService {
     this.eventDataLoader.clearAll()
     this.sessionEventCache.clear()
     this.eventCacheMap.clear()
+    this.sessionEventWaiters.clear()
     this.fetchEventFromBigRelaysDataloader.clearAll()
     logger.info('[EventService] In-memory caches cleared')
   }
@@ -238,8 +388,8 @@ export class EventService {
     let filter: Filter | undefined
     let relays: string[] = []
     
-    if (/^[0-9a-f]{64}$/.test(id)) {
-      filter = { ids: [id], limit: 1 }
+    if (/^[0-9a-f]{64}$/i.test(id)) {
+      filter = { ids: [id.toLowerCase()], limit: 1 }
     } else {
       const { type, data } = nip19.decode(id)
       switch (type) {
@@ -301,6 +451,14 @@ export class EventService {
       return event
     }
 
+    // Another code path (e.g. feed prefetch) may have populated session while we were in-flight.
+    if (filter.ids?.length === 1) {
+      const raw = filter.ids[0]
+      const key = /^[0-9a-f]{64}$/i.test(raw) ? raw.toLowerCase() : raw
+      const sess = this.sessionEventCache.get(key)
+      if (sess) return sess
+    }
+
     return undefined
   }
 
@@ -343,8 +501,8 @@ export class EventService {
     // This is especially important for non-replaceable events (not in 10000-19999 or 30000-39999 ranges)
     const events = await this.queryService.query(relayUrls, filter, undefined, {
       immediateReturn: isSingleEventById, // Return immediately when found
-      eoseTimeout: isSingleEventById ? 100 : 500,
-      globalTimeout: isSingleEventById ? 3000 : 10000
+      eoseTimeout: isSingleEventById ? 1500 : 500,
+      globalTimeout: isSingleEventById ? 12000 : 10000
     })
     
     const event = events.sort((a, b) => b.created_at - a.created_at)[0]
@@ -378,17 +536,21 @@ export class EventService {
       limit: ids.length
     }, undefined, {
       immediateReturn: isSingleEventFetch, // Return immediately when found
-      eoseTimeout: isSingleEventFetch ? 100 : 500,
-      globalTimeout: isSingleEventFetch ? 3000 : 10000
+      eoseTimeout: isSingleEventFetch ? 1500 : 500,
+      globalTimeout: isSingleEventFetch ? 12000 : 10000
     })
     
     const eventsMap = new Map<string, NEvent>()
     for (const event of events) {
-      eventsMap.set(event.id, event)
+      const key = /^[0-9a-f]{64}$/i.test(event.id) ? event.id.toLowerCase() : event.id
+      eventsMap.set(key, event)
       // Note: We can't track which relay returned which event in batch queries,
       // but events are still cached and will be found in future queries
     }
 
-    return ids.map((id) => eventsMap.get(id))
+    return ids.map((id) => {
+      const k = /^[0-9a-f]{64}$/i.test(id) ? id.toLowerCase() : id
+      return eventsMap.get(k)
+    })
   }
 }

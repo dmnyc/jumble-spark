@@ -306,6 +306,7 @@ export async function buildReplyReadRelayList(
     userPubkey,
     relayHints: threadRelayHints,
     includeFastReadRelays: true,
+    includeSearchableRelays: true,
     includeLocalRelays: true,
     blockedRelays
   })

@@ -5,6 +5,7 @@ import { useFetchEvent } from '@/hooks'
 import { normalizeUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import client from '@/services/client.service'
+import indexedDb from '@/services/indexed-db.service'
 import { useTranslation } from 'react-i18next'
 import { useEffect, useMemo, useState } from 'react'
 import { Event, nip19 } from 'nostr-tools'
@@ -273,21 +274,11 @@ function EmbeddedNoteNotFound({
     null | 'unparseable' | 'no_relays' | 'searched'
   >(null)
 
-  // Calculate which external relays would be tried when user clicks "Try external relays".
-  // IMPORTANT: For embedded events, we should search:
-  // 1. Containing event author's relays (outboxes + inboxes)
-  // 2. Relay hints from containing event (e, a, q tags - 3rd position)
-  // 3. Bech32 hints + embedded event author's relays
-  // 4. Relays where embedded event was seen
-  // 5. SEARCHABLE_RELAY_URLS
+  // Relays for "Try external relays": hints + searchable + FAST_READ.
+  // Initial embed fetch uses short per-relay timeouts; this pass uses longer timeouts (see fetchEventWithExternalRelays).
+  // We intentionally include FAST_READ again so slow/default relays get a second chance.
   useEffect(() => {
     const getExternalRelays = async () => {
-      const alreadyTriedRelaysSet = new Set<string>()
-      ;[...FAST_READ_RELAY_URLS].forEach(url => {
-        const normalized = normalizeUrl(url)
-        if (normalized) alreadyTriedRelaysSet.add(normalized)
-      })
-
       let hintRelays: string[] = []
       let extractedHexEventId: string | null = null
 
@@ -347,30 +338,27 @@ function EmbeddedNoteNotFound({
         .map(url => normalizeUrl(url))
         .filter((url): url is string => Boolean(url))
       
-      // Combine hints with SEARCHABLE_RELAY_URLS (always include as fallback)
-      // Normalize SEARCHABLE_RELAY_URLS for comparison
       const normalizedSearchableRelays = SEARCHABLE_RELAY_URLS
         .map(url => normalizeUrl(url))
         .filter((url): url is string => Boolean(url))
-      
-      // Combine all potential relays (hints + searchable)
-      const allPotentialRelays = new Set([...normalizedHints, ...normalizedSearchableRelays])
-      
-      // Filter out relays that were already tried
-      const externalRelays = Array.from(allPotentialRelays).filter(
-        relay => !alreadyTriedRelaysSet.has(relay)
+
+      const normalizedFastRead = FAST_READ_RELAY_URLS
+        .map(url => normalizeUrl(url))
+        .filter((url): url is string => Boolean(url))
+
+      const externalRelays = Array.from(
+        new Set([...normalizedHints, ...normalizedSearchableRelays, ...normalizedFastRead])
       )
-      
-      // Deduplicate final relay list
+
       setExternalRelays(externalRelays)
-      
+
       logger.debug('External relays calculated', {
         noteId,
         hintRelaysCount: normalizedHints.length,
         searchableRelaysCount: normalizedSearchableRelays.length,
-        alreadyTriedCount: alreadyTriedRelaysSet.size,
+        fastReadRelaysCount: normalizedFastRead.length,
         externalRelaysCount: externalRelays.length,
-        externalRelays: externalRelays.slice(0, 10) // Log first 10
+        externalRelays: externalRelays.slice(0, 10)
       })
     }
 
@@ -399,21 +387,45 @@ function EmbeddedNoteNotFound({
     setExternalSearchDetail(null)
     let found: Event | undefined
     try {
-      const idLog = hexEventId ?? hexEventIdFromNoteId(noteId) ?? noteId.slice(0, 16)
-      logger.info('Searching external relays', {
-        noteId,
-        hexOrHint: idLog,
-        relayCount: externalRelays.length,
-        relays: externalRelays.slice(0, 5)
-      })
+      const idHex = hexEventId ?? hexEventIdFromNoteId(noteId)
+      if (idHex) {
+        const fromDb = await indexedDb.getEventFromPublicationStore(idHex)
+        if (fromDb) {
+          client.addEventToCache(fromDb)
+          found = fromDb
+          onEventFound?.(fromDb)
+          logger.info('Event found in IndexedDB (try-harder)', { noteId })
+        }
+      }
 
-      const event = await client.fetchEventWithExternalRelays(noteId, externalRelays)
+      if (!found) {
+        const retried = await client.fetchEventForceRetry(noteId)
+        if (retried) {
+          found = retried
+          onEventFound?.(retried)
+          logger.info('Event found after fetchEventForceRetry', { noteId })
+        }
+      }
 
-      if (event) {
-        logger.info('Event found on external relay', { noteId })
-        found = event
-        onEventFound?.(event)
-      } else {
+      if (!found) {
+        const idLog = idHex ?? noteId.slice(0, 16)
+        logger.info('Searching external relays', {
+          noteId,
+          hexOrHint: idLog,
+          relayCount: externalRelays.length,
+          relays: externalRelays.slice(0, 5)
+        })
+
+        const event = await client.fetchEventWithExternalRelays(noteId, externalRelays)
+        if (event) {
+          logger.info('Event found on external relay', { noteId })
+          found = event
+          client.addEventToCache(event)
+          onEventFound?.(event)
+        }
+      }
+
+      if (!found) {
         logger.info('Event not found on external relays', {
           noteId,
           relayCount: externalRelays.length
