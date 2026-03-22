@@ -69,7 +69,11 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
       for (const [id, newReplyEvents] of newReplyEventMap.entries()) {
         const replies = prev.get(id) || { events: [], eventIdSet: new Set() }
         newReplyEvents.forEach((reply) => {
-          if (!replies.eventIdSet.has(reply.id)) {
+          const existingIdx = replies.events.findIndex((e) => e.id === reply.id)
+          if (existingIdx >= 0) {
+            replies.events[existingIdx] = reply
+            replies.eventIdSet.add(reply.id)
+          } else {
             replies.events.push(reply)
             replies.eventIdSet.add(reply.id)
           }

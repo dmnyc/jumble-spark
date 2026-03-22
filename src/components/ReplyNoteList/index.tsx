@@ -28,6 +28,7 @@ import { eventService, queryService } from '@/services/client.service'
 import noteStatsService from '@/services/note-stats.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
 import { buildReplyReadRelayList, relayHintsFromEventTags } from '@/lib/relay-list-builder'
+import { eventReplyMatchesThreadRoot } from '@/lib/thread-reply-root-match'
 import { Filter, Event as NEvent, kinds } from 'nostr-tools'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -272,27 +273,20 @@ function ReplyNoteList({
 
   const onNewReply = useCallback((evt: NEvent) => {
     addReplies([evt])
-    // Also update the discussion cache so the reply persists
     if (rootInfo) {
       const cachedReplies = discussionFeedCache.getCachedReplies(rootInfo) || []
-      const existingReplyIds = new Set(cachedReplies.map(r => r.id))
-      if (!existingReplyIds.has(evt.id)) {
-        discussionFeedCache.setCachedReplies(rootInfo, [...cachedReplies, evt])
-      }
+      const without = cachedReplies.filter((r) => r.id !== evt.id)
+      discussionFeedCache.setCachedReplies(rootInfo, [...without, evt])
     }
   }, [addReplies, rootInfo])
 
   useEffect(() => {
     if (!rootInfo) return
     const handleEventPublished = (data: Event) => {
-      const customEvent = data as CustomEvent<NEvent>
-      const evt = customEvent.detail
-      const articleThreadUrl = rootInfo.type === 'I' ? getArticleUrlFromCommentITags(evt) : undefined
-      const matchesThread =
-        rootInfo.type === 'I'
-          ? articleThreadUrl === rootInfo.id
-          : getRootEventHexId(evt) === rootInfo.id
-      if (matchesThread && isReplyNoteEvent(evt)) {
+      const ce = data as CustomEvent<NEvent>
+      const evt = ce.detail
+      if (!evt || !isReplyNoteEvent(evt)) return
+      if (eventReplyMatchesThreadRoot(evt, rootInfo)) {
         onNewReply(evt)
       }
     }
