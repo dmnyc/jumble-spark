@@ -25,10 +25,10 @@ const MAX_BOOKMARK_IDS = 250
 
 /**
  * Spells “Discussions” uses NoteList → subscribeTimeline → one live REQ per relay.
- * The same merged list as DiscussionsPage’s one-shot query would open 80+ sockets and exhaust
- * subscription slots; cap keeps first paint fast. Full coverage remains on /discussions.
+ * An uncapped merged relay list would open 80+ sockets and exhaust subscription slots;
+ * cap keeps first paint fast.
  */
-const DISCUSSION_FAUX_SPELL_MAX_RELAYS = 32
+const DISCUSSION_FAUX_SPELL_MAX_RELAYS = 10
 /** Without caps, a long NIP-66 read list consumes the whole 32 slots and fast public relays never get a REQ — discussions stay empty while notifications still work (they blend fast reads). */
 const DISCUSSION_SPELL_READ_CAP = 10
 const DISCUSSION_SPELL_WRITE_CAP = 8
@@ -265,8 +265,8 @@ export function buildMentionsSpellFilter(pubkey: string): Filter {
 }
 
 /**
- * Relay set for Spells “Discussions” (kind 11): same merge order as DiscussionsPage, but capped
- * for subscription-based loading (see DISCUSSION_FAUX_SPELL_MAX_RELAYS).
+ * Relay set for Spells “Discussions” (kind 11), capped for subscription-based loading
+ * (see DISCUSSION_FAUX_SPELL_MAX_RELAYS).
  */
 /**
  * Deterministic relay pick: each tier (read / write / fav / fast) is normalized + sorted so NostrProvider
