@@ -190,6 +190,16 @@ export function getReplaceableCoordinateFromEvent(event: Event) {
   return getReplaceableCoordinate(event.kind, event.pubkey, d)
 }
 
+/** Whether an event matches a tombstone key from IndexedDB (e-tag id, a-tag coordinate, or k-tag kind:pubkey). */
+export function isTombstoneKeyForEvent(event: Event, tombstones: Set<string>): boolean {
+  if (tombstones.has(event.id)) return true
+  if (isReplaceableEvent(event.kind)) {
+    if (tombstones.has(getReplaceableCoordinateFromEvent(event))) return true
+    if (tombstones.has(`${event.kind}:${event.pubkey}`)) return true
+  }
+  return false
+}
+
 export function getNoteBech32Id(event: Event) {
   const hints = client.getEventHints(event.id).slice(0, 2)
   if (isReplaceableEvent(event.kind)) {

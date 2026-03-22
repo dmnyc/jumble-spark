@@ -6,8 +6,10 @@ import { isReplyNoteEvent } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { useProfilePins } from '@/hooks/useProfilePins'
 import { useProfileTimeline } from '@/hooks/useProfileTimeline'
+import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useZap } from '@/providers/ZapProvider'
+import client from '@/services/client.service'
 import storage from '@/services/local-storage.service'
 import { Event, kinds } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
@@ -36,6 +38,7 @@ function useHideRepliesLikeMainFeed() {
 
 const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string }>(({ pubkey }, ref) => {
   const { t } = useTranslation()
+  const { isEventDeleted } = useDeletedEvent()
   const { zapReplyThreshold } = useZap()
   const { showKinds, showKind1OPs, showKind1Replies, showKind1111 } = useKindFilter()
   const hideReplies = useHideRepliesLikeMainFeed()
@@ -103,8 +106,14 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
     [searchQuery]
   )
 
-  const filteredPins = useMemo(() => applySearch(pinEvents), [pinEvents, applySearch])
-  const filteredRest = useMemo(() => applySearch(restTimeline), [restTimeline, applySearch])
+  const filteredPins = useMemo(
+    () => applySearch(pinEvents).filter((e) => !isEventDeleted(e)),
+    [pinEvents, applySearch, isEventDeleted]
+  )
+  const filteredRest = useMemo(
+    () => applySearch(restTimeline).filter((e) => !isEventDeleted(e)),
+    [restTimeline, applySearch, isEventDeleted]
+  )
 
   const mergedDisplay = useMemo(() => [...filteredPins, ...filteredRest], [filteredPins, filteredRest])
 
@@ -124,7 +133,8 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
     setIsRefreshing(true)
     refreshPins()
     refreshTimeline()
-  }, [refreshPins, refreshTimeline])
+    void client.fetchDeletionEventsForPubkey(pubkey)
+  }, [refreshPins, refreshTimeline, pubkey])
 
   useImperativeHandle(ref, () => ({ refresh: refreshAll }), [refreshAll])
 

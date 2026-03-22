@@ -4,6 +4,7 @@ import { getLatestEvent } from '@/lib/event'
 import { generateBech32IdFromATag, generateBech32IdFromETag } from '@/lib/tag'
 import { normalizeUrl } from '@/lib/url'
 import { useNostr } from '@/providers/NostrProvider'
+import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { queryService } from '@/services/client.service'
 import { kinds } from 'nostr-tools'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
@@ -38,6 +39,7 @@ const BookmarkList = forwardRef(function BookmarkList(_, ref) {
     () => ({
       refresh: async () => {
         if (!pubkey) return
+        await syncUserDeletionTombstones(pubkey, relayList)
         const urls = Array.from(
           new Set(
             [

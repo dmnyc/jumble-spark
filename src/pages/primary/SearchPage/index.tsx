@@ -3,7 +3,9 @@ import { RefreshButton } from '@/components/RefreshButton'
 import SearchBar, { TSearchBarRef } from '@/components/SearchBar'
 import SearchResult from '@/components/SearchResult'
 import PrimaryPageLayout, { TPrimaryPageLayoutRef } from '@/layouts/PrimaryPageLayout'
+import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { usePrimaryPage } from '@/PageManager'
+import { useNostr } from '@/providers/NostrProvider'
 import { TPageRef, TSearchParams } from '@/types'
 import { BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -11,6 +13,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 
 const SearchPage = forwardRef<TPageRef>((_, ref) => {
   const { current, display } = usePrimaryPage()
+  const { pubkey, relayList } = useNostr()
   const [input, setInput] = useState('')
   const [searchParams, setSearchParams] = useState<TSearchParams | null>(null)
   const [resultRefreshKey, setResultRefreshKey] = useState(0)
@@ -18,7 +21,12 @@ const SearchPage = forwardRef<TPageRef>((_, ref) => {
   const searchBarRef = useRef<TSearchBarRef>(null)
   const layoutRef = useRef<TPrimaryPageLayoutRef>(null)
 
-  const bumpResults = useCallback(() => setResultRefreshKey((k) => k + 1), [])
+  const bumpResults = useCallback(() => {
+    void (async () => {
+      await syncUserDeletionTombstones(pubkey, relayList)
+      setResultRefreshKey((k) => k + 1)
+    })()
+  }, [pubkey, relayList])
 
   useImperativeHandle(
     ref,

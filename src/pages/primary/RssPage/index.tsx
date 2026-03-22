@@ -4,6 +4,7 @@ import PrimaryPageLayout, { type TPrimaryPageLayoutRef } from '@/layouts/Primary
 import { Button } from '@/components/ui/button'
 import { DEFAULT_RSS_FEEDS } from '@/constants'
 import logger from '@/lib/logger'
+import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { useNostr } from '@/providers/NostrProvider'
 import rssFeedService from '@/services/rss-feed.service'
 import { Rss, Search } from 'lucide-react'
@@ -13,11 +14,12 @@ import { useTranslation } from 'react-i18next'
 
 const RssPage = forwardRef<TPageRef>((_, ref) => {
   const { t } = useTranslation()
-  const { pubkey, rssFeedListEvent } = useNostr()
+  const { pubkey, relayList, rssFeedListEvent } = useNostr()
   const [rssRefreshKey, setRssRefreshKey] = useState(0)
   const layoutRef = useRef<TPrimaryPageLayoutRef>(null)
 
   const handleRefresh = useCallback(() => {
+    void syncUserDeletionTombstones(pubkey, relayList)
     let feedUrls: string[] = []
     if (pubkey && rssFeedListEvent) {
       try {
@@ -42,7 +44,7 @@ const RssPage = forwardRef<TPageRef>((_, ref) => {
       )
     }
     setRssRefreshKey((k) => k + 1)
-  }, [pubkey, rssFeedListEvent])
+  }, [pubkey, relayList, rssFeedListEvent])
 
   useImperativeHandle(
     ref,

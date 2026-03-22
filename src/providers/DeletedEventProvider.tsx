@@ -1,11 +1,16 @@
-import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
+import { getKeyForDeletedLookup } from '@/lib/deleted-event-key'
+import { isTombstoneKeyForEvent } from '@/lib/event'
+import { TOMBSTONES_UPDATED_EVENT } from '@/lib/tombstone-events'
+import indexedDb from '@/services/indexed-db.service'
 import { NostrEvent } from 'nostr-tools'
-import { createContext, useCallback, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 
 type TDeletedEventContext = {
   addDeletedEvent: (event: NostrEvent) => void
   addDeletedEventId: (eventId: string) => void
   isEventDeleted: (event: NostrEvent) => boolean
+  /** Bumps when tombstones are reloaded from IndexedDB (for list re-filtering). */
+  tombstoneEpoch: number
 }
 
 const DeletedEventContext = createContext<TDeletedEventContext | undefined>(undefined)
@@ -19,30 +24,52 @@ export const useDeletedEvent = () => {
 }
 
 export function DeletedEventProvider({ children }: { children: React.ReactNode }) {
-  const [deletedEventKeys, setDeletedEventKeys] = useState<Set<string>>(new Set())
+  const [tombstoneKeys, setTombstoneKeys] = useState<Set<string>>(() => new Set())
+  const [tombstoneEpoch, setTombstoneEpoch] = useState(0)
+
+  const hydrateFromIndexedDb = useCallback(async () => {
+    try {
+      const keys = await indexedDb.getAllTombstones()
+      setTombstoneKeys(keys)
+      setTombstoneEpoch((e) => e + 1)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    void hydrateFromIndexedDb()
+  }, [hydrateFromIndexedDb])
+
+  useEffect(() => {
+    const onUpdate = () => {
+      void hydrateFromIndexedDb()
+    }
+    window.addEventListener(TOMBSTONES_UPDATED_EVENT, onUpdate)
+    return () => window.removeEventListener(TOMBSTONES_UPDATED_EVENT, onUpdate)
+  }, [hydrateFromIndexedDb])
 
   const isEventDeleted = useCallback(
-    (event: NostrEvent) => {
-      return deletedEventKeys.has(getKey(event))
-    },
-    [deletedEventKeys]
+    (event: NostrEvent) => isTombstoneKeyForEvent(event, tombstoneKeys),
+    [tombstoneKeys]
   )
 
-  const addDeletedEvent = (event: NostrEvent) => {
-    setDeletedEventKeys((prev) => new Set(prev).add(getKey(event)))
-  }
+  const addDeletedEvent = useCallback((event: NostrEvent) => {
+    const key = getKeyForDeletedLookup(event)
+    setTombstoneKeys((prev) => new Set(prev).add(key))
+    setTombstoneEpoch((e) => e + 1)
+  }, [])
 
-  const addDeletedEventId = (eventId: string) => {
-    setDeletedEventKeys((prev) => new Set(prev).add(eventId))
-  }
+  const addDeletedEventId = useCallback((eventId: string) => {
+    setTombstoneKeys((prev) => new Set(prev).add(eventId))
+    setTombstoneEpoch((e) => e + 1)
+  }, [])
 
   return (
-    <DeletedEventContext.Provider value={{ addDeletedEvent, addDeletedEventId, isEventDeleted }}>
+    <DeletedEventContext.Provider
+      value={{ addDeletedEvent, addDeletedEventId, isEventDeleted, tombstoneEpoch }}
+    >
       {children}
     </DeletedEventContext.Provider>
   )
-}
-
-function getKey(event: NostrEvent) {
-  return isReplaceableEvent(event.kind) ? getReplaceableCoordinateFromEvent(event) : event.id
 }

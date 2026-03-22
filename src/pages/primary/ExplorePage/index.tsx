@@ -11,11 +11,22 @@ import { cn } from '@/lib/utils'
 import { isWebsocketUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import { RefreshButton } from '@/components/RefreshButton'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
+import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { useSmartRelayNavigation } from '@/PageManager'
+import { useNostr } from '@/providers/NostrProvider'
 import nip66Service from '@/services/nip66.service'
 import { TPageRef } from '@/types'
 import { ArrowRight, Compass, Plus } from 'lucide-react'
-import { forwardRef, FormEvent, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import {
+  forwardRef,
+  FormEvent,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -69,11 +80,17 @@ function normalizeHomeTab(restored: string): TExploreTabs {
 
 const ExplorePage = forwardRef<TPageRef>((_, ref) => {
   const { t } = useTranslation()
+  const { pubkey, relayList } = useNostr()
   const [tab, setTab] = useState<TExploreTabs>('explore')
   const layoutRef = useRef<TPageRef>(null)
   const [contentRefreshKey, setContentRefreshKey] = useState(0)
 
-  const bumpExploreContent = () => setContentRefreshKey((k) => k + 1)
+  const bumpExploreContent = useCallback(() => {
+    void (async () => {
+      await syncUserDeletionTombstones(pubkey, relayList)
+      setContentRefreshKey((k) => k + 1)
+    })()
+  }, [pubkey, relayList])
 
   useImperativeHandle(
     ref,
@@ -81,7 +98,7 @@ const ExplorePage = forwardRef<TPageRef>((_, ref) => {
       scrollToTop: (behavior?: ScrollBehavior) => layoutRef.current?.scrollToTop(behavior),
       refresh: bumpExploreContent
     }),
-    []
+    [bumpExploreContent]
   )
 
   // Listen for tab restoration from PageManager

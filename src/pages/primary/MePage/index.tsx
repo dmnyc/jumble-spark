@@ -9,6 +9,7 @@ import { SimpleUsername } from '@/components/Username'
 import { RefreshButton } from '@/components/RefreshButton'
 import PrimaryPageLayout, { type TPrimaryPageLayoutRef } from '@/layouts/PrimaryPageLayout'
 import { toProfile, toRelaySettings, toWallet } from '@/lib/link'
+import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { cn } from '@/lib/utils'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
@@ -21,19 +22,33 @@ import {
   Wallet
 } from 'lucide-react'
 import { TPageRef } from '@/types'
-import { forwardRef, HTMLProps, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import {
+  forwardRef,
+  HTMLProps,
+  useCallback,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 const MePage = forwardRef<TPageRef>((_, ref) => {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
-  const { pubkey } = useNostr()
+  const { pubkey, relayList } = useNostr()
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
   const layoutRef = useRef<TPrimaryPageLayoutRef>(null)
   const [contentKey, setContentKey] = useState(0)
 
-  const bumpMe = () => setContentKey((k) => k + 1)
+  const bumpMe = useCallback(() => {
+    void (async () => {
+      await syncUserDeletionTombstones(pubkey, relayList)
+      setContentKey((k) => k + 1)
+    })()
+  }, [pubkey, relayList])
 
   useImperativeHandle(
     ref,
@@ -41,7 +56,7 @@ const MePage = forwardRef<TPageRef>((_, ref) => {
       scrollToTop: (behavior?: ScrollBehavior) => layoutRef.current?.scrollToTop(behavior),
       refresh: bumpMe
     }),
-    []
+    [bumpMe]
   )
 
   if (!pubkey) {

@@ -5,7 +5,9 @@ import SearchResult from '@/components/SearchResult'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { toSearch } from '@/lib/link'
 import { parseAdvancedSearch } from '@/lib/search-parser'
+import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { usePrimaryNoteView, useSecondaryPage } from '@/PageManager'
+import { useNostr } from '@/providers/NostrProvider'
 import { TSearchParams } from '@/types'
 import { BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -14,8 +16,14 @@ import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'r
 const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
   const { push } = useSecondaryPage()
+  const { pubkey, relayList } = useNostr()
   const [resultRefreshKey, setResultRefreshKey] = useState(0)
-  const bumpResults = useCallback(() => setResultRefreshKey((k) => k + 1), [])
+  const bumpResults = useCallback(() => {
+    void (async () => {
+      await syncUserDeletionTombstones(pubkey, relayList)
+      setResultRefreshKey((k) => k + 1)
+    })()
+  }, [pubkey, relayList])
 
   useEffect(() => {
     if (!hideTitlebar) {

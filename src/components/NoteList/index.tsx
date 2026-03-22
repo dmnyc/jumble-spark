@@ -10,6 +10,7 @@ import {
 } from '@/lib/event'
 import { shouldFilterEvent } from '@/lib/event-filtering'
 import { stableSpellFeedFilterKey } from '@/lib/spell-feed-request-identity'
+import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { normalizeUrl } from '@/lib/url'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { isTouchDevice } from '@/lib/utils'
@@ -103,7 +104,7 @@ const NoteList = forwardRef(
     ref
   ) => {
     const { t } = useTranslation()
-    const { startLogin, pubkey } = useNostr()
+    const { startLogin, pubkey, relayList } = useNostr()
     const { isUserTrusted } = useUserTrust()
     const { mutePubkeySet } = useMuteList()
     const { hideContentMentioningMutedUsers } = useContentPolicy()
@@ -364,20 +365,23 @@ const NoteList = forwardRef(
       return () => window.clearTimeout(handle)
     }, [filteredEvents, events, showCount])
 
-    const scrollToTop = (behavior: ScrollBehavior = 'instant') => {
+    const scrollToTop = useCallback((behavior: ScrollBehavior = 'instant') => {
       setTimeout(() => {
         topRef.current?.scrollIntoView({ behavior, block: 'start' })
       }, 20)
-    }
+    }, [])
 
-    const refresh = () => {
+    const refresh = useCallback(() => {
       scrollToTop()
       setTimeout(() => {
-        setRefreshCount((count) => count + 1)
+        void (async () => {
+          await syncUserDeletionTombstones(pubkey, relayList)
+          setRefreshCount((count) => count + 1)
+        })()
       }, 500)
-    }
+    }, [pubkey, relayList, scrollToTop])
 
-    useImperativeHandle(ref, () => ({ scrollToTop, refresh }), [])
+    useImperativeHandle(ref, () => ({ scrollToTop, refresh }), [scrollToTop, refresh])
 
     useEffect(() => {
       const currentSubRequests = subRequestsRef.current

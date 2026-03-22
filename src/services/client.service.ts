@@ -18,6 +18,7 @@ function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
 }
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
+import { dispatchTombstonesUpdated } from '@/lib/tombstone-events'
 import { isValidPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { getPubkeysFromPTags, tagNameEquals } from '@/lib/tag'
 import { isLocalNetworkUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
@@ -1835,6 +1836,7 @@ class ClientService extends EventTarget {
     if (removed > 0) {
       logger.info('[ClientService] Removed tombstoned events from cache', { count: removed })
     }
+    dispatchTombstonesUpdated()
   }
 
   private async addTombstoneEntriesFromDeletionEvent(deletionEvent: NEvent): Promise<void> {
@@ -1893,8 +1895,35 @@ class ClientService extends EventTarget {
       if (removed > 0) {
         logger.info('[ClientService] Removed tombstoned events from cache', { count: removed })
       }
+      dispatchTombstonesUpdated()
     } catch (error) {
       logger.warn('[ClientService] Failed to fetch deletion events', { error })
+    }
+  }
+
+  /**
+   * Fetch kind-5 events for a profile pubkey (e.g. on profile feed refresh) so their deletes apply to tombstones + UI.
+   */
+  async fetchDeletionEventsForPubkey(profilePubkey: string): Promise<void> {
+    if (!profilePubkey) return
+    try {
+      const [relayList, favoriteRelays] = await Promise.all([
+        this.fetchRelayList(profilePubkey).catch(() => ({ read: [] as string[], write: [] as string[] })),
+        this.fetchFavoriteRelays(profilePubkey).catch(() => [] as string[])
+      ])
+      const urls = Array.from(
+        new Set(
+          [
+            ...relayList.write.map((url: string) => normalizeUrl(url) || url),
+            ...relayList.read.slice(0, 8).map((url: string) => normalizeUrl(url) || url),
+            ...favoriteRelays.map((url: string) => normalizeUrl(url) || url),
+            ...FAST_READ_RELAY_URLS.map((url: string) => normalizeUrl(url) || url)
+          ].filter(Boolean)
+        )
+      ).slice(0, 24)
+      await this.fetchDeletionEvents(urls.length > 0 ? urls : undefined, profilePubkey)
+    } catch (error) {
+      logger.warn('[ClientService] fetchDeletionEventsForPubkey failed', { error })
     }
   }
 

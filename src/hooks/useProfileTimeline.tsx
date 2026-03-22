@@ -1,6 +1,7 @@
+import { useDeletedEvent } from '@/providers/DeletedEventProvider'
+import client from '@/services/client.service'
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Event } from 'nostr-tools'
-import client from '@/services/client.service'
 import { CALENDAR_EVENT_KINDS, ExtendedKind, FAST_READ_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 
@@ -81,7 +82,8 @@ async function getRelayGroups(pubkey: string): Promise<string[][]> {
 function postProcessEvents(
   rawEvents: Event[],
   filterPredicate: ((event: Event) => boolean) | undefined,
-  limit: number
+  limit: number,
+  isEventDeleted: (event: Event) => boolean
 ) {
   const dedupMap = new Map<string, Event>()
   rawEvents.forEach((evt) => {
@@ -90,7 +92,7 @@ function postProcessEvents(
     }
   })
 
-  let events = Array.from(dedupMap.values())
+  let events = Array.from(dedupMap.values()).filter((e) => !isEventDeleted(e))
   if (filterPredicate) {
     events = events.filter(filterPredicate)
   }
@@ -105,11 +107,27 @@ export function useProfileTimeline({
   limit = 200,
   filterPredicate
 }: UseProfileTimelineOptions): UseProfileTimelineResult {
+  const { isEventDeleted, tombstoneEpoch } = useDeletedEvent()
+  const isEventDeletedRef = useRef(isEventDeleted)
+  isEventDeletedRef.current = isEventDeleted
+
   const cachedEntry = useMemo(() => timelineCache.get(cacheKey), [cacheKey])
   const [events, setEvents] = useState<Event[]>(cachedEntry?.events ?? [])
   const [isLoading, setIsLoading] = useState(!cachedEntry)
   const [refreshToken, setRefreshToken] = useState(0)
   const subscriptionRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    setEvents((prev) => {
+      const next = prev.filter((e) => !isEventDeletedRef.current(e))
+      if (next.length === prev.length) return prev
+      const cached = timelineCache.get(cacheKey)
+      if (cached) {
+        timelineCache.set(cacheKey, { events: next, lastUpdated: cached.lastUpdated })
+      }
+      return next
+    })
+  }, [tombstoneEpoch, cacheKey])
 
   useEffect(() => {
     let cancelled = false
@@ -178,7 +196,12 @@ export function useProfileTimeline({
           {
             onEvents: (fetchedEvents) => {
               if (cancelled) return
-              const processed = postProcessEvents(fetchedEvents as Event[], filterPredicate, limit)
+              const processed = postProcessEvents(
+                fetchedEvents as Event[],
+                filterPredicate,
+                limit,
+                isEventDeletedRef.current
+              )
               timelineCache.set(cacheKey, {
                 events: processed,
                 lastUpdated: Date.now()
@@ -190,7 +213,12 @@ export function useProfileTimeline({
               if (cancelled) return
               setEvents((prevEvents) => {
                 const combined = [evt as Event, ...prevEvents]
-                const processed = postProcessEvents(combined, filterPredicate, limit)
+                const processed = postProcessEvents(
+                  combined,
+                  filterPredicate,
+                  limit,
+                  isEventDeletedRef.current
+                )
                 timelineCache.set(cacheKey, {
                   events: processed,
                   lastUpdated: Date.now()
