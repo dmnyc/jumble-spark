@@ -531,9 +531,10 @@ const NoteList = forwardRef(
             const batches = await Promise.all(
               mappedSubRequests.map(({ urls, filter }) =>
                 client.fetchEvents(urls, filter, {
-                  firstRelayResultGraceMs: false,
+                  // Was `false`, which disabled feed grace and forced a wait for every relay EOSE (very slow).
+                  firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS,
                   globalTimeout: 14_000,
-                  eoseTimeout: 800,
+                  eoseTimeout: 2_000,
                   cache: true
                 })
               )
@@ -1140,6 +1141,10 @@ const NoteList = forwardRef(
           </div>
         ) : events.length > 0 ? (
           <div className="text-center text-sm text-muted-foreground mt-2">{t('no more notes')}</div>
+        ) : (spellFetchTimeoutMs != null && spellFetchTimeoutMs > 0) || oneShotFetch ? (
+          <div ref={bottomRef} className="mt-6 px-4 text-center text-sm text-muted-foreground">
+            {t('No posts loaded for this feed. Try refreshing.')}
+          </div>
         ) : (
           <div ref={bottomRef} className="mt-2 min-h-4" aria-hidden />
         )}

@@ -1,6 +1,7 @@
 /**
- * Built-in “faux spells”: same NoteList + filters as kind-777 spells; except Following, feeds use one-shot
- * `fetchEvents` per subRequest (see NoteList `oneShotFetch`) instead of a live timeline subscription.
+ * Built-in “faux spells”: same NoteList + filters as kind-777 spells. The Spells page uses live
+ * `subscribeTimeline` (same as Following) so the first relay results stream in immediately instead of
+ * waiting for every relay to EOSE on a one-shot query.
  */
 import { ExtendedKind, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
 import {

@@ -1563,16 +1563,16 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     window.history.go(-stackLength)
   }
 
-  if (isSmallScreen) {
-    return (
-      <PrimaryPageContext.Provider
-        value={{
-          navigate: navigatePrimaryPage,
-          current: currentPrimaryPage,
-          currentPageProps,
-          display: secondaryStack.length === 0
-        }}
-      >
+  const primaryPageContextValue: TPrimaryPageContext = {
+    navigate: navigatePrimaryPage,
+    current: currentPrimaryPage,
+    currentPageProps,
+    display: isSmallScreen ? secondaryStack.length === 0 : true
+  }
+
+  return (
+    <PrimaryPageContext.Provider value={primaryPageContextValue}>
+      {isSmallScreen ? (
         <KeyboardShortcutsHelpProvider>
         <SecondaryPageContext.Provider
           value={{
@@ -1702,19 +1702,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         </CurrentRelaysProvider>
         </SecondaryPageContext.Provider>
         </KeyboardShortcutsHelpProvider>
-      </PrimaryPageContext.Provider>
-    )
-  }
-
-  return (
-    <PrimaryPageContext.Provider
-      value={{
-        navigate: navigatePrimaryPage,
-        current: currentPrimaryPage,
-        currentPageProps,
-        display: true
-      }}
-    >
+      ) : (
       <KeyboardShortcutsHelpProvider>
       <SecondaryPageContext.Provider
         value={{
@@ -1866,6 +1854,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         </CurrentRelaysProvider>
       </SecondaryPageContext.Provider>
       </KeyboardShortcutsHelpProvider>
+      )}
     </PrimaryPageContext.Provider>
   )
 }

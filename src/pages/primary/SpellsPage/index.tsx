@@ -402,7 +402,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
     if (spellProp?.trim()) {
       if (typeof requestIdleCallback !== 'undefined') {
-        idleId = requestIdleCallback(run, { timeout: 2500 })
+        idleId = requestIdleCallback(run, { timeout: 400 })
       } else {
         timeoutId = setTimeout(run, 0)
       }
@@ -484,8 +484,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
       let catalogSyncDone = false
 
-      /** Defer catalog REQ so faux/kind-777 feed opens sockets and paints first. */
-      const catalogDelayMs = 800
+      /** Catalog sync runs in parallel with the open feed; avoid an artificial delay. */
+      const catalogDelayMs = 0
       if (cancelled) return
       delayId = setTimeout(() => {
         if (cancelled) return
@@ -683,21 +683,25 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return [{ urls, filter: buildDiscussionFilter() }]
     }
     if (selectedFauxSpell === 'media') {
-      if (!feedUrls.length) return []
-      return [{ urls: feedUrls, filter: buildMediaSpellFilter() }]
+      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
+      if (!urls.length) return []
+      return [{ urls, filter: buildMediaSpellFilter() }]
     }
     if (selectedFauxSpell === 'calendar') {
-      if (!feedUrls.length) return []
-      return [{ urls: feedUrls, filter: buildCalendarSpellFilter() }]
+      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
+      if (!urls.length) return []
+      return [{ urls, filter: buildCalendarSpellFilter() }]
     }
     if (selectedFauxSpell === 'interests') {
       if (!pubkey || !interestListEvent) return []
       const topics = interestListEvent.tags.filter((tag) => tag[0] === 't' && tag[1]).map((tag) => tag[1]!)
-      return buildInterestsSubRequests(feedUrls, topics, PROFILE_FEED_KINDS)
+      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
+      return buildInterestsSubRequests(urls, topics, PROFILE_FEED_KINDS)
     }
     if (selectedFauxSpell === 'bookmarks') {
       if (!pubkey) return []
-      return buildBookmarksSubRequests(bookmarkListEvent, feedUrls)
+      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
+      return buildBookmarksSubRequests(bookmarkListEvent, urls)
     }
     if (selectedFauxSpell === 'followPacks') {
       const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
@@ -1331,7 +1335,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   spellFeedInstrumentToken={spellFeedInstrumentToken}
                   onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                   useFilterAsIs={fauxNoteListUseFilterAsIs}
-                  oneShotFetch={selectedFauxSpell !== 'following'}
+                  oneShotFetch={false}
                   showKind1OPs={selectedFauxSpell === 'following' ? showKind1OPs : true}
                   showKind1Replies={selectedFauxSpell === 'following' ? showKind1Replies : true}
                   showKind1111={selectedFauxSpell === 'following' ? showKind1111 : true}

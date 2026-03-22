@@ -1045,10 +1045,7 @@ class ClientService extends EventTarget {
     }: {
       startLogin?: () => void
       needSort?: boolean
-      /**
-       * Ignored by {@link ClientService.subscribeTimeline} (kept for compatibility). Initial completion is
-       * aggregate relay EOSE only; per-event results stream via `onEvents` without faking EOSE.
-       */
+      /** Passed to each shard’s {@link ClientService._subscribeTimeline}: 2s after first event completes initial load if EOSE is slower. */
       firstRelayResultGraceMs?: number
     } = {}
   ) {
@@ -1513,8 +1510,12 @@ class ClientService extends EventTarget {
     {
       startLogin,
       needSort = true,
-      /** @deprecated No longer used; streaming does not fake EOSE (see flushStreamingSnapshot). Kept for call-site compatibility. */
-      firstRelayResultGraceMs: _unusedFirstRelayGraceMs = FIRST_RELAY_RESULT_GRACE_MS,
+      /**
+       * After the **first** stored event arrives from any relay, wait this long then treat the initial
+       * backlog as complete (same as aggregate EOSE): enables pagination + live `onNew` without waiting for
+       * every slow/hung relay. Real EOSE still clears the timer and completes earlier if all relays finish first.
+       */
+      firstRelayResultGraceMs = FIRST_RELAY_RESULT_GRACE_MS,
       relayReqLog
     }: {
       startLogin?: () => void
@@ -1524,7 +1525,6 @@ class ClientService extends EventTarget {
       relayReqLog?: { groupId: string }
     } = {}
   ) {
-    void _unusedFirstRelayGraceMs
     const relays = Array.from(new Set(urls))
     const key = this.generateTimelineKey(relays, filter)
     let timeline = this.timelines[key]
@@ -1543,11 +1543,28 @@ class ClientService extends EventTarget {
     let events: NEvent[] = []
     let eosedAt: number | null = null
 
+    let firstResultGraceTimer: ReturnType<typeof setTimeout> | null = null
+    const clearFirstResultGraceTimer = () => {
+      if (firstResultGraceTimer != null) {
+        clearTimeout(firstResultGraceTimer)
+        firstResultGraceTimer = null
+      }
+    }
+    const armFirstResultGraceAfterFirstEvent = () => {
+      if (eosedAt != null || firstResultGraceTimer != null) return
+      if (events.length === 0) return
+      if (firstRelayResultGraceMs <= 0) return
+      firstResultGraceTimer = setTimeout(() => {
+        firstResultGraceTimer = null
+        if (eosedAt == null) {
+          handleTimelineEose(true)
+        }
+      }, firstRelayResultGraceMs)
+    }
+
     /**
-     * Stream every matching event to the UI immediately. Do **not** use a "grace EOSE" timer: it set `eosedAt`
-     * to wall-clock time while relays were still returning historical rows, so `evt.created_at > eosedAt` was
-     * almost always false and later relay results were dropped until the feed looked empty/slow.
-     * Real initial completion is only when {@link ClientService.subscribe} fires aggregate `oneose` (all relays).
+     * Stream matching events to the UI immediately. Initial completion is either aggregate `oneose` from all
+     * relays, or {@link firstRelayResultGraceMs} after the first event (whichever comes first).
      */
     let streamFlushMicrotask = false
     const flushStreamingSnapshot = () => {
@@ -1576,6 +1593,8 @@ class ClientService extends EventTarget {
     const handleTimelineEose = (eosed: boolean) => {
       if (!eosed) return
       if (eosedAt != null) return
+
+      clearFirstResultGraceTimer()
 
       eosedAt = dayjs().unix()
 
@@ -1614,6 +1633,7 @@ class ClientService extends EventTarget {
         if (!eosedAt) {
           events.push(evt)
           flushStreamingSnapshot()
+          armFirstResultGraceAfterFirstEvent()
           return
         }
         // new event
@@ -1659,6 +1679,7 @@ class ClientService extends EventTarget {
     return {
       timelineKey: key,
       closer: () => {
+        clearFirstResultGraceTimer()
         onEvents = () => {}
         onNew = () => {}
         subCloser.close()

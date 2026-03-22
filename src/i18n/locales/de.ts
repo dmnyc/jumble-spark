@@ -602,6 +602,8 @@ export default {
       'Noch keine Lesezeichen mit Ereignis-IDs. Nur klassische (e-Tag-) Lesezeichen erscheinen in diesem Feed.',
     'No follows or relays to load yet.': 'Noch keine Follows oder Relays zum Laden.',
     'Nothing to load for this feed.': 'Für diesen Feed gibt es nichts zu laden.',
+    'No posts loaded for this feed. Try refreshing.':
+      'Keine Beiträge für diesen Feed geladen. Bitte aktualisieren.',
     'Republish to ...': 'Erneut veröffentlichen zu ...',
     'All available relays': 'All available relays',
     'All active relays (monitoring list)': 'All active relays (monitoring list)',

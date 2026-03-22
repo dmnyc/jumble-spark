@@ -579,6 +579,8 @@ export default {
       'No bookmarked notes with id tags yet. Only classic (e-tag) bookmarks load in this feed.',
     'No follows or relays to load yet.': 'No follows or relays to load yet.',
     'Nothing to load for this feed.': 'Nothing to load for this feed.',
+    'No posts loaded for this feed. Try refreshing.':
+      'No posts loaded for this feed. Try refreshing.',
     'Republish to ...': 'เผยแพร่ซ้ำไปยัง ...',
     'All available relays': 'All available relays',
     'All active relays (monitoring list)': 'All active relays (monitoring list)',
