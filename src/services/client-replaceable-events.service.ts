@@ -240,7 +240,7 @@ export class ReplaceableEventService {
       
       // Log when no event is found (helps debug relay failures)
       if (kind === kinds.Metadata) {
-        logger.warn('[ReplaceableEventService] No profile found for pubkey', { 
+        logger.debug('[ReplaceableEventService] No profile found for pubkey', {
           pubkey,
           cacheKey
         })
@@ -785,7 +785,7 @@ export class ReplaceableEventService {
       const relayListPromise = client.fetchRelayList(pubkey)
       const timeoutPromise = new Promise<null>((resolve) => {
         setTimeout(() => {
-          logger.warn('[ReplaceableEventService] fetchRelayList timeout, giving up', { pubkey })
+          logger.debug('[ReplaceableEventService] fetchRelayList timeout, giving up', { pubkey })
           resolve(null)
         }, 2000)
       })
@@ -896,7 +896,7 @@ export class ReplaceableEventService {
       ReplaceableEventService.releaseProfileFallbackNetworkSlot()
     }
 
-    logger.warn('[ReplaceableEventService] Profile not found after cache, relay-list fallback, and comprehensive search', {
+    logger.debug('[ReplaceableEventService] Profile not found after cache, relay-list fallback, and comprehensive search', {
       pubkey,
       triedRelayHints: relayHints.length > 0
     })

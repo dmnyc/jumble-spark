@@ -6,6 +6,7 @@ import { TImetaInfo } from '@/types'
 import { LRUCache } from 'lru-cache'
 import { Event, getEventHash, kinds, nip19, UnsignedEvent } from 'nostr-tools'
 import { getPow } from 'nostr-tools/nip13'
+import { hexPubkeysEqual, normalizeHexPubkey } from './pubkey'
 import {
   generateBech32IdFromATag,
   generateBech32IdFromETag,
@@ -322,10 +323,11 @@ export function getEmbeddedPubkeys(event: Event) {
  * Events authored by the user are excluded (not treated as incoming mentions).
  */
 export function isUserInEventMentions(event: Event, userPubkey: string): boolean {
-  if (event.pubkey === userPubkey) return false
-  const inPtags = event.tags.some((t) => t[0] === 'p' && t[1] === userPubkey)
+  const u = normalizeHexPubkey(userPubkey)
+  if (hexPubkeysEqual(event.pubkey, u)) return false
+  const inPtags = event.tags.some((t) => t[0] === 'p' && t[1] && hexPubkeysEqual(t[1], u))
   if (inPtags) return true
-  return getEmbeddedPubkeys(event).includes(userPubkey)
+  return getEmbeddedPubkeys(event).some((pk) => hexPubkeysEqual(pk, u))
 }
 
 export function getLatestEvent(events: Event[]): Event | undefined {

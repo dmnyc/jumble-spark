@@ -89,6 +89,26 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         }
 
         let discussionEosed = false
+        let initialBufferFlushed = false
+        const flushBufferedIfReady = () => {
+          if (
+            !eosed ||
+            !discussionEosed ||
+            !isMountedRef.current ||
+            initialBufferFlushed
+          ) {
+            return
+          }
+          initialBufferFlushed = true
+          const buf = notificationBufferRef.current
+          if (buf.length === 0) return
+          const sorted = [...buf].sort((a, b) => compareEvents(b, a))
+          notificationBufferRef.current = sorted.slice(0, 50)
+          for (const evt of sorted) {
+            client.emitNewEvent(evt)
+          }
+        }
+
         const discussionSubCloser = client.subscribe(
           notificationRelays,
           [
@@ -101,6 +121,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             oneose: (e) => {
               if (e) {
                 discussionEosed = e
+                flushBufferedIfReady()
               }
             },
             onevent: (evt) => {
@@ -160,6 +181,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
                     ...notificationBufferRef.current.sort((a, b) => compareEvents(b, a))
                   ]
                 }
+                flushBufferedIfReady()
               }
             },
             onevent: (evt) => {

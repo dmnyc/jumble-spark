@@ -1,5 +1,6 @@
 /**
- * Built-in “faux spells” use the same NoteList path as kind-777 REQ spells.
+ * Built-in “faux spells”: same NoteList + filters as kind-777 spells; except Following, feeds use one-shot
+ * `fetchEvents` per subRequest (see NoteList `oneShotFetch`) instead of a live timeline subscription.
  */
 import { ExtendedKind, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
 import {
@@ -139,10 +140,11 @@ export function mediaSpellExtraShouldHideEvent(evt: Event): boolean {
 
 /** Notifications spell: same kind set as profile-style feeds, restricted to `#p` = you on the relay. */
 export function buildMentionsSpellFilter(pubkey: string): Filter {
+  const pk = /^[0-9a-f]{64}$/i.test(pubkey.trim()) ? pubkey.trim().toLowerCase() : pubkey.trim()
   return {
     kinds: [...PROFILE_FEED_KINDS],
     limit: NOTIFICATION_LIMIT,
-    '#p': [pubkey]
+    '#p': [pk]
   }
 }
 

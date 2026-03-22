@@ -1,5 +1,4 @@
 import NewNotesButton from '@/components/NewNotesButton'
-import { Button } from '@/components/ui/button'
 import { ExtendedKind, FIRST_RELAY_RESULT_GRACE_MS } from '@/constants'
 import {
   collectEmbeddedEventPrefetchTargets,
@@ -13,7 +12,6 @@ import {
   isRelayUrlStrictSupersetIdentityKey,
   stableSpellFeedFilterKey
 } from '@/lib/spell-feed-request-identity'
-import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { normalizeUrl } from '@/lib/url'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { isTouchDevice } from '@/lib/utils'
@@ -45,9 +43,11 @@ import { NoteFeedProfileContext, type NoteFeedProfileContextValue } from '@/prov
 import type { TProfile } from '@/types'
 import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
-const LIMIT = 500 // Increased from 200 to load more events per request
-const ALGO_LIMIT = 1000 // Increased from 500 for algorithm feeds
-const SHOW_COUNT = 50 // Increased from 10 to show more events at once, reducing scroll load frequency
+const LIMIT = 100 // Increased from 200 to load more events per request
+const ALGO_LIMIT = 200 // Increased from 500 for algorithm feeds
+const SHOW_COUNT = 20 // Increased from 10 to show more events at once, reducing scroll load frequency
+/** Hard cap after merging parallel one-shot fetches (e.g. interests = one REQ per topic). */
+const ONE_SHOT_MERGED_CAP =100
 const FEED_PROFILE_BATCH_DEBOUNCE_MS = 120
 const FEED_PROFILE_CHUNK = 36
 
@@ -93,7 +93,13 @@ const NoteList = forwardRef(
       /** Spells page: bumps when user picks a feed; used with {@link onSpellFeedFirstPaint}. */
       spellFeedInstrumentToken,
       /** Spells page: fired once when the filtered list first has rows after a picker change. */
-      onSpellFeedFirstPaint
+      onSpellFeedFirstPaint,
+      /**
+       * When true, load events with parallel {@link client.fetchEvents} per subRequest instead of
+       * {@link client.subscribeTimeline}. No live stream or `loadMore` timeline pagination; use for faux spells
+       * (except Following). Refresh re-fetches.
+       */
+      oneShotFetch = false
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -115,11 +121,12 @@ const NoteList = forwardRef(
       spellFetchTimeoutMs?: number
       spellFeedInstrumentToken?: number
       onSpellFeedFirstPaint?: (detail: { eventCount: number; firstEventId: string }) => void
+      oneShotFetch?: boolean
     },
     ref
   ) => {
     const { t } = useTranslation()
-    const { startLogin, pubkey, relayList } = useNostr()
+    const { startLogin, pubkey } = useNostr()
     const { isUserTrusted } = useUserTrust()
     const { mutePubkeySet } = useMuteList()
     const { hideContentMentioningMutedUsers } = useContentPolicy()
@@ -185,8 +192,10 @@ const NoteList = forwardRef(
     useLayoutEffect(() => {
       const candidates = new Set<string>()
       const addPk = (p: string | undefined) => {
-        if (p && p.length === 64 && /^[0-9a-f]{64}$/.test(p)) {
-          candidates.add(p)
+        if (!p) return
+        const t = p.trim()
+        if (t.length === 64 && /^[0-9a-f]{64}$/i.test(t)) {
+          candidates.add(t.toLowerCase())
         }
       }
       for (const e of events) {
@@ -431,12 +440,9 @@ const NoteList = forwardRef(
     const refresh = useCallback(() => {
       scrollToTop()
       setTimeout(() => {
-        void (async () => {
-          await syncUserDeletionTombstones(pubkey, relayList)
-          setRefreshCount((count) => count + 1)
-        })()
+        setRefreshCount((count) => count + 1)
       }, 500)
-    }, [pubkey, relayList, scrollToTop])
+    }, [scrollToTop])
 
     useImperativeHandle(ref, () => ({ scrollToTop, refresh }), [scrollToTop, refresh])
 
@@ -513,6 +519,48 @@ const NoteList = forwardRef(
           setEvents([])
           // Return a no-op closer function to satisfy the cleanup function
           return () => {}
+        }
+
+        if (oneShotFetch) {
+          if (!keepExistingTimelineEvents) {
+            setEvents([])
+            setNewEvents([])
+          }
+          setHasMore(false)
+          try {
+            const batches = await Promise.all(
+              mappedSubRequests.map(({ urls, filter }) =>
+                client.fetchEvents(urls, filter, {
+                  firstRelayResultGraceMs: false,
+                  globalTimeout: 14_000,
+                  eoseTimeout: 800,
+                  cache: true
+                })
+              )
+            )
+            if (!effectActive) return undefined
+            const byId = new Map<string, Event>()
+            for (const ev of batches.flat()) {
+              const prev = byId.get(ev.id)
+              if (!prev || ev.created_at > prev.created_at) {
+                byId.set(ev.id, ev)
+              }
+            }
+            const merged = [...byId.values()]
+              .sort((a, b) => b.created_at - a.created_at)
+              .slice(0, ONE_SHOT_MERGED_CAP)
+            setEvents(merged)
+            lastEventsForTimelinePrefetchRef.current = merged
+          } catch {
+            if (effectActive) setEvents([])
+          } finally {
+            if (effectActive) {
+              setLoading(false)
+              setHasMore(false)
+              setTimelineKey(undefined)
+            }
+          }
+          return undefined
         }
 
         const totalRelayUrls = mappedSubRequests.reduce((n, r) => n + r.urls.length, 0)
@@ -683,7 +731,8 @@ const NoteList = forwardRef(
       showKind1111,
       useFilterAsIs,
       areAlgoRelays,
-      spellFetchTimeoutMs
+      spellFetchTimeoutMs,
+      oneShotFetch
     ])
 
     useEffect(() => {
@@ -1092,11 +1141,7 @@ const NoteList = forwardRef(
         ) : events.length > 0 ? (
           <div className="text-center text-sm text-muted-foreground mt-2">{t('no more notes')}</div>
         ) : (
-          <div className="flex justify-center w-full mt-2">
-            <Button size="lg" onClick={() => setRefreshCount((count) => count + 1)}>
-              {t('reload notes')}
-            </Button>
-          </div>
+          <div ref={bottomRef} className="mt-2 min-h-4" aria-hidden />
         )}
       </div>
     )

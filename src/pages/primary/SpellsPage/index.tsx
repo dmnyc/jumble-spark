@@ -274,6 +274,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const spellCatalogCloserRef = useRef<(() => void) | null>(null)
   /** Bumps spell catalog relay re-sync when the user taps refresh in the titlebar. */
   const [spellCatalogManualRefreshKey, setSpellCatalogManualRefreshKey] = useState(0)
+  /** Last processed {@link spellCatalogManualRefreshKey} so we only treat real bumps as “force sync”. */
+  const spellCatalogLastManualKeyRef = useRef(0)
   const spellFeedListRef = useRef<TNoteListRef>(null)
   const layoutRef = useRef<TPrimaryPageLayoutRef>(null)
   const [spellPickerOpen, setSpellPickerOpen] = useState(false)
@@ -386,15 +388,41 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     [blockedRelays]
   )
 
+  /**
+   * Kind-777 list for the dropdown. When opening with `?spell=…` (faux name, hex id, nevent, etc.), defer
+   * this IndexedDB read so the feed can subscribe and paint first; the header already reflects the URL.
+   */
   useEffect(() => {
-    loadSpells()
-  }, [loadSpells])
+    let cancelled = false
+    const run = () => {
+      if (!cancelled) void loadSpells()
+    }
+    let idleId: number | undefined
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+    if (spellProp?.trim()) {
+      if (typeof requestIdleCallback !== 'undefined') {
+        idleId = requestIdleCallback(run, { timeout: 2500 })
+      } else {
+        timeoutId = setTimeout(run, 0)
+      }
+    } else {
+      run()
+    }
+
+    return () => {
+      cancelled = true
+      if (idleId !== undefined) cancelIdleCallback(idleId)
+      if (timeoutId !== undefined) clearTimeout(timeoutId)
+    }
+  }, [loadSpells, spellProp])
 
   /** Stable key so we re-sync when the follow list changes (not only on array identity). */
   const contactsSyncKey = useMemo(() => [...contacts].sort().join(','), [contacts])
 
   /**
-   * After showing the cache, pull kind 777 using the same relay set as the favorites feed.
+   * Pull kind 777 from relays only when IndexedDB has no spells yet, or when the user requests refresh.
+   * Otherwise the picker uses {@link loadSpells} from cache only (no extra REQ on each visit / relay churn).
    */
   useEffect(() => {
     if (!pubkey) {
@@ -404,33 +432,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     let cancelled = false
     spellCatalogCloserRef.current = null
     let loadSpellsDebounce: ReturnType<typeof setTimeout> | null = null
-    const scheduleLoadSpells = () => {
-      if (loadSpellsDebounce != null) clearTimeout(loadSpellsDebounce)
-      loadSpellsDebounce = setTimeout(() => {
-        loadSpellsDebounce = null
-        if (!cancelled) void loadSpells()
-      }, 120)
-    }
-    const urls = getRelaysForSpellCatalogSync(favoriteRelays, blockedRelays, relayList?.read ?? [], {
-      userWriteRelays: relayList?.write ?? []
-    })
-    const catalogAuthors = buildSpellCatalogAuthors(pubkey, contacts)
-    const authorAllowlist = new Set(catalogAuthors)
-    const filter = {
-      kinds: [ExtendedKind.SPELL],
-      authors: catalogAuthors,
-      limit: contacts.length > 0 ? SPELL_CATALOG_SYNC_LIMIT_WITH_FOLLOWS : SPELL_CATALOG_SYNC_LIMIT
-    }
-    const syncTimeout = window.setTimeout(() => {
-      if (cancelled) return
-      logger.warn('[SpellsPage] Spell catalog sync timed out')
-      spellCatalogCloserRef.current?.()
-      spellCatalogCloserRef.current = null
-      setSpellsCatalogSyncing(false)
-    }, SPELL_CATALOG_SYNC_TIMEOUT_MS)
-
+    let delayId: ReturnType<typeof setTimeout> | null = null
+    let syncTimeout: ReturnType<typeof setTimeout> | null = null
     let afterFirstBatchTimer: ReturnType<typeof setTimeout> | null = null
-    let catalogSyncDone = false
     const clearAfterFirstBatchTimer = () => {
       if (afterFirstBatchTimer != null) {
         clearTimeout(afterFirstBatchTimer)
@@ -438,88 +442,132 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       }
     }
 
-    /** Defer catalog REQ so faux/kind-777 feed opens sockets and paints first. */
-    const catalogDelayMs = 800
-    const delayId = window.setTimeout(() => {
+    const scheduleLoadSpells = () => {
+      if (loadSpellsDebounce != null) clearTimeout(loadSpellsDebounce)
+      loadSpellsDebounce = setTimeout(() => {
+        loadSpellsDebounce = null
+        if (!cancelled) void loadSpells()
+      }, 120)
+    }
+
+    void (async () => {
+      const manualBump = spellCatalogManualRefreshKey !== spellCatalogLastManualKeyRef.current
+      if (manualBump) {
+        spellCatalogLastManualKeyRef.current = spellCatalogManualRefreshKey
+      }
+      const cachedSpells = await indexedDb.getSpellEvents()
       if (cancelled) return
-      void (async () => {
-        try {
-          setSpellsCatalogSyncing(true)
-          const { closer } = await client.subscribeTimeline(
-          [{ urls, filter }],
-          {
-            onEvents: async (events, eosed) => {
-              if (cancelled) return
-              let wrote = false
-              for (const ev of events) {
-                if (cancelled) return
-                if (!verifyEvent(ev) || !isSpellEvent(ev) || !authorAllowlist.has(ev.pubkey)) continue
-                try {
-                  await indexedDb.putSpellEvent(ev)
-                  wrote = true
-                } catch (e) {
-                  logger.warn('[SpellsPage] Failed to cache spell from relay', e)
-                }
-              }
-              if (wrote) scheduleLoadSpells()
-              if (wrote && afterFirstBatchTimer == null) {
-                afterFirstBatchTimer = setTimeout(() => {
-                  afterFirstBatchTimer = null
-                  if (cancelled || catalogSyncDone) return
-                  catalogSyncDone = true
-                  window.clearTimeout(syncTimeout)
-                  if (loadSpellsDebounce != null) {
-                    clearTimeout(loadSpellsDebounce)
-                    loadSpellsDebounce = null
+
+      const shouldSyncFromRelays = manualBump || cachedSpells.length === 0
+      if (!shouldSyncFromRelays) {
+        return
+      }
+
+      const urls = getRelaysForSpellCatalogSync(favoriteRelays, blockedRelays, relayList?.read ?? [], {
+        userWriteRelays: relayList?.write ?? []
+      })
+      const catalogAuthors = buildSpellCatalogAuthors(pubkey, contacts)
+      const authorAllowlist = new Set(catalogAuthors)
+      const filter = {
+        kinds: [ExtendedKind.SPELL],
+        authors: catalogAuthors,
+        limit: contacts.length > 0 ? SPELL_CATALOG_SYNC_LIMIT_WITH_FOLLOWS : SPELL_CATALOG_SYNC_LIMIT
+      }
+
+      syncTimeout = setTimeout(() => {
+        if (cancelled) return
+        logger.warn('[SpellsPage] Spell catalog sync timed out')
+        spellCatalogCloserRef.current?.()
+        spellCatalogCloserRef.current = null
+        setSpellsCatalogSyncing(false)
+      }, SPELL_CATALOG_SYNC_TIMEOUT_MS)
+
+      let catalogSyncDone = false
+
+      /** Defer catalog REQ so faux/kind-777 feed opens sockets and paints first. */
+      const catalogDelayMs = 800
+      if (cancelled) return
+      delayId = setTimeout(() => {
+        if (cancelled) return
+        void (async () => {
+          try {
+            setSpellsCatalogSyncing(true)
+            const { closer } = await client.subscribeTimeline(
+              [{ urls, filter }],
+              {
+                onEvents: async (events, eosed) => {
+                  if (cancelled) return
+                  let wrote = false
+                  for (const ev of events) {
+                    if (cancelled) return
+                    if (!verifyEvent(ev) || !isSpellEvent(ev) || !authorAllowlist.has(ev.pubkey)) continue
+                    try {
+                      await indexedDb.putSpellEvent(ev)
+                      wrote = true
+                    } catch (e) {
+                      logger.warn('[SpellsPage] Failed to cache spell from relay', e)
+                    }
                   }
-                  void (async () => {
+                  if (wrote) scheduleLoadSpells()
+                  if (wrote && afterFirstBatchTimer == null) {
+                    afterFirstBatchTimer = setTimeout(() => {
+                      afterFirstBatchTimer = null
+                      if (cancelled || catalogSyncDone) return
+                      catalogSyncDone = true
+                      if (syncTimeout != null) clearTimeout(syncTimeout)
+                      if (loadSpellsDebounce != null) {
+                        clearTimeout(loadSpellsDebounce)
+                        loadSpellsDebounce = null
+                      }
+                      void (async () => {
+                        if (!cancelled) await loadSpells()
+                        if (!cancelled) setSpellsCatalogSyncing(false)
+                      })()
+                      closer()
+                      spellCatalogCloserRef.current = null
+                    }, FIRST_RELAY_RESULT_GRACE_MS)
+                  }
+                  if (eosed) {
+                    clearAfterFirstBatchTimer()
+                    if (cancelled || catalogSyncDone) return
+                    catalogSyncDone = true
+                    if (syncTimeout != null) clearTimeout(syncTimeout)
+                    if (loadSpellsDebounce != null) {
+                      clearTimeout(loadSpellsDebounce)
+                      loadSpellsDebounce = null
+                    }
                     if (!cancelled) await loadSpells()
                     if (!cancelled) setSpellsCatalogSyncing(false)
-                  })()
-                  closer()
-                  spellCatalogCloserRef.current = null
-                }, FIRST_RELAY_RESULT_GRACE_MS)
+                    closer()
+                    spellCatalogCloserRef.current = null
+                  }
+                },
+                onNew: () => {} // Not needed
+              },
+              {
+                firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS
               }
-              if (eosed) {
-                clearAfterFirstBatchTimer()
-                if (cancelled || catalogSyncDone) return
-                catalogSyncDone = true
-                window.clearTimeout(syncTimeout)
-                if (loadSpellsDebounce != null) {
-                  clearTimeout(loadSpellsDebounce)
-                  loadSpellsDebounce = null
-                }
-                if (!cancelled) await loadSpells()
-                if (!cancelled) setSpellsCatalogSyncing(false)
-                closer()
-                spellCatalogCloserRef.current = null
-              }
-            },
-            onNew: () => {} // Not needed
-          },
-          {
-            firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS
+            )
+            if (cancelled) {
+              closer()
+              return
+            }
+            spellCatalogCloserRef.current = closer
+          } catch (e) {
+            if (syncTimeout != null) clearTimeout(syncTimeout)
+            logger.warn('[SpellsPage] Spell catalog subscribe failed', e)
+            if (!cancelled) setSpellsCatalogSyncing(false)
           }
-        )
-        if (cancelled) {
-          closer()
-          return
-        }
-        spellCatalogCloserRef.current = closer
-      } catch (e) {
-        window.clearTimeout(syncTimeout)
-        logger.warn('[SpellsPage] Spell catalog subscribe failed', e)
-        if (!cancelled) setSpellsCatalogSyncing(false)
-      }
-      })()
-    }, catalogDelayMs)
+        })()
+      }, catalogDelayMs)
+    })()
 
     return () => {
       cancelled = true
-      window.clearTimeout(delayId)
       clearAfterFirstBatchTimer()
+      if (delayId != null) clearTimeout(delayId)
+      if (syncTimeout != null) clearTimeout(syncTimeout)
       if (loadSpellsDebounce != null) clearTimeout(loadSpellsDebounce)
-      window.clearTimeout(syncTimeout)
       spellCatalogCloserRef.current?.()
       spellCatalogCloserRef.current = null
       setSpellsCatalogSyncing(false)
@@ -627,8 +675,12 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return [{ urls: feedUrls, filter: buildMentionsSpellFilter(pubkey) }]
     }
     if (selectedFauxSpell === 'discussions') {
-      if (!feedUrls.length) return []
-      return [{ urls: feedUrls, filter: buildDiscussionFilter() }]
+      // Same as followPacks: prioritized stack is capped (MAX_REQ_RELAY_URLS); tier-4 FAST_READ
+      // (incl. aggr) is often dropped when inbox + favorites fill the cap. Append read-only aggr so
+      // kind-11 discussions still resolve; also recover when feedUrls is empty (all blocked / no list).
+      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
+      if (!urls.length) return []
+      return [{ urls, filter: buildDiscussionFilter() }]
     }
     if (selectedFauxSpell === 'media') {
       if (!feedUrls.length) return []
@@ -1279,6 +1331,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   spellFeedInstrumentToken={spellFeedInstrumentToken}
                   onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                   useFilterAsIs={fauxNoteListUseFilterAsIs}
+                  oneShotFetch={selectedFauxSpell !== 'following'}
                   showKind1OPs={selectedFauxSpell === 'following' ? showKind1OPs : true}
                   showKind1Replies={selectedFauxSpell === 'following' ? showKind1Replies : true}
                   showKind1111={selectedFauxSpell === 'following' ? showKind1111 : true}

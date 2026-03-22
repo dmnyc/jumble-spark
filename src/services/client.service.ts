@@ -1960,73 +1960,18 @@ class ClientService extends EventTarget {
 
   /**
    * Fetch deletion events (kind 5) and update the tombstone list.
-   * When `authorPubkey` is set, only that author's deletion requests are queried (typical on login).
+   * Network sync is intentionally disabled: it queried many relays on every refresh/login and saturated
+   * the connection pool. Tombstones still update via {@link applyDeletionRequestToLocalCache} when the user deletes from this client.
    */
-  async fetchDeletionEvents(relayUrls: string[] = [], authorPubkey?: string): Promise<void> {
-    const relays =
-      relayUrls.length > 0 ? relayUrls : Array.from(new Set([...PROFILE_FETCH_RELAY_URLS]))
-
-    logger.info('[ClientService] Fetching deletion events', {
-      relayCount: relays.length,
-      authorPubkey: authorPubkey?.slice(0, 12),
-    })
-
-    try {
-      const deletionEvents = await this.queryService.query(
-        relays,
-        {
-          kinds: [kinds.EventDeletion],
-          limit: 100,
-          ...(authorPubkey ? { authors: [authorPubkey] } : {}),
-        },
-        undefined,
-        {
-          replaceableRace: true,
-          eoseTimeout: 500,
-          globalTimeout: 5000,
-        }
-      )
-
-      logger.debug('[ClientService] Fetched deletion events', { count: deletionEvents.length })
-
-      for (const deletionEvent of deletionEvents) {
-        await this.addTombstoneEntriesFromDeletionEvent(deletionEvent)
-      }
-
-      const removed = await indexedDb.removeTombstonedFromCache()
-      if (removed > 0) {
-        logger.info('[ClientService] Removed tombstoned events from cache', { count: removed })
-      }
-      dispatchTombstonesUpdated()
-    } catch (error) {
-      logger.warn('[ClientService] Failed to fetch deletion events', { error })
-    }
+  async fetchDeletionEvents(_relayUrls: string[] = [], _authorPubkey?: string): Promise<void> {
+    return
   }
 
   /**
-   * Fetch kind-5 events for a profile pubkey (e.g. on profile feed refresh) so their deletes apply to tombstones + UI.
+   * @deprecated No-op — see {@link fetchDeletionEvents}.
    */
-  async fetchDeletionEventsForPubkey(profilePubkey: string): Promise<void> {
-    if (!profilePubkey) return
-    try {
-      const [relayList, favoriteRelays] = await Promise.all([
-        this.fetchRelayList(profilePubkey).catch(() => ({ read: [] as string[], write: [] as string[] })),
-        this.fetchFavoriteRelays(profilePubkey).catch(() => [] as string[])
-      ])
-      const urls = Array.from(
-        new Set(
-          [
-            ...relayList.write.map((url: string) => normalizeUrl(url) || url),
-            ...relayList.read.slice(0, 8).map((url: string) => normalizeUrl(url) || url),
-            ...favoriteRelays.map((url: string) => normalizeUrl(url) || url),
-            ...FAST_READ_RELAY_URLS.map((url: string) => normalizeUrl(url) || url)
-          ].filter(Boolean)
-        )
-      ).slice(0, 24)
-      await this.fetchDeletionEvents(urls.length > 0 ? urls : undefined, profilePubkey)
-    } catch (error) {
-      logger.warn('[ClientService] fetchDeletionEventsForPubkey failed', { error })
-    }
+  async fetchDeletionEventsForPubkey(_profilePubkey: string): Promise<void> {
+    return
   }
 
   async searchNpubsForMention(

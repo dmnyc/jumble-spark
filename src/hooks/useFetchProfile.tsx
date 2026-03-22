@@ -212,7 +212,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
       } catch (err) {
         const isTimeout = err instanceof Error && err.message.includes('timeout')
         if (isTimeout) {
-          logger.warn('[useFetchProfile] Profile fetch timed out', {
+          logger.debug('[useFetchProfile] Profile fetch timed out', {
             pubkey: pubkey.substring(0, 8),
             error: err.message
           })
