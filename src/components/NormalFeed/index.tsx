@@ -6,7 +6,6 @@ import storage from '@/services/local-storage.service'
 import { TFeedSubRequest, TNoteListMode } from '@/types'
 import { forwardRef, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import KindFilter from '../KindFilter'
-import { RefreshButton } from '../RefreshButton'
 
 const NormalFeed = forwardRef<TNoteListRef, {
   subRequests: TFeedSubRequest[]
@@ -71,18 +70,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
       value={listMode}
       tabs={tabs}
       onTabChange={(tab) => handleListModeChange(tab)}
-      options={
-        <>
-          <RefreshButton
-            onClick={() => {
-              if (noteListRef && typeof noteListRef !== 'function') {
-                noteListRef.current?.refresh()
-              }
-            }}
-          />
-          <KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />
-        </>
-      }
+      options={<KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />}
     />
   )
 

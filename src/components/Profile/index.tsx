@@ -28,7 +28,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Copy, Ellipsis, Calendar, MapPin, Pencil, SatelliteDish, Code, Gift, Link } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import logger from '@/lib/logger'
@@ -153,10 +153,20 @@ function mergePaymentMethods(
   return out
 }
 
-export default function Profile({ id }: { id?: string }) {
+export default function Profile({
+  id,
+  feedRef
+}: {
+  id?: string
+  /** When set, exposes {@link ProfileFeedWithPins} `refresh` for titlebars / parent pages. */
+  feedRef?: Ref<{ refresh: () => void }>
+}) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
   const { navigate: navigatePrimary } = usePrimaryPage()
+  const internalFeedRef = useRef<{ refresh: () => void }>(null)
+  const profileFeedRef = feedRef ?? internalFeedRef
+
   const { profile, isFetching } = useFetchProfile(id)
   const { pubkey: accountPubkey } = useNostr()
   const [paymentInfo, setPaymentInfo] = useState<ReturnType<typeof getPaymentInfoFromEvent> | null>(null)
@@ -562,7 +572,7 @@ export default function Profile({ id }: { id?: string }) {
           </div>
         </div>
       </div>
-      <ProfileFeedWithPins pubkey={pubkey} />
+      <ProfileFeedWithPins ref={profileFeedRef} pubkey={pubkey} />
       {openPublicMessageTo && (
         <PostEditor
           open={!!openPublicMessageTo}

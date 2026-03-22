@@ -1,6 +1,5 @@
 import NoteCard from '@/components/NoteCard'
 import ProfileSearchBar from '@/components/ui/ProfileSearchBar'
-import RetroRefreshButton from '@/components/ui/RetroRefreshButton'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExtendedKind, PROFILE_FEED_KINDS } from '@/constants'
 import { isReplyNoteEvent } from '@/lib/event'
@@ -159,7 +158,6 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
             placeholder={t('Search posts...')}
             className="w-64 max-w-full"
           />
-          <RetroRefreshButton onClick={refreshAll} size="sm" className="flex-shrink-0" />
         </div>
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -179,7 +177,6 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
             placeholder={t('Search posts...')}
             className="w-64 max-w-full"
           />
-          <RetroRefreshButton onClick={refreshAll} size="sm" className="flex-shrink-0" />
         </div>
         <div className="flex justify-center py-8 text-sm text-muted-foreground">
           {searchQuery.trim() ? t('No posts match your search') : t('No posts found')}
@@ -196,7 +193,6 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
           placeholder={t('Search posts...')}
           className="w-64 max-w-full"
         />
-        <RetroRefreshButton onClick={refreshAll} size="sm" className="flex-shrink-0" />
       </div>
       {isRefreshing && (
         <div className="px-4 py-2 text-center text-sm text-green-500">🔄 {t('Refreshing posts...')}</div>

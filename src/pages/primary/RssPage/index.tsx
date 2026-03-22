@@ -1,21 +1,23 @@
 import RssFeedList from '@/components/RssFeedList'
 import { RefreshButton } from '@/components/RefreshButton'
-import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
+import PrimaryPageLayout, { type TPrimaryPageLayoutRef } from '@/layouts/PrimaryPageLayout'
 import { Button } from '@/components/ui/button'
 import { DEFAULT_RSS_FEEDS } from '@/constants'
 import logger from '@/lib/logger'
 import { useNostr } from '@/providers/NostrProvider'
 import rssFeedService from '@/services/rss-feed.service'
 import { Rss, Search } from 'lucide-react'
-import { forwardRef, useState } from 'react'
+import { TPageRef } from '@/types'
+import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-const RssPage = forwardRef((_, ref) => {
+const RssPage = forwardRef<TPageRef>((_, ref) => {
   const { t } = useTranslation()
   const { pubkey, rssFeedListEvent } = useNostr()
   const [rssRefreshKey, setRssRefreshKey] = useState(0)
+  const layoutRef = useRef<TPrimaryPageLayoutRef>(null)
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     let feedUrls: string[] = []
     if (pubkey && rssFeedListEvent) {
       try {
@@ -40,11 +42,20 @@ const RssPage = forwardRef((_, ref) => {
       )
     }
     setRssRefreshKey((k) => k + 1)
-  }
+  }, [pubkey, rssFeedListEvent])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToTop: (behavior?: ScrollBehavior) => layoutRef.current?.scrollToTop(behavior),
+      refresh: handleRefresh
+    }),
+    [handleRefresh]
+  )
 
   return (
     <PrimaryPageLayout
-      ref={ref}
+      ref={layoutRef}
       pageName="rss"
       titlebar={
         <div className="flex h-full w-full items-center justify-between gap-2 pr-1">

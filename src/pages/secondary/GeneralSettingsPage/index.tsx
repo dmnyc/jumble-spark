@@ -1,3 +1,4 @@
+import { RefreshButton } from '@/components/RefreshButton'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -9,6 +10,7 @@ import {
 } from '@/constants'
 import { LocalizedLanguageNames, TLanguage } from '@/i18n'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
+import { usePrimaryNoteView } from '@/PageManager'
 import { cn, isSupportCheckConnectionType } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useFontSize } from '@/providers/FontSizeProvider'
@@ -18,11 +20,14 @@ import { useUserTrust } from '@/providers/UserTrustProvider'
 import { TMediaAutoLoadPolicy } from '@/types'
 import { SelectValue } from '@radix-ui/react-select'
 import { ExternalLink } from 'lucide-react'
-import { forwardRef, HTMLProps, useState } from 'react'
+import { forwardRef, HTMLProps, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const GeneralSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t, i18n } = useTranslation()
+  const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
+  const [contentKey, setContentKey] = useState(0)
+  const bump = useCallback(() => setContentKey((k) => k + 1), [])
   const [language, setLanguage] = useState<TLanguage>(i18n.language as TLanguage)
   const { themeSetting, setThemeSetting } = useTheme()
   const { fontSize, setFontSize } = useFontSize()
@@ -49,9 +54,23 @@ const GeneralSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
     setLanguage(value)
   }
 
+  useEffect(() => {
+    if (!hideTitlebar) {
+      registerPrimaryPanelRefresh(null)
+      return
+    }
+    registerPrimaryPanelRefresh(bump)
+    return () => registerPrimaryPanelRefresh(null)
+  }, [hideTitlebar, registerPrimaryPanelRefresh, bump])
+
   return (
-    <SecondaryPageLayout ref={ref} index={index} title={hideTitlebar ? undefined : t('General')}>
-      <div className="space-y-4 mt-3">
+    <SecondaryPageLayout
+      ref={ref}
+      index={index}
+      title={hideTitlebar ? undefined : t('General')}
+      controls={hideTitlebar ? undefined : <RefreshButton onClick={bump} />}
+    >
+      <div key={contentKey} className="space-y-4 mt-3">
         <SettingItem>
           <Label htmlFor="languages" className="text-base font-normal">
             {t('Languages')}

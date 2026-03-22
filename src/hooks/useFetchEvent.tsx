@@ -3,7 +3,7 @@ import { useReply } from '@/providers/ReplyProvider'
 import { eventService } from '@/services/client.service'
 import { navigationEventStore } from '@/services/navigation-event-store'
 import { Event } from 'nostr-tools'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 export function useFetchEvent(eventId?: string, initialEvent?: Event) {
   const { isEventDeleted } = useDeletedEvent()
@@ -11,6 +11,11 @@ export function useFetchEvent(eventId?: string, initialEvent?: Event) {
   const [error, setError] = useState<Error | null>(null)
   const [event, setEvent] = useState<Event | undefined>(initialEvent)
   const [isFetching, setIsFetching] = useState(!initialEvent)
+  const [refetchToken, setRefetchToken] = useState(0)
+
+  const refetch = useCallback(() => {
+    setRefetchToken((n) => n + 1)
+  }, [])
 
   useEffect(() => {
     if (!eventId) {
@@ -19,8 +24,14 @@ export function useFetchEvent(eventId?: string, initialEvent?: Event) {
       return
     }
 
+    const skipShortcuts = refetchToken > 0
+
     // If we have an initial event that matches the eventId, use it and skip fetching
-    if (initialEvent && (initialEvent.id === eventId || eventId.includes(initialEvent.id))) {
+    if (
+      !skipShortcuts &&
+      initialEvent &&
+      (initialEvent.id === eventId || eventId.includes(initialEvent.id))
+    ) {
       if (!isEventDeleted(initialEvent)) {
         setEvent(initialEvent)
         addReplies([initialEvent])
@@ -30,12 +41,14 @@ export function useFetchEvent(eventId?: string, initialEvent?: Event) {
     }
 
     // Check navigation event store first (events passed through navigation)
-    const navigationEvent = navigationEventStore.getEvent(eventId)
-    if (navigationEvent && !isEventDeleted(navigationEvent)) {
-      setEvent(navigationEvent)
-      addReplies([navigationEvent])
-      setIsFetching(false)
-      return
+    if (!skipShortcuts) {
+      const navigationEvent = navigationEventStore.getEvent(eventId)
+      if (navigationEvent && !isEventDeleted(navigationEvent)) {
+        setEvent(navigationEvent)
+        addReplies([navigationEvent])
+        setIsFetching(false)
+        return
+      }
     }
 
     setIsFetching(true)
@@ -56,7 +69,7 @@ export function useFetchEvent(eventId?: string, initialEvent?: Event) {
     }
 
     fetchEvent()
-  }, [eventId, initialEvent, isEventDeleted, addReplies])
+  }, [eventId, initialEvent, isEventDeleted, addReplies, refetchToken])
 
   useEffect(() => {
     if (event && isEventDeleted(event)) {
@@ -64,5 +77,5 @@ export function useFetchEvent(eventId?: string, initialEvent?: Event) {
     }
   }, [isEventDeleted, event])
 
-  return { isFetching, error, event }
+  return { isFetching, error, event, refetch }
 }

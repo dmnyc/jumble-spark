@@ -1,3 +1,4 @@
+import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import logger from '@/lib/logger'
@@ -204,6 +205,9 @@ const PrimaryNoteViewContext = createContext<{
   getNavigationCounter: () => number
   /** Top URL in the secondary stack (right panel), or undefined if empty. Used so settings sub-pages open in the panel instead of behind it. */
   getTopSecondaryUrl: () => string | undefined
+  /** Primary overlay (mobile / narrow): child calls this to expose refresh for the chrome bar. */
+  registerPrimaryPanelRefresh: (fn: (() => void) | null) => void
+  triggerPrimaryPanelRefresh: () => void
 } | undefined>(undefined)
 
 const NoteDrawerContext = createContext<{
@@ -599,13 +603,15 @@ function MainContentArea({
   currentPrimaryPage, 
   primaryNoteView,
   primaryViewType,
-  goBack
+  goBack,
+  onPrimaryPanelRefresh
 }: {
   primaryPages: { name: TPrimaryPageName; element: ReactNode; props?: any }[]
   currentPrimaryPage: TPrimaryPageName
   primaryNoteView: ReactNode | null
   primaryViewType: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null
   goBack: () => void
+  onPrimaryPanelRefresh: () => void
 }) {
   const [, forceUpdate] = useState(0)
   
@@ -658,7 +664,9 @@ function MainContentArea({
                   {getPageTitle(primaryViewType, window.location.pathname)}
                 </div>
               </div>
-              <div className="flex-1 w-0"></div>
+              <div className="flex flex-1 w-0 justify-end pr-1">
+                <RefreshButton onClick={onPrimaryPanelRefresh} />
+              </div>
             </div>
             <div className="flex-1 overflow-auto">
               {primaryNoteView}
@@ -717,6 +725,13 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   const [drawerNoteId, setDrawerNoteId] = useState<string | null>(null)
   const [panelMode, setPanelMode] = useState<'single' | 'double'>(() => storage.getPanelMode())
   const navigationCounterRef = useRef(0)
+  const primaryPanelRefreshRef = useRef<(() => void) | null>(null)
+  const registerPrimaryPanelRefresh = useCallback((fn: (() => void) | null) => {
+    primaryPanelRefreshRef.current = fn
+  }, [])
+  const triggerPrimaryPanelRefresh = useCallback(() => {
+    primaryPanelRefreshRef.current?.()
+  }, [])
   const savedFeedStateRef = useRef<Map<TPrimaryPageName, { tab?: string }>>(new Map())
   const currentTabStateRef = useRef<Map<TPrimaryPageName, string>>(new Map()) // Track current tab state for each page
   const savedPrimaryPagePropsRef = useRef<object | undefined>(undefined)
@@ -1571,7 +1586,17 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         >
         <CurrentRelaysProvider>
           <NotificationProvider>
-            <PrimaryNoteViewContext.Provider value={{ setPrimaryNoteView, primaryViewType, getNavigationCounter: () => navigationCounterRef.current, getTopSecondaryUrl: () => secondaryStack.length > 0 ? secondaryStack[secondaryStack.length - 1].url : undefined }}>
+            <PrimaryNoteViewContext.Provider
+              value={{
+                setPrimaryNoteView,
+                primaryViewType,
+                getNavigationCounter: () => navigationCounterRef.current,
+                getTopSecondaryUrl: () =>
+                  secondaryStack.length > 0 ? secondaryStack[secondaryStack.length - 1].url : undefined,
+                registerPrimaryPanelRefresh,
+                triggerPrimaryPanelRefresh
+              }}
+            >
             <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId }}>
             {primaryNoteView ? (
               // Show primary note view with back button on mobile
@@ -1582,9 +1607,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                   </span>
                 </div>
                 <div className="flex gap-1 p-1 items-center justify-between font-semibold border-b">
-                  <div className="flex items-center flex-1 w-0">
+                  <div className="flex min-w-0 flex-1 items-center">
                     <Button
-                      className="flex gap-1 items-center w-fit max-w-full justify-start pl-2 pr-3"
+                      className="flex min-w-0 max-w-full gap-1 justify-start pl-2 pr-3"
                       variant="ghost"
                       size="titlebar-icon"
                       title="Back to feed"
@@ -1600,6 +1625,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                       </div>
                     </Button>
                   </div>
+                  <RefreshButton onClick={triggerPrimaryPanelRefresh} />
                 </div>
                 <div className="flex-1 overflow-auto">
                   {primaryNoteView}
@@ -1700,7 +1726,17 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       >
         <CurrentRelaysProvider>
           <NotificationProvider>
-            <PrimaryNoteViewContext.Provider value={{ setPrimaryNoteView, primaryViewType, getNavigationCounter: () => navigationCounterRef.current, getTopSecondaryUrl: () => secondaryStack.length > 0 ? secondaryStack[secondaryStack.length - 1].url : undefined }}>
+            <PrimaryNoteViewContext.Provider
+              value={{
+                setPrimaryNoteView,
+                primaryViewType,
+                getNavigationCounter: () => navigationCounterRef.current,
+                getTopSecondaryUrl: () =>
+                  secondaryStack.length > 0 ? secondaryStack[secondaryStack.length - 1].url : undefined,
+                registerPrimaryPanelRefresh,
+                triggerPrimaryPanelRefresh
+              }}
+            >
             <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId }}>
             <div className="flex flex-col items-center bg-surface-background">
               <div
@@ -1725,6 +1761,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                             primaryNoteView={primaryNoteView}
                             primaryViewType={primaryViewType}
                             goBack={goBack}
+                            onPrimaryPanelRefresh={triggerPrimaryPanelRefresh}
                           />
                         </div>
                         {/* Right: secondary stack — max width so left pane keeps space on small desktops */}
@@ -1763,6 +1800,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                           primaryNoteView={primaryNoteView}
                           primaryViewType={primaryViewType}
                           goBack={goBack}
+                          onPrimaryPanelRefresh={triggerPrimaryPanelRefresh}
                         />
                       </div>
                     )

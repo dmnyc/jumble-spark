@@ -1,13 +1,28 @@
 import ProfileList from '@/components/ProfileList'
+import { RefreshButton } from '@/components/RefreshButton'
 import { useFetchFollowings, useFetchProfile } from '@/hooks'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
-import { forwardRef } from 'react'
+import { usePrimaryNoteView } from '@/PageManager'
+import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const FollowingListPage = forwardRef(({ id, index, hideTitlebar = false }: { id?: string; index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
+  const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
+  const [listRefreshNonce, setListRefreshNonce] = useState(0)
   const { profile } = useFetchProfile(id)
-  const { followings } = useFetchFollowings(profile?.pubkey)
+  const { followings } = useFetchFollowings(profile?.pubkey, listRefreshNonce)
+
+  const bumpList = useCallback(() => setListRefreshNonce((n) => n + 1), [])
+
+  useEffect(() => {
+    if (!hideTitlebar) {
+      registerPrimaryPanelRefresh(null)
+      return
+    }
+    registerPrimaryPanelRefresh(bumpList)
+    return () => registerPrimaryPanelRefresh(null)
+  }, [hideTitlebar, registerPrimaryPanelRefresh, bumpList])
 
   return (
     <SecondaryPageLayout
@@ -21,6 +36,7 @@ const FollowingListPage = forwardRef(({ id, index, hideTitlebar = false }: { id?
             : t('Following')
       }
       hideBackButton={hideTitlebar}
+      controls={hideTitlebar ? undefined : <RefreshButton onClick={bumpList} />}
       displayScrollToTopButton
     >
       <ProfileList pubkeys={followings} />

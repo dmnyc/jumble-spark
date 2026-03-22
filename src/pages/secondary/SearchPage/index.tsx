@@ -1,17 +1,30 @@
 import LatestFromFollowsSection from '@/components/LatestFromFollowsSection'
+import { RefreshButton } from '@/components/RefreshButton'
 import SearchBar, { TSearchBarRef } from '@/components/SearchBar'
 import SearchResult from '@/components/SearchResult'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { toSearch } from '@/lib/link'
 import { parseAdvancedSearch } from '@/lib/search-parser'
-import { useSecondaryPage } from '@/PageManager'
+import { usePrimaryNoteView, useSecondaryPage } from '@/PageManager'
 import { TSearchParams } from '@/types'
 import { BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
+  const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
   const { push } = useSecondaryPage()
+  const [resultRefreshKey, setResultRefreshKey] = useState(0)
+  const bumpResults = useCallback(() => setResultRefreshKey((k) => k + 1), [])
+
+  useEffect(() => {
+    if (!hideTitlebar) {
+      registerPrimaryPanelRefresh(null)
+      return
+    }
+    registerPrimaryPanelRefresh(bumpResults)
+    return () => registerPrimaryPanelRefresh(null)
+  }, [hideTitlebar, registerPrimaryPanelRefresh, bumpResults])
   const [input, setInput] = useState('')
   const searchBarRef = useRef<TSearchBarRef>(null)
   const searchParams = useMemo(() => {
@@ -99,10 +112,13 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
       index={index}
       title={hideTitlebar ? undefined : "Search"}
       hideBackButton={hideTitlebar}
+      controls={hideTitlebar ? undefined : <RefreshButton onClick={bumpResults} />}
       displayScrollToTopButton
     >
       <div className="px-4 pt-4">
-        <div className="text-2xl font-bold mb-4">Search Nostr</div>
+        <div className="mb-4">
+          <div className="text-2xl font-bold">Search Nostr</div>
+        </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-4 relative z-40">
           <div className="flex-1 relative order-2 sm:order-1">
             <SearchBar ref={searchBarRef} input={input} setInput={setInput} onSearch={onSearch} />
@@ -125,14 +141,16 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
           </div>
         </div>
         <div className="h-4"></div>
-        {searchParams ? (
-          <SearchResult searchParams={searchParams} />
-        ) : (
-          <div className="mb-4 min-w-0 space-y-2">
-            <LatestFromFollowsSection />
-            <SearchResult searchParams={null} />
-          </div>
-        )}
+        <div key={resultRefreshKey} className="min-w-0">
+          {searchParams ? (
+            <SearchResult searchParams={searchParams} />
+          ) : (
+            <div className="mb-4 min-w-0 space-y-2">
+              <LatestFromFollowsSection />
+              <SearchResult searchParams={null} />
+            </div>
+          )}
+        </div>
       </div>
     </SecondaryPageLayout>
   )

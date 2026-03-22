@@ -1,19 +1,20 @@
 import NormalFeed from '@/components/NormalFeed'
+import type { TNoteListRef } from '@/components/NoteList'
 import { checkAlgoRelay } from '@/lib/relay'
 import { useFeed } from '@/providers/FeedProvider'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import relayInfoService from '@/services/relay-info.service'
 import { kinds } from 'nostr-tools'
-import React, { useEffect, useMemo, useState, useRef } from 'react'
+import React, { forwardRef, useEffect, useMemo, useState, useRef } from 'react'
 
-export default function RelaysFeed({
-  setSubHeader,
-  kindsOverride
-}: {
-  setSubHeader?: (node: React.ReactNode) => void
-  /** When set, subscription kinds (fixed list); otherwise uses KindFilterProvider. */
-  kindsOverride?: number[]
-}) {
+const RelaysFeed = forwardRef<
+  TNoteListRef,
+  {
+    setSubHeader?: (node: React.ReactNode) => void
+    /** When set, subscription kinds (fixed list); otherwise uses KindFilterProvider. */
+    kindsOverride?: number[]
+  }
+>(function RelaysFeed({ setSubHeader, kindsOverride }, ref) {
   const { feedInfo, relayUrls } = useFeed()
   const { showKinds } = useKindFilter()
   const [areAlgoRelays, setAreAlgoRelays] = useState(false)
@@ -92,10 +93,14 @@ export default function RelaysFeed({
 
   return (
     <NormalFeed
+      ref={ref}
       subRequests={subRequests}
       areAlgoRelays={areAlgoRelays}
       isMainFeed
       setSubHeader={setSubHeader}
     />
   )
-}
+})
+
+RelaysFeed.displayName = 'RelaysFeed'
+export default RelaysFeed

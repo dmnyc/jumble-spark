@@ -181,7 +181,11 @@ export type TNoteListMode = 'posts' | 'postsAndReplies' | 'you' | 'bookmarksAndH
 
 export type TNotificationType = 'all' | 'mentions' | 'reactions' | 'zaps'
 
-export type TPageRef = { scrollToTop: (behavior?: ScrollBehavior) => void }
+export type TPageRef = {
+  scrollToTop: (behavior?: ScrollBehavior) => void
+  /** Optional: reload the current page’s primary data (feed, profile, note, etc.). */
+  refresh?: () => void
+}
 
 export type TEmoji = {
   shortcode: string

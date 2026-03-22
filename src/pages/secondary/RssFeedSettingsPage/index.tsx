@@ -1,5 +1,9 @@
+import { RefreshButton } from '@/components/RefreshButton'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
-import { forwardRef, useEffect, useState } from 'react'
+import { usePrimaryNoteView } from '@/PageManager'
+import { ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_RELAY_URLS } from '@/constants'
+import { getLatestEvent } from '@/lib/event'
+import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
 import { Button } from '@/components/ui/button'
@@ -11,7 +15,7 @@ import { createRssFeedListDraftEvent } from '@/lib/draft-event'
 import { showPublishingFeedback, showSimplePublishSuccess, showPublishingError } from '@/lib/publishing-feedback'
 import { CloudUpload, Loader, Trash2, Plus, Download, Upload } from 'lucide-react'
 import logger from '@/lib/logger'
-import { ExtendedKind } from '@/constants'
+import { queryService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import rssFeedService from '@/services/rss-feed.service'
 import { parseOpml, generateOpml, downloadFile } from '@/lib/opml'
@@ -104,6 +108,48 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
     
     setLoading(false)
   }, [pubkey, rssFeedListEvent])
+
+  const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
+
+  const refreshFromRelays = useCallback(async () => {
+    if (!pubkey) return
+    if (hasChange) {
+      toast.message(t('Save or discard your changes before refreshing from relays'))
+      return
+    }
+    setLoading(true)
+    try {
+      const events = await queryService.fetchEvents(FAST_WRITE_RELAY_URLS.concat(PROFILE_RELAY_URLS), {
+        kinds: [ExtendedKind.RSS_FEED_LIST],
+        authors: [pubkey],
+        limit: 1
+      })
+      const latest = getLatestEvent(events)
+      if (latest) {
+        await indexedDb.putReplaceableEvent(latest)
+        await updateRssFeedListEvent(latest)
+        toast.success(t('RSS feed list refreshed'))
+      } else {
+        toast.message(t('No RSS feed list found on relays'))
+      }
+    } catch (e) {
+      logger.error('[RssFeedSettingsPage] Refresh from relays failed', { error: e })
+      toast.error(t('Failed to refresh'))
+    } finally {
+      setLoading(false)
+    }
+  }, [pubkey, hasChange, t, updateRssFeedListEvent])
+
+  useEffect(() => {
+    if (!hideTitlebar) {
+      registerPrimaryPanelRefresh(null)
+      return
+    }
+    registerPrimaryPanelRefresh(() => {
+      void refreshFromRelays()
+    })
+    return () => registerPrimaryPanelRefresh(null)
+  }, [hideTitlebar, registerPrimaryPanelRefresh, refreshFromRelays])
 
   const handleShowRssFeedChange = (checked: boolean) => {
     setShowRssFeed(checked)
@@ -467,14 +513,24 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
 
   if (loading) {
     return (
-      <SecondaryPageLayout ref={ref} index={index} title={hideTitlebar ? undefined : t('RSS Feed Settings')}>
+      <SecondaryPageLayout
+        ref={ref}
+        index={index}
+        title={hideTitlebar ? undefined : t('RSS Feed Settings')}
+        controls={hideTitlebar ? undefined : <RefreshButton onClick={() => void refreshFromRelays()} />}
+      >
         <div className="text-center text-sm text-muted-foreground py-8">{t('loading...')}</div>
       </SecondaryPageLayout>
     )
   }
 
   return (
-    <SecondaryPageLayout ref={ref} index={index} title={hideTitlebar ? undefined : t('RSS Feed Settings')}>
+    <SecondaryPageLayout
+      ref={ref}
+      index={index}
+      title={hideTitlebar ? undefined : t('RSS Feed Settings')}
+      controls={hideTitlebar ? undefined : <RefreshButton onClick={() => void refreshFromRelays()} />}
+    >
       <div className="px-4 pt-3 space-y-6">
         {/* Show RSS Feed Toggle */}
         <div className="space-y-2">

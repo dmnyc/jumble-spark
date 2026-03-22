@@ -1,18 +1,20 @@
 import { Favicon } from '@/components/Favicon'
+import type { TNoteListRef } from '@/components/NoteList'
 import NormalFeed from '@/components/NormalFeed'
+import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
 import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { toProfileList } from '@/lib/link'
 import { fetchPubkeysFromDomain, getWellKnownNip05Url } from '@/lib/nip05'
-import { useSecondaryPage } from '@/PageManager'
+import { usePrimaryNoteView, useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import { useInterestList } from '@/providers/InterestListProvider'
 import client from '@/services/client.service'
 import { TFeedSubRequest } from '@/types'
 import { UserRound, Plus } from 'lucide-react'
-import React, { forwardRef, useEffect, useState, useMemo, useCallback } from 'react'
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 interface NoteListPageProps {
@@ -22,6 +24,9 @@ interface NoteListPageProps {
 
 const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hideTitlebar = false }, ref) => {
   const { t } = useTranslation()
+  const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
+  const feedRef = useRef<TNoteListRef>(null)
+  const bumpFeed = useCallback(() => feedRef.current?.refresh(), [])
   const { push } = useSecondaryPage()
   const { relayList, pubkey } = useNostr()
   const { isSubscribed, subscribe } = useInterestList()
@@ -226,6 +231,17 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
     }
   }, [data, pubkey, isHashtagSubscribed, handleSubscribeHashtag, t])
 
+  useEffect(() => {
+    const inlineHeader =
+      hideTitlebar && (data?.type === 'hashtag' || data?.type === 'dtag')
+    if (!hideTitlebar || inlineHeader) {
+      registerPrimaryPanelRefresh(null)
+      return
+    }
+    registerPrimaryPanelRefresh(bumpFeed)
+    return () => registerPrimaryPanelRefresh(null)
+  }, [hideTitlebar, data?.type, registerPrimaryPanelRefresh, bumpFeed])
+
   let content: React.ReactNode = null
   if (data?.type === 'domain' && subRequests.length === 0) {
     content = (
@@ -236,23 +252,35 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
       </div>
     )
   } else if (data) {
-    content = <NormalFeed subRequests={subRequests} />
+    content = <NormalFeed ref={feedRef} subRequests={subRequests} />
   }
+
+  const titlebarExtras = controls
 
   return (
     <SecondaryPageLayout
       ref={ref}
       index={index}
       title={hideTitlebar ? undefined : title}
-      controls={hideTitlebar ? undefined : controls}
+      controls={
+        hideTitlebar ? undefined : (
+          <div className="flex items-center gap-1">
+            <RefreshButton onClick={bumpFeed} />
+            {titlebarExtras}
+          </div>
+        )
+      }
       displayScrollToTopButton
     >
       {hideTitlebar && (data?.type === 'hashtag' || data?.type === 'dtag') ? (
         <>
           <div className="px-4 py-2 border-b">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="text-lg font-semibold">{title}</div>
-              {controls}
+              <div className="flex items-center gap-1">
+                <RefreshButton onClick={bumpFeed} />
+                {titlebarExtras}
+              </div>
             </div>
           </div>
           <div className="pt-4">{content}</div>

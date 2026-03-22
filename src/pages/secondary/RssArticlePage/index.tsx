@@ -2,12 +2,14 @@ import NoteInteractions from '@/components/NoteInteractions'
 import NoteStats from '@/components/NoteStats'
 import RssFeedItem from '@/components/RssFeedItem'
 import WebPreview from '@/components/WebPreview'
+import { RefreshButton } from '@/components/RefreshButton'
 import { Separator } from '@/components/ui/separator'
 import indexedDb from '@/services/indexed-db.service'
 import type { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
+import { usePrimaryNoteView } from '@/PageManager'
 import { decodeRssArticlePathSegment, createRssThreadRootEvent } from '@/lib/rss-article'
-import { forwardRef, useEffect, useMemo, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -28,6 +30,8 @@ const RssArticlePage = forwardRef(
     ref
   ) => {
     const { t } = useTranslation()
+    const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
+    const [contentKey, setContentKey] = useState(0)
     const [item, setItem] = useState<TRssFeedItem | null>(initialItem ?? null)
     const [loading, setLoading] = useState(!initialItem)
 
@@ -76,18 +80,63 @@ const RssArticlePage = forwardRef(
       }
     }, [hideTitlebar, t, item])
 
+    const refreshArticle = useCallback(async () => {
+      setContentKey((k) => k + 1)
+      if (!articleUrl) return
+      if (initialItem) {
+        setItem(initialItem)
+        setLoading(false)
+        return
+      }
+      setLoading(true)
+      try {
+        const items = await indexedDb.getRssFeedItems()
+        const found = items.find((i) => i.link === articleUrl) ?? null
+        setItem(found)
+      } finally {
+        setLoading(false)
+      }
+    }, [articleUrl, initialItem])
+
+    useEffect(() => {
+      if (!hideTitlebar) {
+        registerPrimaryPanelRefresh(null)
+        return
+      }
+      registerPrimaryPanelRefresh(() => {
+        void refreshArticle()
+      })
+      return () => registerPrimaryPanelRefresh(null)
+    }, [hideTitlebar, registerPrimaryPanelRefresh, refreshArticle])
+
+    const refreshControls = hideTitlebar ? undefined : <RefreshButton onClick={() => void refreshArticle()} />
+
     if (!articleUrl) {
       return (
-        <SecondaryPageLayout ref={ref} index={index} title={hideTitlebar ? undefined : t('RSS article')}>
-          <div className="px-4 py-6 text-sm text-muted-foreground">{t('Invalid article link.')}</div>
+        <SecondaryPageLayout
+          ref={ref}
+          index={index}
+          title={hideTitlebar ? undefined : t('RSS article')}
+          controls={refreshControls}
+        >
+          <div key={contentKey} className="px-4 py-6 text-sm text-muted-foreground">
+            {t('Invalid article link.')}
+          </div>
         </SecondaryPageLayout>
       )
     }
 
     if (loading) {
       return (
-        <SecondaryPageLayout ref={ref} index={index} title={hideTitlebar ? undefined : t('RSS article')}>
-          <div className="px-4 py-6 text-sm text-muted-foreground">{t('Loading…')}</div>
+        <SecondaryPageLayout
+          ref={ref}
+          index={index}
+          title={hideTitlebar ? undefined : t('RSS article')}
+          controls={refreshControls}
+        >
+          <div key={contentKey} className="px-4 py-6 text-sm text-muted-foreground">
+            {t('Loading…')}
+          </div>
         </SecondaryPageLayout>
       )
     }
@@ -98,9 +147,10 @@ const RssArticlePage = forwardRef(
           ref={ref}
           index={index}
           title={hideTitlebar ? undefined : t('Web page')}
+          controls={refreshControls}
           displayScrollToTopButton
         >
-          <div className="px-4 pt-3 pb-4 w-full space-y-4">
+          <div key={contentKey} className="px-4 pt-3 pb-4 w-full space-y-4">
             <p className="text-xs text-muted-foreground">
               {t('Opened by URL — not from your RSS list. Nostr thread is still tied to this link.')}
             </p>
@@ -139,26 +189,29 @@ const RssArticlePage = forwardRef(
         ref={ref}
         index={index}
         title={hideTitlebar ? undefined : t('RSS article')}
+        controls={refreshControls}
         displayScrollToTopButton
       >
-        <div className="px-4 pt-3 w-full">
-          <RssFeedItem item={item} layout="detail" />
-        </div>
-        {syntheticRoot && (
-          <div className="px-4 w-full">
-            <NoteStats className="mt-3" event={syntheticRoot} fetchIfNotExisting={false} displayTopZapsAndLikes={false} />
+        <div key={contentKey} className="min-w-0">
+          <div className="px-4 pt-3 w-full">
+            <RssFeedItem item={item} layout="detail" />
           </div>
-        )}
-        <Separator className="mt-4" />
-        <div className="px-4 pb-4 w-full">
           {syntheticRoot && (
-            <NoteInteractions
-              key={`rss-interactions-${syntheticRoot.id}`}
-              pageIndex={index}
-              event={syntheticRoot}
-              showQuotes={false}
-            />
+            <div className="px-4 w-full">
+              <NoteStats className="mt-3" event={syntheticRoot} fetchIfNotExisting={false} displayTopZapsAndLikes={false} />
+            </div>
           )}
+          <Separator className="mt-4" />
+          <div className="px-4 pb-4 w-full">
+            {syntheticRoot && (
+              <NoteInteractions
+                key={`rss-interactions-${syntheticRoot.id}`}
+                pageIndex={index}
+                event={syntheticRoot}
+                showQuotes={false}
+              />
+            )}
+          </div>
         </div>
       </SecondaryPageLayout>
     )

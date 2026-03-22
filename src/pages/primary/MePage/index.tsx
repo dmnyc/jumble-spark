@@ -6,7 +6,8 @@ import NpubQrCode from '@/components/NpubQrCode'
 import { Separator } from '@/components/ui/separator'
 import { SimpleUserAvatar } from '@/components/UserAvatar'
 import { SimpleUsername } from '@/components/Username'
-import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
+import { RefreshButton } from '@/components/RefreshButton'
+import PrimaryPageLayout, { type TPrimaryPageLayoutRef } from '@/layouts/PrimaryPageLayout'
 import { toProfile, toRelaySettings, toWallet } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import { useSecondaryPage } from '@/PageManager'
@@ -19,25 +20,39 @@ import {
   UserRound,
   Wallet
 } from 'lucide-react'
-import { forwardRef, HTMLProps, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { TPageRef } from '@/types'
+import { forwardRef, HTMLProps, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
-const MePage = forwardRef((_, ref) => {
+const MePage = forwardRef<TPageRef>((_, ref) => {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
   const { pubkey } = useNostr()
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
+  const layoutRef = useRef<TPrimaryPageLayoutRef>(null)
+  const [contentKey, setContentKey] = useState(0)
+
+  const bumpMe = () => setContentKey((k) => k + 1)
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToTop: (behavior?: ScrollBehavior) => layoutRef.current?.scrollToTop(behavior),
+      refresh: bumpMe
+    }),
+    []
+  )
 
   if (!pubkey) {
     return (
       <PrimaryPageLayout
-        ref={ref}
+        ref={layoutRef}
         pageName="me"
-        titlebar={<MePageTitlebar />}
+        titlebar={<MePageTitlebar onRefresh={bumpMe} />}
         hideTitlebarBottomBorder
       >
-        <div className="min-w-0 pt-2 flex flex-col p-4 gap-4 overflow-auto">
+        <div key={contentKey} className="min-w-0 pt-2 flex flex-col p-4 gap-4 overflow-auto">
           <AccountManager />
         </div>
       </PrimaryPageLayout>
@@ -46,12 +61,12 @@ const MePage = forwardRef((_, ref) => {
 
   return (
     <PrimaryPageLayout
-      ref={ref}
+      ref={layoutRef}
       pageName="me"
-      titlebar={<MePageTitlebar />}
+      titlebar={<MePageTitlebar onRefresh={bumpMe} />}
       hideTitlebarBottomBorder
     >
-      <div className="min-w-0 pt-2">
+      <div key={contentKey} className="min-w-0 pt-2">
       <div className="flex gap-4 items-center p-4">
         <SimpleUserAvatar userId={pubkey} size="big" />
         <div className="space-y-1 flex-1 w-0">
@@ -100,11 +115,12 @@ const MePage = forwardRef((_, ref) => {
 MePage.displayName = 'MePage'
 export default MePage
 
-function MePageTitlebar() {
+function MePageTitlebar({ onRefresh }: { onRefresh: () => void }) {
   const { t } = useTranslation()
   return (
-    <div className="flex h-full items-center pl-3">
+    <div className="flex h-full w-full items-center justify-between gap-2 pl-3 pr-1">
       <div className="text-lg font-semibold">{t('YouTabName')}</div>
+      <RefreshButton onClick={onRefresh} />
     </div>
   )
 }

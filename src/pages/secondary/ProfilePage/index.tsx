@@ -1,7 +1,9 @@
 import Profile from '@/components/Profile'
+import { RefreshButton } from '@/components/RefreshButton'
 import { useFetchProfile } from '@/hooks'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
-import { forwardRef, useEffect } from 'react'
+import { usePrimaryNoteView } from '@/PageManager'
+import { forwardRef, useCallback, useEffect, useRef } from 'react'
 
 // Helper function to update or create meta tags
 function updateMetaTag(property: string, content: string) {
@@ -25,6 +27,19 @@ function updateMetaTag(property: string, content: string) {
 }
 
 const ProfilePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: string; index?: number; hideTitlebar?: boolean }, ref) => {
+  const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
+  const feedRef = useRef<{ refresh: () => void }>(null)
+  const bumpFeed = useCallback(() => feedRef.current?.refresh(), [])
+
+  useEffect(() => {
+    if (!hideTitlebar) {
+      registerPrimaryPanelRefresh(null)
+      return
+    }
+    registerPrimaryPanelRefresh(bumpFeed)
+    return () => registerPrimaryPanelRefresh(null)
+  }, [hideTitlebar, registerPrimaryPanelRefresh, bumpFeed])
+
   const { profile } = useFetchProfile(id)
   
   // Update OpenGraph metadata to match fallback card format for profiles
@@ -117,8 +132,14 @@ const ProfilePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: stri
   }, [profile])
 
   return (
-    <SecondaryPageLayout index={index} title={hideTitlebar ? undefined : profile?.username} displayScrollToTopButton ref={ref}>
-      <Profile id={id} />
+    <SecondaryPageLayout
+      index={index}
+      title={hideTitlebar ? undefined : profile?.username}
+      controls={hideTitlebar ? undefined : <RefreshButton onClick={bumpFeed} />}
+      displayScrollToTopButton
+      ref={ref}
+    >
+      <Profile id={id} feedRef={feedRef} />
     </SecondaryPageLayout>
   )
 })

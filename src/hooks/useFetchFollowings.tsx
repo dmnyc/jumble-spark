@@ -4,7 +4,7 @@ import { kinds } from 'nostr-tools'
 import { Event } from 'nostr-tools'
 import { useEffect, useState } from 'react'
 
-export function useFetchFollowings(pubkey?: string | null) {
+export function useFetchFollowings(pubkey?: string | null, refreshNonce = 0) {
   const [followListEvent, setFollowListEvent] = useState<Event | null>(null)
   const [followings, setFollowings] = useState<string[]>([])
   const [isFetching, setIsFetching] = useState(true)
@@ -26,7 +26,7 @@ export function useFetchFollowings(pubkey?: string | null) {
     }
 
     init()
-  }, [pubkey])
+  }, [pubkey, refreshNonce])
 
   return { followings, followListEvent, isFetching }
 }

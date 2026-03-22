@@ -1,22 +1,26 @@
 import NormalFeed from '@/components/NormalFeed'
+import type { TNoteListRef } from '@/components/NoteList'
 import RelayInfo from '@/components/RelayInfo'
 import SearchInput from '@/components/SearchInput'
 import { useFetchRelayInfo } from '@/hooks'
 import { normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TNoteListRef } from '@/components/NoteList'
 import NotFound from '../NotFound'
 
-export default function Relay({ url, className }: { url?: string; className?: string }) {
+const Relay = forwardRef<TNoteListRef, { url?: string; className?: string }>(function Relay(
+  { url, className },
+  ref
+) {
   const { t } = useTranslation()
   const { addRelayUrls, removeRelayUrls } = useCurrentRelays()
   const normalizedUrl = useMemo(() => (url ? normalizeUrl(url) : undefined), [url])
   const { relayInfo } = useFetchRelayInfo(normalizedUrl)
   const [searchInput, setSearchInput] = useState('')
   const [debouncedInput, setDebouncedInput] = useState(searchInput)
-  const noteListRef = useRef<TNoteListRef>(null)
+  const internalNoteListRef = useRef<TNoteListRef>(null)
+  const noteListRef = ref ?? internalNoteListRef
 
   useEffect(() => {
     if (normalizedUrl) {
@@ -44,8 +48,9 @@ export default function Relay({ url, className }: { url?: string; className?: st
     const handleRelayRefresh = (event: CustomEvent) => {
       const { relayUrl } = event.detail
       if (normalizeUrl(relayUrl) === normalizedUrl) {
-        // Trigger a refresh of the note list
-        noteListRef.current?.refresh()
+        if (noteListRef && typeof noteListRef !== 'function') {
+          noteListRef.current?.refresh()
+        }
       }
     }
 
@@ -54,7 +59,7 @@ export default function Relay({ url, className }: { url?: string; className?: st
     return () => {
       window.removeEventListener('relay-refresh-needed', handleRelayRefresh as EventListener)
     }
-  }, [normalizedUrl])
+  }, [normalizedUrl, noteListRef])
 
   if (!normalizedUrl) {
     return <NotFound />
@@ -80,4 +85,7 @@ export default function Relay({ url, className }: { url?: string; className?: st
       />
     </div>
   )
-}
+})
+
+Relay.displayName = 'Relay'
+export default Relay

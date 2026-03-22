@@ -1,4 +1,5 @@
-import { useSecondaryPage, useSmartNoteNavigation } from '@/PageManager'
+import { RefreshButton } from '@/components/RefreshButton'
+import { usePrimaryNoteView, useSecondaryPage, useSmartNoteNavigation } from '@/PageManager'
 import { ExtendedKind } from '@/constants'
 import ContentPreview from '@/components/ContentPreview'
 import client from '@/services/client.service'
@@ -20,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { Ellipsis } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { kinds, nip19 } from 'nostr-tools'
-import { forwardRef, useEffect, useMemo, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NOSTR_URI_NADDR_REGEX } from '@/lib/content-patterns'
 import NotFound from './NotFound'
@@ -93,7 +94,8 @@ function stripMarkdown(content: string): string {
 
 const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: { id?: string; index?: number; hideTitlebar?: boolean; initialEvent?: Event }, ref) => {
   const { t } = useTranslation()
-  const { event, isFetching } = useFetchEvent(id, initialEvent)
+  const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
+  const { event, isFetching, refetch: refetchMain } = useFetchEvent(id, initialEvent)
   const [externalEvent, setExternalEvent] = useState<Event | undefined>(undefined)
   const finalEvent = event || externalEvent
   
@@ -103,8 +105,10 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     () => (finalEvent?.kind === ExtendedKind.COMMENT ? finalEvent.tags.find(tagNameEquals('I')) : undefined),
     [finalEvent]
   )
-  const { isFetching: isFetchingRootEvent, event: rootEvent } = useFetchEvent(rootEventId)
-  const { isFetching: isFetchingParentEvent, event: parentEvent } = useFetchEvent(parentEventId)
+  const { isFetching: isFetchingRootEvent, event: rootEvent, refetch: refetchRoot } =
+    useFetchEvent(rootEventId)
+  const { isFetching: isFetchingParentEvent, event: parentEvent, refetch: refetchParent } =
+    useFetchEvent(parentEventId)
 
   // When viewing a kind-24 invite (e.g. from notifications), extract calendar event naddr from content and show full calendar card with RSVP
   const calendarInviteNaddr = useMemo(() => {
@@ -123,7 +127,25 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     }
     return undefined
   }, [finalEvent?.kind, finalEvent?.content])
-  const { event: calendarInviteEvent } = useFetchEvent(calendarInviteNaddr)
+  const { event: calendarInviteEvent, refetch: refetchCalendarInvite } = useFetchEvent(calendarInviteNaddr)
+
+  const refreshNoteData = useCallback(() => {
+    refetchMain()
+    refetchRoot()
+    refetchParent()
+    refetchCalendarInvite()
+  }, [refetchMain, refetchRoot, refetchParent, refetchCalendarInvite])
+
+  useEffect(() => {
+    if (!hideTitlebar) {
+      registerPrimaryPanelRefresh(null)
+      return
+    }
+    registerPrimaryPanelRefresh(refreshNoteData)
+    return () => registerPrimaryPanelRefresh(null)
+  }, [hideTitlebar, registerPrimaryPanelRefresh, refreshNoteData])
+
+  const titlebarRefreshControls = hideTitlebar ? undefined : <RefreshButton onClick={refreshNoteData} />
 
   // Fetch profile for author (for OpenGraph metadata)
   const { profile: authorProfile } = useFetchProfile(finalEvent?.pubkey)
@@ -426,7 +448,12 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
 
   if (!event && isFetching) {
     return (
-      <SecondaryPageLayout ref={ref} index={index} title={hideTitlebar ? undefined : t('Note')}>
+      <SecondaryPageLayout
+        ref={ref}
+        index={index}
+        title={hideTitlebar ? undefined : t('Note')}
+        controls={titlebarRefreshControls}
+      >
         <div className="px-4 pt-3">
           <div className="flex items-center space-x-2">
             <Skeleton className="w-10 h-10 rounded-full" />
@@ -453,14 +480,26 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
   }
   if (!finalEvent) {
     return (
-      <SecondaryPageLayout ref={ref} index={index} title={hideTitlebar ? undefined : t('Note')} displayScrollToTopButton>
+      <SecondaryPageLayout
+        ref={ref}
+        index={index}
+        title={hideTitlebar ? undefined : t('Note')}
+        controls={titlebarRefreshControls}
+        displayScrollToTopButton
+      >
         <NotFound bech32Id={id} onEventFound={setExternalEvent} />
       </SecondaryPageLayout>
     )
   }
 
   return (
-    <SecondaryPageLayout ref={ref} index={index} title={hideTitlebar ? undefined : getNoteTypeTitle(finalEvent.kind)} displayScrollToTopButton>
+    <SecondaryPageLayout
+      ref={ref}
+      index={index}
+      title={hideTitlebar ? undefined : getNoteTypeTitle(finalEvent.kind)}
+      controls={titlebarRefreshControls}
+      displayScrollToTopButton
+    >
       <div className="px-4 pt-3 w-full">
         {rootITag && <ExternalRoot value={rootITag[1]} />}
         {rootEventId && rootEventId !== parentEventId && (

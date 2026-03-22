@@ -1,13 +1,16 @@
 import { Favicon } from '@/components/Favicon'
 import ProfileList from '@/components/ProfileList'
 import { ProfileListBySearch } from '@/components/ProfileListBySearch'
+import { RefreshButton } from '@/components/RefreshButton'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { fetchPubkeysFromDomain } from '@/lib/nip05'
-import { forwardRef, useEffect, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const ProfileListPage = forwardRef(({ index }: { index?: number }, ref) => {
   const { t } = useTranslation()
+  const [listKey, setListKey] = useState(0)
+  const bumpList = useCallback(() => setListKey((k) => k + 1), [])
   const [title, setTitle] = useState<React.ReactNode>()
   const [data, setData] = useState<{
     type: 'search' | 'domain'
@@ -44,8 +47,16 @@ const ProfileListPage = forwardRef(({ index }: { index?: number }, ref) => {
   }
 
   return (
-    <SecondaryPageLayout ref={ref} index={index} title={title} displayScrollToTopButton>
-      {content}
+    <SecondaryPageLayout
+      ref={ref}
+      index={index}
+      title={title}
+      controls={<RefreshButton onClick={bumpList} />}
+      displayScrollToTopButton
+    >
+      <div key={listKey} className="min-w-0">
+        {content}
+      </div>
     </SecondaryPageLayout>
   )
 })

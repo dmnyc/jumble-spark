@@ -1,28 +1,43 @@
 import MuteButton from '@/components/MuteButton'
 import Nip05 from '@/components/Nip05'
+import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import { useFetchProfile } from '@/hooks'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
+import { usePrimaryNoteView } from '@/PageManager'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { Loader, Lock, Unlock } from 'lucide-react'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import NotFoundPage from '../NotFoundPage'
 
 const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
+  const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
   const { profile, pubkey } = useNostr()
   const { getMutePubkeys } = useMuteList()
   const mutePubkeys = useMemo(() => getMutePubkeys(), [pubkey])
   const [visibleMutePubkeys, setVisibleMutePubkeys] = useState<string[]>([])
+  const [listRefreshKey, setListRefreshKey] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  const bumpList = useCallback(() => setListRefreshKey((k) => k + 1), [])
+
+  useEffect(() => {
+    if (!hideTitlebar) {
+      registerPrimaryPanelRefresh(null)
+      return
+    }
+    registerPrimaryPanelRefresh(bumpList)
+    return () => registerPrimaryPanelRefresh(null)
+  }, [hideTitlebar, registerPrimaryPanelRefresh, bumpList])
 
   useEffect(() => {
     setVisibleMutePubkeys(mutePubkeys.slice(0, 10))
-  }, [mutePubkeys])
+  }, [mutePubkeys, listRefreshKey])
 
   useEffect(() => {
     const options = {
@@ -62,9 +77,10 @@ const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: numb
       index={index}
       title={hideTitlebar ? undefined : t("username's muted", { username: profile.username })}
       hideBackButton={hideTitlebar}
+      controls={hideTitlebar ? undefined : <RefreshButton onClick={bumpList} />}
       displayScrollToTopButton
     >
-      <div className="space-y-2 px-4 pt-2">
+      <div key={listRefreshKey} className="space-y-2 px-4 pt-2">
         {visibleMutePubkeys.map((pubkey, index) => (
           <UserItem key={`${index}-${pubkey}`} pubkey={pubkey} />
         ))}

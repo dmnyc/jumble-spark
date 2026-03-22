@@ -1,5 +1,6 @@
 import HideUntrustedContentButton from '@/components/HideUntrustedContentButton'
 import NoteList, { type TNoteListRef } from '@/components/NoteList'
+import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -18,7 +19,7 @@ import { Separator } from '@/components/ui/separator'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
-import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
+import PrimaryPageLayout, { type TPrimaryPageLayoutRef } from '@/layouts/PrimaryPageLayout'
 import { usePrimaryPage } from '@/PageManager'
 import logger from '@/lib/logger'
 import { showPublishingError } from '@/lib/publishing-feedback'
@@ -70,7 +71,6 @@ import {
   MoreVertical,
   Pencil,
   Plus,
-  RefreshCw,
   Star,
   Trash2,
   Users,
@@ -78,7 +78,7 @@ import {
 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { verifyEvent } from 'nostr-tools'
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
 import {
@@ -275,7 +275,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   /** Bumps spell catalog relay re-sync when the user taps refresh in the titlebar. */
   const [spellCatalogManualRefreshKey, setSpellCatalogManualRefreshKey] = useState(0)
   const spellFeedListRef = useRef<TNoteListRef>(null)
-  const [titlebarRefreshSpin, setTitlebarRefreshSpin] = useState(false)
+  const layoutRef = useRef<TPrimaryPageLayoutRef>(null)
   const [spellPickerOpen, setSpellPickerOpen] = useState(false)
 
   /** Monotonic token + wall time for spell-feed latency instrumentation (picker → first rows). */
@@ -332,12 +332,19 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   }, [])
 
   const refreshSpellsFeedAndCatalog = useCallback(() => {
-    setTitlebarRefreshSpin(true)
-    window.setTimeout(() => setTitlebarRefreshSpin(false), 600)
     void loadSpells()
     if (pubkey) setSpellCatalogManualRefreshKey((k) => k + 1)
     spellFeedListRef.current?.refresh()
   }, [loadSpells, pubkey])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToTop: (behavior?: ScrollBehavior) => layoutRef.current?.scrollToTop(behavior),
+      refresh: refreshSpellsFeedAndCatalog
+    }),
+    [refreshSpellsFeedAndCatalog]
+  )
 
   /**
    * Fingerprint by value — `relayList` from NostrProvider often gets a new object ref each render.
@@ -1007,22 +1014,13 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   return (
     <PrimaryPageLayout
-      ref={ref}
+      ref={layoutRef}
       pageName="spells"
       titlebar={
         <div className="flex h-full w-full items-center justify-between gap-2 pr-1">
           <div className="pl-3 text-lg font-semibold">{t('Spells')}</div>
           <div className="flex shrink-0 items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="titlebar-icon"
-              title={t('Refresh')}
-              aria-label={t('Refresh')}
-              onClick={refreshSpellsFeedAndCatalog}
-            >
-              <RefreshCw className={`size-5 ${titlebarRefreshSpin ? 'animate-spin' : ''}`} />
-            </Button>
+            <RefreshButton onClick={refreshSpellsFeedAndCatalog} />
             <Button
               variant="ghost"
               size="titlebar-icon"

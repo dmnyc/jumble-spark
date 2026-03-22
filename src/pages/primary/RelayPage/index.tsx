@@ -1,21 +1,39 @@
+import type { TNoteListRef } from '@/components/NoteList'
+import { RefreshButton } from '@/components/RefreshButton'
 import Relay from '@/components/Relay'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
+import { TPageRef } from '@/types'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
 import { Server } from 'lucide-react'
-import { forwardRef, useMemo } from 'react'
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react'
 
-const RelayPage = forwardRef(({ url }: { url?: string }, ref) => {
+const RelayPage = forwardRef<TPageRef, { url?: string }>(({ url }, ref) => {
   const normalizedUrl = useMemo(() => (url ? normalizeUrl(url) : undefined), [url])
+  const layoutRef = useRef<TPageRef>(null)
+  const feedRef = useRef<TNoteListRef>(null)
+
+  const runRefresh = useCallback(() => {
+    feedRef.current?.refresh()
+  }, [])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToTop: (behavior?: ScrollBehavior) => layoutRef.current?.scrollToTop(behavior),
+      refresh: runRefresh
+    }),
+    [runRefresh]
+  )
 
   return (
     <PrimaryPageLayout
       pageName="relay"
-      titlebar={<RelayPageTitlebar url={normalizedUrl} />}
+      titlebar={<RelayPageTitlebar url={normalizedUrl} onRefresh={runRefresh} />}
       displayScrollToTopButton
-      ref={ref}
+      ref={layoutRef}
     >
       <div className="min-w-0 pt-2">
-        <Relay url={normalizedUrl} />
+        <Relay ref={feedRef} url={normalizedUrl} />
       </div>
     </PrimaryPageLayout>
   )
@@ -23,11 +41,14 @@ const RelayPage = forwardRef(({ url }: { url?: string }, ref) => {
 RelayPage.displayName = 'RelayPage'
 export default RelayPage
 
-function RelayPageTitlebar({ url }: { url?: string }) {
+function RelayPageTitlebar({ url, onRefresh }: { url?: string; onRefresh: () => void }) {
   return (
-    <div className="flex items-center gap-2 px-3 h-full">
-      <Server />
-      <div className="text-lg font-semibold truncate">{simplifyUrl(url ?? '')}</div>
+    <div className="flex w-full items-center justify-between gap-2 px-1 h-full">
+      <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
+        <Server />
+        <div className="text-lg font-semibold truncate">{simplifyUrl(url ?? '')}</div>
+      </div>
+      <RefreshButton onClick={onRefresh} />
     </div>
   )
 }

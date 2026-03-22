@@ -9,11 +9,13 @@ import { Input } from '@/components/ui/input'
 import { toRelay } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import { isWebsocketUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
+import { RefreshButton } from '@/components/RefreshButton'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import { useSmartRelayNavigation } from '@/PageManager'
 import nip66Service from '@/services/nip66.service'
+import { TPageRef } from '@/types'
 import { ArrowRight, Compass, Plus } from 'lucide-react'
-import { forwardRef, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, FormEvent, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -65,9 +67,22 @@ function normalizeHomeTab(restored: string): TExploreTabs {
   return 'explore'
 }
 
-const ExplorePage = forwardRef((_, ref) => {
+const ExplorePage = forwardRef<TPageRef>((_, ref) => {
   const { t } = useTranslation()
   const [tab, setTab] = useState<TExploreTabs>('explore')
+  const layoutRef = useRef<TPageRef>(null)
+  const [contentRefreshKey, setContentRefreshKey] = useState(0)
+
+  const bumpExploreContent = () => setContentRefreshKey((k) => k + 1)
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToTop: (behavior?: ScrollBehavior) => layoutRef.current?.scrollToTop(behavior),
+      refresh: bumpExploreContent
+    }),
+    []
+  )
 
   // Listen for tab restoration from PageManager
   useEffect(() => {
@@ -82,9 +97,9 @@ const ExplorePage = forwardRef((_, ref) => {
 
   return (
     <PrimaryPageLayout
-      ref={ref}
+      ref={layoutRef}
       pageName="explore"
-      titlebar={<ExplorePageTitlebar />}
+      titlebar={<ExplorePageTitlebar onRefresh={bumpExploreContent} />}
       subHeader={
         <Tabs
           value={tab}
@@ -110,14 +125,22 @@ const ExplorePage = forwardRef((_, ref) => {
           <VersionUpdateBanner />
         </div>
         {tab === 'explore' && (
-          <>
+          <div key={contentRefreshKey} className="min-w-0">
             <ExploreFavoriteRelays />
             <ExploreRelaySearchSection />
             <Explore />
-          </>
+          </div>
         )}
-        {tab === 'reviews' && <ExploreRelayReviews />}
-        {tab === 'following' && <FollowingFavoriteRelayList />}
+        {tab === 'reviews' && (
+          <div key={contentRefreshKey} className="min-w-0">
+            <ExploreRelayReviews />
+          </div>
+        )}
+        {tab === 'following' && (
+          <div key={contentRefreshKey} className="min-w-0">
+            <FollowingFavoriteRelayList />
+          </div>
+        )}
       </div>
     </PrimaryPageLayout>
   )
@@ -125,7 +148,7 @@ const ExplorePage = forwardRef((_, ref) => {
 ExplorePage.displayName = 'ExplorePage'
 export default ExplorePage
 
-function ExplorePageTitlebar() {
+function ExplorePageTitlebar({ onRefresh }: { onRefresh: () => void }) {
   const { t } = useTranslation()
 
   return (
@@ -134,6 +157,8 @@ function ExplorePageTitlebar() {
         <Compass className="size-5 shrink-0" />
         <div className="text-lg font-semibold">{t('Explore')}</div>
       </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <RefreshButton onClick={onRefresh} />
       <Button
         variant="ghost"
         size="titlebar-icon"
@@ -148,6 +173,7 @@ function ExplorePageTitlebar() {
         <Plus size={16} />
         {t('Submit Relay')}
       </Button>
+      </div>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import BookmarkList from '@/components/BookmarkList'
 import RelayInfo from '@/components/RelayInfo'
+import { RefreshButton } from '@/components/RefreshButton'
 import VersionUpdateBanner from '@/components/VersionUpdateBanner'
 import { Button } from '@/components/ui/button'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
@@ -7,6 +8,7 @@ import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFeed } from '@/providers/FeedProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import type { TNoteListRef } from '@/components/NoteList'
 import { TPageRef } from '@/types'
 import { Compass, Info } from 'lucide-react'
 import React, {
@@ -25,15 +27,33 @@ import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
 import { usePrimaryNoteView, usePrimaryPage } from '@/PageManager'
 
-const NoteListPage = forwardRef((_, ref) => {
+const NoteListPage = forwardRef<TPageRef>((_, ref) => {
   const { t } = useTranslation()
   const { addRelayUrls, removeRelayUrls } = useCurrentRelays()
   const layoutRef = useRef<TPageRef>(null)
+  const feedRef = useRef<TNoteListRef>(null)
+  const bookmarkRef = useRef<{ refresh: () => void }>(null)
   const { pubkey, checkLogin } = useNostr()
   const { feedInfo, relayUrls, isReady } = useFeed()
   const [showRelayDetails, setShowRelayDetails] = useState(false)
   const [homeSubHeader, setHomeSubHeader] = useState<React.ReactNode>(null)
-  useImperativeHandle(ref, () => layoutRef.current)
+
+  const runFeedRefresh = useCallback(() => {
+    if (feedInfo.feedType === 'bookmarks') {
+      void bookmarkRef.current?.refresh()
+    } else {
+      feedRef.current?.refresh()
+    }
+  }, [feedInfo.feedType])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToTop: (behavior?: ScrollBehavior) => layoutRef.current?.scrollToTop(behavior),
+      refresh: runFeedRefresh
+    }),
+    [runFeedRefresh]
+  )
 
   const setHomeSubHeaderStable = useCallback((node: React.ReactNode) => {
     setHomeSubHeader(node)
@@ -82,17 +102,17 @@ const NoteListPage = forwardRef((_, ref) => {
         </div>
       )
     } else {
-      content = <BookmarkList />
+      content = <BookmarkList ref={bookmarkRef} />
     }
   } else if (feedInfo.feedType === 'following') {
-    content = <FollowingFeed setSubHeader={setHomeSubHeaderStable} />
+    content = <FollowingFeed ref={feedRef} setSubHeader={setHomeSubHeaderStable} />
   } else {
     content = (
       <>
         {showRelayDetails && feedInfo.feedType === 'relay' && !!feedInfo.id && (
           <RelayInfo url={feedInfo.id!} className="mb-2 pt-3" />
         )}
-        <RelaysFeed setSubHeader={setHomeSubHeaderStable} />
+        <RelaysFeed ref={feedRef} setSubHeader={setHomeSubHeaderStable} />
       </>
     )
   }
@@ -104,6 +124,7 @@ const NoteListPage = forwardRef((_, ref) => {
       titlebar={
         <NoteListPageTitlebar
           layoutRef={layoutRef}
+          onFeedRefresh={runFeedRefresh}
           showRelayDetails={showRelayDetails}
           setShowRelayDetails={
             feedInfo.feedType === 'relay' && !!feedInfo.id ? setShowRelayDetails : undefined
@@ -125,10 +146,12 @@ export default NoteListPage
 
 function NoteListPageTitlebar({
   layoutRef,
+  onFeedRefresh,
   showRelayDetails,
   setShowRelayDetails
 }: {
   layoutRef?: React.RefObject<TPageRef>
+  onFeedRefresh: () => void
   showRelayDetails?: boolean
   setShowRelayDetails?: Dispatch<SetStateAction<boolean>>
 }) {
@@ -176,6 +199,7 @@ function NoteListPageTitlebar({
         </div>
       )}
       <div className="shrink-0 flex gap-1 items-center">
+        <RefreshButton onClick={onFeedRefresh} />
         {setShowRelayDetails && (
           <Button
             variant="ghost"
