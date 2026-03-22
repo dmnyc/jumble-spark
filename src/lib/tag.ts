@@ -17,6 +17,18 @@ export function tagNameEquals(tagName: string) {
   return (tag: string[]) => tag[0] === tagName
 }
 
+const NOTE_HEX_ID_RE = /^[0-9a-f]{64}$/i
+
+/** First hex event id on an `e` / `E` tag (reactions, reposts, replies). */
+export function getFirstHexEventIdFromETags(tags: string[][]): string | undefined {
+  for (const t of tags) {
+    if (t[0] !== 'e' && t[0] !== 'E') continue
+    const id = t[1]
+    if (id && NOTE_HEX_ID_RE.test(id)) return id
+  }
+  return undefined
+}
+
 export function generateBech32IdFromETag(tag: string[]) {
   try {
     const [, id, relay, markerOrPubkey, pubkey] = tag

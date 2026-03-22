@@ -17,8 +17,11 @@ export const DEFAULT_FAVORITE_RELAYS = [
 /** Multi-relay queries and timeline initial REQ: after the first event, wait this long then close (query) or finalize EOSE (live feed) while keeping the subscription open for new events. */
 export const FIRST_RELAY_RESULT_GRACE_MS = 2000
 
-/** Spells page feeds: shorter grace so multi-relay spell REQs finalize initial load sooner (still keeps subscription open for `onNew`). */
-export const SPELL_FEED_FIRST_RELAY_GRACE_MS = 450
+/** Spells page NoteList: drop the loading skeleton after this long so the feed can render; REQ stays open and rows stream in. */
+export const SPELL_FEED_LOADING_MAX_MS = 1000
+
+/** @deprecated Use {@link SPELL_FEED_LOADING_MAX_MS}; kept so old imports do not break. */
+export const SPELL_FEED_FIRST_RELAY_GRACE_MS = SPELL_FEED_LOADING_MAX_MS
 
 /**
  * Implicit query feed grace ({@link FIRST_RELAY_RESULT_GRACE_MS}) applies only when the largest `limit` among

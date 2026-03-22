@@ -1,14 +1,7 @@
 /**
  * Built-in “faux spells” use the same NoteList path as kind-777 REQ spells.
  */
-import {
-  DEFAULT_FAVORITE_RELAYS,
-  ExtendedKind,
-  FAST_READ_RELAY_URLS,
-  FAST_WRITE_RELAY_URLS,
-  PROFILE_FEED_KINDS,
-  READ_ONLY_RELAY_URLS
-} from '@/constants'
+import { ExtendedKind, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
 import {
   extractHashtagsFromContent,
   extractTTagsFromEvent,
@@ -16,35 +9,12 @@ import {
 } from '@/lib/discussion-topics'
 import { getImetaInfosFromEvent } from '@/lib/event'
 import { normalizeUrl } from '@/lib/url'
-import type { TFeedSubRequest, TRelayList } from '@/types'
+import type { TFeedSubRequest } from '@/types'
 import { type Event, type Filter, kinds } from 'nostr-tools'
 
 const NOTIFICATION_LIMIT = 500
 const DISCUSSION_LIMIT = 500
 const MAX_BOOKMARK_IDS = 250
-
-/**
- * Spells “Discussions” uses NoteList → subscribeTimeline → one live REQ per relay.
- * An uncapped merged relay list would open 80+ sockets and exhaust subscription slots;
- * cap keeps first paint fast.
- */
-const DISCUSSION_FAUX_SPELL_MAX_RELAYS = 10
-/** Without caps, a long NIP-66 read list consumes the whole 32 slots and fast public relays never get a REQ — discussions stay empty while notifications still work (they blend fast reads). */
-const DISCUSSION_SPELL_READ_CAP = 10
-const DISCUSSION_SPELL_WRITE_CAP = 8
-const DISCUSSION_SPELL_FAV_CAP = 8
-
-function dedupe(urls: string[]): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const u of urls) {
-    const k = normalizeUrl(u) || u
-    if (!k || seen.has(k)) continue
-    seen.add(k)
-    out.push(k)
-  }
-  return out
-}
 
 /**
  * Append {@link READ_ONLY_RELAY_URLS} (e.g. aggr) after the curated set so every faux REQ includes them unless blocked.
@@ -167,94 +137,6 @@ export function mediaSpellExtraShouldHideEvent(evt: Event): boolean {
   return !isKind1MediaSpellEligible(evt)
 }
 
-/** Relays for “global” faux feeds (media, calendar): visible favorites or defaults. */
-export function fauxFavoriteRelayUrls(favoriteRelays: string[], blockedRelays: string[]): string[] {
-  const blocked = new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
-  const visible = favoriteRelays.filter((r) => {
-    const k = normalizeUrl(r) || r
-    return k && !blocked.has(k)
-  })
-  const base = visible.length > 0 ? visible : DEFAULT_FAVORITE_RELAYS
-  const curated = dedupe(base.map((u) => normalizeUrl(u) || u).filter(Boolean) as string[])
-  return appendCuratedReadOnlyRelays(curated, blockedRelays)
-}
-
-/**
- * Notifications / bookmarks faux spells: **fast public relays first**, then inbox/favorites.
- * `FAST_READ_RELAY_URLS` has 7 entries; the old cap of 6 never subscribed to `wss://aggr.nostr.land`
- * (last in the list) — a major `#p` indexer — so mentions could take tens of seconds or look empty.
- * Fast-write relays catch mentions replicated to outboxes (damus/primal/nos.lol) with little overlap.
- */
-const NOTIFICATION_PRIMARY_MAX = 4
-/** Must be ≥ FAST_READ length so every default fast read relay is eligible (currently 7). */
-const NOTIFICATION_FAST_READ_MAX = 10
-const NOTIFICATION_FAST_WRITE_MAX = 4
-const NOTIFICATION_RELAY_CAP = 14
-
-function relayUrlsUpToUnblocked(urls: string[], blocked: Set<string>, max: number): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const u of urls) {
-    const k = normalizeUrl(u) || u
-    if (!k || blocked.has(k) || seen.has(k)) continue
-    seen.add(k)
-    out.push(k)
-    if (out.length >= max) break
-  }
-  return out
-}
-
-function mergeRelayListsUnique(
-  lists: string[][],
-  blocked: Set<string>,
-  cap: number
-): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const list of lists) {
-    for (const u of list) {
-      const k = normalizeUrl(u) || u
-      if (!k || blocked.has(k) || seen.has(k)) continue
-      seen.add(k)
-      out.push(k)
-      if (out.length >= cap) return out
-    }
-  }
-  return out
-}
-
-export function notificationRelayUrls(
-  relayList: TRelayList | null | undefined,
-  favoriteRelays: string[],
-  blockedRelays: string[] = []
-): string[] {
-  const blocked = new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
-  const read = relayList?.read ?? []
-  const readSorted = [...read].map((u) => normalizeUrl(u) || u).filter(Boolean).sort((a, b) => a.localeCompare(b))
-  const favSorted = [...favoriteRelays]
-    .map((u) => normalizeUrl(u) || u)
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b))
-  const primary =
-    read.length > 0
-      ? relayUrlsUpToUnblocked(readSorted, blocked, NOTIFICATION_PRIMARY_MAX)
-      : favoriteRelays.length > 0
-        ? relayUrlsUpToUnblocked(favSorted, blocked, NOTIFICATION_PRIMARY_MAX)
-        : []
-  const fromFastRead = relayUrlsUpToUnblocked(FAST_READ_RELAY_URLS, blocked, NOTIFICATION_FAST_READ_MAX)
-  const fromFastWrite = relayUrlsUpToUnblocked(FAST_WRITE_RELAY_URLS, blocked, NOTIFICATION_FAST_WRITE_MAX)
-  const merged = mergeRelayListsUnique(
-    [fromFastRead, fromFastWrite, primary],
-    blocked,
-    NOTIFICATION_RELAY_CAP
-  )
-  if (merged.length > 0) return appendCuratedReadOnlyRelays(merged, blockedRelays)
-  return appendCuratedReadOnlyRelays(
-    relayUrlsUpToUnblocked(FAST_READ_RELAY_URLS, blocked, NOTIFICATION_RELAY_CAP),
-    blockedRelays
-  )
-}
-
 /** Notifications spell: same kind set as profile-style feeds, restricted to `#p` = you on the relay. */
 export function buildMentionsSpellFilter(pubkey: string): Filter {
   return {
@@ -262,45 +144,6 @@ export function buildMentionsSpellFilter(pubkey: string): Filter {
     limit: NOTIFICATION_LIMIT,
     '#p': [pubkey]
   }
-}
-
-/**
- * Relay set for Spells “Discussions” (kind 11), capped for subscription-based loading
- * (see DISCUSSION_FAUX_SPELL_MAX_RELAYS).
- */
-/**
- * Deterministic relay pick: each tier (read / write / fav / fast) is normalized + sorted so NostrProvider
- * array order and NIP-66 ref churn do not change which 32 relays we REQ (prevents subscription identity thrash).
- */
-export function discussionRelayUrls(
-  relayList: TRelayList | null | undefined,
-  favoriteRelays: string[],
-  blockedRelays: string[]
-): string[] {
-  const blocked = new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
-  const tier = (urls: string[]) =>
-    [...new Set(urls.map((u) => normalizeUrl(u) || u).filter(Boolean))]
-      .filter((k) => !blocked.has(k))
-      .sort((a, b) => a.localeCompare(b))
-
-  const read = tier(relayList?.read ?? [])
-  const write = tier(relayList?.write ?? [])
-  const fav = tier(favoriteRelays)
-  const fastR = tier([...FAST_READ_RELAY_URLS])
-  const fastW = tier([...FAST_WRITE_RELAY_URLS])
-
-  const curated = mergeRelayListsUnique(
-    [
-      read.slice(0, DISCUSSION_SPELL_READ_CAP),
-      write.slice(0, DISCUSSION_SPELL_WRITE_CAP),
-      fav.slice(0, DISCUSSION_SPELL_FAV_CAP),
-      fastR,
-      fastW
-    ],
-    blocked,
-    DISCUSSION_FAUX_SPELL_MAX_RELAYS
-  )
-  return appendCuratedReadOnlyRelays(curated, blockedRelays)
 }
 
 export function buildDiscussionFilter(): Filter {
@@ -319,21 +162,6 @@ export function buildCalendarSpellFilter(): Filter {
     kinds: [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME],
     limit: 200
   }
-}
-
-const FOLLOW_PACK_LIMIT = 100
-
-/** Kind 39089 follow/starter packs from fast read relays (same scope as the old Follow Packs page). */
-export function buildFollowPacksSubRequests(): TFeedSubRequest[] {
-  const curated = FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean) as string[]
-  if (!curated.length) return []
-  const urls = appendCuratedReadOnlyRelays(curated, [])
-  return [
-    {
-      urls,
-      filter: { kinds: [ExtendedKind.FOLLOW_PACK], limit: FOLLOW_PACK_LIMIT }
-    }
-  ]
 }
 
 /** One subrequest per topic (OR). Uses same kind set as the main profile/favorites feed. */

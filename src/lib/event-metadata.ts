@@ -569,12 +569,17 @@ export function getEmojisFromEvent(event: Event): TEmoji[] {
 
 export function getStarsFromRelayReviewEvent(event: Event): number {
   const ratingTag = event.tags.find((t) => t[0] === 'rating')
-  if (ratingTag) {
-    const stars = parseFloat(ratingTag[1]) * 5
-    if (stars > 0 && stars <= 5) {
-      return stars
-    }
+  if (!ratingTag?.[1]?.trim()) return 0
+  const raw = parseFloat(ratingTag[1])
+  if (Number.isNaN(raw) || raw <= 0) return 0
+  // This app publishes `rating` as stars/5 (e.g. 5★ → "1"); scale back to 1–5.
+  if (raw <= 1) {
+    const scaled = raw * 5
+    if (scaled > 0 && scaled <= 5) return scaled
+    return 0
   }
+  // Many clients use a plain 1–5 value in the tag.
+  if (raw >= 1 && raw <= 5) return raw
   return 0
 }
 

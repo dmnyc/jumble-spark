@@ -1,18 +1,20 @@
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import client from '@/services/client.service'
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Event } from 'nostr-tools'
-import { CALENDAR_EVENT_KINDS, ExtendedKind, FAST_READ_RELAY_URLS } from '@/constants'
-import { normalizeUrl } from '@/lib/url'
+import { CALENDAR_EVENT_KINDS, ExtendedKind } from '@/constants'
+import { getRelayUrlsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
+import { useNostr } from '@/providers/NostrProvider'
 
-type ProfileTimelineCacheEntry = {
+type ProfileTimelineMemoryEntry = {
   events: Event[]
   lastUpdated: number
 }
 
-const timelineCache = new Map<string, ProfileTimelineCacheEntry>()
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes - cache is considered fresh for this long
-const relayGroupCache = new Map<string, string[][]>()
+/** 5-minute in-memory cache for this hook only — not IndexedDB, not client timeline refs. */
+const memoryTimelineByKey = new Map<string, ProfileTimelineMemoryEntry>()
+const CACHE_DURATION = 5 * 60 * 1000
 
 type UseProfileTimelineOptions = {
   pubkey: string
@@ -28,55 +30,36 @@ type UseProfileTimelineResult = {
   refresh: () => void
 }
 
-async function getRelayGroups(pubkey: string): Promise<string[][]> {
-  const cached = relayGroupCache.get(pubkey)
-  if (cached) {
-    return cached
-  }
-
-  const [relayList, favoriteRelays] = await Promise.all([
-    client.fetchRelayList(pubkey).catch(() => ({ read: [], write: [] })),
-    client.fetchFavoriteRelays(pubkey).catch(() => [])
-  ])
-
-  const groups: string[][] = []
-
-  const normalizeList = (urls?: string[]) =>
-    Array.from(
-      new Set(
-        (urls || [])
-          .map((url) => normalizeUrl(url))
-          .filter((value): value is string => !!value)
-      )
-    )
-
-  const readRelays = normalizeList(relayList.read)
-  if (readRelays.length) {
-    groups.push(readRelays)
-  }
-
-  const writeRelays = normalizeList(relayList.write)
-  if (writeRelays.length) {
-    groups.push(writeRelays)
-  }
-
-  const favoriteRelayList = normalizeList(favoriteRelays)
-  if (favoriteRelayList.length) {
-    groups.push(favoriteRelayList)
-  }
-
-  const fastReadRelays = normalizeList(FAST_READ_RELAY_URLS)
-  if (fastReadRelays.length) {
-    groups.push(fastReadRelays)
-  }
-
-  if (!groups.length) {
-    relayGroupCache.set(pubkey, [fastReadRelays])
-    return [fastReadRelays]
-  }
-
-  relayGroupCache.set(pubkey, groups)
-  return groups
+function buildSubRequests(
+  groups: string[][],
+  pubkey: string,
+  kindsArg: number[],
+  limit: number,
+  hasCalendarKinds: boolean
+) {
+  const authorRequests = groups
+    .map((urls) => ({
+      urls,
+      filter: {
+        authors: [pubkey],
+        kinds: kindsArg,
+        limit
+      } as any
+    }))
+    .filter((request) => request.urls.length)
+  const calendarInviteRequests = hasCalendarKinds
+    ? groups
+        .map((urls) => ({
+          urls,
+          filter: {
+            kinds: [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME],
+            '#p': [pubkey],
+            limit: 100
+          } as any
+        }))
+        .filter((request) => request.urls.length)
+    : []
+  return [...authorRequests, ...calendarInviteRequests]
 }
 
 function postProcessEvents(
@@ -107,11 +90,18 @@ export function useProfileTimeline({
   limit = 200,
   filterPredicate
 }: UseProfileTimelineOptions): UseProfileTimelineResult {
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
+  const { relayList } = useNostr()
   const { isEventDeleted, tombstoneEpoch } = useDeletedEvent()
   const isEventDeletedRef = useRef(isEventDeleted)
   isEventDeletedRef.current = isEventDeleted
 
-  const cachedEntry = useMemo(() => timelineCache.get(cacheKey), [cacheKey])
+  const filterPredicateRef = useRef(filterPredicate)
+  filterPredicateRef.current = filterPredicate
+  const limitRef = useRef(limit)
+  limitRef.current = limit
+
+  const cachedEntry = useMemo(() => memoryTimelineByKey.get(cacheKey), [cacheKey])
   const [events, setEvents] = useState<Event[]>(cachedEntry?.events ?? [])
   const [isLoading, setIsLoading] = useState(!cachedEntry)
   const [refreshToken, setRefreshToken] = useState(0)
@@ -121,9 +111,9 @@ export function useProfileTimeline({
     setEvents((prev) => {
       const next = prev.filter((e) => !isEventDeletedRef.current(e))
       if (next.length === prev.length) return prev
-      const cached = timelineCache.get(cacheKey)
+      const cached = memoryTimelineByKey.get(cacheKey)
       if (cached) {
-        timelineCache.set(cacheKey, { events: next, lastUpdated: cached.lastUpdated })
+        memoryTimelineByKey.set(cacheKey, { events: next, lastUpdated: cached.lastUpdated })
       }
       return next
     })
@@ -131,129 +121,117 @@ export function useProfileTimeline({
 
   useEffect(() => {
     let cancelled = false
+    const closers: (() => void)[] = []
+    const pool = new Map<string, Event>()
 
-    const subscribe = async () => {
-      // Check if we have fresh cached data
-      const cachedEntry = timelineCache.get(cacheKey)
-      const cacheAge = cachedEntry ? Date.now() - cachedEntry.lastUpdated : Infinity
-      const isCacheFresh = cacheAge < CACHE_DURATION
-      
-      // If cache is fresh, show it immediately and skip subscribing
-      if (isCacheFresh && cachedEntry) {
-        setEvents(cachedEntry.events)
-        setIsLoading(false)
-        // Still subscribe in background to get updates, but don't show loading
-        // This ensures we get new events without disrupting the UI
-      } else {
-        // Cache is stale or missing - show loading and fetch
-        setIsLoading(!cachedEntry)
-      }
-      
-      try {
-        const relayGroups = await getRelayGroups(pubkey)
-        if (cancelled) {
-          return
-        }
-
-        const hasCalendarKinds = kinds.some((k) => CALENDAR_EVENT_KINDS.includes(k))
-        const authorRequests = relayGroups
-          .map((urls) => ({
-            urls,
-            filter: {
-              authors: [pubkey],
-              kinds,
-              limit
-            } as any
-          }))
-          .filter((request) => request.urls.length)
-        // When profile includes calendar event kinds, also subscribe to events where this user is an invitee (#p tag)
-        const calendarInviteRequests = hasCalendarKinds
-          ? relayGroups
-              .map((urls) => ({
-                urls,
-                filter: {
-                  kinds: [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME],
-                  '#p': [pubkey],
-                  limit: 100
-                } as any
-              }))
-              .filter((request) => request.urls.length)
-          : []
-        const subRequests = [...authorRequests, ...calendarInviteRequests]
-
-        if (!subRequests.length) {
-          timelineCache.set(cacheKey, {
-            events: [],
-            lastUpdated: Date.now()
-          })
-          setEvents([])
-          setIsLoading(false)
-          return
-        }
-
-        const { closer } = await client.subscribeTimeline(
-          subRequests,
-          {
-            onEvents: (fetchedEvents) => {
-              if (cancelled) return
-              const processed = postProcessEvents(
-                fetchedEvents as Event[],
-                filterPredicate,
-                limit,
-                isEventDeletedRef.current
-              )
-              timelineCache.set(cacheKey, {
-                events: processed,
-                lastUpdated: Date.now()
-              })
-              setEvents(processed)
-              setIsLoading(false)
-            },
-            onNew: (evt) => {
-              if (cancelled) return
-              setEvents((prevEvents) => {
-                const combined = [evt as Event, ...prevEvents]
-                const processed = postProcessEvents(
-                  combined,
-                  filterPredicate,
-                  limit,
-                  isEventDeletedRef.current
-                )
-                timelineCache.set(cacheKey, {
-                  events: processed,
-                  lastUpdated: Date.now()
-                })
-                return processed
-              })
-            }
-          },
-          { needSort: true, useCache: false } // NO CACHING - stream raw from relays
-        )
-
-        subscriptionRef.current = () => closer()
-      } catch (error) {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      }
+    const flushPool = () => {
+      if (cancelled) return
+      const processed = postProcessEvents(
+        Array.from(pool.values()),
+        filterPredicateRef.current,
+        limitRef.current,
+        isEventDeletedRef.current
+      )
+      memoryTimelineByKey.set(cacheKey, { events: processed, lastUpdated: Date.now() })
+      setEvents(processed)
+      setIsLoading(false)
     }
 
-    subscribe()
+    subscriptionRef.current = () => {
+      closers.forEach((c) => c())
+      closers.length = 0
+    }
+
+    const registerCloser = (closer: () => void) => {
+      if (cancelled) {
+        closer()
+        return
+      }
+      closers.push(closer)
+    }
+
+    const subscribe = async () => {
+      const mem = memoryTimelineByKey.get(cacheKey)
+      const cacheAge = mem ? Date.now() - mem.lastUpdated : Infinity
+      const isCacheFresh = cacheAge < CACHE_DURATION
+
+      pool.clear()
+      if (isCacheFresh && mem) {
+        setEvents(mem.events)
+        setIsLoading(false)
+        mem.events.forEach((e) => pool.set(e.id, e))
+      } else {
+        setIsLoading(!mem)
+      }
+
+      const hasCalendarKinds = kinds.some((k) => CALENDAR_EVENT_KINDS.includes(k))
+      const feedRelayUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
+        favoriteRelays,
+        blockedRelays,
+        relayList?.read ?? []
+      )
+
+      const startWave = async (subRequests: ReturnType<typeof buildSubRequests>) => {
+        if (cancelled || subRequests.length === 0) return
+        try {
+          const { closer } = await client.subscribeTimeline(
+            subRequests,
+            {
+              onEvents: (fetched) => {
+                if (cancelled) return
+                for (const e of fetched as Event[]) {
+                  pool.set(e.id, e)
+                }
+                flushPool()
+              },
+              onNew: (evt) => {
+                if (cancelled) return
+                pool.set((evt as Event).id, evt as Event)
+                flushPool()
+              }
+            },
+            { needSort: true }
+          )
+          registerCloser(closer)
+        } catch {
+          if (!cancelled) setIsLoading(false)
+        }
+      }
+
+      if (feedRelayUrls.length === 0) {
+        if (!cancelled) setIsLoading(false)
+        return
+      }
+
+      void startWave(buildSubRequests([feedRelayUrls], pubkey, kinds, limit, hasCalendarKinds))
+    }
+
+    void subscribe()
 
     return () => {
       cancelled = true
       subscriptionRef.current()
       subscriptionRef.current = () => {}
     }
-  }, [pubkey, cacheKey, JSON.stringify(kinds), limit, filterPredicate, refreshToken])
+  }, [
+    pubkey,
+    cacheKey,
+    JSON.stringify(kinds),
+    limit,
+    filterPredicate,
+    refreshToken,
+    favoriteRelays,
+    blockedRelays,
+    relayList
+  ])
 
   const refresh = useCallback(() => {
     subscriptionRef.current()
     subscriptionRef.current = () => {}
-    timelineCache.delete(cacheKey)
+    memoryTimelineByKey.delete(cacheKey)
     setIsLoading(true)
     setRefreshToken((token) => token + 1)
-  }, [])
+  }, [cacheKey])
 
   return {
     events,
@@ -261,4 +239,3 @@ export function useProfileTimeline({
     refresh
   }
 }
-

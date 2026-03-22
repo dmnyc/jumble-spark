@@ -1,27 +1,28 @@
 import NoteList from '@/components/NoteList'
-import { ExtendedKind, PROFILE_FETCH_RELAY_URLS } from '@/constants'
+import { ExtendedKind } from '@/constants'
+import { getRelayUrlsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
 import {
   getRelayUrlFromRelayReviewEvent,
   getStarsFromRelayReviewEvent
 } from '@/lib/event-metadata'
-import { buildExploreProfileAndUserRelayList } from '@/lib/relay-list-builder'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { Event } from 'nostr-tools'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 
 export default function ExploreRelayReviews() {
-  const { pubkey } = useNostr()
-  const [relayUrls, setRelayUrls] = useState<string[]>(() => [...PROFILE_FETCH_RELAY_URLS])
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
+  const { relayList } = useNostr()
 
-  useEffect(() => {
-    let cancelled = false
-    buildExploreProfileAndUserRelayList(pubkey ?? null).then((urls) => {
-      if (!cancelled) setRelayUrls(urls)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [pubkey])
+  const relayUrls = useMemo(
+    () =>
+      getRelayUrlsWithFavoritesFastReadAndInbox(
+        favoriteRelays,
+        blockedRelays,
+        relayList?.read ?? []
+      ),
+    [favoriteRelays, blockedRelays, relayList]
+  )
 
   const subRequests = useMemo(() => [{ urls: relayUrls, filter: {} }], [relayUrls])
 
@@ -34,6 +35,8 @@ export default function ExploreRelayReviews() {
   return (
     <div className="min-w-0 pt-1">
       <NoteList
+        feedSubscriptionKey="explore-relay-reviews"
+        preserveTimelineOnSubRequestsChange
         showKinds={[ExtendedKind.RELAY_REVIEW]}
         subRequests={subRequests}
         showKind1OPs={false}

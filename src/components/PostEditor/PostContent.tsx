@@ -66,6 +66,7 @@ import mediaUpload from '@/services/media-upload.service'
 import { successfulPublishRelayUrls, type TRelayPublishStatus } from '@/lib/publish-relay-urls'
 import client, { eventService } from '@/services/client.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
+import noteStatsService from '@/services/note-stats.service'
 import CreateThreadDialog from '@/pages/primary/DiscussionsPage/CreateThreadDialog'
 import { getReplaceableCoordinateFromEvent, isProtectedEvent as isEventProtected, isReplaceableEvent, isReplyNoteEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
@@ -112,6 +113,12 @@ export default function PostContent({
       const clean = { ...reply } as Event
       delete (clean as any).relayStatuses
       addReplies([clean])
+      const isQuotePost = clean.tags.some((t) => t[0] === 'q' && t[1])
+      noteStatsService.updateNoteStatsByEvents(
+        [clean],
+        undefined,
+        isQuotePost ? undefined : { replyParentNoteId: parentEvent.id }
+      )
       const rootInfo = !isReplaceableEvent(parentEvent.kind)
         ? { type: 'E' as const, id: parentEvent.id, pubkey: parentEvent.pubkey }
         : {

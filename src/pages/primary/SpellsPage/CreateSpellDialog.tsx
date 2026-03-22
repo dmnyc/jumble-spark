@@ -18,6 +18,7 @@ import {
   dedupeAppendIds,
   resolveSpellListATags
 } from '@/lib/spell-list-import'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { showPublishingError, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import { eventService } from '@/services/client.service'
@@ -289,6 +290,7 @@ export default function CreateSpellDialog({
 }) {
   const { t } = useTranslation()
   const { pubkey, publish, checkLogin, relayList } = useNostr()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const [form, setForm] = useState<TSpellDraftParams>(DEFAULT_PARAMS)
   const [saving, setSaving] = useState(false)
   const scrollBodyRef = useRef<HTMLDivElement>(null)
@@ -319,7 +321,11 @@ export default function CreateSpellDialog({
       const { draft, notices, pendingATags } = applyListEventToSpellDraft(base, ev)
       setForm(draft)
       setListImportNotices(notices)
-      const urls = getRelaysForSpellCatalogSync(relayList ?? undefined)
+      const urls = getRelaysForSpellCatalogSync(
+        favoriteRelays,
+        blockedRelays,
+        relayList?.read ?? []
+      )
       if (pendingATags.length === 0) return
       void resolveSpellListATags(pendingATags, urls).then(({ ids, notices: extra }) => {
         if (ids.length) {
@@ -328,7 +334,7 @@ export default function CreateSpellDialog({
         if (extra.length) setListImportNotices((n) => [...n, ...extra])
       })
     },
-    [relayList]
+    [favoriteRelays, blockedRelays, relayList]
   )
 
   const handleLoadManualList = useCallback(async () => {

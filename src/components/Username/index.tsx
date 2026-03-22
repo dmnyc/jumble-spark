@@ -23,15 +23,16 @@ export default function Username({
 }) {
   const { profile, isFetching } = useFetchProfile(userId)
   const { navigateToProfile } = useSmartProfileNavigation()
-  
+
   // Get pubkey from userId (works even if profile isn't loaded)
   const pubkey = useMemo(() => {
     if (profile?.pubkey) return profile.pubkey
     return userIdToPubkey(userId) || ''
   }, [userId, profile?.pubkey])
-  
-  // Show skeleton while fetching (unless withoutSkeleton is true)
-  if (isFetching && !withoutSkeleton) {
+
+  // Never block on profile fetch when we can already show npub/hex fallback (feeds batch-fetch profiles).
+  const canShowWithoutProfile = Boolean(pubkey)
+  if (isFetching && !withoutSkeleton && !canShowWithoutProfile) {
     return (
       <div className="py-1">
         <Skeleton className={cn('w-16', skeletonClassName)} />
@@ -108,15 +109,15 @@ export function SimpleUsername({
   style?: React.CSSProperties
 }) {
   const { profile, isFetching } = useFetchProfile(userId)
-  
+
   // Get pubkey from userId (works even if profile isn't loaded)
   const pubkey = useMemo(() => {
     if (profile?.pubkey) return profile.pubkey
     return userIdToPubkey(userId) || ''
   }, [userId, profile?.pubkey])
-  
-  // Show skeleton while fetching (unless withoutSkeleton is true)
-  if (isFetching && !withoutSkeleton) {
+
+  const canShowWithoutProfile = Boolean(pubkey)
+  if (isFetching && !withoutSkeleton && !canShowWithoutProfile) {
     return (
       <div className="py-1">
         <Skeleton className={cn('w-16', skeletonClassName)} />

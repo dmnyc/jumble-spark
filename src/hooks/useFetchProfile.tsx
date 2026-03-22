@@ -26,7 +26,12 @@ export function useFetchProfile(id?: string, skipCache = false) {
   
   const { profile: currentAccountProfile } = useNostr()
   const noteFeed = useNoteFeedProfileContext()
-  const [isFetching, setIsFetching] = useState(true)
+  /** Hex/npub ids can show npub fallback immediately; avoid a skeleton frame before the first effect. */
+  const [isFetching, setIsFetching] = useState(() => {
+    if (!id) return false
+    const pk = userIdToPubkey(id)
+    return !(pk.length === 64 && /^[0-9a-f]{64}$/.test(pk))
+  })
   const [error, setError] = useState<Error | null>(null)
   const [profile, setProfile] = useState<TProfile | null>(null)
   const [pubkey, setPubkey] = useState<string | null>(null)

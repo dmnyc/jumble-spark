@@ -436,8 +436,8 @@ export class ReplaceableEventService {
         // For metadata with a logged-in user, merge defaults with {@link buildComprehensiveRelayList}: inboxes (read),
         // local/cache relays (10432), favorite relays (10012), plus profile + fast read — same idea as favorites feed
         // / inbox-scoped discovery without per-author relay list fetches.
-        // Following's Favorites (Explore): kind 10012 batch uses PROFILE_FETCH_RELAY_URLS + viewer's own relays only
-        // (no FAST_READ), so outbox data is queried where the user actually reads + profile-index relays.
+        // Following's Favorites (Explore): kind 10012 batch uses {@link buildExploreProfileAndUserRelayList}
+        // (profile + FAST_READ + viewer read/write/local when logged in).
         let relayUrls: string[]
         if (kind === kinds.Metadata) {
           const userPk = client.pubkey
@@ -737,174 +737,134 @@ export class ReplaceableEventService {
     const profileEvent = await this.fetchReplaceableEvent(pubkey, kinds.Metadata, undefined, [])
     
     if (profileEvent) {
-      logger.debug('[ReplaceableEventService] Profile found with relay hints + default relays', {
+      logger.debug('[ReplaceableEventService] Profile found via cache / default relays (DataLoader)', {
         pubkey,
         eventId: profileEvent.id
       })
       await this.indexProfile(profileEvent)
       return profileEvent
     }
-    
-    // Step 2: Only fetch author's relay list as fallback if we have relay hints from bech32
-    // This prevents creating many individual subscriptions when profiles aren't found
-    // If we have relay hints, it's worth trying author relays. Otherwise, Step 1 should be sufficient.
-    if (relayHints.length > 0) {
-      logger.debug('[ReplaceableEventService] Step 2: Profile not found, but we have relay hints - fetching author relay list as fallback', {
-        pubkey,
-        relayHintCount: relayHints.length
+
+    // Step 2: Only after cache + default relays miss — NIP-65 relay list (timeout-capped), then hints + outbox/inbox + defaults.
+    logger.debug('[ReplaceableEventService] Step 2: Fetching author relay list as fallback', {
+      pubkey,
+      relayHintCount: relayHints.length
+    })
+
+    let authorRelayList: { read?: string[]; write?: string[] } | null = null
+    try {
+      const relayListPromise = client.fetchRelayList(pubkey)
+      const timeoutPromise = new Promise<null>((resolve) => {
+        setTimeout(() => {
+          logger.warn('[ReplaceableEventService] fetchRelayList timeout, giving up', { pubkey })
+          resolve(null)
+        }, 2000)
       })
-      
-      let authorRelayList: { read?: string[]; write?: string[] } | null = null
-      try {
-        const relayListStartTime = Date.now()
-        // Add timeout to prevent hanging - 2 seconds max
-        const relayListPromise = client.fetchRelayList(pubkey)
-        const timeoutPromise = new Promise<null>((resolve) => {
-          setTimeout(() => {
-            logger.warn('[ReplaceableEventService] fetchRelayList timeout, giving up', {
-              pubkey
-            })
-            resolve(null)
-          }, 2000)
-        })
-        authorRelayList = await Promise.race([relayListPromise, timeoutPromise])
-        const relayListTime = Date.now() - relayListStartTime
-        logger.debug('[ReplaceableEventService] Author relay list fetched', {
-          pubkey,
-          hasRelayList: !!authorRelayList,
-          fetchTime: `${relayListTime}ms`
-        })
-      } catch (error) {
-        logger.error('[ReplaceableEventService] Failed to fetch author relay list', { 
-          pubkey,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      }
-      
-      // Step 3: Try with relay hints + author's relays if we got them
-      // CRITICAL: Always include relay hints first (highest priority), then author relays, then defaults
-      if (authorRelayList) {
-        const authorRelays = [
+      authorRelayList = await Promise.race([relayListPromise, timeoutPromise])
+    } catch (error) {
+      logger.error('[ReplaceableEventService] Failed to fetch author relay list', {
+        pubkey,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+
+    const authorRelays = authorRelayList
+      ? [
           ...(authorRelayList.write || []).slice(0, 10),
           ...(authorRelayList.read || []).slice(0, 10)
         ]
-        // Relay hints first (highest priority), then author relays, then defaults
-        const allRelays = [...new Set([
-          ...relayHints,  // Relay hints from bech32 (highest priority)
-          ...authorRelays, // Author's relays
-          ...PROFILE_FETCH_RELAY_URLS, // Default profile relays
-          ...FAST_READ_RELAY_URLS // Fast read relays
-        ])]
-        
-        logger.debug('[ReplaceableEventService] Step 3: Trying with relay hints + author relays', {
-          pubkey,
-          relayHintCount: relayHints.length,
-          authorRelayCount: authorRelays.length,
-          totalRelayCount: allRelays.length
-        })
-        
-        // Use fetchReplaceableEvent with relay hints + author's relays
-        const profileEventFromAuthorRelays = await this.fetchReplaceableEvent(
-          pubkey, 
-          kinds.Metadata, 
-          undefined, 
-          allRelays
-        )
-        
-        if (profileEventFromAuthorRelays) {
-          logger.debug('[ReplaceableEventService] Profile found with relay hints + author relays', {
-            pubkey,
-            eventId: profileEventFromAuthorRelays.id
-          })
-          await this.indexProfile(profileEventFromAuthorRelays)
-          return profileEventFromAuthorRelays
-        }
-      }
-    } else {
-      // No relay hints - Step 1 with default relays should be sufficient
-      // Skip Step 2/3 to avoid creating individual subscriptions
-      logger.debug('[ReplaceableEventService] Profile not found, but no relay hints - skipping author relay fallback to avoid individual subscriptions', {
-        pubkey
-      })
-    }
-    
-    // Step 3: Comprehensive search across ALL available relays before giving up
-    // OPTIMIZATION: Skip comprehensive search for batch profile fetches (when called from DataLoader)
-    // Comprehensive search is expensive (10s timeout) and should only be used for individual profile fetches
-    // when user explicitly navigates to a profile page. For feed rendering, missing profiles are acceptable.
-    // Only run comprehensive search if we have relay hints (suggesting user intent to find this specific profile)
-    if (relayHints.length > 0) {
-      logger.debug('[ReplaceableEventService] Step 3: Profile not found, trying comprehensive relay list (all available relays)', {
+      : []
+
+    const expandedRelays = [
+      ...new Set([
+        ...relayHints,
+        ...authorRelays,
+        ...PROFILE_FETCH_RELAY_URLS,
+        ...FAST_READ_RELAY_URLS
+      ])
+    ]
+
+    const profileFromExpanded = await this.fetchReplaceableEvent(
+      pubkey,
+      kinds.Metadata,
+      undefined,
+      expandedRelays
+    )
+    if (profileFromExpanded) {
+      logger.debug('[ReplaceableEventService] Profile found after relay-list fallback', {
         pubkey,
-        hasRelayHints: relayHints.length > 0
+        eventId: profileFromExpanded.id
       })
-      
-      try {
-        const userPubkey = client.pubkey
-        const comprehensiveRelays = await buildComprehensiveRelayList({
-          authorPubkey: pubkey,
-          userPubkey: userPubkey || undefined,
-          relayHints: relayHints.length > 0 ? relayHints : undefined,
-          includeUserOwnRelays: true, // Include user's read/write relays
-          includeFavoriteRelays: true, // Include user's favorite relays (kind 10012)
-          includeProfileFetchRelays: true, // Include PROFILE_FETCH_RELAY_URLS
-          includeFastReadRelays: true, // Include FAST_READ_RELAY_URLS
-          includeFastWriteRelays: true, // Include FAST_WRITE_RELAY_URLS
-          includeSearchableRelays: true, // Include SEARCHABLE_RELAY_URLS
-          includeLocalRelays: true // Include local/cache relays
-        })
-        
-        logger.debug('[ReplaceableEventService] Comprehensive relay list built', {
-          pubkey,
-          relayCount: comprehensiveRelays.length,
-          relays: comprehensiveRelays.slice(0, 10) // Log first 10 for debugging
-        })
-        
-        if (comprehensiveRelays.length > 0) {
-          // Query the comprehensive relay list with reduced timeout for faster failure
-          const startTime = Date.now()
-          const events = await this.queryService.query(comprehensiveRelays, {
+      await this.indexProfile(profileFromExpanded)
+      return profileFromExpanded
+    }
+
+    // Step 3: Last resort — broad relay query (timeout-bounded in query layer)
+    logger.debug('[ReplaceableEventService] Step 3: Comprehensive relay query (last resort)', { pubkey })
+    try {
+      const userPubkey = client.pubkey
+      const comprehensiveRelays = await buildComprehensiveRelayList({
+        authorPubkey: pubkey,
+        userPubkey: userPubkey || undefined,
+        relayHints: relayHints.length > 0 ? relayHints : undefined,
+        includeUserOwnRelays: true,
+        includeFavoriteRelays: true,
+        includeProfileFetchRelays: true,
+        includeFastReadRelays: true,
+        includeFastWriteRelays: true,
+        includeSearchableRelays: true,
+        includeLocalRelays: true
+      })
+
+      logger.debug('[ReplaceableEventService] Comprehensive relay list built', {
+        pubkey,
+        relayCount: comprehensiveRelays.length,
+        relays: comprehensiveRelays.slice(0, 10)
+      })
+
+      if (comprehensiveRelays.length > 0) {
+        const startTime = Date.now()
+        const events = await this.queryService.query(
+          comprehensiveRelays,
+          {
             authors: [pubkey],
             kinds: [kinds.Metadata]
-          }, undefined, {
+          },
+          undefined,
+          {
             replaceableRace: true,
-            eoseTimeout: 300, // Reduced from 500ms
-            globalTimeout: 5000 // Reduced from 10000ms to prevent 10s waits
-          })
-          const queryTime = Date.now() - startTime
-          
-          logger.debug('[ReplaceableEventService] Comprehensive search completed', {
-            pubkey,
-            eventCount: events.length,
-            queryTime: `${queryTime}ms`,
-            relayCount: comprehensiveRelays.length
-          })
-          
-          if (events.length > 0) {
-            const sortedEvents = events.sort((a, b) => b.created_at - a.created_at)
-            const profileEvent = sortedEvents[0]
-            logger.debug('[ReplaceableEventService] Profile found via comprehensive search', {
-              pubkey,
-              eventId: profileEvent.id
-            })
-            await this.indexProfile(profileEvent)
-            return profileEvent
+            eoseTimeout: 300,
+            globalTimeout: 5000
           }
-        }
-      } catch (error) {
-        logger.error('[ReplaceableEventService] Comprehensive search failed', {
+        )
+        const queryTime = Date.now() - startTime
+
+        logger.debug('[ReplaceableEventService] Comprehensive search completed', {
           pubkey,
-          error: error instanceof Error ? error.message : String(error)
+          eventCount: events.length,
+          queryTime: `${queryTime}ms`,
+          relayCount: comprehensiveRelays.length
         })
-        // Continue to return undefined below
+
+        if (events.length > 0) {
+          const sortedEvents = events.sort((a, b) => b.created_at - a.created_at)
+          const found = sortedEvents[0]!
+          logger.debug('[ReplaceableEventService] Profile found via comprehensive search', {
+            pubkey,
+            eventId: found.id
+          })
+          await this.indexProfile(found)
+          return found
+        }
       }
-    } else {
-      logger.debug('[ReplaceableEventService] Skipping comprehensive search (no relay hints, likely batch fetch)', {
-        pubkey
+    } catch (error) {
+      logger.error('[ReplaceableEventService] Comprehensive search failed', {
+        pubkey,
+        error: error instanceof Error ? error.message : String(error)
       })
     }
-    
-    logger.warn('[ReplaceableEventService] Profile not found after trying all relays (including comprehensive search)', {
+
+    logger.warn('[ReplaceableEventService] Profile not found after cache, relay-list fallback, and comprehensive search', {
       pubkey,
       triedRelayHints: relayHints.length > 0
     })

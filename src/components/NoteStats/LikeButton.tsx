@@ -159,7 +159,9 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
             showSimplePublishSuccess(t('Reaction published'))
           }
           
-          noteStatsService.updateNoteStatsByEvents([evt])
+          noteStatsService.updateNoteStatsByEvents([evt], undefined, {
+            interactionTargetNoteId: event.id
+          })
         }
       } catch (error) {
         logger.error('Like failed', { error, eventId: event.id })

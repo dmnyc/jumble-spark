@@ -136,9 +136,6 @@ export default function QuoteList({
               [newEvt, ...oldEvents].sort((a, b) => b.created_at - a.created_at)
             )
           }
-        },
-        {
-          useCache: false // NO CACHING - stream raw from relays
         }
       )
       if (cancelled) {

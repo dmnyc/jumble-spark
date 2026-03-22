@@ -3,12 +3,18 @@ import type { TNoteListRef } from '@/components/NoteList'
 import NormalFeed from '@/components/NormalFeed'
 import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
-import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { SEARCHABLE_RELAY_URLS } from '@/constants'
+import {
+  augmentSubRequestsWithFavoritesFastReadAndInbox,
+  getRelayUrlsWithFavoritesFastReadAndInbox,
+  mergeRelayUrlLayers
+} from '@/lib/favorites-feed-relays'
 import { normalizeUrl } from '@/lib/url'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { toProfileList } from '@/lib/link'
 import { fetchPubkeysFromDomain, getWellKnownNip05Url } from '@/lib/nip05'
 import { usePrimaryNoteView, useSecondaryPage } from '@/PageManager'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useInterestList } from '@/providers/InterestListProvider'
 import client from '@/services/client.service'
@@ -29,6 +35,7 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
   const bumpFeed = useCallback(() => feedRef.current?.refresh(), [])
   const { push } = useSecondaryPage()
   const { relayList, pubkey } = useNostr()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { isSubscribed, subscribe } = useInterestList()
   const [title, setTitle] = useState<React.ReactNode>(null)
   const [controls, setControls] = useState<React.ReactNode>(null)
@@ -84,7 +91,11 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
       setSubRequests([
         {
           filter: { '#t': [hashtag], ...(kinds.length > 0 ? { kinds } : {}) },
-          urls: FAST_READ_RELAY_URLS
+          urls: getRelayUrlsWithFavoritesFastReadAndInbox(
+            favoriteRelays,
+            blockedRelays,
+            relayList?.read ?? []
+          )
         }
       ])
       // Set controls for hashtag subscribe button - check subscription status
@@ -122,10 +133,17 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
         setSubRequests([
           {
             filter: { '#I': [externalContentId], ...(kinds.length > 0 ? { kinds } : {}) },
-            urls: Array.from(new Set([
-              ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url),
-              ...(relayList?.write || []).map(url => normalizeUrl(url) || url)
-            ]))
+            urls: mergeRelayUrlLayers(
+              [
+                getRelayUrlsWithFavoritesFastReadAndInbox(
+                  favoriteRelays,
+                  blockedRelays,
+                  relayList?.read ?? []
+                ),
+                (relayList?.write || []).map((url) => normalizeUrl(url) || url).filter(Boolean) as string[]
+              ],
+              blockedRelays
+            )
           }
         ])
         return
@@ -149,7 +167,15 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
             domain
           })
           if (pubkeys.length) {
-            setSubRequests(await client.generateSubRequestsForPubkeys(pubkeys, pubkey))
+            const raw = await client.generateSubRequestsForPubkeys(pubkeys, pubkey)
+            setSubRequests(
+              augmentSubRequestsWithFavoritesFastReadAndInbox(
+                raw,
+                favoriteRelays,
+                blockedRelays,
+                relayList?.read ?? []
+              )
+            )
             setControls(
               <Button
                 variant="ghost"
@@ -181,7 +207,11 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
           setSubRequests([
             {
               filter,
-              urls: FAST_READ_RELAY_URLS
+              urls: getRelayUrlsWithFavoritesFastReadAndInbox(
+                favoriteRelays,
+                blockedRelays,
+                relayList?.read ?? []
+              )
             }
           ])
         }
@@ -191,7 +221,18 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
       // Advanced search parameters removed
       // Note: Only hashtag (t=) and kind (k=) URL parameters are supported
       // Date searches, pubkey filters, and event filters removed - not supported
-  }, [pubkey, relayList, handleSubscribeHashtag, push, t, isSubscribed, subscribe, client])
+  }, [
+    pubkey,
+    relayList,
+    favoriteRelays,
+    blockedRelays,
+    handleSubscribeHashtag,
+    push,
+    t,
+    isSubscribed,
+    subscribe,
+    client
+  ])
 
   // Initialize on mount
   useEffect(() => {

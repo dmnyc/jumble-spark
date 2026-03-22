@@ -24,3 +24,30 @@ export function computeSpellSubRequestsIdentityKey(subRequests: TFeedSubRequest[
     }))
   )
 }
+
+/**
+ * True when `nextKey` is the same REQ filters as `prevKey` but with a strict superset of relay URLs
+ * in at least one request slot (e.g. Explore relay reviews: bootstrap relays → full list).
+ */
+export function isRelayUrlStrictSupersetIdentityKey(prevKey: string | null, nextKey: string): boolean {
+  if (!prevKey || prevKey === nextKey) return false
+  try {
+    type Item = { urls: string[]; filter: string }
+    const prev = JSON.parse(prevKey) as Item[]
+    const next = JSON.parse(nextKey) as Item[]
+    if (!Array.isArray(prev) || !Array.isArray(next) || prev.length !== next.length) return false
+    let sawStrictGrowth = false
+    for (let i = 0; i < prev.length; i++) {
+      if (prev[i].filter !== next[i].filter) return false
+      const ps = new Set(prev[i].urls)
+      const ns = new Set(next[i].urls)
+      for (const u of ps) {
+        if (!ns.has(u)) return false
+      }
+      if (ns.size > ps.size) sawStrictGrowth = true
+    }
+    return sawStrictGrowth
+  } catch {
+    return false
+  }
+}

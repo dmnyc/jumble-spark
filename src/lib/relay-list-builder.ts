@@ -15,6 +15,26 @@ import { getCacheRelayUrls } from './private-relays'
 import client from '@/services/client.service'
 import logger from '@/lib/logger'
 
+function dedupeNormalizedRelayUrls(urls: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const u of urls) {
+    const n = normalizeUrl(u) || u
+    if (!n || seen.has(n)) continue
+    seen.add(n)
+    out.push(n)
+  }
+  return out
+}
+
+/**
+ * Relays to bootstrap Explore replaceable fetches (e.g. kind 10012 batch) before NIP-65 resolves.
+ * PROFILE_FETCH + FAST_READ.
+ */
+export function exploreDiscoveryBootstrapRelayUrls(): string[] {
+  return dedupeNormalizedRelayUrls([...PROFILE_FETCH_RELAY_URLS, ...FAST_READ_RELAY_URLS])
+}
+
 export interface RelayListBuilderOptions {
   /** Author's pubkey - will include their outboxes (write relays) */
   authorPubkey?: string
@@ -231,29 +251,31 @@ export async function buildComprehensiveRelayList(options: RelayListBuilderOptio
 }
 
 /**
- * Explore: Following's Favorites (kind 10012 batch) and Relay reviews tab.
- * PROFILE_FETCH_RELAY_URLS plus the viewer's read/write and cache (10432) relays — no FAST_READ.
+ * Explore: Following's Favorites (kind 10012 batch) / replaceable discovery.
+ * Bootstrap relays (profile + FAST_READ) plus the viewer's read/write and cache (10432) when logged in.
  */
 export async function buildExploreProfileAndUserRelayList(
   userPubkey: string | null | undefined
 ): Promise<string[]> {
+  const boot = exploreDiscoveryBootstrapRelayUrls()
   if (!userPubkey) {
-    return Array.from(new Set([...PROFILE_FETCH_RELAY_URLS]))
+    return boot
   }
   try {
     const built = await buildComprehensiveRelayList({
       userPubkey,
       includeUserOwnRelays: true,
       includeProfileFetchRelays: true,
-      includeFastReadRelays: false,
+      includeFastReadRelays: true,
       includeFavoriteRelays: false,
       includeLocalRelays: true,
       includeFastWriteRelays: false,
       includeSearchableRelays: false
     })
-    return built.length > 0 ? built : Array.from(new Set([...PROFILE_FETCH_RELAY_URLS]))
+    if (!built.length) return boot
+    return dedupeNormalizedRelayUrls([...boot, ...built])
   } catch {
-    return Array.from(new Set([...PROFILE_FETCH_RELAY_URLS]))
+    return boot
   }
 }
 

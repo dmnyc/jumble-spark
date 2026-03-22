@@ -2,7 +2,7 @@ import { ExtendedKind, FAST_READ_RELAY_URLS } from '@/constants'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
-import { getEmojiInfosFromEmojiTags, tagNameEquals } from '@/lib/tag'
+import { getEmojiInfosFromEmojiTags, getFirstHexEventIdFromETags, tagNameEquals } from '@/lib/tag'
 import { normalizeUrl } from '@/lib/url'
 import { eventService } from '@/services/client.service'
 import { TEmoji } from '@/types'
@@ -241,7 +241,18 @@ class NoteStatsService {
     return eventId
   }
 
-  updateNoteStatsByEvents(events: Event[], originalEventAuthor?: string) {
+  /**
+   * @param mergeOpts When the UI just published a single interaction, pass the note id the user acted on
+   *   so stats merge even if `e` tag shape varies (extensions, multiple ancestors).
+   */
+  updateNoteStatsByEvents(
+    events: Event[],
+    originalEventAuthor?: string,
+    mergeOpts?: {
+      interactionTargetNoteId?: string
+      replyParentNoteId?: string
+    }
+  ) {
     const updatedEventIdSet = new Set<string>()
     
     // Process events in batches for better performance
@@ -249,7 +260,7 @@ class NoteStatsService {
     for (let i = 0; i < events.length; i += batchSize) {
       const batch = events.slice(i, i + batchSize)
       batch.forEach((evt) => {
-        const updatedEventId = this.processEvent(evt, originalEventAuthor)
+        const updatedEventId = this.processEvent(evt, originalEventAuthor, mergeOpts)
         if (updatedEventId) {
           updatedEventIdSet.add(updatedEventId)
         }
@@ -261,19 +272,25 @@ class NoteStatsService {
     })
   }
 
-  private processEvent(evt: Event, originalEventAuthor?: string): string | undefined {
+  private processEvent(
+    evt: Event,
+    originalEventAuthor?: string,
+    mergeOpts?: { interactionTargetNoteId?: string; replyParentNoteId?: string }
+  ): string | undefined {
     let updatedEventId: string | undefined
     
     if (evt.kind === kinds.Reaction) {
-      updatedEventId = this.addLikeByEvent(evt, originalEventAuthor)
+      updatedEventId = this.addLikeByEvent(evt, originalEventAuthor, mergeOpts?.interactionTargetNoteId)
     } else if (evt.kind === kinds.Repost) {
-      updatedEventId = this.addRepostByEvent(evt, originalEventAuthor)
+      updatedEventId = this.addRepostByEvent(evt, originalEventAuthor, mergeOpts?.interactionTargetNoteId)
     } else if (evt.kind === kinds.Zap) {
       updatedEventId = this.addZapByEvent(evt, originalEventAuthor)
     } else if (evt.kind === kinds.ShortTextNote || evt.kind === ExtendedKind.COMMENT || evt.kind === ExtendedKind.VOICE_COMMENT) {
       const isQuote = this.isQuoteByEvent(evt)
       if (isQuote) {
         updatedEventId = this.addQuoteByEvent(evt, originalEventAuthor)
+      } else if (mergeOpts?.replyParentNoteId) {
+        updatedEventId = this.addReplyByEvent(evt, originalEventAuthor, mergeOpts.replyParentNoteId)
       } else {
         updatedEventId = this.addReplyByEvent(evt, originalEventAuthor)
       }
@@ -284,8 +301,8 @@ class NoteStatsService {
     return updatedEventId
   }
 
-  private addLikeByEvent(evt: Event, originalEventAuthor?: string) {
-    const targetEventId = evt.tags.findLast(tagNameEquals('e'))?.[1]
+  private addLikeByEvent(evt: Event, originalEventAuthor?: string, forcedTargetEventId?: string) {
+    const targetEventId = forcedTargetEventId ?? getFirstHexEventIdFromETags(evt.tags)
     if (!targetEventId) return
 
     const old = this.noteStatsMap.get(targetEventId) || {}
@@ -298,7 +315,14 @@ class NoteStatsService {
     }
 
     let emoji: TEmoji | string = evt.content.trim()
-    if (!emoji) return
+    if (!emoji) {
+      const fromTags = getEmojiInfosFromEmojiTags(evt.tags)
+      if (fromTags.length) {
+        emoji = fromTags[0]
+      } else {
+        emoji = '+'
+      }
+    }
 
     if (emoji.startsWith(':') && emoji.endsWith(':')) {
       const emojiInfos = getEmojiInfosFromEmojiTags(evt.tags)
@@ -331,8 +355,8 @@ class NoteStatsService {
     return eventId
   }
 
-  private addRepostByEvent(evt: Event, originalEventAuthor?: string) {
-    const eventId = evt.tags.find(tagNameEquals('e'))?.[1]
+  private addRepostByEvent(evt: Event, originalEventAuthor?: string, forcedTargetEventId?: string) {
+    const eventId = forcedTargetEventId ?? getFirstHexEventIdFromETags(evt.tags)
     if (!eventId) return
 
     const old = this.noteStatsMap.get(eventId) || {}
@@ -371,34 +395,36 @@ class NoteStatsService {
     )
   }
 
-  private addReplyByEvent(evt: Event, originalEventAuthor?: string) {
-    let originalEventId: string | undefined
+  private addReplyByEvent(evt: Event, originalEventAuthor?: string, forcedOriginalEventId?: string) {
+    let originalEventId: string | undefined = forcedOriginalEventId
 
-    if (evt.kind === ExtendedKind.COMMENT || evt.kind === ExtendedKind.VOICE_COMMENT) {
-      const eTag = evt.tags.find(tagNameEquals('e')) ?? evt.tags.find(tagNameEquals('E'))
-      originalEventId = eTag?.[1]
-    } else if (evt.kind === kinds.ShortTextNote) {
-      const parentETag = evt.tags.find(([tagName, , , marker]) => {
-        return tagName === 'e' && (marker === 'reply' || marker === 'root')
-      })
-      if (parentETag) {
-        originalEventId = parentETag[1]
-      } else {
-        const lastETag = evt.tags.findLast(
-          ([tagName, tagValue, , marker]) =>
-            tagName === 'e' &&
-            !!tagValue &&
-            marker !== 'mention'
-        )
-        if (lastETag) {
-          originalEventId = lastETag[1]
+    if (!originalEventId) {
+      if (evt.kind === ExtendedKind.COMMENT || evt.kind === ExtendedKind.VOICE_COMMENT) {
+        const eTag = evt.tags.find(tagNameEquals('e')) ?? evt.tags.find(tagNameEquals('E'))
+        originalEventId = eTag?.[1]
+      } else if (evt.kind === kinds.ShortTextNote) {
+        const parentETag = evt.tags.find(([tagName, , , marker]) => {
+          return tagName === 'e' && (marker === 'reply' || marker === 'root')
+        })
+        if (parentETag) {
+          originalEventId = parentETag[1]
+        } else {
+          const lastETag = evt.tags.findLast(
+            ([tagName, tagValue, , marker]) =>
+              tagName === 'e' &&
+              !!tagValue &&
+              marker !== 'mention'
+          )
+          if (lastETag) {
+            originalEventId = lastETag[1]
+          }
         }
-      }
-      
-      if (!originalEventId) {
-        const aTag = evt.tags.find(tagNameEquals('a'))
-        if (aTag) {
-          originalEventId = aTag[1]
+
+        if (!originalEventId) {
+          const aTag = evt.tags.find(tagNameEquals('a'))
+          if (aTag) {
+            originalEventId = aTag[1]
+          }
         }
       }
     }

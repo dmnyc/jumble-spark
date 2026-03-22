@@ -2,7 +2,8 @@
  * NIP-A7 Spells: parse and execute kind 777 events as portable relay query filters.
  */
 
-import { ExtendedKind, FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
+import { ExtendedKind, FAST_WRITE_RELAY_URLS } from '@/constants'
+import { getRelayUrlsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
 import { tagNameEquals } from '@/lib/tag'
 import logger from '@/lib/logger'
 import type { TRelayList } from '@/types'
@@ -80,19 +81,15 @@ export function buildSpellCatalogAuthors(pubkey: string, contacts: string[]): st
 }
 
 /**
- * Relays to fetch the user's kind-777 spells: **read** (inboxes), **write** (outboxes), and
- * {@link FAST_READ_RELAY_URLS}.
- *
- * Pass `relayList` from {@link ClientService.fetchRelayList} / NostrProvider — it already merges
- * kind **10002** and kind **10432** (CACHE_RELAYS / “local relays” in the app). Do not infer local
- * relays from hostnames.
+ * Relays to fetch the user's kind-777 spells: favorites + default fast-read relays + user read/inboxes
+ * (same extension as other non–favorites-feed reads; not the favorites-only home list).
  */
-export function getRelaysForSpellCatalogSync(relayList: TRelayList | null | undefined): string[] {
-  return dedupeRelayUrls([
-    ...(relayList?.read ?? []),
-    ...(relayList?.write ?? []),
-    ...FAST_READ_RELAY_URLS
-  ])
+export function getRelaysForSpellCatalogSync(
+  favoriteRelays: string[],
+  blockedRelays: string[],
+  userInboxReadRelays: string[]
+): string[] {
+  return getRelayUrlsWithFavoritesFastReadAndInbox(favoriteRelays, blockedRelays, userInboxReadRelays)
 }
 
 function dedupeRelayUrls(urls: string[]): string[] {

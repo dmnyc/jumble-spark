@@ -38,10 +38,14 @@ import {
   FAUX_SPELL_ORDER,
   FIRST_RELAY_RESULT_GRACE_MS,
   PROFILE_FEED_KINDS,
-  SPELL_FEED_FIRST_RELAY_GRACE_MS
+  SPELL_FEED_LOADING_MAX_MS
 } from '@/constants'
 import { isUserInEventMentions } from '@/lib/event'
 import { formatPubkey } from '@/lib/pubkey'
+import {
+  augmentSubRequestsWithFavoritesFastReadAndInbox,
+  getRelayUrlsWithFavoritesFastReadAndInbox
+} from '@/lib/favorites-feed-relays'
 import { computeSpellSubRequestsIdentityKey } from '@/lib/spell-feed-request-identity'
 import { normalizeUrl } from '@/lib/url'
 import {
@@ -86,15 +90,11 @@ import {
   buildBookmarksSubRequests,
   buildCalendarSpellFilter,
   buildDiscussionFilter,
-  buildFollowPacksSubRequests,
   buildInterestsSubRequests,
   buildMediaSpellFilter,
   buildMentionsSpellFilter,
-  discussionRelayUrls,
-  fauxFavoriteRelayUrls,
   MEDIA_SPELL_SHOW_KINDS,
-  mediaSpellExtraShouldHideEvent,
-  notificationRelayUrls
+  mediaSpellExtraShouldHideEvent
 } from './fauxSpellFeeds'
 import type { TPageRef } from '@/types'
 
@@ -370,6 +370,22 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     return JSON.stringify(normalizedWriteSorted)
   }, [relayMailboxStableKey])
 
+  /** Order-independent favorites/blocked — array order from providers must not rebuild subs. */
+  const sortedFavoriteRelaysKey = useMemo(
+    () =>
+      JSON.stringify(
+        [...favoriteRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort((a, b) => a.localeCompare(b))
+      ),
+    [favoriteRelays]
+  )
+  const sortedBlockedRelaysKey = useMemo(
+    () =>
+      JSON.stringify(
+        [...blockedRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort((a, b) => a.localeCompare(b))
+      ),
+    [blockedRelays]
+  )
+
   useEffect(() => {
     loadSpells()
   }, [loadSpells])
@@ -378,8 +394,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const contactsSyncKey = useMemo(() => [...contacts].sort().join(','), [contacts])
 
   /**
-   * After showing the cache, pull kind 777 from merged mailbox (10002 + 10432) read/write + fast read.
-   * Deps use `relayMailboxStableKey` only — not NIP-66 `originalRelays` — so discovery merges don’t restart this sub.
+   * After showing the cache, pull kind 777 using the same relay set as the favorites feed.
    */
   useEffect(() => {
     if (!pubkey) {
@@ -396,7 +411,11 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         if (!cancelled) void loadSpells()
       }, 120)
     }
-    const urls = getRelaysForSpellCatalogSync(relayList ?? undefined)
+    const urls = getRelaysForSpellCatalogSync(
+      favoriteRelays,
+      blockedRelays,
+      relayList?.read ?? []
+    )
     const catalogAuthors = buildSpellCatalogAuthors(pubkey, contacts)
     const authorAllowlist = new Set(catalogAuthors)
     const filter = {
@@ -421,10 +440,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       }
     }
 
-    void (async () => {
-      try {
-        setSpellsCatalogSyncing(true)
-        const { closer } = await client.subscribeTimeline(
+    /** Defer catalog REQ so faux/kind-777 feed opens sockets and paints first. */
+    const catalogDelayMs = 800
+    const delayId = window.setTimeout(() => {
+      if (cancelled) return
+      void (async () => {
+        try {
+          setSpellsCatalogSyncing(true)
+          const { closer } = await client.subscribeTimeline(
           [{ urls, filter }],
           {
             onEvents: async (events, eosed) => {
@@ -477,8 +500,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             onNew: () => {} // Not needed
           },
           {
-            useCache: true,
-            omitDefaultSinceWhenUseCache: true,
             firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS
           }
         )
@@ -492,10 +513,12 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         logger.warn('[SpellsPage] Spell catalog subscribe failed', e)
         if (!cancelled) setSpellsCatalogSyncing(false)
       }
-    })()
+      })()
+    }, catalogDelayMs)
 
     return () => {
       cancelled = true
+      window.clearTimeout(delayId)
       clearAfterFirstBatchTimer()
       if (loadSpellsDebounce != null) clearTimeout(loadSpellsDebounce)
       window.clearTimeout(syncTimeout)
@@ -503,7 +526,15 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       spellCatalogCloserRef.current = null
       setSpellsCatalogSyncing(false)
     }
-  }, [pubkey, relayMailboxStableKey, loadSpells, contactsSyncKey, spellCatalogManualRefreshKey])
+  }, [
+    pubkey,
+    sortedFavoriteRelaysKey,
+    sortedBlockedRelaysKey,
+    relayMailboxStableKey,
+    loadSpells,
+    contactsSyncKey,
+    spellCatalogManualRefreshKey
+  ])
 
   useEffect(() => {
     if (!pubkey) {
@@ -512,14 +543,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     }
     client.fetchFollowings(pubkey).then(setContacts).catch(() => setContacts([]))
   }, [pubkey])
-
-  /** Order-independent favorites/blocked — array order from providers must not rebuild faux subs. */
-  const sortedFavoriteRelaysKey = JSON.stringify(
-    [...favoriteRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort((a, b) => a.localeCompare(b))
-  )
-  const sortedBlockedRelaysKey = JSON.stringify(
-    [...blockedRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort((a, b) => a.localeCompare(b))
-  )
 
   useEffect(() => {
     if (selectedFauxSpell !== 'following' || !pubkey) {
@@ -533,7 +556,13 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       try {
         const followings = await client.fetchFollowings(pubkey)
         const req = await client.generateSubRequestsForPubkeys([pubkey, ...followings], pubkey)
-        const withReadOnly = req.map((r) => ({
+        const merged = augmentSubRequestsWithFavoritesFastReadAndInbox(
+          req,
+          favoriteRelays,
+          blockedRelays,
+          relayList?.read ?? []
+        )
+        const withReadOnly = merged.map((r) => ({
           ...r,
           urls: appendCuratedReadOnlyRelays(r.urls, blockedRelays)
         }))
@@ -547,7 +576,13 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     return () => {
       cancelled = true
     }
-  }, [selectedFauxSpell, pubkey, sortedBlockedRelaysKey])
+  }, [
+    selectedFauxSpell,
+    pubkey,
+    sortedFavoriteRelaysKey,
+    sortedBlockedRelaysKey,
+    relayMailboxStableKey
+  ])
 
   const interestTagsStableKey = interestListEvent
     ? JSON.stringify(
@@ -574,45 +609,49 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const syncFauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
     if (!selectedFauxSpell || selectedFauxSpell === 'following') return []
+    const feedUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
+      favoriteRelays,
+      blockedRelays,
+      relayList?.read ?? []
+    )
 
     if (selectedFauxSpell === 'notifications') {
-      if (!pubkey) return []
-      const urls = notificationRelayUrls(relayList, favoriteRelays, blockedRelays)
-      if (!urls.length) return []
-      return [{ urls, filter: buildMentionsSpellFilter(pubkey) }]
+      if (!pubkey || !feedUrls.length) return []
+      return [{ urls: feedUrls, filter: buildMentionsSpellFilter(pubkey) }]
     }
     if (selectedFauxSpell === 'discussions') {
-      const urls = discussionRelayUrls(relayList, favoriteRelays, blockedRelays)
-      if (!urls.length) return []
-      return [{ urls, filter: buildDiscussionFilter() }]
+      if (!feedUrls.length) return []
+      return [{ urls: feedUrls, filter: buildDiscussionFilter() }]
     }
     if (selectedFauxSpell === 'media') {
-      const urls = fauxFavoriteRelayUrls(favoriteRelays, blockedRelays)
-      if (!urls.length) return []
-      return [{ urls, filter: buildMediaSpellFilter() }]
+      if (!feedUrls.length) return []
+      return [{ urls: feedUrls, filter: buildMediaSpellFilter() }]
     }
     if (selectedFauxSpell === 'calendar') {
-      const urls = fauxFavoriteRelayUrls(favoriteRelays, blockedRelays)
-      if (!urls.length) return []
-      return [{ urls, filter: buildCalendarSpellFilter() }]
+      if (!feedUrls.length) return []
+      return [{ urls: feedUrls, filter: buildCalendarSpellFilter() }]
     }
     if (selectedFauxSpell === 'interests') {
       if (!pubkey || !interestListEvent) return []
       const topics = interestListEvent.tags.filter((tag) => tag[0] === 't' && tag[1]).map((tag) => tag[1]!)
-      const urls = fauxFavoriteRelayUrls(favoriteRelays, blockedRelays)
-      return buildInterestsSubRequests(urls, topics, PROFILE_FEED_KINDS)
+      return buildInterestsSubRequests(feedUrls, topics, PROFILE_FEED_KINDS)
     }
     if (selectedFauxSpell === 'bookmarks') {
       if (!pubkey) return []
-      const urls = notificationRelayUrls(relayList, favoriteRelays, blockedRelays)
-      return buildBookmarksSubRequests(bookmarkListEvent, urls)
+      return buildBookmarksSubRequests(bookmarkListEvent, feedUrls)
     }
     if (selectedFauxSpell === 'followPacks') {
-      return buildFollowPacksSubRequests()
+      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
+      if (!urls.length) return []
+      return [
+        {
+          urls,
+          filter: { kinds: [ExtendedKind.FOLLOW_PACK], limit: 100 }
+        }
+      ]
     }
     return []
-    // relayMailboxStableKey: read/write only — do not tie faux feeds to originalRelays (NIP-66 churn).
-  }, [selectedFauxSpell, pubkey, relayMailboxStableKey, fauxFeedRelaysDepsKey])
+  }, [selectedFauxSpell, pubkey, fauxFeedRelaysDepsKey, relayMailboxStableKey])
 
   const fauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
     if (selectedFauxSpell === 'following') return followingSubRequests
@@ -1229,8 +1268,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   subRequests={subRequests}
                   feedSubscriptionKey={spellFeedSubscriptionKey}
                   showKinds={showKinds}
-                  useTimelineCacheBootstrap
-                  spellFetchTimeoutMs={SPELL_FEED_FIRST_RELAY_GRACE_MS}
+                  spellFetchTimeoutMs={SPELL_FEED_LOADING_MAX_MS}
                   spellFeedInstrumentToken={spellFeedInstrumentToken}
                   onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                   useFilterAsIs={fauxNoteListUseFilterAsIs}
@@ -1258,8 +1296,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                 subRequests={subRequests}
                 feedSubscriptionKey={spellFeedSubscriptionKey}
                 showKinds={showKinds}
-                useTimelineCacheBootstrap
-                spellFetchTimeoutMs={SPELL_FEED_FIRST_RELAY_GRACE_MS}
+                spellFetchTimeoutMs={SPELL_FEED_LOADING_MAX_MS}
                 spellFeedInstrumentToken={spellFeedInstrumentToken}
                 onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                 useFilterAsIs

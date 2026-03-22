@@ -71,7 +71,9 @@ export default function Likes({ event }: { event: Event }) {
       try {
         const reaction = createReactionDraftEvent(event, emoji)
         const evt = await publish(reaction)
-        noteStatsService.updateNoteStatsByEvents([evt])
+        noteStatsService.updateNoteStatsByEvents([evt], undefined, {
+          interactionTargetNoteId: event.id
+        })
       } catch (error) {
         logger.error('Like failed', { error, eventId: event.id })
       } finally {

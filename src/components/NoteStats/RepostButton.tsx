@@ -76,7 +76,9 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
           showSimplePublishSuccess(t('Boost published'))
         }
         
-        noteStatsService.updateNoteStatsByEvents([evt])
+        noteStatsService.updateNoteStatsByEvents([evt], undefined, {
+          interactionTargetNoteId: event.id
+        })
       } catch (error) {
         logger.error('Boost failed', { error, eventId: event.id })
       } finally {

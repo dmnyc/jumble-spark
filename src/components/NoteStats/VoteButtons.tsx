@@ -81,7 +81,9 @@ export default function VoteButtons({ event }: { event: Event }) {
             showSimplePublishSuccess(t('Vote removed'))
           }
           
-          noteStatsService.updateNoteStatsByEvents([evt])
+          noteStatsService.updateNoteStatsByEvents([evt], undefined, {
+            interactionTargetNoteId: event.id
+          })
         } else {
           // If user voted the opposite way, first remove the old vote
           if (userVote) {
@@ -109,7 +111,9 @@ export default function VoteButtons({ event }: { event: Event }) {
             showSimplePublishSuccess(t('Vote published'))
           }
           
-          noteStatsService.updateNoteStatsByEvents([evt])
+          noteStatsService.updateNoteStatsByEvents([evt], undefined, {
+            interactionTargetNoteId: event.id
+          })
         }
       } catch (error) {
         logger.error('Vote failed', { error, eventId: event.id })

@@ -9,7 +9,10 @@ import {
   isReplyNoteEvent
 } from '@/lib/event'
 import { shouldFilterEvent } from '@/lib/event-filtering'
-import { stableSpellFeedFilterKey } from '@/lib/spell-feed-request-identity'
+import {
+  isRelayUrlStrictSupersetIdentityKey,
+  stableSpellFeedFilterKey
+} from '@/lib/spell-feed-request-identity'
 import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { normalizeUrl } from '@/lib/url'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
@@ -48,6 +51,19 @@ const SHOW_COUNT = 50 // Increased from 10 to show more events at once, reducing
 const FEED_PROFILE_BATCH_DEBOUNCE_MS = 120
 const FEED_PROFILE_CHUNK = 36
 
+function mergeEventBatchesById(prev: Event[], incoming: Event[], cap: number): Event[] {
+  const byId = new Map<string, Event>()
+  for (const e of prev) {
+    byId.set(e.id, e)
+  }
+  for (const e of incoming) {
+    byId.set(e.id, e)
+  }
+  return Array.from(byId.values())
+    .sort((a, b) => b.created_at - a.created_at)
+    .slice(0, cap)
+}
+
 const NoteList = forwardRef(
   (
     {
@@ -66,14 +82,12 @@ const NoteList = forwardRef(
       /** When set (e.g. Spells page), timeline subscription keys off this string instead of `subRequests` reference churn. */
       feedSubscriptionKey,
       /**
-       * When true, hydrate the list from the client timeline cache (IndexedDB-backed) before/at same time as
-       * live REQ, so feeds feel instant on repeat visits. Spells faux feeds use this; home feed stays false.
+       * When true (e.g. Explore relay reviews), `subRequests` may grow after first paint (bootstrap relays → full list).
+       * Re-subscribe when URLs change but **merge** new timeline batches into existing rows by event id instead of clearing.
        */
-      useTimelineCacheBootstrap = false,
+      preserveTimelineOnSubRequestsChange = false,
       /**
-       * When set (Spells page), passed to `subscribeTimeline` as `firstRelayResultGraceMs` only — ms to wait after
-       * the first live event before treating initial load as EOSE. Subscribe setup and loading fallback keep
-       * longer defaults so multi-relay spell feeds do not race-fail and stay blank after refresh.
+       * Spells page: after this many ms, clear the loading skeleton so the list area renders; subscription keeps running.
        */
       spellFetchTimeoutMs,
       /** Spells page: bumps when user picks a feed; used with {@link onSpellFeedFirstPaint}. */
@@ -96,7 +110,8 @@ const NoteList = forwardRef(
       /** When provided and returns true, the event is omitted from the feed (in addition to built-in rules). */
       extraShouldHideEvent?: (evt: Event) => boolean
       feedSubscriptionKey?: string
-      useTimelineCacheBootstrap?: boolean
+      preserveTimelineOnSubRequestsChange?: boolean
+      /** When set (spells), max time to show the initial loading skeleton (ms). */
       spellFetchTimeoutMs?: number
       spellFeedInstrumentToken?: number
       onSpellFeedFirstPaint?: (detail: { eventCount: number; firstEventId: string }) => void
@@ -156,12 +171,44 @@ const NoteList = forwardRef(
     }, [subRequests])
 
     const timelineSubscriptionKey = feedSubscriptionKey ?? subRequestsKey
+    const prevSubRequestsKeyForTimelineRef = useRef<string | null>(null)
+    /** Detect pull-to-refresh so preserve-mode feeds still clear; unrelated dep changes must not clear. */
+    const timelineEffectLastRefreshCountRef = useRef(refreshCount)
 
     useEffect(() => {
       feedProfileBatchGenRef.current += 1
       feedProfileLoadedRef.current.clear()
       setFeedProfileBatch({ profiles: new Map(), pending: new Set(), version: 0 })
     }, [timelineSubscriptionKey, refreshCount])
+
+    /** Pending pubkeys sync with rows so useFetchProfile skips per-note fetches before the debounced batch. */
+    useLayoutEffect(() => {
+      const candidates = new Set<string>()
+      const addPk = (p: string | undefined) => {
+        if (p && p.length === 64 && /^[0-9a-f]{64}$/.test(p)) {
+          candidates.add(p)
+        }
+      }
+      for (const e of events) {
+        addPk(e.pubkey)
+      }
+      for (const e of newEvents) {
+        addPk(e.pubkey)
+      }
+
+      setFeedProfileBatch((prev) => {
+        const pending = new Set(prev.pending)
+        let changed = false
+        for (const pk of candidates) {
+          if (!prev.profiles.has(pk) && !pending.has(pk)) {
+            pending.add(pk)
+            changed = true
+          }
+        }
+        if (!changed) return prev
+        return { ...prev, pending, version: prev.version + 1 }
+      })
+    }, [events, newEvents])
 
     const subRequestsRef = useRef(subRequests)
     subRequestsRef.current = subRequests
@@ -309,9 +356,12 @@ const NoteList = forwardRef(
             candidates.add(p)
           }
         }
-        filteredEvents.slice(0, 50).forEach((e) => addPk(e.pubkey))
-        events.slice(0, 120).forEach((e) => addPk(e.pubkey))
-        events.slice(showCount, showCount + 60).forEach((e) => addPk(e.pubkey))
+        for (const e of events) {
+          addPk(e.pubkey)
+        }
+        for (const e of newEvents) {
+          addPk(e.pubkey)
+        }
 
         const need = [...candidates].filter((pk) => !feedProfileLoadedRef.current.has(pk))
         if (need.length === 0) return
@@ -320,7 +370,14 @@ const NoteList = forwardRef(
 
         setFeedProfileBatch((prev) => {
           const pending = new Set(prev.pending)
-          need.forEach((pk) => pending.add(pk))
+          let pendingChanged = false
+          for (const pk of need) {
+            if (!pending.has(pk)) {
+              pending.add(pk)
+              pendingChanged = true
+            }
+          }
+          if (!pendingChanged) return prev
           return { ...prev, pending, version: prev.version + 1 }
         })
 
@@ -363,7 +420,7 @@ const NoteList = forwardRef(
         })()
       }, FEED_PROFILE_BATCH_DEBOUNCE_MS)
       return () => window.clearTimeout(handle)
-    }, [filteredEvents, events, showCount])
+    }, [events, newEvents])
 
     const scrollToTop = useCallback((behavior: ScrollBehavior = 'instant') => {
       setTimeout(() => {
@@ -392,13 +449,34 @@ const NoteList = forwardRef(
         return () => {}
       }
 
+      const prevSubKey = prevSubRequestsKeyForTimelineRef.current
+      const userPulledRefresh = refreshCount !== timelineEffectLastRefreshCountRef.current
+      if (userPulledRefresh) {
+        timelineEffectLastRefreshCountRef.current = refreshCount
+      }
+      const keepExistingTimelineEvents =
+        preserveTimelineOnSubRequestsChange &&
+        !userPulledRefresh &&
+        (prevSubKey === subRequestsKey ||
+          isRelayUrlStrictSupersetIdentityKey(prevSubKey, subRequestsKey))
+      prevSubRequestsKeyForTimelineRef.current = subRequestsKey
+
       /** False after cleanup so stale timeline callbacks cannot overwrite state after switching feeds (e.g. Spells discussions → notifications). */
       let effectActive = true
 
       async function init() {
-        setLoading(true)
-        setEvents([])
-        setNewEvents([])
+        // Re-subscribe with rows visible (e.g. relay URL expansion): don't flash global loading / skeleton.
+        const keepRowsVisible =
+          preserveTimelineOnSubRequestsChange &&
+          keepExistingTimelineEvents &&
+          eventsRef.current.length > 0
+        if (!keepRowsVisible) {
+          setLoading(true)
+        }
+        if (!keepExistingTimelineEvents) {
+          setEvents([])
+          setNewEvents([])
+        }
         setHasMore(true)
         consecutiveEmptyRef.current = 0 // Reset counter on refresh
 
@@ -437,6 +515,10 @@ const NoteList = forwardRef(
           return () => {}
         }
 
+        const totalRelayUrls = mappedSubRequests.reduce((n, r) => n + r.urls.length, 0)
+        // Explore-style feeds merge many read relays; subscribeTimeline awaits every ensureRelay — 5s often loses the race.
+        const subscribeSetupRaceMs = totalRelayUrls > 24 ? 30_000 : 5000
+
         let closer: (() => void) | undefined
         let timelineKey: string | undefined
         let timelineSubscribePromise:
@@ -444,30 +526,37 @@ const NoteList = forwardRef(
           | undefined
 
         try {
-          // Opening subs + IndexedDB timeline hydration can exceed 2s on spell feeds with many relays; a short race
+          // Opening many relay subs can exceed 2s on spell feeds; a short race
           // rejects, the catch closes the late subscription, and the list stays empty after refresh.
-          const subscribeSetupRaceMs = 5000
           const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(() => {
               reject(new Error(`subscribeTimeline timeout after ${subscribeSetupRaceMs}ms`))
             }, subscribeSetupRaceMs)
           })
 
-          const firstRelayGraceMs = spellFetchTimeoutMs ?? FIRST_RELAY_RESULT_GRACE_MS
+          const eventCap = areAlgoRelays ? ALGO_LIMIT : LIMIT
 
           timelineSubscribePromise = client.subscribeTimeline(
             mappedSubRequests,
             {
-              onEvents: (events: Event[], eosed: boolean) => {
+              onEvents: (batch: Event[], eosed: boolean) => {
                 if (!effectActive) return
-                if (events.length > 0) {
-                  setEvents(events)
+                if (batch.length > 0) {
+                  if (preserveTimelineOnSubRequestsChange) {
+                    setEvents((prev) => {
+                      const next = mergeEventBatchesById(prev, batch, eventCap)
+                      lastEventsForTimelinePrefetchRef.current = next
+                      return next
+                    })
+                  } else {
+                    setEvents(batch)
+                    lastEventsForTimelinePrefetchRef.current = batch
+                  }
                   // Do not wait for full EOSE across many relays — otherwise loading/skeleton stays up for 10–30s+
                   setLoading(false)
 
                   // Defer profile + embed prefetch: streaming timelines fire onEvents often; starting
                   // fetchProfilesForPubkeys on every update spams relays (multi-second each) and cancels hooks.
-                  lastEventsForTimelinePrefetchRef.current = events
                   if (timelinePrefetchDebounceRef.current) {
                     clearTimeout(timelinePrefetchDebounceRef.current)
                   }
@@ -492,11 +581,12 @@ const NoteList = forwardRef(
                     }
                   }, 450)
                 } else if (eosed) {
-                  // No events received but EOSE - set empty events array and stop loading
-                  setEvents([])
+                  if (!preserveTimelineOnSubRequestsChange) {
+                    setEvents([])
+                  }
                   setLoading(false)
                 }
-                
+
                 if (areAlgoRelays) {
                   // Algorithm feeds typically return all results at once
                   setHasMore(false)
@@ -507,7 +597,7 @@ const NoteList = forwardRef(
                   // We should still try to load more on scroll - the loadMore logic will handle stopping
                   // Only set to false if we explicitly know there are no more events (handled in loadMore)
                   // If we got a full limit of events, there's likely more available
-                  if (events.length >= (areAlgoRelays ? ALGO_LIMIT : LIMIT)) {
+                  if (batch.length >= (areAlgoRelays ? ALGO_LIMIT : LIMIT)) {
                     setHasMore(true)
                   } else {
                     // Even with fewer events, there might be more (filtering, slow relays, etc.)
@@ -542,9 +632,7 @@ const NoteList = forwardRef(
           {
             startLogin,
             needSort: !areAlgoRelays,
-            useCache: useTimelineCacheBootstrap,
-            omitDefaultSinceWhenUseCache: useTimelineCacheBootstrap,
-            firstRelayResultGraceMs: firstRelayGraceMs
+            firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS
           }
           )
 
@@ -582,6 +670,8 @@ const NoteList = forwardRef(
       }
     }, [
       timelineSubscriptionKey,
+      subRequestsKey,
+      preserveTimelineOnSubRequestsChange,
       refreshCount,
       showKindsKey,
       showKind1OPs,
@@ -589,7 +679,6 @@ const NoteList = forwardRef(
       showKind1111,
       useFilterAsIs,
       areAlgoRelays,
-      useTimelineCacheBootstrap,
       spellFetchTimeoutMs
     ])
 
@@ -614,6 +703,21 @@ const NoteList = forwardRef(
         clearTimeout(timer)
       }
     }, [timelineSubscriptionKey, refreshCount])
+
+    /** Spells: drop loading skeleton quickly so rows (or empty + reload) appear while REQ continues. */
+    useEffect(() => {
+      if (spellFetchTimeoutMs == null || spellFetchTimeoutMs <= 0) return
+      if (!subRequestsRef.current.length) return
+      let cancelled = false
+      const id = window.setTimeout(() => {
+        if (cancelled) return
+        setLoading(false)
+      }, spellFetchTimeoutMs)
+      return () => {
+        cancelled = true
+        clearTimeout(id)
+      }
+    }, [timelineSubscriptionKey, refreshCount, spellFetchTimeoutMs])
 
     // Use refs to avoid dependency issues and ensure latest values in async callbacks
     const showCountRef = useRef(showCount)
