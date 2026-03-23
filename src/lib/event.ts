@@ -10,6 +10,7 @@ import { hexPubkeysEqual, normalizeHexPubkey } from './pubkey'
 import {
   generateBech32IdFromATag,
   generateBech32IdFromETag,
+  getFirstHexEventIdFromETags,
   getImetaInfoFromImetaTag,
   tagNameEquals
 } from './tag'
@@ -72,6 +73,20 @@ export function isMentioningMutedUsers(event: Event, mutePubkeySet: Set<string>)
 
 export function getParentETag(event?: Event) {
   if (!event) return undefined
+
+  // NIP-25 reactions, NIP-18 reposts, poll responses: first hex `e` / `E` references the target note.
+  if (
+    event.kind === kinds.Reaction ||
+    event.kind === kinds.Repost ||
+    event.kind === ExtendedKind.POLL_RESPONSE
+  ) {
+    const firstId = getFirstHexEventIdFromETags(event.tags)
+    if (!firstId) return undefined
+    return (
+      event.tags.find((t) => t[0] === 'e' && t[1] === firstId) ??
+      event.tags.find((t) => t[0] === 'E' && t[1] === firstId)
+    )
+  }
 
   if (event.kind === ExtendedKind.COMMENT || event.kind === ExtendedKind.VOICE_COMMENT) {
     return event.tags.find(tagNameEquals('e')) ?? event.tags.find(tagNameEquals('E'))

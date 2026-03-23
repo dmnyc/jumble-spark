@@ -4,6 +4,8 @@ import { kinds } from 'nostr-tools'
 /** Kinds the main `Note` component renders with a dedicated UI (not `UnknownNote`). */
 const RENDERABLE_NOTE_KINDS = new Set<number>([
   ...SUPPORTED_KINDS,
+  kinds.Reaction,
+  ExtendedKind.POLL_RESPONSE,
   kinds.CommunityDefinition,
   kinds.LiveEvent,
   ExtendedKind.GROUP_METADATA,

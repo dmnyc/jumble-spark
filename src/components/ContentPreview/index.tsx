@@ -126,5 +126,32 @@ export default function ContentPreview({
     return <FollowPackPreview event={event} className={className} />
   }
 
+  if (event.kind === kinds.Reaction) {
+    const raw = event.content?.trim() ?? ''
+    const glyph = !raw ? '❤️' : raw.length > 24 ? `${raw.slice(0, 24)}…` : raw
+    return (
+      <div className={cn('pointer-events-none text-sm text-muted-foreground', className)}>
+        <span className="mr-1.5">{glyph}</span>
+        {t('Notification reaction summary')}
+      </div>
+    )
+  }
+
+  if (event.kind === kinds.Repost) {
+    return (
+      <div className={cn('pointer-events-none text-sm text-muted-foreground', className)}>
+        {t('Notification boost summary')}
+      </div>
+    )
+  }
+
+  if (event.kind === ExtendedKind.POLL_RESPONSE) {
+    return (
+      <div className={cn('pointer-events-none text-sm text-muted-foreground', className)}>
+        {t('Notification poll vote summary')}
+      </div>
+    )
+  }
+
   return <div className={className}>[{t('Cannot handle event of kind k', { k: event.kind })}]</div>
 }

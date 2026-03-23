@@ -41,6 +41,7 @@ import MutedNote from './MutedNote'
 import NsfwNote from './NsfwNote'
 import PictureNote from './PictureNote'
 import Poll from './Poll'
+import NotificationEventCard from './NotificationEventCard'
 import UnknownNote from './UnknownNote'
 import VideoNote from './VideoNote'
 import RelayReview from './RelayReview'
@@ -129,6 +130,12 @@ export default function Note({
     content = <MutedNote show={() => setShowMuted(true)} />
   } else if (!defaultShowNsfw && isNsfwEvent(event) && !showNsfw) {
     content = <NsfwNote show={() => setShowNsfw(true)} />
+  } else if (
+    event.kind === kinds.Reaction ||
+    event.kind === kinds.Repost ||
+    event.kind === ExtendedKind.POLL_RESPONSE
+  ) {
+    content = <NotificationEventCard className="mt-2" event={event} />
   } else if (event.kind === kinds.Highlights) {
     // Try to render the Highlight component with error boundary
     try {
