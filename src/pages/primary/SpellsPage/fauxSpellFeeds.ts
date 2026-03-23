@@ -2,21 +2,62 @@
  * Built-in “faux spells”: same NoteList + filters as kind-777 spells. The Spells page uses live
  * `subscribeTimeline` (same as Following) so the first relay results stream in immediately instead of
  * waiting for every relay to EOSE on a one-shot query.
+ *
+ * **Why faux feeds can feel slow:** each timeline shard opens live REQs over the prioritized relay
+ * stack (see {@link applyFauxSpellCapsToSubRequests}). The **interests** spell uses **one** shard: all subscribed
+ * topics go in a single `#t` filter (NIP-01 OR semantics). The notifications spell uses a narrow
+ * kind list vs full profile kinds.
  */
 import { ExtendedKind, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
-import {
-  extractHashtagsFromContent,
-  extractTTagsFromEvent,
-  normalizeTopic
-} from '@/lib/discussion-topics'
-import { getImetaInfosFromEvent } from '@/lib/event'
+import { normalizeTopic } from '@/lib/discussion-topics'
 import { normalizeUrl } from '@/lib/url'
 import type { TFeedSubRequest } from '@/types'
 import { type Event, type Filter, kinds } from 'nostr-tools'
 
-const NOTIFICATION_LIMIT = 500
-const DISCUSSION_LIMIT = 500
-const MAX_BOOKMARK_IDS = 250
+/** Default caps for every faux spell feed (relays per subrequest, events per REQ). */
+export const FAUX_SPELL_MAX_RELAYS = 6
+export const FAUX_SPELL_EVENT_LIMIT = 200
+
+/**
+ * Trim relay lists and filter limits (and bookmark `ids`) so faux feeds stay cheap to open.
+ */
+export function applyFauxSpellCapsToSubRequests(requests: TFeedSubRequest[]): TFeedSubRequest[] {
+  return requests.map((r) => {
+    const urls = r.urls.slice(0, FAUX_SPELL_MAX_RELAYS)
+    const f = { ...r.filter }
+    const prevLimit = f.limit
+    f.limit =
+      typeof prevLimit === 'number' && prevLimit > 0
+        ? Math.min(prevLimit, FAUX_SPELL_EVENT_LIMIT)
+        : FAUX_SPELL_EVENT_LIMIT
+    if (Array.isArray(f.ids) && f.ids.length > FAUX_SPELL_EVENT_LIMIT) {
+      f.ids = f.ids.slice(0, FAUX_SPELL_EVENT_LIMIT)
+    }
+    return { urls, filter: f }
+  })
+}
+
+/**
+ * Mention/notification-shaped kinds only (aligned with `NotificationProvider`, plus zap receipts).
+ * Not full {@link PROFILE_FEED_KINDS} — that asked relays for huge multi-kind slices per `#p`.
+ */
+export const NOTIFICATION_SPELL_KINDS = [
+  kinds.ShortTextNote,
+  kinds.Repost,
+  kinds.Reaction,
+  kinds.Zap,
+  ExtendedKind.COMMENT,
+  ExtendedKind.POLL_RESPONSE,
+  ExtendedKind.VOICE_COMMENT,
+  ExtendedKind.POLL,
+  ExtendedKind.PUBLIC_MESSAGE,
+  ExtendedKind.ZAP_RECEIPT
+] as const
+
+/**
+ * Max distinct `t` tag values in one filter (very long `#t` arrays can hit relay limits).
+ */
+const INTERESTS_MAX_TOPICS = 80
 
 /**
  * Append {@link READ_ONLY_RELAY_URLS} (e.g. aggr) after the curated set so every faux REQ includes them unless blocked.
@@ -40,6 +81,7 @@ export function appendCuratedReadOnlyRelays(curated: string[], blockedRelays: st
   return out
 }
 
+/** NIP-style native media kinds only (picture, video, short video, voice). */
 export const MEDIA_SPELL_KINDS = [
   ExtendedKind.PICTURE,
   ExtendedKind.VIDEO,
@@ -47,104 +89,12 @@ export const MEDIA_SPELL_KINDS = [
   ExtendedKind.VOICE
 ] as const
 
-/** Kinds shown in the Media faux spell: native media + kind 1 notes filtered by {@link mediaSpellExtraShouldHideEvent}. */
-export const MEDIA_SPELL_SHOW_KINDS = [
-  kinds.ShortTextNote,
-  ...MEDIA_SPELL_KINDS
-] as const
-
-/**
- * Topic roots for kind 1 in the Media spell: a note must also match one of these via `t` tag or `#hashtag`
- * (after {@link normalizeTopic}), **and** carry media (imeta / media URL / image|video|audio tag).
- */
-export const MEDIA_SPELL_TOPIC_SEEDS = [
-  'vlog',
-  'video',
-  'reel',
-  'gallery',
-  'podcast',
-  'photography',
-  'photo',
-  'music',
-  'screencast'
-] as const
-
-const MEDIA_SPELL_TOPIC_KEYWORDS = new Set(
-  MEDIA_SPELL_TOPIC_SEEDS.map((t) => normalizeTopic(t)).filter(Boolean)
-)
-
-function hasMediaSpellTopicTag(event: Event): boolean {
-  for (const topic of extractTTagsFromEvent(event)) {
-    if (topic && MEDIA_SPELL_TOPIC_KEYWORDS.has(topic)) return true
-  }
-  for (const topic of extractHashtagsFromContent(event.content)) {
-    if (topic && MEDIA_SPELL_TOPIC_KEYWORDS.has(topic)) return true
-  }
-  return false
-}
-
-function imetaTagsIndicateMedia(event: Event): boolean {
-  for (const im of getImetaInfosFromEvent(event)) {
-    const mime = im.m?.toLowerCase() ?? ''
-    if (mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/')) {
-      return true
-    }
-    const u = im.url ?? ''
-    if (
-      /\.(jpe?g|png|gif|webp|heic|mp4|webm|m4v|mov|mkv|avi|mp3|m4a|aac|ogg|opus|wav|flac)(\?|#|$)/i.test(
-        u
-      )
-    ) {
-      return true
-    }
-  }
-  return false
-}
-
-function hasImageOrStreamTag(event: Event): boolean {
-  for (const t of event.tags) {
-    const name = t[0]?.toLowerCase()
-    if (name === 'image' && t[1]?.startsWith('http')) return true
-    if ((name === 'video' || name === 'audio' || name === 'stream') && t[1]?.startsWith('http')) {
-      return true
-    }
-  }
-  return false
-}
-
-const CONTENT_MEDIA_FILE_EXT_RE =
-  /https?:\/\/[^\s<>"')]+\.(?:jpe?g|png|gif|webp|svg|bmp|heic|mp4|webm|m4v|mov|mkv|avi|mp3|m4a|aac|ogg|opus|wav|flac)(?:[\w#./?&=%~+-]*)/i
-
-/** Embed-style hosts (excludes GIF sticker sites like Giphy/Tenor). */
-const CONTENT_MEDIA_HOST_RE =
-  /https?:\/\/(?:(?:[\w-]+\.)*(?:spotify\.com|fountain\.fm)\/|(?:www\.)?(?:youtube\.com\/(?:watch|embed|shorts)|youtu\.be\/|vimeo\.com\/|twitch\.tv\/|instagram\.com\/|(?:i\.)?imgur\.com\/|soundcloud\.com\/|(?:www\.)?tiktok\.com\/|rumble\.com\/|odysee\.com\/))/i
-
-function contentHasMediaUrl(content: string): boolean {
-  return CONTENT_MEDIA_FILE_EXT_RE.test(content) || CONTENT_MEDIA_HOST_RE.test(content)
-}
-
-function hasKind1MediaPayload(event: Event): boolean {
-  return imetaTagsIndicateMedia(event) || hasImageOrStreamTag(event) || contentHasMediaUrl(event.content)
-}
-
-/** Kind 1: require {@link MEDIA_SPELL_TOPIC_SEEDS} match **and** imeta / media URL / image|video|audio tag. */
-export function isKind1MediaSpellEligible(event: Event): boolean {
-  if (event.kind !== kinds.ShortTextNote) return false
-  return hasMediaSpellTopicTag(event) && hasKind1MediaPayload(event)
-}
-
-/** NoteList `extraShouldHideEvent`: hide kind 1 notes that fail the combined topic + media check. */
-export function mediaSpellExtraShouldHideEvent(evt: Event): boolean {
-  if (evt.kind !== kinds.ShortTextNote) return false
-  return !isKind1MediaSpellEligible(evt)
-}
-
-/** Notifications spell: same kind set as profile-style feeds, restricted to `#p` = you on the relay. */
+/** Notifications faux spell: `#p` = you, narrow kinds — see module docstring. */
 export function buildMentionsSpellFilter(pubkey: string): Filter {
   const pk = /^[0-9a-f]{64}$/i.test(pubkey.trim()) ? pubkey.trim().toLowerCase() : pubkey.trim()
   return {
-    kinds: [...PROFILE_FEED_KINDS],
-    limit: NOTIFICATION_LIMIT,
+    kinds: [...NOTIFICATION_SPELL_KINDS],
+    limit: FAUX_SPELL_EVENT_LIMIT,
     '#p': [pk]
   }
 }
@@ -152,22 +102,25 @@ export function buildMentionsSpellFilter(pubkey: string): Filter {
 export function buildDiscussionFilter(): Filter {
   return {
     kinds: [ExtendedKind.DISCUSSION],
-    limit: DISCUSSION_LIMIT
+    limit: FAUX_SPELL_EVENT_LIMIT
   }
 }
 
 export function buildMediaSpellFilter(): Filter {
-  return { kinds: [...MEDIA_SPELL_SHOW_KINDS], limit: 500 }
+  return { kinds: [...MEDIA_SPELL_KINDS], limit: FAUX_SPELL_EVENT_LIMIT }
 }
 
 export function buildCalendarSpellFilter(): Filter {
   return {
     kinds: [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME],
-    limit: 200
+    limit: FAUX_SPELL_EVENT_LIMIT
   }
 }
 
-/** One subrequest per topic (OR). Uses same kind set as the main profile/favorites feed. */
+/**
+ * One subrequest for all interests: NIP-01 treats multiple `#t` values as OR (any topic matches).
+ * Same relay set as before, but a single timeline shard instead of one per hashtag.
+ */
 export function buildInterestsSubRequests(
   relayUrls: string[],
   rawTopics: string[],
@@ -176,16 +129,18 @@ export function buildInterestsSubRequests(
   if (!relayUrls.length || !rawTopics.length || !kindsList.length) return []
   const topics = Array.from(
     new Set(rawTopics.map((t) => normalizeTopic(t)).filter((t) => t.length > 0))
-  )
+  ).slice(0, INTERESTS_MAX_TOPICS)
   if (!topics.length) return []
-  return topics.map((topic) => ({
-    urls: relayUrls,
-    filter: {
-      kinds: kindsList,
-      '#t': [topic],
-      limit: 400
+  return [
+    {
+      urls: relayUrls,
+      filter: {
+        kinds: kindsList,
+        '#t': topics,
+        limit: FAUX_SPELL_EVENT_LIMIT
+      }
     }
-  }))
+  ]
 }
 
 /** Bookmark list e-tags only (hex ids); addressable (a-tag) bookmarks need separate fetches. */
@@ -195,5 +150,7 @@ export function buildBookmarksSubRequests(bookmarkListEvent: Event | null, urls:
     .filter((t) => t[0] === 'e' && t[1] && /^[a-f0-9]{64}$/i.test(t[1]))
     .map((t) => t[1] as string)
   if (!ids.length) return []
-  return [{ urls, filter: { ids: ids.slice(0, MAX_BOOKMARK_IDS), limit: MAX_BOOKMARK_IDS } }]
+  const cap = FAUX_SPELL_EVENT_LIMIT
+  const slice = ids.slice(0, cap)
+  return [{ urls, filter: { ids: slice, limit: slice.length } }]
 }

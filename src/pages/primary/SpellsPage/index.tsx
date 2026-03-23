@@ -87,14 +87,16 @@ import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
 import {
   appendCuratedReadOnlyRelays,
+  applyFauxSpellCapsToSubRequests,
   buildBookmarksSubRequests,
   buildCalendarSpellFilter,
   buildDiscussionFilter,
   buildInterestsSubRequests,
   buildMediaSpellFilter,
   buildMentionsSpellFilter,
-  MEDIA_SPELL_SHOW_KINDS,
-  mediaSpellExtraShouldHideEvent
+  FAUX_SPELL_EVENT_LIMIT,
+  MEDIA_SPELL_KINDS,
+  NOTIFICATION_SPELL_KINDS
 } from './fauxSpellFeeds'
 import type { TPageRef } from '@/types'
 
@@ -709,7 +711,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return [
         {
           urls,
-          filter: { kinds: [ExtendedKind.FOLLOW_PACK], limit: 100 }
+          filter: { kinds: [ExtendedKind.FOLLOW_PACK], limit: FAUX_SPELL_EVENT_LIMIT }
         }
       ]
     }
@@ -717,8 +719,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   }, [selectedFauxSpell, pubkey, fauxFeedRelaysDepsKey, relayMailboxStableKey])
 
   const fauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
-    if (selectedFauxSpell === 'following') return followingSubRequests
-    return syncFauxSubRequests
+    const base =
+      selectedFauxSpell === 'following' ? followingSubRequests : syncFauxSubRequests
+    return applyFauxSpellCapsToSubRequests(base)
   }, [selectedFauxSpell, followingSubRequests, syncFauxSubRequests])
 
   const spellSubRequests = useMemo<TFeedSubRequest[]>(() => {
@@ -845,7 +848,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const showKinds = useMemo(() => {
     if (selectedFauxSpell === 'notifications') {
-      return PROFILE_FEED_KINDS
+      return [...NOTIFICATION_SPELL_KINDS]
     }
     if (selectedFauxSpell === 'discussions') {
       return [ExtendedKind.DISCUSSION]
@@ -857,7 +860,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return [ExtendedKind.FOLLOW_PACK]
     }
     if (selectedFauxSpell === 'media') {
-      return [...MEDIA_SPELL_SHOW_KINDS]
+      return [...MEDIA_SPELL_KINDS]
     }
     if (selectedFauxSpell === 'calendar') {
       return [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME]
@@ -1343,9 +1346,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   extraShouldHideEvent={
                     selectedFauxSpell === 'notifications' && pubkey
                       ? notificationsMentionExtraHide
-                      : selectedFauxSpell === 'media'
-                        ? mediaSpellExtraShouldHideEvent
-                        : undefined
+                      : undefined
                   }
                   hideUntrustedNotes={
                     selectedFauxSpell === 'notifications' ? hideUntrustedNotifications : false
