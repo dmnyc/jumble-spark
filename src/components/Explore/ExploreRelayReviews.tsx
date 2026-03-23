@@ -8,12 +8,17 @@ import { appendCuratedReadOnlyRelays } from '@/pages/primary/SpellsPage/fauxSpel
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
+import { Loader2 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const REVIEW_QUERY_LIMIT = 100
 const SHOW_COUNT = 20
+/** Fewer sockets + faster aggregate EOSE than full inbox stack; read-only mirrors still appended then capped. */
+const EXPLORE_REVIEWS_MAX_RELAYS = 12
+/** After all relays EOSE, wait longer than default so slow mirrors can flush events (default query eose is 500ms). */
+const EXPLORE_REVIEWS_EOSE_TAIL_MS = 4500
 
 function dedupeRelayReviewsNewestFirst(events: Event[]): Event[] {
   const sorted = [...events].sort((a, b) => b.created_at - a.created_at)
@@ -33,19 +38,22 @@ export default function ExploreRelayReviews() {
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { relayList } = useNostr()
 
-  const relayUrls = useMemo(
-    () =>
-      appendCuratedReadOnlyRelays(
-        getRelayUrlsWithFavoritesFastReadAndInbox(
-          favoriteRelays,
-          blockedRelays,
-          relayList?.read ?? [],
-          { userWriteRelays: relayList?.write ?? [] }
-        ),
-        blockedRelays
+  const relayUrls = useMemo(() => {
+    const stacked = appendCuratedReadOnlyRelays(
+      getRelayUrlsWithFavoritesFastReadAndInbox(
+        favoriteRelays,
+        blockedRelays,
+        relayList?.read ?? [],
+        {
+          userWriteRelays: relayList?.write ?? [],
+          maxRelays: EXPLORE_REVIEWS_MAX_RELAYS,
+          applyKind1BlockedFilter: false
+        }
       ),
-    [favoriteRelays, blockedRelays, relayList]
-  )
+      blockedRelays
+    )
+    return stacked.slice(0, EXPLORE_REVIEWS_MAX_RELAYS)
+  }, [favoriteRelays, blockedRelays, relayList])
 
   const relayUrlsKey = useMemo(() => relayUrls.join('|'), [relayUrls])
 
@@ -53,8 +61,10 @@ export default function ExploreRelayReviews() {
   const [events, setEvents] = useState<Event[]>([])
   const [showCount, setShowCount] = useState(SHOW_COUNT)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fetchGenRef = useRef(0)
 
   useEffect(() => {
+    const gen = ++fetchGenRef.current
     let cancelled = false
     setLoading(true)
     setEvents([])
@@ -67,27 +77,26 @@ export default function ExploreRelayReviews() {
           { kinds: [ExtendedKind.RELAY_REVIEW], limit: REVIEW_QUERY_LIMIT },
           {
             onevent: (e) => {
-              if (cancelled) return
+              if (cancelled || fetchGenRef.current !== gen) return
               if (e.kind === ExtendedKind.RELAY_REVIEW && getRelayUrlFromRelayReviewEvent(e)) {
-                setLoading(false)
                 setEvents((prev) => dedupeRelayReviewsNewestFirst([...prev, e]))
               }
             },
             firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS,
             globalTimeout: 12_000,
-            eoseTimeout: 800,
+            eoseTimeout: EXPLORE_REVIEWS_EOSE_TAIL_MS,
             cache: true
           }
         )
-        if (cancelled) return
+        if (cancelled || fetchGenRef.current !== gen) return
         const withRelay = raw.filter(
           (e) => e.kind === ExtendedKind.RELAY_REVIEW && getRelayUrlFromRelayReviewEvent(e)
         )
-        setEvents(dedupeRelayReviewsNewestFirst(withRelay))
+        setEvents((prev) => dedupeRelayReviewsNewestFirst([...prev, ...withRelay]))
       } catch {
-        if (!cancelled) setEvents([])
+        if (!cancelled && fetchGenRef.current === gen) setEvents([])
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && fetchGenRef.current === gen) setLoading(false)
       }
     })()
 
@@ -111,16 +120,18 @@ export default function ExploreRelayReviews() {
   }, [showCount, events.length])
 
   const visible = events.slice(0, showCount)
+  const showInitialSkeleton = loading && events.length === 0
+  const showEmptyAfterLoad = !loading && events.length === 0
 
   return (
     <div className="min-w-0 pt-1 pb-8">
-      {loading ? (
+      {showInitialSkeleton ? (
         <div className="grid min-w-0 md:px-4 md:grid-cols-2 md:gap-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-40 rounded-lg border md:border" />
           ))}
         </div>
-      ) : events.length === 0 ? (
+      ) : showEmptyAfterLoad ? (
         <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t('no relays found')}</p>
       ) : (
         <>
@@ -129,8 +140,18 @@ export default function ExploreRelayReviews() {
               <RelayReviewCard key={event.id} event={event} className="border-b md:border md:border-border" />
             ))}
           </div>
+          {loading ? (
+            <div
+              className="mt-4 flex items-center justify-center gap-2 text-sm text-muted-foreground"
+              aria-busy="true"
+              aria-live="polite"
+            >
+              <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+              {t('Loading...')}
+            </div>
+          ) : null}
           {showCount < events.length ? <div ref={bottomRef} className="h-4" aria-hidden /> : null}
-          {showCount >= events.length ? (
+          {!loading && showCount >= events.length ? (
             <p className="mt-3 text-center text-sm text-muted-foreground">{t('no more relays')}</p>
           ) : null}
         </>
