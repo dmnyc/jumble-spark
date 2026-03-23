@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Event } from 'nostr-tools'
-import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
+import {
+  buildProfilePageReadRelayUrls,
+  PROFILE_PAGE_PINS_RESOLVE_LIMIT
+} from '@/lib/favorites-feed-relays'
 import logger from '@/lib/logger'
-import { normalizeUrl } from '@/lib/url'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
-import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
-import { queryService, replaceableEventService } from '@/services/client.service'
+import { queryService } from '@/services/client.service'
 
 const CACHE_DURATION = 5 * 60 * 1000
 
@@ -57,23 +58,9 @@ function orderPinEvents(pinList: Event, eventsById: Map<string, Event>): Event[]
 }
 
 export function useProfilePins(pubkey: string | undefined) {
-  const { pubkey: myPubkey } = useNostr()
-  const { favoriteRelays } = useFavoriteRelays()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const [pinEvents, setPinEvents] = useState<Event[]>([])
   const [loadingPins, setLoadingPins] = useState(false)
-
-  const buildComprehensiveRelayList = useCallback(async () => {
-    const myRelayList = myPubkey ? await client.fetchRelayList(myPubkey) : { write: [], read: [] }
-    const allRelays = [
-      ...(myRelayList.read || []),
-      ...(myRelayList.write || []),
-      ...(favoriteRelays || []),
-      ...FAST_READ_RELAY_URLS,
-      ...FAST_WRITE_RELAY_URLS
-    ]
-    const normalized = allRelays.map((url) => normalizeUrl(url)).filter((url): url is string => !!url)
-    return Array.from(new Set(normalized))
-  }, [myPubkey, favoriteRelays])
 
   const loadPins = useCallback(
     async (forceRefresh = false) => {
@@ -93,18 +80,28 @@ export function useProfilePins(pubkey: string | undefined) {
 
       setLoadingPins(true)
       try {
-        const comprehensiveRelays = await buildComprehensiveRelayList()
-        let pinList: Event | null = null
-        try {
-          const pinListEvents = await queryService.fetchEvents(comprehensiveRelays, {
-            authors: [pubkey],
-            kinds: [10001],
-            limit: 1
-          })
-          pinList = pinListEvents[0] || null
-        } catch {
-          pinList = (await replaceableEventService.fetchReplaceableEvent(pubkey, 10001)) ?? null
+        const authorRl = await client.fetchRelayList(pubkey).catch(() => ({
+          read: [] as string[],
+          write: [] as string[]
+        }))
+        const profileRelays = buildProfilePageReadRelayUrls(
+          favoriteRelays,
+          blockedRelays,
+          authorRl,
+          false
+        )
+        if (!profileRelays.length) {
+          setPinEvents([])
+          pinsCache.set(cacheKey, { events: [], lastUpdated: Date.now() })
+          return
         }
+
+        const pinListEvents = await queryService.fetchEvents(profileRelays, {
+          authors: [pubkey],
+          kinds: [10001],
+          limit: 1
+        })
+        const pinList: Event | null = pinListEvents[0] || null
 
         if (!pinList?.tags?.length) {
           setPinEvents([])
@@ -112,13 +109,19 @@ export function useProfilePins(pubkey: string | undefined) {
           return
         }
 
-        const eventIds = pinList.tags.filter((tag) => tag[0] === 'e' && tag[1]).map((tag) => tag[1])
-        const aTags = pinList.tags.filter((tag) => tag[0] === 'a' && tag[1]).map((tag) => tag[1])
+        const max = PROFILE_PAGE_PINS_RESOLVE_LIMIT
+        const eventIds: string[] = []
+        const aTags: string[] = []
+        for (const tag of pinList.tags) {
+          if (eventIds.length + aTags.length >= max) break
+          if (tag[0] === 'e' && tag[1]) eventIds.push(tag[1])
+          else if (tag[0] === 'a' && tag[1]) aTags.push(tag[1])
+        }
 
         const eventPromises: Promise<Event[]>[] = []
         if (eventIds.length > 0) {
           eventPromises.push(
-            queryService.fetchEvents(comprehensiveRelays, { ids: eventIds, limit: 100 })
+            queryService.fetchEvents(profileRelays, { ids: eventIds, limit: max })
           )
         }
         if (aTags.length > 0) {
@@ -131,7 +134,7 @@ export function useProfilePins(pubkey: string | undefined) {
             const filter = d
               ? { authors: [author], kinds: [kind], limit: 1, '#d': [d] as [string] }
               : { authors: [author], kinds: [kind], limit: 1 }
-            const events = await queryService.fetchEvents(comprehensiveRelays, [filter])
+            const events = await queryService.fetchEvents(profileRelays, [filter])
             return events[0] || null
           })
           eventPromises.push(
@@ -158,7 +161,7 @@ export function useProfilePins(pubkey: string | undefined) {
         setLoadingPins(false)
       }
     },
-    [pubkey, buildComprehensiveRelayList]
+    [pubkey, favoriteRelays, blockedRelays]
   )
 
   useEffect(() => {
@@ -166,8 +169,7 @@ export function useProfilePins(pubkey: string | undefined) {
       setPinEvents([])
       return
     }
-    const t = setTimeout(() => void loadPins(false), 200)
-    return () => clearTimeout(t)
+    void loadPins(false)
   }, [pubkey, loadPins])
 
   const refreshPins = useCallback(() => {

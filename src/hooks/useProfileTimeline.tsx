@@ -3,9 +3,8 @@ import client from '@/services/client.service'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Event } from 'nostr-tools'
 import { CALENDAR_EVENT_KINDS, ExtendedKind } from '@/constants'
-import { getRelayUrlsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
+import { buildProfilePageReadRelayUrls } from '@/lib/favorites-feed-relays'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
-import { useNostr } from '@/providers/NostrProvider'
 
 type ProfileTimelineMemoryEntry = {
   events: Event[]
@@ -91,7 +90,6 @@ export function useProfileTimeline({
   filterPredicate
 }: UseProfileTimelineOptions): UseProfileTimelineResult {
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
-  const { relayList } = useNostr()
   const { isEventDeleted, tombstoneEpoch } = useDeletedEvent()
   const isEventDeletedRef = useRef(isEventDeleted)
   isEventDeletedRef.current = isEventDeleted
@@ -105,20 +103,7 @@ export function useProfileTimeline({
   const [events, setEvents] = useState<Event[]>(cachedEntry?.events ?? [])
   const [isLoading, setIsLoading] = useState(!cachedEntry)
   const [refreshToken, setRefreshToken] = useState(0)
-  const [authorOutboxWrite, setAuthorOutboxWrite] = useState<string[]>([])
   const subscriptionRef = useRef<() => void>(() => {})
-
-  useEffect(() => {
-    let cancelled = false
-    setAuthorOutboxWrite([])
-    void client.fetchRelayList(pubkey).then((rl) => {
-      if (cancelled || !rl?.write?.length) return
-      setAuthorOutboxWrite(rl.write)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [pubkey])
 
   useEffect(() => {
     setEvents((prev) => {
@@ -178,15 +163,15 @@ export function useProfileTimeline({
       }
 
       const hasCalendarKinds = kinds.some((k) => CALENDAR_EVENT_KINDS.includes(k))
-      const feedRelayUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
+      const authorRl = await client.fetchRelayList(pubkey).catch(() => ({
+        read: [] as string[],
+        write: [] as string[]
+      }))
+      const feedRelayUrls = buildProfilePageReadRelayUrls(
         favoriteRelays,
         blockedRelays,
-        relayList?.read ?? [],
-        {
-          userWriteRelays: relayList?.write ?? [],
-          authorWriteRelays: authorOutboxWrite,
-          applyKind1BlockedFilter: kinds.includes(1)
-        }
+        authorRl,
+        kinds.includes(1)
       )
 
       const startWave = async (subRequests: ReturnType<typeof buildSubRequests>) => {
@@ -239,9 +224,7 @@ export function useProfileTimeline({
     filterPredicate,
     refreshToken,
     favoriteRelays,
-    blockedRelays,
-    relayList,
-    authorOutboxWrite
+    blockedRelays
   ])
 
   const refresh = useCallback(() => {

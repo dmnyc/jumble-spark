@@ -111,6 +111,30 @@ export function getRelayUrlsWithFavoritesFastReadAndInbox(
   })
 }
 
+/** Profile page pins + feed: author's NIP-65 read/write, then favorites, then fast-read defaults, capped. */
+export const PROFILE_PAGE_FEED_MAX_RELAYS = 6
+
+export const PROFILE_PAGE_PINS_RESOLVE_LIMIT = 10
+
+export function buildProfilePageReadRelayUrls(
+  favoriteRelays: string[],
+  blockedRelays: string[],
+  authorRelayList: { read: string[]; write: string[] },
+  kindsIncludeKind1: boolean
+): string[] {
+  return getRelayUrlsWithFavoritesFastReadAndInbox(
+    favoriteRelays,
+    blockedRelays,
+    authorRelayList.read ?? [],
+    {
+      userWriteRelays: authorRelayList.write ?? [],
+      authorWriteRelays: [],
+      maxRelays: PROFILE_PAGE_FEED_MAX_RELAYS,
+      applyKind1BlockedFilter: kindsIncludeKind1
+    }
+  )
+}
+
 /**
  * Per subrequest: shared inbox → author/favorites → fast read stack, normalized, user-blocked and (when applicable)
  * kind-1-blocked stripped, deduped, capped. Subrequest `urls` are prepended first by default (following shards);
