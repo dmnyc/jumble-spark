@@ -6,6 +6,7 @@ import { toAlexandria } from '@/lib/link'
 import logger from '@/lib/logger'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
+import { buildPinListTagsAfterToggle, fetchLatestReplaceableListEvent } from '@/lib/replaceable-list-latest'
 import { generateBech32IdFromATag } from '@/lib/tag'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -13,7 +14,7 @@ import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
-import { eventService, queryService } from '@/services/client.service'
+import { eventService } from '@/services/client.service'
 import { nip66Service } from '@/services/nip66.service'
 import {
   Bell,
@@ -40,7 +41,7 @@ import { useMemo, useState, useEffect, useContext } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import RelayIcon from '../RelayIcon'
-import { PrimaryPageContext } from '@/PageManager'
+import { PrimaryPageContext } from '@/contexts/primary-page-context'
 import { showPublishingFeedback } from '@/lib/publishing-feedback'
 import type { TEditOrCloneMode } from './EditOrCloneEventDialog'
 
@@ -148,18 +149,20 @@ export function useMenuActions({
         
         const comprehensiveRelays = Array.from(new Set(normalizedRelays))
         
-        // Try to fetch pin list event from comprehensive relay list first
-        let pinListEvent = null
-        try {
-          const pinListEvents = await queryService.fetchEvents(comprehensiveRelays, {
-            authors: [pubkey],
-            kinds: [10001], // Pin list kind
-            limit: 1
-          })
-          pinListEvent = pinListEvents[0] || null
-        } catch (error) {
-          logger.component('PinStatus', 'Error fetching pin list from comprehensive relays, falling back to default method', { error: (error as Error).message })
-          pinListEvent = await client.fetchPinListEvent(pubkey)
+        let pinListEvent: Event | null | undefined = await fetchLatestReplaceableListEvent(
+          pubkey,
+          10001,
+          comprehensiveRelays
+        )
+        if (!pinListEvent) {
+          try {
+            pinListEvent = (await client.fetchPinListEvent(pubkey)) ?? null
+          } catch (error) {
+            logger.component('PinStatus', 'Error fetching pin list fallback', {
+              error: (error as Error).message
+            })
+            pinListEvent = null
+          }
         }
         
         if (pinListEvent) {
@@ -192,46 +195,20 @@ export function useMenuActions({
       
       const comprehensiveRelays = Array.from(new Set(normalizedRelays))
       
-      // Try to fetch pin list event from comprehensive relay list first
-      let pinListEvent = null
-      try {
-        const pinListEvents = await queryService.fetchEvents(comprehensiveRelays, {
-          authors: [pubkey],
-          kinds: [10001], // Pin list kind
-          limit: 1
-        })
-        pinListEvent = pinListEvents[0] || null
-      } catch (error) {
-        logger.component('PinNote', 'Error fetching pin list from comprehensive relays, falling back to default method', { error: (error as Error).message })
-        pinListEvent = await client.fetchPinListEvent(pubkey)
+      let latestPinList = await fetchLatestReplaceableListEvent(pubkey, 10001, comprehensiveRelays)
+      if (!latestPinList) {
+        try {
+          latestPinList = (await client.fetchPinListEvent(pubkey)) ?? undefined
+        } catch (error) {
+          logger.component('PinNote', 'Pin list fallback fetch failed', { error: (error as Error).message })
+        }
       }
-      
-      logger.component('PinNote', 'Current pin list event', { hasEvent: !!pinListEvent })
-      
-      // Get existing event IDs, excluding the one we're toggling
-      const existingEventIds = (pinListEvent?.tags || [])
-        .filter(tag => tag[0] === 'e' && tag[1])
-        .map(tag => tag[1])
-        .filter(id => id !== event.id)
-      
-      logger.component('PinNote', 'Existing event IDs (excluding current)', { count: existingEventIds.length })
-      logger.component('PinNote', 'Current event ID', { eventId: event.id })
-      logger.component('PinNote', 'Is currently pinned', { isPinned })
-      
-      let newTags: string[][]
-      let successMessage: string
-      
-      if (isPinned) {
-        // Unpin: just keep the existing tags without this event
-        newTags = existingEventIds.map(id => ['e', id])
-        successMessage = t('Note unpinned')
-        logger.component('PinNote', 'Unpinning - new tags', { count: newTags.length })
-      } else {
-        // Pin: add this event to the existing list
-        newTags = [...existingEventIds.map(id => ['e', id]), ['e', event.id]]
-        successMessage = t('Note pinned')
-        logger.component('PinNote', 'Pinning - new tags', { count: newTags.length })
-      }
+
+      logger.component('PinNote', 'Current pin list event', { hasEvent: !!latestPinList })
+
+      const newTags = buildPinListTagsAfterToggle(latestPinList ?? null, event.id, !isPinned)
+      const successMessage = isPinned ? t('Note unpinned') : t('Note pinned')
+      logger.component('PinNote', 'Pin list tag count after merge', { count: newTags.length })
       
       // Create and publish the new pin list event
       logger.component('PinNote', 'Publishing new pin list event', { tagCount: newTags.length, relayCount: comprehensiveRelays.length })

@@ -1,4 +1,4 @@
-import { DEFAULT_FAVORITE_RELAYS } from '@/constants'
+import { DEFAULT_FAVORITE_RELAYS, FAST_READ_RELAY_URLS, READ_ONLY_RELAY_URLS } from '@/constants'
 import type { TFeedSubRequest } from '@/types'
 import { normalizeUrl } from '@/lib/url'
 import type { Filter } from 'nostr-tools'
@@ -65,6 +65,23 @@ export function mergeRelayUrlLayers(layers: string[][], blockedRelays: string[])
     }
   }
   return out
+}
+
+/**
+ * Profile pins + media: prepend {@link READ_ONLY_RELAY_URLS} and {@link FAST_READ_RELAY_URLS} to the
+ * capped NIP-65 stack so REQ still hits aggregators when the author’s six relays fill the profile cap alone.
+ */
+export const PROFILE_AUGMENTED_READ_MAX_RELAYS = 16
+
+export function buildProfileAugmentedReadRelayUrls(
+  profileRelayUrls: string[],
+  blockedRelays: string[],
+  maxRelays: number = PROFILE_AUGMENTED_READ_MAX_RELAYS
+): string[] {
+  const readOnlyLayer = READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean)
+  const fastReadLayer = FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean)
+  const merged = mergeRelayUrlLayers([readOnlyLayer, fastReadLayer, profileRelayUrls], blockedRelays)
+  return merged.slice(0, maxRelays)
 }
 
 export type ReadRelayPriorityOptions = {

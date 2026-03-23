@@ -1,6 +1,7 @@
 import ScrollToTopButton from '@/components/ScrollToTopButton'
 import { Titlebar } from '@/components/Titlebar'
-import { TPrimaryPageName, usePrimaryPage } from '@/PageManager'
+import { usePrimaryPage } from '@/contexts/primary-page-context'
+import type { TPrimaryPageName } from '@/PageManager'
 import { DeepBrowsingProvider } from '@/providers/DeepBrowsingProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import {

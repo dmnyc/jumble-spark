@@ -1,14 +1,18 @@
 import { Event } from 'nostr-tools'
 import {
+  buildProfileAugmentedReadRelayUrls,
   buildProfilePageReadRelayUrls,
   PROFILE_PAGE_PINS_RESOLVE_LIMIT
 } from '@/lib/favorites-feed-relays'
-import logger from '@/lib/logger'
+import {
+  METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS,
+  METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS
+} from '@/constants'
+import { normalizeHexPubkey } from '@/lib/pubkey'
 import { normalizeUrl } from '@/lib/url'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
-import client from '@/services/client.service'
-import { queryService } from '@/services/client.service'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import client, { eventService, queryService } from '@/services/client.service'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 
 const CACHE_DURATION = 5 * 60 * 1000
 
@@ -25,33 +29,41 @@ function orderPinEvents(pinList: Event, eventsById: Map<string, Event>): Event[]
 
   const eIds = pinList.tags
     .filter((tag) => tag[0] === 'e' && tag[1])
-    .map((tag) => tag[1])
+    .map((tag) => tag[1]!.toLowerCase())
     .reverse()
 
   for (const id of eIds) {
     const ev = eventsById.get(id)
-    if (ev && !seen.has(ev.id)) {
-      ordered.push(ev)
-      seen.add(ev.id)
+    if (ev) {
+      const k = ev.id.toLowerCase()
+      if (!seen.has(k)) {
+        ordered.push(ev)
+        seen.add(k)
+      }
     }
   }
 
-  const aTags = pinList.tags.filter((tag) => tag[0] === 'a' && tag[1]).map((tag) => tag[1])
+  const aTags = pinList.tags.filter((tag) => tag[0] === 'a' && tag[1]).map((tag) => tag[1]!)
   for (const coord of aTags) {
+    const want = coord.toLowerCase()
     const ev = [...eventsById.values()].find((e) => {
       const d = e.tags.find((t) => t[0] === 'd')?.[1] ?? ''
-      return `${e.kind}:${e.pubkey}:${d}` === coord
+      return `${e.kind}:${e.pubkey}:${d}`.toLowerCase() === want
     })
-    if (ev && !seen.has(ev.id)) {
-      ordered.push(ev)
-      seen.add(ev.id)
+    if (ev) {
+      const k = ev.id.toLowerCase()
+      if (!seen.has(k)) {
+        ordered.push(ev)
+        seen.add(k)
+      }
     }
   }
 
   for (const ev of eventsById.values()) {
-    if (!seen.has(ev.id)) {
+    const k = ev.id.toLowerCase()
+    if (!seen.has(k)) {
       ordered.push(ev)
-      seen.add(ev.id)
+      seen.add(k)
     }
   }
 
@@ -73,6 +85,26 @@ export function useProfilePins(pubkey: string | undefined) {
   const [pinEvents, setPinEvents] = useState<Event[]>([])
   const [loadingPins, setLoadingPins] = useState(false)
 
+  /** Same-tab paint: show cached pins before async relay work (matches timeline showing memory cache). */
+  useLayoutEffect(() => {
+    if (!pubkey) {
+      setPinEvents([])
+      return
+    }
+    const cacheKey = `${pubkey}-pins-profile`
+    const cached = pinsCache.get(cacheKey)
+    if (
+      cached &&
+      cached.events.length > 0 &&
+      Date.now() - cached.lastUpdated < CACHE_DURATION
+    ) {
+      setPinEvents(cached.events)
+      cached.events.forEach((e) => client.addEventToCache(e))
+    } else {
+      setPinEvents([])
+    }
+  }, [pubkey])
+
   const loadPins = useCallback(
     async (forceRefresh = false) => {
       if (!pubkey) {
@@ -82,7 +114,13 @@ export function useProfilePins(pubkey: string | undefined) {
       const cacheKey = `${pubkey}-pins-profile`
       if (!forceRefresh) {
         const cached = pinsCache.get(cacheKey)
-        if (cached && Date.now() - cached.lastUpdated < CACHE_DURATION) {
+        // Only reuse cache for non-empty pin rows. Empty was previously cached on transient relay
+        // failures / races, which hid pins for CACHE_DURATION with no refetch.
+        if (
+          cached &&
+          cached.events.length > 0 &&
+          Date.now() - cached.lastUpdated < CACHE_DURATION
+        ) {
           setPinEvents(cached.events)
           cached.events.forEach((e) => client.addEventToCache(e))
           return
@@ -91,10 +129,14 @@ export function useProfilePins(pubkey: string | undefined) {
 
       setLoadingPins(true)
       try {
-        const authorRl = await client.fetchRelayList(pubkey).catch(() => ({
-          read: [] as string[],
-          write: [] as string[]
-        }))
+        const pk = normalizeHexPubkey(pubkey)
+        const [authorRl, pinListEarly] = await Promise.all([
+          client.fetchRelayList(pk).catch(() => ({
+            read: [] as string[],
+            write: [] as string[]
+          })),
+          client.fetchPinListEvent(pk).catch(() => undefined)
+        ])
         // Same stack as profile feed: viewed npub NIP-65 read+write → your favorites → FAST_READ_RELAY_URLS,
         // deduped, blocked stripped, max PROFILE_PAGE_FEED_MAX_RELAYS (6). Relays here accept `#d` on REQ.
         const profileRelays = buildProfilePageReadRelayUrls(
@@ -103,22 +145,41 @@ export function useProfilePins(pubkey: string | undefined) {
           authorRl,
           false
         )
-        if (!profileRelays.length) {
+        const pinsResolveRelays = buildProfileAugmentedReadRelayUrls(profileRelays, blockedRelays)
+        if (!pinsResolveRelays.length) {
           setPinEvents([])
-          pinsCache.set(cacheKey, { events: [], lastUpdated: Date.now() })
           return
         }
 
-        const pinListEvents = await queryService.fetchEvents(profileRelays, {
-          authors: [pubkey],
-          kinds: [10001],
-          limit: 1
-        })
-        const pinList: Event | null = pinListEvents[0] || null
+        let pinList: Event | null = pinListEarly ?? null
 
-        if (!pinList?.tags?.length) {
+        if (!pinList) {
+          try {
+            const rows = await queryService.fetchEvents(
+              pinsResolveRelays,
+              { authors: [pk], kinds: [10001], limit: 1 },
+              {
+                replaceableRace: true,
+                eoseTimeout: METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS,
+                globalTimeout: METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS
+              }
+            )
+            pinList =
+              rows.length > 0
+                ? rows.reduce((best, e) => (e.created_at > best.created_at ? e : best))
+                : null
+          } catch {
+            pinList = null
+          }
+        }
+
+        if (!pinList) {
           setPinEvents([])
-          pinsCache.set(cacheKey, { events: [], lastUpdated: Date.now() })
+          return
+        }
+
+        if (!pinList.tags?.length) {
+          setPinEvents([])
           return
         }
 
@@ -127,16 +188,30 @@ export function useProfilePins(pubkey: string | undefined) {
         const aTags: string[] = []
         for (const tag of pinList.tags) {
           if (eventIds.length + aTags.length >= max) break
-          if (tag[0] === 'e' && tag[1]) eventIds.push(tag[1])
+          if (tag[0] === 'e' && tag[1]) eventIds.push(tag[1].toLowerCase())
           else if (tag[0] === 'a' && tag[1]) aTags.push(tag[1])
         }
 
-        const eventPromises: Promise<Event[]>[] = []
+        const byId = new Map<string, Event>()
         if (eventIds.length > 0) {
-          eventPromises.push(
-            queryService.fetchEvents(profileRelays, { ids: eventIds, limit: max })
-          )
+          const sessionHits = await Promise.all(eventIds.map((id) => eventService.fetchEvent(id)))
+          for (let i = 0; i < eventIds.length; i++) {
+            const ev = sessionHits[i]
+            if (ev) byId.set(ev.id.toLowerCase(), ev)
+          }
+          const missing = eventIds.filter((id) => !byId.has(id))
+          if (missing.length > 0) {
+            const rows = await queryService.fetchEvents(pinsResolveRelays, {
+              ids: missing,
+              limit: max
+            })
+            for (const e of rows) {
+              byId.set(e.id.toLowerCase(), e)
+            }
+          }
         }
+
+        const eventPromises: Promise<Event[]>[] = []
         if (aTags.length > 0) {
           const aTagFetches = aTags.map(async (aTagRaw) => {
             const parts = aTagRaw.trim().split(':')
@@ -148,7 +223,7 @@ export function useProfilePins(pubkey: string | undefined) {
             const filter = d
               ? { authors: [author], kinds: [kind], limit: 1, '#d': [d] as [string] }
               : { authors: [author], kinds: [kind], limit: 1 }
-            const events = await queryService.fetchEvents(profileRelays, filter)
+            const events = await queryService.fetchEvents(pinsResolveRelays, filter)
             return events[0] ?? null
           })
           eventPromises.push(
@@ -159,17 +234,16 @@ export function useProfilePins(pubkey: string | undefined) {
         const eventArrays = await Promise.all(eventPromises)
         const flat = eventArrays.flat()
         flat.forEach((e) => client.addEventToCache(e))
-
-        const byId = new Map<string, Event>()
         for (const e of flat) {
-          byId.set(e.id, e)
+          byId.set(e.id.toLowerCase(), e)
         }
 
         const ordered = orderPinEvents(pinList, byId).slice(0, PROFILE_PAGE_PINS_RESOLVE_LIMIT)
         setPinEvents(ordered)
-        pinsCache.set(cacheKey, { events: ordered, lastUpdated: Date.now() })
-      } catch (e) {
-        logger.warn('[useProfilePins] Failed to load pins', e)
+        if (ordered.length > 0) {
+          pinsCache.set(cacheKey, { events: ordered, lastUpdated: Date.now() })
+        }
+      } catch {
         setPinEvents([])
       } finally {
         setLoadingPins(false)

@@ -4,7 +4,8 @@ import {
   MAX_CONCURRENT_RELAY_CONNECTIONS,
   METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS,
   METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS,
-  PROFILE_FETCH_RELAY_URLS
+  PROFILE_FETCH_RELAY_URLS,
+  READ_ONLY_RELAY_URLS
 } from '@/constants'
 import { kinds, nip19 } from 'nostr-tools'
 import type { Event as NEvent, Filter } from 'nostr-tools'
@@ -488,6 +489,16 @@ export class ReplaceableEventService {
           }
         } else if (kind === ExtendedKind.FAVORITE_RELAYS) {
           relayUrls = await buildExploreProfileAndUserRelayList(client.pubkey)
+        } else if (kind === 10001) {
+          // Pin lists (NIP-51): same pitfall as profile media — FAST_READ alone misses aggr / profile mirrors,
+          // and 100ms EOSE loses the race when several relays are down.
+          relayUrls = Array.from(
+            new Set(
+              [...READ_ONLY_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS, ...FAST_READ_RELAY_URLS].map(
+                (u) => normalizeUrl(u) || u
+              )
+            )
+          ).filter(Boolean)
         } else {
           relayUrls = [...FAST_READ_RELAY_URLS]
         }
@@ -506,7 +517,7 @@ export class ReplaceableEventService {
             relayCount: relayUrls.length
           })
         }
-        const isMetadataBatch = kind === kinds.Metadata
+        const isSlowReplaceableBatch = kind === kinds.Metadata || kind === 10001
         const events = await this.queryService.query(
           relayUrls,
           {
@@ -516,8 +527,8 @@ export class ReplaceableEventService {
           undefined,
           {
             replaceableRace: true,
-            eoseTimeout: isMetadataBatch ? METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS : 100,
-            globalTimeout: isMetadataBatch ? METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS : 2000
+            eoseTimeout: isSlowReplaceableBatch ? METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS : 100,
+            globalTimeout: isSlowReplaceableBatch ? METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS : 2000
           }
         )
         // Only log at info level for large batches or if many events found
@@ -601,15 +612,14 @@ export class ReplaceableEventService {
       })
     )
     
-    // Step 3: Save network-fetched events to IndexedDB and mark missing ones as null
+    // Step 3: Persist hits only. Do not write negative cache rows (`value: null`) — optional kinds
+    // (e.g. 10432 cache relays, 10001 pins) are missing for most pubkeys and would flood IndexedDB.
     await Promise.allSettled(
       missingParams.map(async ({ pubkey, kind }) => {
         const key = `${pubkey}:${kind}`
         const event = eventsMap.get(key)
         if (event) {
           await indexedDb.putReplaceableEvent(event)
-        } else {
-          await indexedDb.putNullReplaceableEvent(pubkey, kind)
         }
       })
     )
@@ -681,12 +691,10 @@ export class ReplaceableEventService {
       const eventKey = `${pubkey}:${kind}:${d ?? ''}`
       const event = eventsMap.get(eventKey)
       if (event) {
-        indexedDb.putReplaceableEvent(event)
+        void indexedDb.putReplaceableEvent(event)
         return event
-      } else {
-        indexedDb.putNullReplaceableEvent(pubkey, kind, d)
-        return null
       }
+      return null
     })
   }
 
@@ -694,13 +702,25 @@ export class ReplaceableEventService {
    * Private: Update cache for replaceable event from big relays
    */
   private async updateReplaceableEventFromBigRelaysCache(event: NEvent): Promise<void> {
+    if (!indexedDb.hasReplaceableEventStoreForKind(event.kind)) {
+      return
+    }
+    const d = event.tags.find((t) => t[0] === 'd')?.[1]
     this.replaceableEventFromBigRelaysDataloader.clear({ pubkey: event.pubkey, kind: event.kind })
     this.replaceableEventFromBigRelaysDataloader.prime(
       { pubkey: event.pubkey, kind: event.kind },
       Promise.resolve(event)
     )
-    // Store in IndexedDB
-    await indexedDb.putReplaceableEvent(event)
+    this.replaceableEventDataLoader.clear({ pubkey: event.pubkey, kind: event.kind, d })
+    this.replaceableEventDataLoader.prime(
+      { pubkey: event.pubkey, kind: event.kind, d },
+      Promise.resolve(event)
+    )
+    try {
+      await indexedDb.putReplaceableEvent(event)
+    } catch {
+      // Tombstone or validation — in-memory loaders still primed for this session
+    }
   }
 
   /**

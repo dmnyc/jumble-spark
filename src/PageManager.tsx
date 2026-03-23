@@ -39,6 +39,11 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { KeyboardShortcutsHelpProvider } from '@/components/KeyboardShortcutsHelp'
+import {
+  PrimaryPageContext,
+  usePrimaryPage,
+  type PrimaryPageContextValue
+} from '@/contexts/primary-page-context'
 import { normalizeUrl } from './lib/url'
 import modalManager from './services/modal-manager.service'
 import { decodeRssArticlePathSegment, encodeRssArticlePathSegment } from '@/lib/rss-article'
@@ -72,14 +77,6 @@ const SidebarLazy = lazy(() => import('@/components/Sidebar'))
 const BottomNavigationBarLazy = lazy(() => import('@/components/BottomNavigationBar'))
 const TooManyRelaysAlertDialogLazy = lazy(() => import('@/components/TooManyRelaysAlertDialog'))
 const CreateWalletGuideToastLazy = lazy(() => import('@/components/CreateWalletGuideToast'))
-
-type TPrimaryPageContext = {
-  navigate: (page: TPrimaryPageName, props?: object) => void
-  current: TPrimaryPageName | null
-  /** Props passed to the current primary page (e.g. `{ spell: 'discussions' }` for spells). */
-  currentPageProps: object | undefined
-  display: boolean
-}
 
 type TStackItem = {
   index: number
@@ -197,7 +194,7 @@ function mergePrimaryPageEntry(
   return [...prev, { name: entry.name, element, props: entry.props }]
 }
 
-export const PrimaryPageContext = createContext<TPrimaryPageContext | undefined>(undefined)
+export { PrimaryPageContext, usePrimaryPage }
 
 const PrimaryNoteViewContext = createContext<{
   setPrimaryNoteView: (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => void
@@ -216,14 +213,6 @@ const NoteDrawerContext = createContext<{
   isDrawerOpen: boolean
   drawerNoteId: string | null
 } | undefined>(undefined)
-
-export function usePrimaryPage() {
-  const context = useContext(PrimaryPageContext)
-  if (!context) {
-    throw new Error('usePrimaryPage must be used within a PrimaryPageContext.Provider')
-  }
-  return context
-}
 
 export { useSecondaryPage }
 
@@ -1563,7 +1552,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     window.history.go(-stackLength)
   }
 
-  const primaryPageContextValue: TPrimaryPageContext = {
+  const primaryPageContextValue: PrimaryPageContextValue = {
     navigate: navigatePrimaryPage,
     current: currentPrimaryPage,
     currentPageProps,

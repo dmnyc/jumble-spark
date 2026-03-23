@@ -919,6 +919,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       if (publishResult.successCount >= 1) {
         client.addEventToCache(event)
         client.emitNewEvent(event)
+        // Replaceable list events (pins, cache relays, …) must hit IndexedDB + DataLoader, not only RAM
+        void replaceableEventService.updateReplaceableEventCache(event).catch(() => {})
       }
 
       // If publishing failed completely, throw an error so the form doesn't close

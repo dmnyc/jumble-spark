@@ -1,4 +1,4 @@
-import { useKeyboardShortcutsHelp } from '@/components/KeyboardShortcutsHelp'
+import { useKeyboardShortcutsHelp } from '@/contexts/keyboard-shortcuts-help-context'
 import { CircleHelp } from 'lucide-react'
 import SidebarItem from './SidebarItem'
 

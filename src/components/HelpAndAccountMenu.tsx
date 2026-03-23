@@ -15,7 +15,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatPubkey, formatNpub, generateImageByPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { cn } from '@/lib/utils'
-import { usePrimaryPage } from '@/PageManager'
+import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { useNostr } from '@/providers/NostrProvider'
 import { ArrowDownUp, LogIn, LogOut, Settings, User, UserRound } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'

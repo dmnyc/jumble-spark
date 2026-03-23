@@ -20,7 +20,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/u
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import PrimaryPageLayout, { type TPrimaryPageLayoutRef } from '@/layouts/PrimaryPageLayout'
-import { usePrimaryPage } from '@/PageManager'
+import { usePrimaryPage } from '@/contexts/primary-page-context'
 import logger from '@/lib/logger'
 import { showPublishingError } from '@/lib/publishing-feedback'
 import { cn } from '@/lib/utils'

@@ -1,5 +1,6 @@
 import NoteCard from '@/components/NoteCard'
 import { CALENDAR_EVENT_KINDS } from '@/constants'
+import { RefreshCw } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Event } from 'nostr-tools'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState, useRef } from 'react'
@@ -172,7 +173,14 @@ const ProfileTimeline = forwardRef<
     return (
       <div style={{ marginTop: topSpace || 0 }}>
         {isRefreshing && (
-          <div className="px-4 py-2 text-sm text-green-500 text-center">🔄 {refreshLabel}</div>
+          <div
+            className="flex items-center justify-center gap-2 px-4 py-2 text-center text-sm text-green-500"
+            role="status"
+            aria-live="polite"
+          >
+            <RefreshCw className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+            {refreshLabel}
+          </div>
         )}
         {(searchQuery.trim() || (kindFilter && kindFilter !== 'all')) && (
           <div className="px-4 py-2 text-sm text-muted-foreground">

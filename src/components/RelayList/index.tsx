@@ -1,4 +1,4 @@
-import { usePrimaryPage } from '@/PageManager'
+import { usePrimaryPage } from '@/contexts/primary-page-context'
 import relayInfoService from '@/services/relay-info.service'
 import { TRelayInfo } from '@/types'
 import { useEffect, useRef, useState } from 'react'

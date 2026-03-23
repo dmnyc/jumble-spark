@@ -1,4 +1,5 @@
-import { usePrimaryPage, usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryPage } from '@/contexts/primary-page-context'
+import { usePrimaryNoteView } from '@/PageManager'
 import { MessageCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import SidebarItem from './SidebarItem'

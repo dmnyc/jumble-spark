@@ -26,7 +26,8 @@ import { useTranslation } from 'react-i18next'
 import HelpAndAccountMenu from '@/components/HelpAndAccountMenu'
 import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
-import { usePrimaryNoteView, usePrimaryPage } from '@/PageManager'
+import { usePrimaryPage } from '@/contexts/primary-page-context'
+import { usePrimaryNoteView } from '@/PageManager'
 
 const NoteListPage = forwardRef<TPageRef>((_, ref) => {
   const { t } = useTranslation()

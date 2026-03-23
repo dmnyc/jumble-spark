@@ -1,4 +1,5 @@
-import { usePrimaryPage, usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryPage } from '@/contexts/primary-page-context'
+import { usePrimaryNoteView } from '@/PageManager'
 import { Rss } from 'lucide-react'
 import SidebarItem from './SidebarItem'
 import storage from '@/services/local-storage.service'

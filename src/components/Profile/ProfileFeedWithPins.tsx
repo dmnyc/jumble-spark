@@ -11,6 +11,7 @@ import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useZap } from '@/providers/ZapProvider'
 import client from '@/services/client.service'
 import storage from '@/services/local-storage.service'
+import { RefreshCw } from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -211,7 +212,14 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
         />
       </div>
       {isRefreshing && (
-        <div className="px-4 py-2 text-center text-sm text-green-500">🔄 {t('Refreshing posts...')}</div>
+        <div
+          className="flex items-center justify-center gap-2 px-4 py-2 text-center text-sm text-green-500"
+          role="status"
+          aria-live="polite"
+        >
+          <RefreshCw className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+          {t('Refreshing posts...')}
+        </div>
       )}
       {searchQuery.trim() && (
         <div className="px-4 py-2 text-sm text-muted-foreground">

@@ -1,4 +1,4 @@
-import { usePrimaryPage } from '@/PageManager'
+import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { useNostr } from '@/providers/NostrProvider'
 import { Bell } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'

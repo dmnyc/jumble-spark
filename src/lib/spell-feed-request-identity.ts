@@ -51,3 +51,28 @@ export function isRelayUrlStrictSupersetIdentityKey(prevKey: string | null, next
     return false
   }
 }
+
+/**
+ * True when parsed {@link computeSpellSubRequestsIdentityKey} payloads match per-slot REQ `filter` strings
+ * but relay URL lists may differ (reorder, NIP-65 refinement, different cap slices).
+ * Use with {@link preserveTimelineOnSubRequestsChange} so a provisional relay stack can hand off to a refined
+ * stack without clearing rows or flashing the loading state.
+ */
+export function isSpellSubRequestsSameFiltersDifferentRelays(
+  prevKey: string | null,
+  nextKey: string
+): boolean {
+  if (!prevKey || prevKey === nextKey) return false
+  try {
+    type Item = { urls: string[]; filter: string }
+    const prev = JSON.parse(prevKey) as Item[]
+    const next = JSON.parse(nextKey) as Item[]
+    if (!Array.isArray(prev) || !Array.isArray(next) || prev.length !== next.length) return false
+    for (let i = 0; i < prev.length; i++) {
+      if (prev[i].filter !== next[i].filter) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}

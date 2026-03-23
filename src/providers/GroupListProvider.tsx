@@ -3,9 +3,9 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { ExtendedKind } from '@/constants'
 import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
+import { fetchLatestReplaceableListEvent } from '@/lib/replaceable-list-latest'
 import { buildPrioritizedReadRelayUrls } from '@/lib/relay-url-priority'
 import client from '@/services/client.service'
-import { queryService } from '@/services/client.service'
 import logger from '@/lib/logger'
 
 interface GroupListContextType {
@@ -58,17 +58,13 @@ export function GroupListProvider({ children }: { children: React.ReactNode }) {
       // Get comprehensive relay list
       const allRelays = await buildComprehensiveRelayList()
       
-      // Fetch group list event (kind 10009)
-      const groupListEvents = await queryService.fetchEvents(allRelays, [
-        {
-          kinds: [ExtendedKind.GROUP_LIST],
-          authors: [accountPubkey],
-          limit: 1
-        }
-      ])
-      
-      if (groupListEvents.length > 0) {
-        const groupListEvent = groupListEvents[0]
+      const groupListEvent = await fetchLatestReplaceableListEvent(
+        accountPubkey,
+        ExtendedKind.GROUP_LIST,
+        allRelays
+      )
+
+      if (groupListEvent) {
         logger.debug('[GroupListProvider] Found group list event:', groupListEvent.id.substring(0, 8))
         
         // Extract groups from a-tags (group coordinates)

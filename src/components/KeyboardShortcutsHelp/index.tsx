@@ -17,31 +17,15 @@ import {
 import { cn } from '@/lib/utils'
 import postEditorService from '@/services/post-editor.service'
 import { CircleHelp } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode
-} from 'react'
+  KeyboardShortcutsHelpContext,
+  useKeyboardShortcutsHelp
+} from '@/contexts/keyboard-shortcuts-help-context'
 import { useTranslation } from 'react-i18next'
 import readmeMarkdown from '../../../README.md?raw'
 
-type KeyboardShortcutsHelpContextValue = {
-  openHelp: () => void
-}
-
-const KeyboardShortcutsHelpContext = createContext<KeyboardShortcutsHelpContextValue | null>(null)
-
-export function useKeyboardShortcutsHelp(): KeyboardShortcutsHelpContextValue {
-  const ctx = useContext(KeyboardShortcutsHelpContext)
-  if (!ctx) {
-    throw new Error('useKeyboardShortcutsHelp must be used within KeyboardShortcutsHelpProvider')
-  }
-  return ctx
-}
+export { useKeyboardShortcutsHelp } from '@/contexts/keyboard-shortcuts-help-context'
 
 function Kbd({ children }: { children: ReactNode }) {
   return (

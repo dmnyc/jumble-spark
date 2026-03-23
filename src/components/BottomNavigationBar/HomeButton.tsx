@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
-import { usePrimaryPage, usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryPage } from '@/contexts/primary-page-context'
+import { usePrimaryNoteView } from '@/PageManager'
 import { Star } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'
 

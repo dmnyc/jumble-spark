@@ -235,44 +235,9 @@ class IndexedDbService {
     );
   }
 
-  async putNullReplaceableEvent(pubkey: string, kind: number, d?: string) {
-    const storeName = this.getStoreNameByKind(kind)
-    if (!storeName) {
-      return Promise.reject('store name not found')
-    }
-    await this.initPromise
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        return resolve(undefined)
-      }
-      const transaction = this.db.transaction(storeName, 'readwrite')
-      const store = transaction.objectStore(storeName)
-
-      const key = this.getReplaceableEventKey(pubkey, d)
-      const getRequest = store.get(key)
-      getRequest.onsuccess = () => {
-        const oldValue = getRequest.result as TValue<Event> | undefined
-        if (oldValue) {
-          transaction.commit()
-          return resolve(oldValue.value)
-        }
-        const putRequest = store.put(this.formatValue(key, null))
-        putRequest.onsuccess = () => {
-          transaction.commit()
-          resolve(null)
-        }
-
-        putRequest.onerror = (event) => {
-          transaction.commit()
-          reject(event)
-        }
-      }
-
-      getRequest.onerror = (event) => {
-        transaction.commit()
-        reject(event)
-      }
-    })
+  /** Whether {@link putReplaceableEvent} persists this kind (profile, lists, publications, …). */
+  hasReplaceableEventStoreForKind(kind: number): boolean {
+    return this.getStoreNameByKind(kind) !== undefined
   }
 
   async putReplaceableEvent(event: Event): Promise<Event> {

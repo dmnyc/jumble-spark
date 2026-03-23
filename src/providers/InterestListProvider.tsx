@@ -1,7 +1,7 @@
+import { buildAccountListRelayUrlsForMerge } from '@/lib/account-list-relay-urls'
 import { createInterestListDraftEvent } from '@/lib/draft-event'
 import { normalizeTopic } from '@/lib/discussion-topics'
-import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
-import { buildPrioritizedReadRelayUrls, buildPrioritizedWriteRelayUrls } from '@/lib/relay-url-priority'
+import { fetchLatestReplaceableListEvent } from '@/lib/replaceable-list-latest'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
@@ -37,26 +37,15 @@ export function InterestListProvider({ children }: { children: React.ReactNode }
   const subscribedTopics = useMemo(() => new Set(topics), [topics])
   const [changing, setChanging] = useState(false)
 
-  // Build comprehensive relay list for publishing (same as ProfileFeed)
+  const INTEREST_LIST_KIND = 10015
+
   const buildComprehensiveRelayList = useCallback(async () => {
-    const myRelayList = accountPubkey ? await client.fetchRelayList(accountPubkey) : { write: [], read: [] }
-    const favoritesTier = getFavoritesFeedRelayUrls(favoriteRelays ?? [], blockedRelays)
-    const read = buildPrioritizedReadRelayUrls({
-      userReadRelays: myRelayList.read ?? [],
-      userWriteRelays: myRelayList.write ?? [],
-      favoriteRelays: favoritesTier,
-      blockedRelays,
-      maxRelays: 100,
-      applyKind1BlockedFilter: false
+    if (!accountPubkey) return [] as string[]
+    return buildAccountListRelayUrlsForMerge({
+      accountPubkey,
+      favoriteRelays: favoriteRelays ?? [],
+      blockedRelays
     })
-    const write = buildPrioritizedWriteRelayUrls({
-      userWriteRelays: myRelayList.write ?? [],
-      favoriteRelays: favoritesTier,
-      blockedRelays,
-      maxRelays: 100,
-      applyKind1BlockedFilter: false
-    })
-    return [...new Set([...read, ...write])]
   }, [accountPubkey, favoriteRelays, blockedRelays])
 
   useEffect(() => {
@@ -113,7 +102,12 @@ export function InterestListProvider({ children }: { children: React.ReactNode }
     setChanging(true)
     try {
       logger.component('InterestListProvider', 'Fetching existing interest list event')
-      const interestListEvent = await client.fetchInterestListEvent(accountPubkey)
+      const relays = await buildComprehensiveRelayList()
+      let interestListEvent =
+        (await fetchLatestReplaceableListEvent(accountPubkey, INTEREST_LIST_KIND, relays)) ?? null
+      if (!interestListEvent) {
+        interestListEvent = (await client.fetchInterestListEvent(accountPubkey)) ?? null
+      }
       logger.component('InterestListProvider', 'Existing interest list event', { hasEvent: !!interestListEvent })
       
       const currentTopics = interestListEvent
@@ -129,7 +123,7 @@ export function InterestListProvider({ children }: { children: React.ReactNode }
         return
       }
 
-      const newTopics = [...currentTopics, normalizedTopic]
+      const newTopics = Array.from(new Set([...currentTopics, normalizedTopic]))
       logger.component('InterestListProvider', 'Creating new interest list with topics', { topics: newTopics })
       
       const newInterestListEvent = await publishNewInterestListEvent(newTopics)
@@ -159,7 +153,12 @@ export function InterestListProvider({ children }: { children: React.ReactNode }
 
     setChanging(true)
     try {
-      const interestListEvent = await client.fetchInterestListEvent(accountPubkey)
+      const relays = await buildComprehensiveRelayList()
+      let interestListEvent =
+        (await fetchLatestReplaceableListEvent(accountPubkey, INTEREST_LIST_KIND, relays)) ?? null
+      if (!interestListEvent) {
+        interestListEvent = (await client.fetchInterestListEvent(accountPubkey)) ?? null
+      }
       if (!interestListEvent) return
 
       const currentTopics = interestListEvent.tags

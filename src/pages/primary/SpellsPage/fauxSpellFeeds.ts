@@ -9,8 +9,9 @@
  * kind list vs full profile kinds.
  */
 import { ExtendedKind, FAST_READ_RELAY_URLS, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
-import { mergeRelayUrlLayers } from '@/lib/favorites-feed-relays'
+import { buildProfileAugmentedReadRelayUrls } from '@/lib/favorites-feed-relays'
 import { normalizeTopic } from '@/lib/discussion-topics'
+import { userIdToPubkey } from '@/lib/pubkey'
 import { normalizeUrl } from '@/lib/url'
 import type { TFeedSubRequest } from '@/types'
 import { type Event, type Filter, kinds } from 'nostr-tools'
@@ -22,12 +23,8 @@ export const FAUX_SPELL_EVENT_LIMIT = 200
 /** Profile Media tab: single REQ `limit` (matches merged cap in NoteList one-shot). */
 export const PROFILE_MEDIA_REQ_LIMIT = 200
 
-/**
- * More sockets than {@link FAUX_SPELL_MAX_RELAYS}: profile media must query read aggregators plus the
- * author stack. {@link appendCuratedReadOnlyRelays} + {@link applyFauxSpellCapsToSubRequests} used to put
- * aggr *after* six NIP-65 relays, then slice to six — so aggr was never hit and media was often missing.
- */
-export const PROFILE_MEDIA_MAX_RELAYS = 16
+/** Max relay URLs per Medien REQ after read-only + fast-read layers (see {@link buildProfileMediaSubRequests}). */
+export const PROFILE_MEDIA_MAX_RELAYS = 10
 
 /**
  * Trim relay lists and filter limits (and bookmark `ids`) so faux feeds stay cheap to open.
@@ -100,6 +97,11 @@ export const MEDIA_SPELL_KINDS = [
   ExtendedKind.VOICE
 ] as const
 
+/**
+ * Profile Medien tab: NIP native media only (picture, video, short video, voice) — same as {@link MEDIA_SPELL_KINDS}.
+ */
+export const PROFILE_MEDIA_TAB_KINDS = [...MEDIA_SPELL_KINDS] as const
+
 /** Notifications faux spell: `#p` = you, narrow kinds — see module docstring. */
 export function buildMentionsSpellFilter(pubkey: string): Filter {
   const pk = /^[0-9a-f]{64}$/i.test(pubkey.trim()) ? pubkey.trim().toLowerCase() : pubkey.trim()
@@ -121,26 +123,24 @@ export function buildMediaSpellFilter(): Filter {
   return { kinds: [...MEDIA_SPELL_KINDS], limit: FAUX_SPELL_EVENT_LIMIT }
 }
 
-/** Media kinds for a single profile (same as {@link MEDIA_SPELL_KINDS}, scoped by `authors`). */
+/** Media kinds for a single profile ({@link PROFILE_MEDIA_TAB_KINDS}, scoped by `authors`). */
 export function buildProfileMediaSpellFilter(pubkey: string): Filter {
-  const pk = /^[0-9a-f]{64}$/i.test(pubkey.trim()) ? pubkey.trim().toLowerCase() : pubkey.trim()
+  const decoded = userIdToPubkey(pubkey.trim())
+  const pk = /^[0-9a-f]{64}$/i.test(decoded) ? decoded.toLowerCase() : pubkey.trim().toLowerCase()
   return {
     authors: [pk],
-    kinds: [...MEDIA_SPELL_KINDS],
+    kinds: [...PROFILE_MEDIA_TAB_KINDS],
     limit: PROFILE_MEDIA_REQ_LIMIT
   }
 }
 
-/** Read-only + {@link FAST_READ_RELAY_URLS} before the author’s six-relay stack so major mirrors are always queried. */
+/** Read-only + {@link FAST_READ_RELAY_URLS} before the author-only base stack; capped at {@link PROFILE_MEDIA_MAX_RELAYS}. */
 export function buildProfileMediaSubRequests(
   profileRelayUrls: string[],
   blockedRelays: string[],
   pubkey: string
 ): TFeedSubRequest[] {
-  const readOnlyLayer = READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean)
-  const fastReadLayer = FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean)
-  const merged = mergeRelayUrlLayers([readOnlyLayer, fastReadLayer, profileRelayUrls], blockedRelays)
-  const urls = merged.slice(0, PROFILE_MEDIA_MAX_RELAYS)
+  const urls = buildProfileAugmentedReadRelayUrls(profileRelayUrls, blockedRelays, PROFILE_MEDIA_MAX_RELAYS)
   if (!urls.length) return []
   return [{ urls, filter: buildProfileMediaSpellFilter(pubkey) }]
 }

@@ -21,7 +21,7 @@ import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { dispatchTombstonesUpdated } from '@/lib/tombstone-events'
-import { isValidPubkey, pubkeyToNpub } from '@/lib/pubkey'
+import { hexPubkeysEqual, isValidPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib/pubkey'
 import { getPubkeysFromPTags, tagNameEquals } from '@/lib/tag'
 import {
   buildPrioritizedWriteRelayUrls,
@@ -29,6 +29,7 @@ import {
   mergeRelayPriorityLayers,
   relayUrlsLocalsFirst
 } from '@/lib/relay-url-priority'
+import { stripLocalNetworkRelaysFromRelayList } from '@/lib/relay-list-sanitize'
 import { isLocalNetworkUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import { isSafari } from '@/lib/utils'
 import {
@@ -107,7 +108,8 @@ class ClientService extends EventTarget {
     | string[]
     | undefined
   > = {}
-  private relayListRequestCache = new Map<string, Promise<TRelayList>>() // Cache in-flight relay list requests
+  /** In-flight {@link fetchRelayList} dedupe: key = viewer pubkey + target pubkey (sanitization depends on viewer). */
+  private relayListRequestCache = new Map<string, Promise<TRelayList>>()
   private userIndex = new FlexSearch.Index({
     tokenize: 'forward'
   })
@@ -2235,8 +2237,15 @@ class ClientService extends EventTarget {
     return event ?? null
   }
 
-  clearRelayListCache(pubkey: string) {
-    this.relayListRequestCache.delete(pubkey)
+  clearRelayListCache(targetPubkey: string) {
+    const suffix = `\x1e${targetPubkey}`
+    for (const k of this.relayListRequestCache.keys()) {
+      if (k.endsWith(suffix)) this.relayListRequestCache.delete(k)
+    }
+  }
+
+  private relayListRequestCacheKey(targetPubkey: string): string {
+    return `${this.pubkey ?? ''}\x1e${targetPubkey}`
   }
 
   /**
@@ -2253,7 +2262,8 @@ class ClientService extends EventTarget {
 
   async fetchRelayList(pubkey: string): Promise<TRelayList> {
     // Deduplicate concurrent requests for the same pubkey's relay list
-    const existingRequest = this.relayListRequestCache.get(pubkey)
+    const cacheKey = this.relayListRequestCacheKey(pubkey)
+    const existingRequest = this.relayListRequestCache.get(cacheKey)
     if (existingRequest) {
       logger.debug('[FetchRelayList] Using cached in-flight request', { pubkey })
       return existingRequest
@@ -2280,11 +2290,11 @@ class ClientService extends EventTarget {
         })
         throw error
       } finally {
-        this.relayListRequestCache.delete(pubkey)
+        this.relayListRequestCache.delete(cacheKey)
       }
     })()
     
-    this.relayListRequestCache.set(pubkey, requestPromise)
+    this.relayListRequestCache.set(cacheKey, requestPromise)
     return requestPromise
   }
 
@@ -2303,7 +2313,10 @@ class ClientService extends EventTarget {
     // Fetch cache relays from multiple sources: FAST_READ_RELAY_URLS, PROFILE_RELAY_URLS, and user's inboxes/outboxes
     const cacheRelayEvents = await this.fetchCacheRelayEventsFromMultipleSources(pubkeys, relayEvents, storedRelayEvents)
 
-    return pubkeys.map((_pubkey, index) => {
+    return pubkeys.map((targetPubkey, index) => {
+      const isOwnRelayList =
+        this.pubkey != null && hexPubkeysEqual(this.pubkey, userIdToPubkey(targetPubkey))
+
       // Use stored cache relay event if available (for offline), otherwise use fetched one
       const storedCacheEvent = storedCacheRelayEvents[index]
       const cacheEvent = cacheRelayEvents[index] || storedCacheEvent
@@ -2318,9 +2331,8 @@ class ClientService extends EventTarget {
         originalRelays: []
       }
       
-      // Merge cache relays (kind 10432) into the relay list
-      // Prioritize cache relays by placing them first in the list (for offline functionality)
-      if (cacheEvent) {
+      // Merge kind 10432 (cache relays) only for the logged-in user — never use someone else's local relays.
+      if (isOwnRelayList && cacheEvent) {
         const cacheRelayList = getRelayListFromEvent(cacheEvent)
         
         // Merge read relays - cache relays first, then others (for offline priority)
@@ -2347,10 +2359,9 @@ class ClientService extends EventTarget {
         }
       }
       
-      // If no cache event, return original relay list or default (with cache as fallback)
+      // If no merged cache path, return original relay list or default (with own cache as fallback only)
       if (!relayEvent) {
-        // Check if we have a stored cache relay event as fallback
-        if (storedCacheEvent) {
+        if (isOwnRelayList && storedCacheEvent) {
           const cacheRelayList = getRelayListFromEvent(storedCacheEvent)
           return {
             write: cacheRelayList.write.length > 0 ? cacheRelayList.write : PROFILE_FETCH_RELAY_URLS,
@@ -2365,6 +2376,10 @@ class ClientService extends EventTarget {
         }
       }
       
+      if (!isOwnRelayList) {
+        return stripLocalNetworkRelaysFromRelayList(relayList)
+      }
+
       return relayList
     })
   }

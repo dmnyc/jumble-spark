@@ -10,8 +10,10 @@ import {
 import { shouldFilterEvent } from '@/lib/event-filtering'
 import {
   isRelayUrlStrictSupersetIdentityKey,
+  isSpellSubRequestsSameFiltersDifferentRelays,
   stableSpellFeedFilterKey
 } from '@/lib/spell-feed-request-identity'
+import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { isTouchDevice } from '@/lib/utils'
@@ -87,6 +89,12 @@ const NoteList = forwardRef(
        */
       preserveTimelineOnSubRequestsChange = false,
       /**
+       * With {@link preserveTimelineOnSubRequestsChange}: when relay URLs change but each subrequest’s canonical
+       * filter string is unchanged (e.g. profile Medien provisional stack → NIP-65 stack), keep visible rows and
+       * avoid a loading reset.
+       */
+      mergeTimelineWhenSubRequestFiltersMatch = false,
+      /**
        * Spells / one-shot feeds: when the initial fetch finishes with zero rows, show explicit empty copy
        * (see list footer). Does not end loading early — loading stays until EOSE, first events, or safety timeouts.
        */
@@ -101,10 +109,21 @@ const NoteList = forwardRef(
        * (except Following). Refresh re-fetches.
        */
       oneShotFetch = false,
+      /** Override {@link client.fetchEvents} / query global timeout (default 14s). */
+      oneShotGlobalTimeoutMs = 14_000,
+      /** Override post-EOSE settle delay before resolving (default 2s). */
+      oneShotEoseTimeoutMs = 2_000,
+      /**
+       * When `false`, do not resolve shortly after the first event (lets every relay finish EOSE first).
+       * Use for wide multi-relay one-shot REQs so slow mirrors are not cut off.
+       */
+      oneShotFirstRelayGraceMs,
       /** Max events kept after merging one-shot REQ batches (default 100). */
       oneShotMergedCap,
       /** Initial visible rows and each “reveal more” step when scrolling cached events (default first {@link SHOW_COUNT}, then 2× per step). */
-      revealBatchSize
+      revealBatchSize,
+      /** When set with {@link oneShotFetch}, logs fetch + filter diagnostics to the console (e.g. faux spells). */
+      oneShotDebugLabel
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -122,6 +141,7 @@ const NoteList = forwardRef(
       extraShouldHideEvent?: (evt: Event) => boolean
       feedSubscriptionKey?: string
       preserveTimelineOnSubRequestsChange?: boolean
+      mergeTimelineWhenSubRequestFiltersMatch?: boolean
       /** When set (e.g. spells), use explicit empty-feed copy after load completes with no rows. */
       spellFetchTimeoutMs?: number
       spellFeedInstrumentToken?: number
@@ -129,6 +149,10 @@ const NoteList = forwardRef(
       oneShotFetch?: boolean
       oneShotMergedCap?: number
       revealBatchSize?: number
+      oneShotDebugLabel?: string
+      oneShotGlobalTimeoutMs?: number
+      oneShotEoseTimeoutMs?: number
+      oneShotFirstRelayGraceMs?: number | false
     },
     ref
   ) => {
@@ -456,6 +480,11 @@ const NoteList = forwardRef(
     useEffect(() => {
       const currentSubRequests = subRequestsRef.current
       if (!currentSubRequests.length) {
+        if (oneShotDebugLabel) {
+          logger.info(`[${oneShotDebugLabel}] no subRequests — skipping timeline fetch`, {
+            feedKey: timelineSubscriptionKey
+          })
+        }
         setLoading(false)
         setEvents([])
         // Return a no-op closer function to satisfy the cleanup function
@@ -471,7 +500,9 @@ const NoteList = forwardRef(
         preserveTimelineOnSubRequestsChange &&
         !userPulledRefresh &&
         (prevSubKey === subRequestsKey ||
-          isRelayUrlStrictSupersetIdentityKey(prevSubKey, subRequestsKey))
+          isRelayUrlStrictSupersetIdentityKey(prevSubKey, subRequestsKey) ||
+          (mergeTimelineWhenSubRequestFiltersMatch &&
+            isSpellSubRequestsSameFiltersDifferentRelays(prevSubKey, subRequestsKey)))
       prevSubRequestsKeyForTimelineRef.current = subRequestsKey
 
       /** False after cleanup so stale timeline callbacks cannot overwrite state after switching feeds (e.g. Spells discussions → notifications). */
@@ -523,6 +554,11 @@ const NoteList = forwardRef(
         const invalidFilters = mappedSubRequests.filter(({ filter }) => !filter.kinds || filter.kinds.length === 0)
         if (invalidFilters.length > 0) {
           // Don't subscribe with invalid filters - this would return no events
+          if (oneShotDebugLabel) {
+            logger.warn(`[${oneShotDebugLabel}] abort: filter missing kinds`, {
+              subRequestsKey: timelineSubscriptionKey
+            })
+          }
           setLoading(false)
           setEvents([])
           // Return a no-op closer function to satisfy the cleanup function
@@ -536,13 +572,16 @@ const NoteList = forwardRef(
           }
           setHasMore(false)
           try {
+            const firstRelayGraceResolved =
+              oneShotFirstRelayGraceMs === undefined
+                ? FIRST_RELAY_RESULT_GRACE_MS
+                : oneShotFirstRelayGraceMs
             const batches = await Promise.all(
               mappedSubRequests.map(({ urls, filter }) =>
                 client.fetchEvents(urls, filter, {
-                  // Was `false`, which disabled feed grace and forced a wait for every relay EOSE (very slow).
-                  firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS,
-                  globalTimeout: 14_000,
-                  eoseTimeout: 2_000,
+                  firstRelayResultGraceMs: firstRelayGraceResolved,
+                  globalTimeout: oneShotGlobalTimeoutMs,
+                  eoseTimeout: oneShotEoseTimeoutMs,
                   cache: true
                 })
               )
@@ -559,9 +598,34 @@ const NoteList = forwardRef(
             const merged = [...byId.values()]
               .sort((a, b) => b.created_at - a.created_at)
               .slice(0, cap)
+            if (oneShotDebugLabel) {
+              const f0 = mappedSubRequests[0]?.filter
+              const batchEventCounts = batches.map((b) => b.length)
+              const rawTotal = batchEventCounts.reduce((s, n) => s + n, 0)
+              logger.info(`[${oneShotDebugLabel}] one-shot fetch merged`, {
+                relayUrlsPerSub: mappedSubRequests.map((r) => r.urls.length),
+                batchEventCounts,
+                rawTotal,
+                dedupedCount: byId.size,
+                afterCap: merged.length,
+                cap,
+                filterAuthors: f0?.authors,
+                filterKinds: f0?.kinds,
+                filterLimit: f0?.limit,
+                ...(rawTotal === 0
+                  ? {
+                      emptyHint:
+                        'All sub-batches returned 0 events: relays may not index these kinds for this author, the query may have timed out before slow relays EOSEd, or posts are kind 1 with links (this tab uses kinds 20/21/22/1222 only).'
+                    }
+                  : {})
+              })
+            }
             setEvents(merged)
             lastEventsForTimelinePrefetchRef.current = merged
-          } catch {
+          } catch (err) {
+            if (oneShotDebugLabel) {
+              logger.warn(`[${oneShotDebugLabel}] one-shot fetch threw`, err)
+            }
             if (effectActive) setEvents([])
           } finally {
             if (effectActive) {
@@ -574,8 +638,9 @@ const NoteList = forwardRef(
         }
 
         const totalRelayUrls = mappedSubRequests.reduce((n, r) => n + r.urls.length, 0)
-        // Explore-style feeds merge many read relays; subscribeTimeline awaits every ensureRelay — 5s often loses the race.
-        const subscribeSetupRaceMs = totalRelayUrls > 24 ? 30_000 : 5000
+        // Wide REQ batches open many sockets; a short race rejects and drops the subscription before first paint.
+        const subscribeSetupRaceMs =
+          totalRelayUrls > 24 ? 30_000 : totalRelayUrls > 8 ? 15_000 : 5000
 
         let closer: (() => void) | undefined
         let timelineKey: string | undefined
@@ -734,6 +799,7 @@ const NoteList = forwardRef(
       timelineSubscriptionKey,
       subRequestsKey,
       preserveTimelineOnSubRequestsChange,
+      mergeTimelineWhenSubRequestFiltersMatch,
       refreshCount,
       showKindsKey,
       showKind1OPs,
@@ -743,7 +809,44 @@ const NoteList = forwardRef(
       areAlgoRelays,
       oneShotFetch,
       oneShotMergedCap,
-      revealBatchSize
+      revealBatchSize,
+      oneShotDebugLabel,
+      oneShotGlobalTimeoutMs,
+      oneShotEoseTimeoutMs,
+      oneShotFirstRelayGraceMs
+    ])
+
+    const oneShotDebugPrevLoadingRef = useRef(false)
+    useEffect(() => {
+      if (!oneShotDebugLabel || !oneShotFetch) return
+      const wasLoading = oneShotDebugPrevLoadingRef.current
+      oneShotDebugPrevLoadingRef.current = loading
+      if (!wasLoading || loading) return
+
+      const kind1s = events.filter((e) => e.kind === kinds.ShortTextNote)
+      const kind1HiddenByExtra = kind1s.filter((e) => extraShouldHideEvent?.(e) === true).length
+      const kindCounts: Record<number, number> = {}
+      for (const e of events) {
+        kindCounts[e.kind] = (kindCounts[e.kind] ?? 0) + 1
+      }
+      logger.info(`[${oneShotDebugLabel}] one-shot load settled (UI filters)`, {
+        timelineSubscriptionKey,
+        eventsInState: events.length,
+        filteredVisibleRows: filteredEvents.length,
+        showCount,
+        kindCounts,
+        kind1Count: kind1s.length,
+        kind1HiddenByExtraShouldHide: kind1HiddenByExtra
+      })
+    }, [
+      oneShotDebugLabel,
+      oneShotFetch,
+      loading,
+      events,
+      filteredEvents.length,
+      showCount,
+      timelineSubscriptionKey,
+      extraShouldHideEvent
     ])
 
     useEffect(() => {
