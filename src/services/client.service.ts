@@ -151,7 +151,7 @@ class ClientService extends EventTarget {
   private async prewarmProfileSearchIndexFromIdb(): Promise<void> {
     const t0 = typeof performance !== 'undefined' ? performance.now() : 0
     let profileRows = 0
-    await indexedDb.iterateProfileEvents((profileEvent) => {
+    await indexedDb.iterateProfileEvents(async (profileEvent) => {
       this.addUsernameToIndex(profileEvent)
       profileRows += 1
     })

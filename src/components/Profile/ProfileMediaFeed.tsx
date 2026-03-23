@@ -2,9 +2,7 @@ import NoteList, { type TNoteListRef } from '@/components/NoteList'
 import { buildProfilePageReadRelayUrls } from '@/lib/favorites-feed-relays'
 import { computeSpellSubRequestsIdentityKey } from '@/lib/spell-feed-request-identity'
 import {
-  applyFauxSpellCapsToSubRequests,
-  appendCuratedReadOnlyRelays,
-  buildProfileMediaSpellFilter,
+  buildProfileMediaSubRequests,
   MEDIA_SPELL_KINDS,
   PROFILE_MEDIA_REQ_LIMIT
 } from '@/pages/primary/SpellsPage/fauxSpellFeeds'
@@ -58,11 +56,7 @@ const ProfileMediaFeed = forwardRef<TNoteListRef, { pubkey: string }>(({ pubkey 
   const subRequests = useMemo(() => {
     const pk = pubkey?.trim()
     if (!pk || profileRelayUrls === null) return []
-    const urls = appendCuratedReadOnlyRelays(profileRelayUrls, blockedRelays)
-    if (!urls.length) return []
-    return applyFauxSpellCapsToSubRequests([
-      { urls, filter: buildProfileMediaSpellFilter(pk) }
-    ])
+    return buildProfileMediaSubRequests(profileRelayUrls, blockedRelays, pk)
   }, [pubkey, profileRelayUrls, blockedRelays])
 
   const feedSubscriptionKey = useMemo(

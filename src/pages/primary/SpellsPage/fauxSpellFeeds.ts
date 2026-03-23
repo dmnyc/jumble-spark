@@ -8,7 +8,8 @@
  * topics go in a single `#t` filter (NIP-01 OR semantics). The notifications spell uses a narrow
  * kind list vs full profile kinds.
  */
-import { ExtendedKind, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
+import { ExtendedKind, FAST_READ_RELAY_URLS, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
+import { mergeRelayUrlLayers } from '@/lib/favorites-feed-relays'
 import { normalizeTopic } from '@/lib/discussion-topics'
 import { normalizeUrl } from '@/lib/url'
 import type { TFeedSubRequest } from '@/types'
@@ -20,6 +21,13 @@ export const FAUX_SPELL_EVENT_LIMIT = 200
 
 /** Profile Media tab: single REQ `limit` (matches merged cap in NoteList one-shot). */
 export const PROFILE_MEDIA_REQ_LIMIT = 200
+
+/**
+ * More sockets than {@link FAUX_SPELL_MAX_RELAYS}: profile media must query read aggregators plus the
+ * author stack. {@link appendCuratedReadOnlyRelays} + {@link applyFauxSpellCapsToSubRequests} used to put
+ * aggr *after* six NIP-65 relays, then slice to six — so aggr was never hit and media was often missing.
+ */
+export const PROFILE_MEDIA_MAX_RELAYS = 16
 
 /**
  * Trim relay lists and filter limits (and bookmark `ids`) so faux feeds stay cheap to open.
@@ -121,6 +129,20 @@ export function buildProfileMediaSpellFilter(pubkey: string): Filter {
     kinds: [...MEDIA_SPELL_KINDS],
     limit: PROFILE_MEDIA_REQ_LIMIT
   }
+}
+
+/** Read-only + {@link FAST_READ_RELAY_URLS} before the author’s six-relay stack so major mirrors are always queried. */
+export function buildProfileMediaSubRequests(
+  profileRelayUrls: string[],
+  blockedRelays: string[],
+  pubkey: string
+): TFeedSubRequest[] {
+  const readOnlyLayer = READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean)
+  const fastReadLayer = FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean)
+  const merged = mergeRelayUrlLayers([readOnlyLayer, fastReadLayer, profileRelayUrls], blockedRelays)
+  const urls = merged.slice(0, PROFILE_MEDIA_MAX_RELAYS)
+  if (!urls.length) return []
+  return [{ urls, filter: buildProfileMediaSpellFilter(pubkey) }]
 }
 
 export function buildCalendarSpellFilter(): Filter {

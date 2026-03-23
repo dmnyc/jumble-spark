@@ -10,6 +10,7 @@ import client from '@/services/client.service'
 import { eventService, queryService, replaceableEventService } from '@/services/client.service'
 import logger from '@/lib/logger'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { RefreshCw, ArrowUp } from 'lucide-react'
 import indexedDb from '@/services/indexed-db.service'
 import { isReplaceableEvent } from '@/lib/event'
@@ -1442,7 +1443,11 @@ export default function PublicationIndex({
               onClick={handleManualRetry}
               disabled={isRetrying}
             >
-              <RefreshCw className={cn("h-4 w-4 mr-2", isRetrying && "animate-spin")} />
+              {isRetrying ? (
+                <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-sm align-middle" aria-hidden />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
               Retry All
             </Button>
           </div>
@@ -1466,7 +1471,11 @@ export default function PublicationIndex({
             onClick={handleManualRetry}
             disabled={isRetrying}
           >
-            <RefreshCw className={cn("h-4 w-4 mr-2", isRetrying && "animate-spin")} />
+            {isRetrying ? (
+              <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-sm align-middle" aria-hidden />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
             Retry Loading
           </Button>
         </div>
@@ -1527,7 +1536,11 @@ export default function PublicationIndex({
                       disabled={isRetrying}
                       className="shrink-0"
                     >
-                      <RefreshCw className={cn("h-4 w-4", isRetrying && "animate-spin")} />
+                      {isRetrying ? (
+                        <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
                       Retry
                     </Button>
                   </div>

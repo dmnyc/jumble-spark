@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { Skeleton } from '@/components/ui/skeleton'
 import { RefreshCcw } from 'lucide-react'
 import { useState } from 'react'
 
@@ -18,7 +18,11 @@ export function RefreshButton({ onClick }: { onClick: () => void }) {
       }}
       className="text-muted-foreground focus:text-foreground [&_svg]:size-3 h-8 px-2 text-xs"
     >
-      <RefreshCcw className={cn(refreshing ? 'animate-spin' : '')} />
+      {refreshing ? (
+        <Skeleton className="size-3 shrink-0 rounded-sm" aria-hidden />
+      ) : (
+        <RefreshCcw />
+      )}
     </Button>
   )
 }
