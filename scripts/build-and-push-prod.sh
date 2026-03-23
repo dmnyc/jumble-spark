@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build main app and NIP-66 monitor images locally; push to silberengel/imwald-jumble and silberengel/imwald-jumble-nip66-monitor as :latest and :<version from package.json>.
-# Then create git tag v<version> and push it (e.g. to trigger release workflows).
+# Then create git tag v<version> and push it.
 # Run from repo root. Requires: docker, docker login, git.
 set -e
 
@@ -42,4 +42,3 @@ echo "Pushing tag $GIT_TAG to origin"
 git push origin "$GIT_TAG"
 
 echo "Done. On the server: docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d"
-echo "If .github/workflows/release-electron.yml is enabled, Linux AppImage/deb will attach when the workflow finishes."
