@@ -17,7 +17,6 @@ import MuteListPage from '@/pages/secondary/MuteListPage'
 import OthersRelaySettingsPage from '@/pages/secondary/OthersRelaySettingsPage'
 import SecondaryRelayPage from '@/pages/secondary/RelayPage'
 import { CurrentRelaysProvider } from '@/providers/CurrentRelaysProvider'
-import { NotificationProvider } from '@/providers/NotificationProvider'
 // DEPRECATED: useUserPreferences removed - double-panel functionality disabled
 import { TPageRef } from '@/types'
 import {
@@ -1540,7 +1539,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           }}
         >
         <CurrentRelaysProvider>
-          <NotificationProvider>
             <PrimaryNoteViewContext.Provider
               value={{
                 setPrimaryNoteView,
@@ -1653,7 +1651,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             </Suspense>
             </NoteDrawerContext.Provider>
             </PrimaryNoteViewContext.Provider>
-          </NotificationProvider>
         </CurrentRelaysProvider>
         </SecondaryPageContext.Provider>
         </KeyboardShortcutsHelpProvider>
@@ -1668,7 +1665,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         }}
       >
         <CurrentRelaysProvider>
-          <NotificationProvider>
             <PrimaryNoteViewContext.Provider
               value={{
                 setPrimaryNoteView,
@@ -1805,7 +1801,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             </Suspense>
             </NoteDrawerContext.Provider>
             </PrimaryNoteViewContext.Provider>
-          </NotificationProvider>
         </CurrentRelaysProvider>
       </SecondaryPageContext.Provider>
       </KeyboardShortcutsHelpProvider>

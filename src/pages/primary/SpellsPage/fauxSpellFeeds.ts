@@ -47,7 +47,7 @@ export function applyFauxSpellCapsToSubRequests(requests: TFeedSubRequest[]): TF
 }
 
 /**
- * Mention/notification-shaped kinds only (aligned with `NotificationProvider`, plus zap receipts).
+ * Mention/notification-shaped kinds only (aligned with global notification-shaped kinds, plus zap receipts).
  * Not full {@link PROFILE_FEED_KINDS} — that asked relays for huge multi-kind slices per `#p`.
  */
 export const NOTIFICATION_SPELL_KINDS = [
