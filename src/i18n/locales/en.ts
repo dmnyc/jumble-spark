@@ -369,7 +369,7 @@ export default {
     Topics: 'Topics',
     'Open in a': 'Open in {{a}}',
     'Cannot handle event of kind k': 'Cannot handle event of kind {{k}}',
-    'Notification reaction summary': 'Reacted to the note above.',
+    'Notification reaction summary': 'reacted to this note.',
     'Notification boost summary': 'Boosted this note',
     'Notification boost detail': 'The preview above is the original post.',
     'Notification poll vote summary': 'Voted on the poll above.',

@@ -41,7 +41,7 @@ import MutedNote from './MutedNote'
 import NsfwNote from './NsfwNote'
 import PictureNote from './PictureNote'
 import Poll from './Poll'
-import NotificationEventCard from './NotificationEventCard'
+import NotificationEventCard, { reactionDisplayEmoji } from './NotificationEventCard'
 import UnknownNote from './UnknownNote'
 import VideoNote from './VideoNote'
 import RelayReview from './RelayReview'
@@ -130,11 +130,9 @@ export default function Note({
     content = <MutedNote show={() => setShowMuted(true)} />
   } else if (!defaultShowNsfw && isNsfwEvent(event) && !showNsfw) {
     content = <NsfwNote show={() => setShowNsfw(true)} />
-  } else if (
-    event.kind === kinds.Reaction ||
-    event.kind === kinds.Repost ||
-    event.kind === ExtendedKind.POLL_RESPONSE
-  ) {
+  } else if (event.kind === kinds.Reaction) {
+    content = null
+  } else if (event.kind === kinds.Repost || event.kind === ExtendedKind.POLL_RESPONSE) {
     content = <NotificationEventCard className="mt-2" event={event} />
   } else if (event.kind === kinds.Highlights) {
     // Try to render the Highlight component with error boundary
@@ -275,8 +273,34 @@ export default function Note({
         }}
       >
         <div className="flex justify-between items-start gap-2">
-          <div className="flex items-center space-x-2 flex-1">
-            {isSyntheticRssParent ? (
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {event.kind === kinds.Reaction ? (
+              <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
+                <span
+                  className="shrink-0 text-2xl leading-none select-none"
+                  aria-hidden
+                >
+                  {reactionDisplayEmoji(event)}
+                </span>
+                <UserAvatar userId={event.pubkey} size={size === 'small' ? 'medium' : 'normal'} />
+                <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-hidden">
+                  <Username
+                    userId={event.pubkey}
+                    className={`max-w-[min(12rem,40vw)] shrink font-semibold truncate ${size === 'small' ? 'text-sm' : ''}`}
+                    skeletonClassName={size === 'small' ? 'h-3' : 'h-4'}
+                  />
+                  <ClientTag event={event} />
+                  <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                    {t('Notification reaction summary')}
+                  </span>
+                </div>
+                <FormattedTimestamp
+                  timestamp={event.created_at}
+                  className="shrink-0 text-sm text-muted-foreground"
+                  short={isSmallScreen}
+                />
+              </div>
+            ) : isSyntheticRssParent ? (
               <>
                 <div
                   className={`shrink-0 rounded-full bg-muted overflow-hidden flex items-center justify-center ${

@@ -1,41 +1,23 @@
 import { ExtendedKind } from '@/constants'
 import { cn } from '@/lib/utils'
 import { Event, kinds } from 'nostr-tools'
-import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+/** Reaction `content` as display emoji/text (NIP-25); empty content → heart. */
+export function reactionDisplayEmoji(event: Event): string {
+  if (event.kind !== kinds.Reaction) return ''
+  const raw = event.content?.trim() ?? ''
+  if (!raw) return '❤️'
+  if (raw.length > 64) return `${raw.slice(0, 64)}…`
+  return raw
+}
+
 /**
- * Compact card for interaction events in notification-style feeds (reactions, boosts, poll votes).
- * The surrounding {@link Note} row still shows author + {@link ParentNotePreview} for the target.
+ * Compact card for interaction events in notification-style feeds (boosts, poll votes).
+ * Reactions use a one-line header in {@link Note} (emoji + user + blurb) instead of this card.
  */
 export default function NotificationEventCard({ event, className }: { event: Event; className?: string }) {
   const { t } = useTranslation()
-
-  const reactionDisplay = useMemo(() => {
-    if (event.kind !== kinds.Reaction) return null
-    const raw = event.content?.trim() ?? ''
-    if (!raw) return '❤️'
-    if (raw.length > 64) return `${raw.slice(0, 64)}…`
-    return raw
-  }, [event.content, event.kind])
-
-  if (event.kind === kinds.Reaction) {
-    return (
-      <div
-        className={cn(
-          'rounded-lg border border-border bg-card p-4 text-card-foreground shadow-sm',
-          className
-        )}
-      >
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-3xl leading-none select-none" aria-hidden>
-            {reactionDisplay}
-          </span>
-          <p className="text-sm text-muted-foreground">{t('Notification reaction summary')}</p>
-        </div>
-      </div>
-    )
-  }
 
   if (event.kind === kinds.Repost) {
     return (

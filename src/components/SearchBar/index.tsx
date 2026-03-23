@@ -19,6 +19,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -45,6 +46,8 @@ const SearchBar = forwardRef<
   const [selectableOptions, setSelectableOptions] = useState<TSearchParams[]>([])
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const barContainerRef = useRef<HTMLDivElement>(null)
+  const [suggestPanelTop, setSuggestPanelTop] = useState(0)
   const normalizedUrl = useMemo(() => {
     if (['w', 'ws', 'ws:', 'ws:/', 'wss', 'wss:', 'wss:/'].includes(input)) {
       return undefined
@@ -260,6 +263,24 @@ const SearchBar = forwardRef<
     }
   }, [displayList, list])
 
+  const updateSuggestPanelGeometry = useCallback(() => {
+    const el = barContainerRef.current
+    if (!el) return
+    setSuggestPanelTop(el.getBoundingClientRect().bottom)
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!displayList || !list || !isSmallScreen) return
+    updateSuggestPanelGeometry()
+    const onScrollOrResize = () => updateSuggestPanelGeometry()
+    window.addEventListener('scroll', onScrollOrResize, true)
+    window.addEventListener('resize', onScrollOrResize)
+    return () => {
+      window.removeEventListener('scroll', onScrollOrResize, true)
+      window.removeEventListener('resize', onScrollOrResize)
+    }
+  }, [displayList, list, isSmallScreen, input, updateSuggestPanelGeometry])
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter') {
@@ -298,29 +319,57 @@ const SearchBar = forwardRef<
     [input, onSearch, selectableOptions, selectedIndex]
   )
 
+  const suggestTopPx = Math.max(0, suggestPanelTop - 4)
+  const suggestionsPanel = list ? (
+    <div
+      className={cn(
+        'bg-surface-background shadow-lg',
+        isSmallScreen
+          ? 'fixed left-4 right-4 z-[110] overflow-y-auto rounded-b-lg border border-t-0 border-border/80 pt-1'
+          : 'absolute top-full z-50 -translate-y-1 inset-x-0 rounded-b-lg pt-1'
+      )}
+      style={
+        isSmallScreen
+          ? {
+              top: suggestTopPx,
+              maxHeight: `calc(100dvh - ${suggestTopPx}px - 3.25rem - env(safe-area-inset-bottom, 0px))`
+            }
+          : undefined
+      }
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <div className="h-fit">{list}</div>
+    </div>
+  ) : null
+
   return (
-    <div className="relative flex gap-1 items-center h-full w-full">
-      {displayList && list && (
+    <div ref={barContainerRef} className="relative flex gap-1 items-center h-full w-full">
+      {displayList && list && !isSmallScreen && (
+        <>
+          {suggestionsPanel}
+          <div
+            className="fixed inset-0 z-40 w-full h-full"
+            onClick={() => blur()}
+            aria-hidden
+          />
+        </>
+      )}
+      {displayList && list && isSmallScreen && (
         <>
           <div
-            className={cn(
-              'bg-surface-background rounded-b-lg shadow-lg z-50',
-              isSmallScreen
-                ? 'absolute top-full -translate-y-1 inset-x-0 pt-1'
-                : 'absolute top-full -translate-y-1 inset-x-0 pt-1 '
-            )}
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            <div className="h-fit">{list}</div>
-          </div>
-          <div className="fixed inset-0 w-full h-full" onClick={() => blur()} />
+            className="fixed inset-0 z-[100] w-full h-full"
+            onClick={() => blur()}
+            aria-hidden
+          />
+          {suggestionsPanel}
         </>
       )}
       <SearchInput
         ref={searchInputRef}
         className={cn(
           'bg-surface-background shadow-inner h-full border-none',
-          searching ? 'z-50' : ''
+          searching && isSmallScreen && 'relative z-[120]',
+          searching && !isSmallScreen && 'z-50'
         )}
         placeholder={t('People, keywords, or relays')}
         value={input}

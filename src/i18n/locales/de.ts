@@ -376,7 +376,7 @@ export default {
     Topics: 'Themen',
     'Open in a': 'Öffnen in {{a}}',
     'Cannot handle event of kind k': 'Ereignis des Typs {{k}} kann nicht verarbeitet werden',
-    'Notification reaction summary': 'Hat auf die Notiz darüber reagiert.',
+    'Notification reaction summary': 'hat auf diese Notiz reagiert.',
     'Notification boost summary': 'Hat diese Notiz geboostet',
     'Notification boost detail': 'Die Vorschau darüber ist der Originalbeitrag.',
     'Notification poll vote summary': 'Hat an der Umfrage darüber teilgenommen.',

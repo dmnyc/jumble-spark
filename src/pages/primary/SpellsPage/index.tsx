@@ -320,6 +320,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       setSelectedSpell(null)
     } else {
       urlFauxSpellInstrumentedRef.current = null
+      // URL / props no longer name a faux spell (e.g. bottom bar “Spells” → `/spells`) — leave the feed.
+      setSelectedFauxSpell(null)
     }
   }, [spellProp, logSpellFeedPickerSelection])
 
