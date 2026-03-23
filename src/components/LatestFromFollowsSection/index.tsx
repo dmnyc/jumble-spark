@@ -1,5 +1,6 @@
 import NoteCard from '@/components/NoteCard'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   FAST_READ_RELAY_URLS,
   FAST_WRITE_RELAY_URLS,
@@ -19,7 +20,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import { queryService, replaceableEventService } from '@/services/client.service'
 import logger from '@/lib/logger'
-import { ChevronDown, ChevronRight, Loader2, Star } from 'lucide-react'
+import { ChevronDown, ChevronRight, Star } from 'lucide-react'
 import { Event, kinds, nip19, NostrEvent } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -243,9 +244,9 @@ export default function LatestFromFollowsSection() {
 
   if (loadingFollowList) {
     return (
-      <div className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        {t('Loading follow list…')}
+      <div className="mb-6 space-y-2" role="status" aria-busy="true" aria-live="polite">
+        <Skeleton className="h-4 w-56 max-w-full" />
+        <Skeleton className="h-4 w-72 max-w-full" />
       </div>
     )
   }
@@ -266,7 +267,7 @@ export default function LatestFromFollowsSection() {
         <span className="flex min-w-0 flex-1 items-center gap-2">
           <span className="text-base font-semibold">{heading}</span>
           {batchBusy && postsByPubkey.size === 0 ? (
-            <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+            <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
           ) : null}
         </span>
         <ChevronDown
@@ -276,9 +277,11 @@ export default function LatestFromFollowsSection() {
       <CollapsibleContent className="overflow-hidden">
         <div className="mt-2 space-y-0 rounded-lg border border-border/60 overflow-hidden">
           {batchBusy && postsByPubkey.size === 0 ? (
-            <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              {t('Loading recent posts from follows…')}
+            <div className="space-y-2 px-4 py-4" role="status" aria-busy="true" aria-live="polite">
+              <Skeleton className="h-3 w-64 max-w-full" />
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full rounded-md" />
+              ))}
             </div>
           ) : null}
           {sortedRowPubkeys.map((pk) => {
@@ -298,9 +301,8 @@ export default function LatestFromFollowsSection() {
           })}
         </div>
         {batchBusy && postsByPubkey.size > 0 ? (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground px-1">
-            <Loader2 className="size-3 animate-spin" />
-            {t('Loading more…')}
+          <div className="mt-2 px-1">
+            <Skeleton className="h-3 w-28" aria-hidden />
           </div>
         ) : null}
       </CollapsibleContent>

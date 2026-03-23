@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
   DialogContent,
@@ -18,7 +19,6 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { createReportDraftEvent } from '@/lib/draft-event'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import { Loader } from 'lucide-react'
 import { NostrEvent } from 'nostr-tools'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -137,7 +137,7 @@ function ReportContent({ event, closeDialog }: { event: NostrEvent; closeDialog:
           handleReport()
         }}
       >
-        {reporting && <Loader className="animate-spin" />}
+        {reporting && <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />}
         {t('Report')}
       </Button>
     </div>

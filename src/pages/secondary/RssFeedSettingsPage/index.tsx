@@ -7,6 +7,7 @@ import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -637,7 +638,7 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
             disabled={pushing || !hasChange}
             onClick={handleSave}
           >
-            {pushing ? <Loader className="animate-spin mr-2" /> : <CloudUpload className="mr-2" />}
+            {pushing ? <Skeleton className="mr-2 size-4 shrink-0 rounded-sm" aria-hidden /> : <CloudUpload className="mr-2" />}
             {t('Save')}
           </Button>
         </div>

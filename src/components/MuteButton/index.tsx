@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer'
 import {
   DropdownMenu,
@@ -69,7 +70,11 @@ export default function MuteButton({ pubkey }: { pubkey: string }) {
         onClick={handleUnmute}
         disabled={updating || changing}
       >
-        {updating ? <Loader className="animate-spin" /> : <span className="text-destructive text-center">{t('Unmute')}</span>}
+        {updating ? (
+          <Skeleton className="mx-auto size-4 shrink-0 rounded-full" aria-hidden />
+        ) : (
+          <span className="text-destructive text-center">{t('Unmute')}</span>
+        )}
       </Button>
     )
   }
@@ -80,7 +85,7 @@ export default function MuteButton({ pubkey }: { pubkey: string }) {
       className="w-20 min-w-20 rounded-full"
       disabled={updating || changing}
     >
-      {updating ? <Loader className="animate-spin" /> : t('Mute')}
+      {updating ? <Skeleton className="mx-auto size-4 shrink-0 rounded-full" aria-hidden /> : t('Mute')}
     </Button>
   )
 
@@ -96,7 +101,7 @@ export default function MuteButton({ pubkey }: { pubkey: string }) {
               onClick={(e) => handleMute(e, true)}
               disabled={updating || changing}
             >
-              {updating ? <Loader className="animate-spin" /> : t('Mute user privately')}
+              {updating ? <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden /> : t('Mute user privately')}
             </Button>
             <Button
               className="w-full p-6 justify-start text-destructive text-lg gap-4 [&_svg]:size-5 focus:text-destructive"
@@ -104,7 +109,7 @@ export default function MuteButton({ pubkey }: { pubkey: string }) {
               onClick={(e) => handleMute(e, false)}
               disabled={updating || changing}
             >
-              {updating ? <Loader className="animate-spin" /> : t('Mute user publicly')}
+              {updating ? <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden /> : t('Mute user publicly')}
             </Button>
           </div>
         </DrawerContent>

@@ -3,7 +3,7 @@ import { toFollowingList } from '@/lib/link'
 import { useSmartFollowingListNavigation } from '@/PageManager'
 import { useFollowList } from '@/providers/FollowListProvider'
 import { useNostr } from '@/providers/NostrProvider'
-import { Loader } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslation } from 'react-i18next'
 
 export default function SmartFollowings({ pubkey }: { pubkey: string }) {
@@ -25,7 +25,7 @@ export default function SmartFollowings({ pubkey }: { pubkey: string }) {
       {accountPubkey === pubkey ? (
         selfFollowings.length
       ) : isFetching ? (
-        <Loader className="animate-spin size-4" />
+        <Skeleton className="inline-block size-4 shrink-0 rounded-sm" aria-hidden />
       ) : (
         followings.length
       )}

@@ -1,9 +1,10 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { DEFAULT_NOSTRCONNECT_RELAY } from '@/constants'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
-import { Check, Copy, Loader, ScanQrCode } from 'lucide-react'
+import { Check, Copy, ScanQrCode } from 'lucide-react'
 import { generateSecretKey, getPublicKey } from 'nostr-tools'
 import { createNostrConnectURI, NostrConnectParams } from 'nostr-tools/nip46'
 import QrScanner from 'qr-scanner'
@@ -238,7 +239,7 @@ export default function NostrConnectLogin({
             </Button>
           </div>
           <Button onClick={() => handleLogin()} disabled={pending}>
-            <Loader className={pending ? 'animate-spin mr-2' : 'hidden'} />
+            {pending && <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />}
             {t('Login')}
           </Button>
         </div>

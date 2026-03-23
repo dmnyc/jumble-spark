@@ -14,13 +14,13 @@ import {
   DrawerTitle
 } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useZap } from '@/providers/ZapProvider'
 import lightning from '@/services/lightning.service'
 import noteStatsService from '@/services/note-stats.service'
-import { Loader } from 'lucide-react'
 import { NostrEvent } from 'nostr-tools'
 import { Dispatch, SetStateAction, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -262,7 +262,8 @@ function ZapDialogContent({
       {/* Zap button - fixed at bottom */}
       <div className="flex-shrink-0 bg-background pt-2 border-t border-border px-4" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <Button onClick={handleZap} className="w-full">
-          {zapping && <Loader className="animate-spin" />} {t('Zap n sats', { n: sats })}
+          {zapping && <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />}{' '}
+          {t('Zap n sats', { n: sats })}
         </Button>
       </div>
     </div>

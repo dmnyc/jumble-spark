@@ -41,7 +41,6 @@ import PullToRefresh from 'react-simple-pull-to-refresh'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { NoteFeedProfileContext, type NoteFeedProfileContextValue } from '@/providers/NoteFeedProfileContext'
 import type { TProfile } from '@/types'
-import { Loader2 } from 'lucide-react'
 import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
 const LIMIT = 100 // Increased from 200 to load more events per request
@@ -101,7 +100,11 @@ const NoteList = forwardRef(
        * {@link client.subscribeTimeline}. No live stream or `loadMore` timeline pagination; use for faux spells
        * (except Following). Refresh re-fetches.
        */
-      oneShotFetch = false
+      oneShotFetch = false,
+      /** Max events kept after merging one-shot REQ batches (default 100). */
+      oneShotMergedCap,
+      /** Initial visible rows and each “reveal more” step when scrolling cached events (default first {@link SHOW_COUNT}, then 2× per step). */
+      revealBatchSize
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -124,6 +127,8 @@ const NoteList = forwardRef(
       spellFeedInstrumentToken?: number
       onSpellFeedFirstPaint?: (detail: { eventCount: number; firstEventId: string }) => void
       oneShotFetch?: boolean
+      oneShotMergedCap?: number
+      revealBatchSize?: number
     },
     ref
   ) => {
@@ -484,6 +489,7 @@ const NoteList = forwardRef(
         if (!keepExistingTimelineEvents) {
           setEvents([])
           setNewEvents([])
+          setShowCount(revealBatchSize ?? SHOW_COUNT)
         }
         setHasMore(true)
         consecutiveEmptyRef.current = 0 // Reset counter on refresh
@@ -549,9 +555,10 @@ const NoteList = forwardRef(
                 byId.set(ev.id, ev)
               }
             }
+            const cap = oneShotMergedCap ?? ONE_SHOT_MERGED_CAP
             const merged = [...byId.values()]
               .sort((a, b) => b.created_at - a.created_at)
-              .slice(0, ONE_SHOT_MERGED_CAP)
+              .slice(0, cap)
             setEvents(merged)
             lastEventsForTimelinePrefetchRef.current = merged
           } catch {
@@ -734,7 +741,9 @@ const NoteList = forwardRef(
       showKind1111,
       useFilterAsIs,
       areAlgoRelays,
-      oneShotFetch
+      oneShotFetch,
+      oneShotMergedCap,
+      revealBatchSize
     ])
 
     useEffect(() => {
@@ -803,9 +812,9 @@ const NoteList = forwardRef(
         
         // Show more events immediately if we have them cached
         if (currentShowCount < currentEvents.length) {
-          // Show more aggressively: increase by SHOW_COUNT, but also check if we should show even more
           const remaining = currentEvents.length - currentShowCount
-          const increment = Math.min(SHOW_COUNT * 2, remaining) // Show up to 2x SHOW_COUNT if available
+          const step = revealBatchSize ?? SHOW_COUNT * 2
+          const increment = Math.min(step, remaining)
           setShowCount((prev) => prev + increment)
           // Only preload more if we have plenty cached (more than 3/4 of LIMIT)
           // BUT: Always try to load more if we have very few events (might be due to filtering)
@@ -819,7 +828,8 @@ const NoteList = forwardRef(
           }
         }
 
-        if (!currentTimelineKey || currentLoading || !currentHasMore) return
+        const canLoadFromTimeline = !!currentTimelineKey && currentHasMore
+        if (currentLoading || (!canLoadFromTimeline && currentShowCount >= currentEvents.length)) return
         
         // Schedule loadMore with a small delay to throttle rapid calls
         loadMoreTimeoutRef.current = setTimeout(async () => {
@@ -948,8 +958,10 @@ const NoteList = forwardRef(
       }
 
       const observerInstance = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
-          // Throttle: only trigger if not already loading and not already scheduled
+        if (!entries[0].isIntersecting || loadingRef.current) return
+        const ev = eventsRef.current
+        const sc = showCountRef.current
+        if (sc < ev.length || hasMoreRef.current) {
           loadMore()
         }
       }, options)
@@ -1120,13 +1132,14 @@ const NoteList = forwardRef(
         {events.length === 0 && loading ? (
           <div
             ref={bottomRef}
-            className="flex min-h-[40vh] flex-col items-center justify-center gap-3 px-4 py-8"
+            className="min-h-[40vh] space-y-2 px-1 py-4"
             role="status"
             aria-live="polite"
             aria-busy="true"
           >
-            <Loader2 className="size-8 shrink-0 animate-spin text-muted-foreground" aria-hidden />
-            <p className="text-sm text-muted-foreground">{t('Loading...')}</p>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <NoteCardLoadingSkeleton key={i} />
+            ))}
           </div>
         ) : events.length > 0 && (hasMore || loading) ? (
           <div ref={bottomRef}>

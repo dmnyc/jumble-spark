@@ -467,7 +467,7 @@ function EmbeddedNoteNotFound({
             >
               {isSearchingExternal ? (
                 <>
-                  <Search className="w-4 h-4 animate-spin" />
+                  <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
                   {t('Searching...')}
                 </>
               ) : (

@@ -1,9 +1,10 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatAmount, getAmountFromInvoice } from '@/lib/lightning'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import lightning from '@/services/lightning.service'
-import { Loader, Zap } from 'lucide-react'
+import { Zap } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -53,7 +54,7 @@ export function EmbeddedLNInvoice({ invoice, className }: { invoice: string; cla
         {formatAmount(amount)} {t('sats')}
       </div>
       <Button onClick={handlePayClick}>
-        {paying && <Loader className="w-4 h-4 animate-spin" />}
+        {paying && <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />}
         {t('Pay')}
       </Button>
     </div>

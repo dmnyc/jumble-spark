@@ -15,7 +15,8 @@ import noteStatsService from '@/services/note-stats.service'
 import { FAST_READ_RELAY_URLS } from '@/constants'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
+import { ChevronDown } from 'lucide-react'
 
 const SHOW_COUNT = 25
 const CACHE_DURATION = 30 * 60 * 1000 // 30 minutes
@@ -395,7 +396,7 @@ export default function TrendingNotes({ variant = 'page' }: { variant?: Trending
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <span className="text-base font-semibold leading-tight">{headerTitle}</span>
             {cacheLoading && cacheEvents.length === 0 ? (
-              <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+              <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
             ) : null}
           </span>
           <ChevronDown

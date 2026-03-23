@@ -1,8 +1,9 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { createRelayReviewDraftEvent } from '@/lib/draft-event'
 import { useNostr } from '@/providers/NostrProvider'
-import { Loader2, Star } from 'lucide-react'
+import { Star } from 'lucide-react'
 import { NostrEvent } from 'nostr-tools'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -81,7 +82,7 @@ export default function ReviewEditor({
           variant={canSubmit ? 'default' : 'secondary'}
           onClick={submit}
         >
-          {submitting && <Loader2 className="animate-spin" />}
+          {submitting && <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />}
           {t('Submit')}
         </Button>
       </div>

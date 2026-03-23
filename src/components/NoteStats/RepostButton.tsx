@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerOverlay } from '@/components/ui/drawer'
 import {
   DropdownMenu,
@@ -14,7 +15,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import noteStatsService from '@/services/note-stats.service'
-import { Loader, PencilLine, Repeat } from 'lucide-react'
+import { PencilLine, Repeat } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -101,7 +102,7 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
         }
       }}
     >
-      {reposting ? <Loader className="animate-spin" /> : <Repeat />}
+      {reposting ? <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden /> : <Repeat />}
       {!hideCount && !!repostCount && <div className="text-sm">{formatCount(repostCount)}</div>}
     </button>
   )

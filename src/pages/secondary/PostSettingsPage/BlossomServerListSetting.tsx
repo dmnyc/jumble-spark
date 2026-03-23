@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { RECOMMENDED_BLOSSOM_SERVERS } from '@/constants'
@@ -9,7 +10,7 @@ import { normalizeHttpUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
-import { AlertCircle, ArrowUpToLine, Loader, X } from 'lucide-react'
+import { AlertCircle, ArrowUpToLine, X } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -147,7 +148,7 @@ export default function BlossomServerListSetting() {
                 disabled={removingIndex >= 0 || adding || movingIndex >= 0}
                 className="text-muted-foreground"
               >
-                {movingIndex === idx ? <Loader className="animate-spin" /> : <ArrowUpToLine />}
+                {movingIndex === idx ? <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden /> : <ArrowUpToLine />}
               </Button>
             ) : (
               <Badge>{t('Preferred')}</Badge>
@@ -159,7 +160,7 @@ export default function BlossomServerListSetting() {
               title={t('Remove')}
               disabled={removingIndex >= 0 || adding || movingIndex >= 0}
             >
-              {removingIndex === idx ? <Loader className="animate-spin" /> : <X />}
+              {removingIndex === idx ? <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden /> : <X />}
             </Button>
           </div>
         </div>
@@ -180,7 +181,7 @@ export default function BlossomServerListSetting() {
           }}
           title={t('Add')}
         >
-          {adding && <Loader className="animate-spin" />}
+          {adding && <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />}
           {t('Add')}
         </Button>
       </div>

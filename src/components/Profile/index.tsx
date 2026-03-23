@@ -28,13 +28,24 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Copy, Ellipsis, Calendar, MapPin, Pencil, SatelliteDish, Code, Gift, Link } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type Ref } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type Ref
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import logger from '@/lib/logger'
 import NotFound from '../NotFound'
 import FollowedBy from './FollowedBy'
 import ProfileFeedWithPins from './ProfileFeedWithPins'
+import ProfileMediaFeed from './ProfileMediaFeed'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import type { TNoteListRef } from '@/components/NoteList'
 import SmartFollowings from './SmartFollowings'
 import SmartMuteLink from './SmartMuteLink'
 import SmartRelays from './SmartRelays'
@@ -166,6 +177,8 @@ export default function Profile({
   const { navigate: navigatePrimary } = usePrimaryPage()
   const internalFeedRef = useRef<{ refresh: () => void }>(null)
   const profileFeedRef = feedRef ?? internalFeedRef
+  const postsFeedRef = useRef<{ refresh: () => void }>(null)
+  const mediaFeedRef = useRef<TNoteListRef>(null)
 
   const { profile, isFetching } = useFetchProfile(id)
   const { pubkey: accountPubkey } = useNostr()
@@ -323,6 +336,21 @@ export default function Profile({
     })
   }
 
+  useLayoutEffect(() => {
+    const r = profileFeedRef
+    if (typeof r === 'function') return
+    const m = r as MutableRefObject<{ refresh: () => void } | null>
+    m.current = {
+      refresh: () => {
+        postsFeedRef.current?.refresh()
+        mediaFeedRef.current?.refresh()
+      }
+    }
+    return () => {
+      m.current = null
+    }
+  }, [])
+
   useEffect(() => {
     if (!profile?.pubkey) return
 
@@ -361,14 +389,7 @@ export default function Profile({
   if (!profile) return null // TypeScript guard - should never reach here but satisfies type checker
 
   const { banner, username, about, avatar, pubkey, website, websiteList, nip05List } = profile
-  
-  logger.component('Profile', 'Profile data loaded', { 
-    pubkey, 
-    username, 
-    hasProfile: !!profile, 
-    isFetching,
-    id 
-  })
+
   return (
     <>
       <div>
@@ -572,7 +593,18 @@ export default function Profile({
           </div>
         </div>
       </div>
-      <ProfileFeedWithPins ref={profileFeedRef} pubkey={pubkey} />
+      <Tabs defaultValue="posts" className="min-w-0">
+        <TabsList className="mb-2 ml-1 w-auto justify-start md:ml-4">
+          <TabsTrigger value="posts">{t('Posts')}</TabsTrigger>
+          <TabsTrigger value="media">{t('Media')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="posts" className="min-w-0 focus-visible:outline-none">
+          <ProfileFeedWithPins ref={postsFeedRef} pubkey={pubkey} />
+        </TabsContent>
+        <TabsContent value="media" className="min-w-0 focus-visible:outline-none">
+          <ProfileMediaFeed ref={mediaFeedRef} pubkey={pubkey} />
+        </TabsContent>
+      </Tabs>
       {openPublicMessageTo && (
         <PostEditor
           open={!!openPublicMessageTo}

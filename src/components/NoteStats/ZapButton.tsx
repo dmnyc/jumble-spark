@@ -1,3 +1,4 @@
+import { Skeleton } from '@/components/ui/skeleton'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { getLightningAddressFromProfile } from '@/lib/lightning'
 import { cn } from '@/lib/utils'
@@ -8,7 +9,7 @@ import { getProfileFromEvent } from '@/lib/event-metadata'
 import { kinds } from 'nostr-tools'
 import lightning from '@/services/lightning.service'
 import noteStatsService from '@/services/note-stats.service'
-import { Loader, Zap } from 'lucide-react'
+import { Zap } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { MouseEvent, TouchEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -146,7 +147,7 @@ export default function ZapButton({ event, hideCount = false }: { event: Event; 
         onTouchEnd={handleClickEnd}
       >
         {zapping ? (
-          <Loader className="animate-spin" />
+          <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden />
         ) : (
           <Zap className={hasZapped ? 'fill-yellow-400' : ''} />
         )}

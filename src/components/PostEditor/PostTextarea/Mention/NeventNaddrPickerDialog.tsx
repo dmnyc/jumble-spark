@@ -17,7 +17,8 @@ import { SimpleUsername } from '@/components/Username'
 import { nip19, type Event as NEvent } from 'nostr-tools'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Search } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Search } from 'lucide-react'
 import type { Editor } from '@tiptap/core'
 import { OPEN_NEVENT_PICKER_EVENT, extendMentionRangeToEndOfWord } from './suggestion'
 
@@ -136,8 +137,10 @@ export function NeventNaddrPickerDialog({
         <div className="min-h-[200px] max-h-[50vh] border rounded-md overflow-y-auto overflow-x-hidden">
           <div className="p-2 space-y-1">
             {loading && (
-              <div className="flex items-center justify-center py-8 text-muted-foreground">
-                <Loader2 className="h-6 w-6 animate-spin" />
+              <div className="space-y-2 p-2" role="status" aria-busy="true" aria-live="polite">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-14 w-full rounded-md" />
+                ))}
               </div>
             )}
             {!loading && debouncedQuery && events.length === 0 && (

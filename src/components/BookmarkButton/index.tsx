@@ -1,7 +1,8 @@
+import { Skeleton } from '@/components/ui/skeleton'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { useBookmarks } from '@/providers/BookmarksProvider'
 import { useNostr } from '@/providers/NostrProvider'
-import { BookmarkIcon, Loader } from 'lucide-react'
+import { BookmarkIcon } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -65,7 +66,7 @@ export default function BookmarkButton({ event }: { event: Event }) {
       title={isBookmarked ? t('Remove bookmark') : t('Bookmark')}
     >
       {updating ? (
-        <Loader className="animate-spin" />
+        <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden />
       ) : (
         <BookmarkIcon className={isBookmarked ? 'fill-rose-400' : ''} />
       )}

@@ -9,8 +9,9 @@ import { useFeed } from '@/providers/FeedProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import type { TNoteListRef } from '@/components/NoteList'
+import { NoteCardLoadingSkeleton } from '@/components/NoteCard'
 import { TPageRef } from '@/types'
-import { Compass, Info, Loader2 } from 'lucide-react'
+import { Compass, Info } from 'lucide-react'
 import React, {
   Dispatch,
   forwardRef,
@@ -85,17 +86,19 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
   if (!isReady) {
     content = (
       <div
-        className="flex min-h-[40vh] flex-col items-center justify-center gap-3 px-4 text-center"
+        className="min-h-[40vh] space-y-2 px-1 py-4"
         role="status"
         aria-live="polite"
         aria-busy="true"
       >
-        <Loader2 className="size-8 animate-spin text-muted-foreground" aria-hidden />
-        <p className="text-sm text-muted-foreground">
+        <p className="px-3 text-sm text-muted-foreground">
           {t('feedStarting', {
             defaultValue: 'Starting feeds and relays… This can take a few seconds after login.'
           })}
         </p>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <NoteCardLoadingSkeleton key={i} />
+        ))}
       </div>
     )
   } else if (feedInfo.feedType === 'following' && !pubkey) {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Event } from 'nostr-tools'
 import { CALENDAR_EVENT_KINDS, ExtendedKind } from '@/constants'
 import { buildProfilePageReadRelayUrls } from '@/lib/favorites-feed-relays'
+import { normalizeUrl } from '@/lib/url'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 
 type ProfileTimelineMemoryEntry = {
@@ -82,6 +83,12 @@ function postProcessEvents(
   return events.slice(0, limit)
 }
 
+function relayListsContentKey(favoriteRelays: string[], blockedRelays: string[]): string {
+  const fav = [...favoriteRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort().join('\u0001')
+  const blk = [...blockedRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort().join('\u0001')
+  return `${fav}\u0000${blk}`
+}
+
 export function useProfileTimeline({
   pubkey,
   cacheKey,
@@ -90,6 +97,10 @@ export function useProfileTimeline({
   filterPredicate
 }: UseProfileTimelineOptions): UseProfileTimelineResult {
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
+  const relayListsKey = useMemo(
+    () => relayListsContentKey(favoriteRelays, blockedRelays),
+    [favoriteRelays, blockedRelays]
+  )
   const { isEventDeleted, tombstoneEpoch } = useDeletedEvent()
   const isEventDeletedRef = useRef(isEventDeleted)
   isEventDeletedRef.current = isEventDeleted
@@ -216,16 +227,7 @@ export function useProfileTimeline({
       subscriptionRef.current()
       subscriptionRef.current = () => {}
     }
-  }, [
-    pubkey,
-    cacheKey,
-    JSON.stringify(kinds),
-    limit,
-    filterPredicate,
-    refreshToken,
-    favoriteRelays,
-    blockedRelays
-  ])
+  }, [pubkey, cacheKey, JSON.stringify(kinds), limit, refreshToken, relayListsKey])
 
   const refresh = useCallback(() => {
     subscriptionRef.current()

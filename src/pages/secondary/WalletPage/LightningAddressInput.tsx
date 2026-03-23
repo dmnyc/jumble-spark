@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { createProfileDraftEvent } from '@/lib/draft-event'
@@ -64,7 +65,7 @@ export default function LightningAddressInput() {
           }}
         />
         <Button onClick={handleSave} disabled={saving || !hasChanged} className="w-20">
-          {saving ? <Loader className="animate-spin" /> : t('Save')}
+          {saving ? <Skeleton className="mx-auto h-4 w-10 rounded-md" aria-hidden /> : t('Save')}
         </Button>
       </div>
     </div>

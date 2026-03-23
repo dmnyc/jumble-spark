@@ -18,6 +18,9 @@ import { type Event, type Filter, kinds } from 'nostr-tools'
 export const FAUX_SPELL_MAX_RELAYS = 6
 export const FAUX_SPELL_EVENT_LIMIT = 200
 
+/** Profile Media tab: single REQ `limit` (matches merged cap in NoteList one-shot). */
+export const PROFILE_MEDIA_REQ_LIMIT = 200
+
 /**
  * Trim relay lists and filter limits (and bookmark `ids`) so faux feeds stay cheap to open.
  */
@@ -108,6 +111,16 @@ export function buildDiscussionFilter(): Filter {
 
 export function buildMediaSpellFilter(): Filter {
   return { kinds: [...MEDIA_SPELL_KINDS], limit: FAUX_SPELL_EVENT_LIMIT }
+}
+
+/** Media kinds for a single profile (same as {@link MEDIA_SPELL_KINDS}, scoped by `authors`). */
+export function buildProfileMediaSpellFilter(pubkey: string): Filter {
+  const pk = /^[0-9a-f]{64}$/i.test(pubkey.trim()) ? pubkey.trim().toLowerCase() : pubkey.trim()
+  return {
+    authors: [pk],
+    kinds: [...MEDIA_SPELL_KINDS],
+    limit: PROFILE_MEDIA_REQ_LIMIT
+  }
 }
 
 export function buildCalendarSpellFilter(): Filter {

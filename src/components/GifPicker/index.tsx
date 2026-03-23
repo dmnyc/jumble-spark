@@ -8,13 +8,14 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from 
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { ExtendedKind, GIF_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import { fetchGifs, searchGifs, type GifMetadata } from '@/services/gif.service'
 import mediaUpload from '@/services/media-upload.service'
-import { ExternalLink, Loader2, X } from 'lucide-react'
+import { ExternalLink, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -251,8 +252,15 @@ export default function GifPicker({
           }
         >
           {loading ? (
-            <div className="flex items-center justify-center h-full min-h-[200px]">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div
+              className="grid grid-cols-2 gap-1 p-2 min-h-[200px]"
+              role="status"
+              aria-busy="true"
+              aria-live="polite"
+            >
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton key={i} className="aspect-square w-full rounded" />
+              ))}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-1 p-2">

@@ -2,6 +2,7 @@ import MuteButton from '@/components/MuteButton'
 import Nip05 from '@/components/Nip05'
 import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import { useFetchProfile } from '@/hooks'
@@ -113,7 +114,7 @@ function UserItem({ pubkey }: { pubkey: string }) {
       <div className="flex gap-2 items-center">
         {switching ? (
           <Button disabled variant="ghost" size="icon">
-            <Loader className="animate-spin" />
+            <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden />
           </Button>
         ) : muteType === 'private' ? (
           <Button

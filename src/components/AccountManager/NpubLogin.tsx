@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { useNostr } from '@/providers/NostrProvider'
-import { Loader } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -45,7 +45,7 @@ export default function NpubLogin({
         {errMsg && <div className="text-xs text-destructive pl-3">{errMsg}</div>}
       </div>
       <Button onClick={handleLogin} disabled={pending}>
-        <Loader className={pending ? 'animate-spin' : 'hidden'} />
+        {pending && <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />}
         {t('Login')}
       </Button>
       <Button variant="secondary" onClick={back}>

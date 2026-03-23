@@ -1,10 +1,11 @@
 import { toRelay } from '@/lib/link'
 import { useSecondaryPage } from '@/PageManager'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
-import { X, Loader2 } from 'lucide-react'
+import { X } from 'lucide-react'
 import { useState } from 'react'
 import RelayIcon from '../RelayIcon'
 import { Button } from '../ui/button'
+import { Skeleton } from '../ui/skeleton'
 import logger from '@/lib/logger'
 
 export default function BlockedRelayItem({ relay }: { relay: string }) {
@@ -43,7 +44,7 @@ export default function BlockedRelayItem({ relay }: { relay: string }) {
         className="h-8 w-8 p-0"
       >
         {isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
         ) : (
           <X className="h-4 w-4" />
         )}

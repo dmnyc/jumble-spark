@@ -1,5 +1,6 @@
 import ClientSelect from '@/components/ClientSelect'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import client from '@/services/client.service'
@@ -229,7 +230,7 @@ export default function NotFound({
           >
             {isSearchingExternal ? (
               <>
-                <Search className="w-4 h-4 animate-spin" />
+                <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
                 {t('Searching external relays...')}
               </>
             ) : (

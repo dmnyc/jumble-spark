@@ -7,7 +7,8 @@ import { cn, isPartiallyInViewport } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import pollResultsService from '@/services/poll-results.service'
 import dayjs from 'dayjs'
-import { CheckCircle2, Loader2 } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
+import { CheckCircle2 } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -253,7 +254,7 @@ export default function Poll({ event, className }: { event: Event; className?: s
             disabled={!selectedOptionIds.length || isVoting}
             className="w-full"
           >
-            {isVoting && <Loader2 className="animate-spin" />}
+            {isVoting && <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden />}
             {t('Vote')}
           </Button>
         )}

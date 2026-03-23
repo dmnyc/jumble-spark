@@ -3,8 +3,9 @@ import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../ui/button'
+import { Skeleton } from '../ui/skeleton'
 import { Input } from '../ui/input'
-import { Loader2, Check } from 'lucide-react'
+import { Check } from 'lucide-react'
 import logger from '@/lib/logger'
 
 export default function AddBlockedRelay() {
@@ -74,7 +75,7 @@ export default function AddBlockedRelay() {
         <Button onClick={saveRelay} disabled={isLoading || !input.trim()}>
           {isLoading ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Skeleton className="mr-2 size-4 shrink-0 rounded-sm" aria-hidden />
               {t('Blocking...')}
             </>
           ) : (

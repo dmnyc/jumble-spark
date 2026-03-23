@@ -111,7 +111,10 @@ export function getRelayUrlsWithFavoritesFastReadAndInbox(
   })
 }
 
-/** Profile page pins + feed: author's NIP-65 read/write, then favorites, then fast-read defaults, capped. */
+/**
+ * Profile page pins + feed: viewed author's NIP-65 read + write (REQ tier 1), then logged-in user's favorites,
+ * then fast-read defaults from constants, deduped and blocked-stripped, capped at this count.
+ */
 export const PROFILE_PAGE_FEED_MAX_RELAYS = 6
 
 export const PROFILE_PAGE_PINS_RESOLVE_LIMIT = 10

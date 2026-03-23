@@ -4,7 +4,8 @@ import { parseBookWikilink, extractBookMetadata, BookReference } from '@/lib/boo
 import client from '@/services/client.service'
 import { macroService } from '@/services/client.service'
 import { ExtendedKind } from '@/constants'
-import { Loader2, AlertCircle, ExternalLink } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
+import { AlertCircle, ExternalLink } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -880,7 +881,7 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
     return (
       <span className={cn('inline-flex items-center gap-1', className)}>
         <span>{wikilink}</span>
-        <Loader2 className="h-3 w-3 animate-spin" />
+        <Skeleton className="h-3 w-3 shrink-0 rounded-sm" aria-hidden />
       </span>
     )
   }
@@ -953,7 +954,7 @@ export function BookstrContent({ wikilink, sourceUrl, className, skipWebPreview 
                 </h4>
                 {/* Only show spinner if section is still loading AND has no events */}
                 {isSectionLoading && filteredEvents.length === 0 && (
-                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                  <Skeleton className="h-3 w-3 shrink-0 rounded-sm" aria-hidden />
                 )}
                 <VersionSelector
                   section={section}

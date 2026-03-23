@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
 import { normalizeUrl, isLocalNetworkUrl } from '@/lib/url'
 import { getRelaysFromNip07Extension, verifyNip05 } from '@/lib/nip05'
@@ -158,9 +159,11 @@ export default function DiscoveredRelays({ onAdd, localOnly = false }: { onAdd: 
     return (
       <div className="space-y-2">
         <div className="text-muted-foreground font-semibold select-none">{t('Discovered Relays')}</div>
-        <div className="flex items-center justify-center py-8 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" />
-          {t('Discovering relays...')}
+        <div className="space-y-2 py-4" role="status" aria-busy="true" aria-live="polite">
+          <p className="text-sm text-muted-foreground">{t('Discovering relays...')}</p>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full rounded-md" />
+          ))}
         </div>
       </div>
     )
@@ -223,7 +226,7 @@ export default function DiscoveredRelays({ onAdd, localOnly = false }: { onAdd: 
         >
           {isAdding ? (
             <>
-              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+              <Skeleton className="mr-2 size-3 shrink-0 rounded-sm" aria-hidden />
               {t('Adding...')}
             </>
           ) : (

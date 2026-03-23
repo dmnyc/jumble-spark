@@ -1,4 +1,5 @@
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { ExtendedKind } from '@/constants'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
@@ -175,7 +176,7 @@ export default function Likes({ event }: { event: Event }) {
                   )}
                   <div className="relative z-10 flex items-center gap-2">
                     {liking === key ? (
-                      <Loader className="animate-spin size-4" />
+                      <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden />
                     ) : (
                       <div
                         style={{

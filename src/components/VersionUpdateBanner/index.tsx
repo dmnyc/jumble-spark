@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { RefreshCw, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -121,7 +122,7 @@ export default function VersionUpdateBanner() {
           >
             {isUpdating ? (
               <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                <Skeleton className="mr-2 size-4 shrink-0 rounded-sm" aria-hidden />
                 {t('Updating...')}
               </>
             ) : (

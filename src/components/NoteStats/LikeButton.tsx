@@ -4,6 +4,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ExtendedKind } from '@/constants'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { shouldHideInteractions } from '@/lib/event-filtering'
@@ -15,7 +16,7 @@ import { useUserTrust } from '@/providers/UserTrustProvider'
 import { eventService } from '@/services/client.service'
 import noteStatsService from '@/services/note-stats.service'
 import { TEmoji } from '@/types'
-import { Loader, SmilePlus } from 'lucide-react'
+import { SmilePlus } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useMemo, useState } from 'react'
 import logger from '@/lib/logger'
@@ -189,7 +190,7 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
       }}
     >
       {liking ? (
-        <Loader className="animate-spin" />
+        <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden />
       ) : myLastEmoji ? (
         <>
           <Emoji emoji={inQuietMode ? '+' : myLastEmoji} classNames={{ img: 'size-4' }} />
@@ -224,7 +225,7 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
               }}
             >
               {liking && index === 0 ? (
-                <Loader className="animate-spin" />
+                <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden />
               ) : (
                 <>
                   <span className="text-base">{emoji}</span>

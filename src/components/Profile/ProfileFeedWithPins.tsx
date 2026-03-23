@@ -117,7 +117,18 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
 
   const mergedDisplay = useMemo(() => [...filteredPins, ...filteredRest], [filteredPins, filteredRest])
 
-  const pinnedDisplayIds = useMemo(() => new Set(filteredPins.map((e) => e.id)), [filteredPins])
+  /** Pins always occupy the top of the profile; `showCount` caps total visible rows (pins + posts). */
+  const displayedPins = useMemo(() => {
+    if (filteredPins.length <= showCount) return filteredPins
+    return filteredPins.slice(0, showCount)
+  }, [filteredPins, showCount])
+
+  const displayedFeed = useMemo(
+    () => filteredRest.slice(0, Math.max(0, showCount - displayedPins.length)),
+    [filteredRest, showCount, displayedPins.length]
+  )
+
+  const totalVisible = displayedPins.length + displayedFeed.length
 
   useEffect(() => {
     setShowCount(INITIAL_SHOW_COUNT)
@@ -138,16 +149,11 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
 
   useImperativeHandle(ref, () => ({ refresh: refreshAll }), [refreshAll])
 
-  const displayedEvents = useMemo(
-    () => mergedDisplay.slice(0, showCount),
-    [mergedDisplay, showCount]
-  )
-
   useEffect(() => {
-    if (!bottomRef.current || displayedEvents.length >= mergedDisplay.length) return
+    if (!bottomRef.current || totalVisible >= mergedDisplay.length) return
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && displayedEvents.length < mergedDisplay.length) {
+        if (entries[0]?.isIntersecting && totalVisible < mergedDisplay.length) {
           setShowCount((prev) => Math.min(prev + LOAD_MORE_COUNT, mergedDisplay.length))
         }
       },
@@ -155,7 +161,7 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
     )
     observer.observe(bottomRef.current)
     return () => observer.disconnect()
-  }, [displayedEvents.length, mergedDisplay.length])
+  }, [totalVisible, mergedDisplay.length])
 
   const loading = (loadingPins || loadingTimeline) && mergedDisplay.length === 0
 
@@ -210,29 +216,45 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
       {searchQuery.trim() && (
         <div className="px-4 py-2 text-sm text-muted-foreground">
           {t('Showing {{filtered}} of {{total}} items', {
-            filtered: displayedEvents.length,
+            filtered: totalVisible,
             total: mergedDisplay.length
           })}
         </div>
       )}
       <div className="space-y-2">
-        {displayedEvents.map((event, index) => (
-          <div key={event.id}>
-            {index === filteredPins.length && filteredPins.length > 0 && filteredRest.length > 0 && (
-              <div className="text-xs text-muted-foreground px-2 py-1 border-t border-border/60 mt-2 pt-2">
-                {t('Feed')}
-              </div>
-            )}
-            <NoteCard
-              className="w-full"
-              event={event}
-              filterMutedNotes={false}
-              pinned={pinnedDisplayIds.has(event.id)}
-            />
+        {displayedPins.length > 0 && (
+          <div className="space-y-2" aria-label={t('Pinned posts')}>
+            {displayedPins.map((event) => (
+              <NoteCard
+                key={event.id}
+                className="w-full"
+                event={event}
+                filterMutedNotes={false}
+                pinned
+              />
+            ))}
           </div>
-        ))}
+        )}
+        {displayedPins.length > 0 && displayedFeed.length > 0 && (
+          <div className="text-xs text-muted-foreground px-2 py-1 border-t border-border/60 mt-2 pt-2">
+            {t('Feed')}
+          </div>
+        )}
+        {displayedFeed.length > 0 && (
+          <div className="space-y-2" aria-label={t('Posts')}>
+            {displayedFeed.map((event) => (
+              <NoteCard
+                key={event.id}
+                className="w-full"
+                event={event}
+                filterMutedNotes={false}
+                pinned={false}
+              />
+            ))}
+          </div>
+        )}
       </div>
-      {displayedEvents.length < mergedDisplay.length && (
+      {totalVisible < mergedDisplay.length && (
         <div ref={bottomRef} className="flex h-10 items-center justify-center">
           <div className="text-sm text-muted-foreground">{t('Loading more...')}</div>
         </div>

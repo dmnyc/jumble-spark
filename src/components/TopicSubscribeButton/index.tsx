@@ -1,7 +1,8 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useInterestList } from '@/providers/InterestListProvider'
 import { useNostr } from '@/providers/NostrProvider'
-import { Bell, BellOff, Loader2 } from 'lucide-react'
+import { Bell, BellOff } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 interface TopicSubscribeButtonProps {
@@ -50,7 +51,7 @@ export default function TopicSubscribeButton({
         title={subscribed ? t('Unsubscribe') : t('Subscribe')}
       >
         {changing ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden />
         ) : subscribed ? (
           <Bell className="h-4 w-4" fill="currentColor" />
         ) : (
@@ -70,7 +71,7 @@ export default function TopicSubscribeButton({
     >
       {changing ? (
         <>
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden />
           {subscribed ? t('Unsubscribing...') : t('Subscribing...')}
         </>
       ) : subscribed ? (

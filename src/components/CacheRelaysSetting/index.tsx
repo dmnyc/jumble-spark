@@ -29,8 +29,9 @@ import DiscoveredRelays from '../MailboxSetting/DiscoveredRelays'
 import { createCacheRelaysDraftEvent } from '@/lib/draft-event'
 import { getRelayListFromEvent } from '@/lib/event-metadata'
 import { showPublishingFeedback, showSimplePublishSuccess, showPublishingError } from '@/lib/publishing-feedback'
-import { CloudUpload, Loader, Trash2, RefreshCw, Database, WrapText, Search, X, TriangleAlert, Terminal, XCircle } from 'lucide-react'
+import { CloudUpload, Trash2, RefreshCw, Database, WrapText, Search, X, TriangleAlert, Terminal, XCircle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import postEditorCache from '@/services/post-editor-cache.service'
@@ -817,7 +818,7 @@ export default function CacheRelaysSetting() {
         <DiscoveredRelays onAdd={handleAddDiscoveredRelays} localOnly={true} />
         <RelayCountWarning relays={relays} />
         <Button className="w-full" disabled={!pubkey || pushing || !hasChange} onClick={save}>
-          {pushing ? <Loader className="animate-spin" /> : <CloudUpload />}
+          {pushing ? <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden /> : <CloudUpload />}
           {t('Save')}
         </Button>
         <DndContext
@@ -935,8 +936,10 @@ export default function CacheRelaysSetting() {
               ) : (
                 // Store items view
                 loadingItems ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader className="animate-spin h-6 w-6" />
+                  <div className="space-y-2 py-6" role="status" aria-busy="true">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full rounded-md" />
+                    ))}
                   </div>
                 ) : (
                   <>
@@ -1115,8 +1118,10 @@ export default function CacheRelaysSetting() {
                 // Store items view
                 <>
                   {loadingItems ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader className="animate-spin h-6 w-6" />
+                    <div className="space-y-2 py-6" role="status" aria-busy="true">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Skeleton key={i} className="h-10 w-full rounded-md" />
+                      ))}
                     </div>
                   ) : (
                     <>

@@ -4,7 +4,8 @@ import { useNostr } from '@/providers/NostrProvider'
 import rssFeedService, { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
 import { DEFAULT_RSS_FEEDS } from '@/constants'
 import RssFeedItem from '../RssFeedItem'
-import { Loader, AlertCircle, Search, Plus } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
+import { AlertCircle, Search, Plus } from 'lucide-react'
 import logger from '@/lib/logger'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
@@ -511,9 +512,11 @@ export default function RssFeedList() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-12">
-        <Loader className="h-8 w-8 animate-spin text-muted-foreground" />
-        <p className="mt-4 text-sm text-muted-foreground">{t('Loading RSS feeds...')}</p>
+      <div className="space-y-3 px-4 py-8" role="status" aria-busy="true" aria-live="polite">
+        <p className="text-sm text-muted-foreground">{t('Loading RSS feeds...')}</p>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 w-full rounded-lg" />
+        ))}
       </div>
     )
   }
@@ -651,9 +654,9 @@ export default function RssFeedList() {
       <div className="space-y-4 px-4 py-3">
         <ManualRssUrlAddRow />
         {refreshing && (
-          <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground border-b">
-            <Loader className="h-4 w-4 animate-spin" />
-            <span>{t('Refreshing feeds...')}</span>
+          <div className="flex items-center gap-2 border-b py-2" role="status" aria-busy="true">
+            <Skeleton className="h-4 w-4 shrink-0 rounded-sm" aria-hidden />
+            <Skeleton className="h-4 flex-1 max-w-[200px]" />
           </div>
         )}
         
@@ -672,8 +675,8 @@ export default function RssFeedList() {
             ))}
             {/* Bottom ref for infinite scroll */}
             {displayedItems.length < filteredItems.length && (
-              <div ref={bottomRef} className="flex items-center justify-center py-4">
-                <Loader className="h-4 w-4 animate-spin text-muted-foreground" />
+              <div ref={bottomRef} className="flex justify-center py-4">
+                <Skeleton className="h-8 w-8 rounded-md" aria-hidden />
               </div>
             )}
           </>

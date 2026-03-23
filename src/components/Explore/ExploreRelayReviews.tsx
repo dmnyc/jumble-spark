@@ -8,7 +8,6 @@ import { appendCuratedReadOnlyRelays } from '@/pages/primary/SpellsPage/fauxSpel
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
-import { Loader2 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -142,12 +141,13 @@ export default function ExploreRelayReviews() {
           </div>
           {loading ? (
             <div
-              className="mt-4 flex items-center justify-center gap-2 text-sm text-muted-foreground"
+              className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 md:px-4"
               aria-busy="true"
               aria-live="polite"
             >
-              <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
-              {t('Loading...')}
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-28 rounded-lg border md:border" />
+              ))}
             </div>
           ) : null}
           {showCount < events.length ? <div ref={bottomRef} className="h-4" aria-hidden /> : null}

@@ -10,6 +10,7 @@ import {
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useFollowList } from '@/providers/FollowListProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
@@ -89,7 +90,11 @@ export default function FollowButton({ pubkey }: { pubkey: string }) {
             variant="secondary"
             disabled={updating}
           >
-            {updating ? <Loader className="animate-spin" /> : <span className="text-destructive text-center">{t('Muted')}</span>}
+            {updating ? (
+              <Skeleton className="mx-auto size-4 shrink-0 rounded-full" aria-hidden />
+            ) : (
+              <span className="text-destructive text-center">{t('Muted')}</span>
+            )}
           </Button>
         </AlertDialogTrigger>
         <AlertDialogContent>
@@ -121,7 +126,7 @@ export default function FollowButton({ pubkey }: { pubkey: string }) {
           onMouseLeave={() => setHover(false)}
         >
           {updating ? (
-            <Loader className="animate-spin" />
+            <Skeleton className="mx-auto size-4 shrink-0 rounded-full" aria-hidden />
           ) : hover ? (
             t('Unfollow')
           ) : (
@@ -146,7 +151,7 @@ export default function FollowButton({ pubkey }: { pubkey: string }) {
     </AlertDialog>
   ) : (
     <Button className="rounded-full min-w-28" onClick={handleFollow} disabled={updating}>
-      {updating ? <Loader className="animate-spin" /> : t('Follow')}
+      {updating ? <Skeleton className="mx-auto size-4 shrink-0 rounded-full" aria-hidden /> : t('Follow')}
     </Button>
   )
 }

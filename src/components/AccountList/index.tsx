@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { isSameAccount } from '@/lib/account'
 import { formatPubkey } from '@/lib/pubkey'
 import { cn } from '@/lib/utils'
@@ -66,7 +67,7 @@ export default function AccountList({
           </div>
           {switchingAccount && isSameAccount(act, switchingAccount) && (
             <div className="absolute top-0 left-0 flex w-full h-full items-center justify-center rounded-lg bg-muted/60">
-              <Loader size={16} className="animate-spin" />
+              <Skeleton className="size-8 shrink-0 rounded-full" aria-hidden />
             </div>
           )}
         </div>

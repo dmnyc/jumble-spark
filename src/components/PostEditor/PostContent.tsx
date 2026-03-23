@@ -4,6 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,7 +46,6 @@ import { TPollCreateData } from '@/types'
 import {
   ImageUp,
   ListTodo,
-  LoaderCircle,
   MessageCircle,
   MessagesSquare,
   Settings,
@@ -2346,7 +2346,9 @@ export default function PostContent({
               {t('Cancel')}
             </Button>
             <Button type="submit" disabled={!canPost} onClick={post}>
-              {posting && <LoaderCircle className="animate-spin" />}
+              {posting && (
+                <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />
+              )}
               {parentEvent ? t('Reply') : isPublicMessage ? t('Send Public Message') : t('Post')}
             </Button>
           </div>
@@ -2384,7 +2386,9 @@ export default function PostContent({
           {t('Cancel')}
         </Button>
         <Button className="w-full" type="submit" disabled={!canPost} onClick={post}>
-          {posting && <LoaderCircle className="animate-spin" />}
+          {posting && (
+            <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />
+          )}
           {parentEvent ? t('Reply') : t('Post')}
         </Button>
       </div>

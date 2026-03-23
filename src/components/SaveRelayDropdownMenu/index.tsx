@@ -15,12 +15,13 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
 import { normalizeUrl } from '@/lib/url'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { TRelaySet } from '@/types'
-import { Ban, Check, FolderPlus, Loader2, Plus, Star } from 'lucide-react'
+import { Ban, Check, FolderPlus, Plus, Star } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import DrawerMenuItem from '../DrawerMenuItem'
@@ -268,7 +269,7 @@ function BlockRelayItem({ urls }: { urls: string[] }) {
         onClick={isLoading ? undefined : handleClick} 
         className={isLoading ? 'opacity-50 cursor-not-allowed' : ''}
       >
-        {isLoading ? <Loader2 className="animate-spin" /> : <Ban />}
+        {isLoading ? <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden /> : <Ban />}
         {isLoading ? t('Processing...') : blocked ? t('Unblock') : t('Block')}
       </DrawerMenuItem>
     )
@@ -276,7 +277,7 @@ function BlockRelayItem({ urls }: { urls: string[] }) {
 
   return (
     <DropdownMenuItem onClick={handleClick} disabled={isLoading}>
-      {isLoading ? <Loader2 className="animate-spin" /> : <Ban />}
+      {isLoading ? <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden /> : <Ban />}
       {isLoading ? t('Processing...') : blocked ? t('Unblock') : t('Block')}
     </DropdownMenuItem>
   )

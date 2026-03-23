@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { createRelayListDraftEvent } from '@/lib/draft-event'
 import { showPublishingFeedback, showSimplePublishSuccess, showPublishingError } from '@/lib/publishing-feedback'
 import { useNostr } from '@/providers/NostrProvider'
@@ -73,7 +74,7 @@ export default function SaveButton({
 
   return (
     <Button className="w-full" disabled={!pubkey || pushing || !hasChange} onClick={save}>
-      {pushing ? <Loader className="animate-spin" /> : <CloudUpload />}
+      {pushing ? <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden /> : <CloudUpload />}
       {t('Save')}
     </Button>
   )

@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Skeleton } from '@/components/ui/skeleton'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { createPaymentInfoDraftEvent, createProfileDraftEvent } from '@/lib/draft-event'
 import { generateImageByPubkey } from '@/lib/pubkey'
@@ -24,7 +25,7 @@ import { isEmail } from '@/lib/utils'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
-import { ChevronDown, Loader, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { ChevronDown, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -299,11 +300,11 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
         className="gap-1.5"
         title={t('Force-refresh profile and payment info from relays')}
       >
-        {refreshingCache ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        {refreshingCache ? <Skeleton className="size-3.5 shrink-0 rounded-sm" aria-hidden /> : <RefreshCw className="h-3.5 w-3.5" />}
         {t('Refresh cache')}
       </Button>
       <Button className="w-16 rounded-full" onClick={save} disabled={saving || !hasChanged}>
-        {saving ? <Loader className="animate-spin" /> : t('Save')}
+        {saving ? <Skeleton className="mx-auto h-4 w-12 rounded-md" aria-hidden /> : t('Save')}
       </Button>
     </div>
   )
@@ -319,7 +320,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
         >
           <ProfileBanner banner={banner} pubkey={account.pubkey} className="w-full aspect-[3/1]" />
           <div className="absolute top-0 bg-muted/30 w-full h-full flex flex-col justify-center items-center">
-            {uploadingBanner ? <Loader size={36} className="animate-spin" /> : <Upload size={36} />}
+            {uploadingBanner ? <Skeleton className="size-9 shrink-0 rounded-md" aria-hidden /> : <Upload size={36} />}
           </div>
         </Uploader>
         <Uploader
@@ -335,7 +336,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
             </AvatarFallback>
           </Avatar>
           <div className="absolute top-0 bg-muted/30 w-full h-full rounded-full flex flex-col justify-center items-center">
-            {uploadingAvatar ? <Loader className="animate-spin" /> : <Upload />}
+            {uploadingAvatar ? <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden /> : <Upload />}
           </div>
         </Uploader>
       </div>
@@ -495,7 +496,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
                   disabled={savingFullProfile || !hasChanged}
                   className="gap-2"
                 >
-                  {savingFullProfile && <Loader className="h-4 w-4 animate-spin" />}
+                  {savingFullProfile && <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />}
                   {savingFullProfile ? t('Saving…') : t('Save full profile')}
                 </Button>
               </CollapsibleContent>
@@ -644,7 +645,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
               {t('Cancel')}
             </Button>
             <Button onClick={savePaymentInfo} disabled={savingPaymentInfo} className="gap-2">
-              {savingPaymentInfo && <Loader className="h-4 w-4 animate-spin" />}
+              {savingPaymentInfo && <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />}
               {savingPaymentInfo ? t('Saving…') : t('Save')}
             </Button>
           </DialogFooter>

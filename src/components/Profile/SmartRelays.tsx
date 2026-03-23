@@ -1,7 +1,7 @@
 import { useFetchRelayList } from '@/hooks'
 import { toOthersRelaySettings } from '@/lib/link'
 import { useSmartOthersRelaySettingsNavigation } from '@/PageManager'
-import { Loader } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslation } from 'react-i18next'
 
 export default function SmartRelays({ pubkey }: { pubkey: string }) {
@@ -19,7 +19,7 @@ export default function SmartRelays({ pubkey }: { pubkey: string }) {
       className="flex gap-1 hover:underline w-fit items-center cursor-pointer"
       onClick={handleClick}
     >
-      {isFetching ? <Loader className="animate-spin size-4" /> : relayList.originalRelays.length}
+      {isFetching ? <Skeleton className="inline-block size-4 shrink-0 rounded-sm" aria-hidden /> : relayList.originalRelays.length}
       <div className="text-muted-foreground">{t('Relays')}</div>
     </span>
   )
