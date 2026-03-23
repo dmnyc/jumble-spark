@@ -1,6 +1,6 @@
 {
   "name": "jumble-imwald",
-  "version": "19.3.0",
+  "version": "19.3.1",
   "description": "A user-friendly Nostr client focused on relay feed browsing and relay discovery, forked from Jumble",
   "private": true,
   "type": "module",
@@ -125,9 +125,11 @@
     "vitest": "^4.0.8",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "electron": "^34.2.0",
-    "electron-builder": "^25.1.8",
     "wait-on": "^8.0.1"
+  },
+  "optionalDependencies": {
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8"
   },
   "build": {
     "appId": "eu.imwald.jumble",
