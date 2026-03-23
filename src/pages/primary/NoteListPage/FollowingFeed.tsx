@@ -13,8 +13,9 @@ const FollowingFeed = forwardRef<
   TNoteListRef,
   {
     setSubHeader?: (node: ReactNode) => void
+    onSubHeaderRefresh?: () => void
   }
->(function FollowingFeed({ setSubHeader }, ref) {
+>(function FollowingFeed({ setSubHeader, onSubHeaderRefresh }, ref) {
   const { pubkey, relayList } = useNostr()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { feedInfo } = useFeed()
@@ -43,7 +44,15 @@ const FollowingFeed = forwardRef<
     void init()
   }, [feedInfo.feedType, pubkey, favoriteRelays, blockedRelays, relayList])
 
-  return <NormalFeed ref={ref} subRequests={subRequests} isMainFeed setSubHeader={setSubHeader} />
+  return (
+    <NormalFeed
+      ref={ref}
+      subRequests={subRequests}
+      isMainFeed
+      setSubHeader={setSubHeader}
+      onSubHeaderRefresh={onSubHeaderRefresh}
+    />
+  )
 })
 
 FollowingFeed.displayName = 'FollowingFeed'

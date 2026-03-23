@@ -242,6 +242,7 @@ export default {
     'Login with Browser Extension': 'Entrar com Extensão do Navegador',
     'Login with Bunker': 'Entrar com Bunker',
     'Login with Private Key': 'Entrar com Chave Privada',
+    'Login with npub (read-only)': 'Entrar com npub (só leitura)',
     'reload notes': 'recarregar notas',
     'Logged in Accounts': 'Contas Conectadas',
     'Add an Account': 'Adicionar uma Conta',

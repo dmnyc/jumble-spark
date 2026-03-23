@@ -2,7 +2,7 @@ import ProfileList from '@/components/ProfileList'
 import { RefreshButton } from '@/components/RefreshButton'
 import { useFetchFollowings, useFetchProfile } from '@/hooks'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
-import { usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 

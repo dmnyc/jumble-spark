@@ -242,6 +242,7 @@ export default {
     'Login with Browser Extension': '브라우저 확장으로 로그인',
     'Login with Bunker': 'Bunker로 로그인',
     'Login with Private Key': '개인 키로 로그인',
+    'Login with npub (read-only)': 'npub으로 로그인 (읽기 전용)',
     'reload notes': '노트 다시 불러오기',
     'Logged in Accounts': '로그인된 계정',
     'Add an Account': '계정 추가',

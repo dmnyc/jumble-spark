@@ -10,7 +10,7 @@ import {
 } from '@/constants'
 import { LocalizedLanguageNames, TLanguage } from '@/i18n'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
-import { usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { cn, isSupportCheckConnectionType } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useFontSize } from '@/providers/FontSizeProvider'

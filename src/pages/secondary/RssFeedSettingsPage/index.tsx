@@ -1,6 +1,6 @@
 import { RefreshButton } from '@/components/RefreshButton'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
-import { usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { ExtendedKind, FAST_WRITE_RELAY_URLS, PROFILE_RELAY_URLS } from '@/constants'
 import { getLatestEvent } from '@/lib/event'
 import { forwardRef, useCallback, useEffect, useState } from 'react'

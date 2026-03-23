@@ -12,7 +12,7 @@ import {
 import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
-import { usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { useZap } from '@/providers/ZapProvider'
 import { disconnect, launchModal } from '@getalby/bitcoin-connect-react'
 import { forwardRef, useCallback, useEffect, useState } from 'react'

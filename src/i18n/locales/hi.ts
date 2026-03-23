@@ -242,6 +242,7 @@ export default {
     'Login with Browser Extension': 'ब्राउज़र एक्सटेंशन से लॉगिन करें',
     'Login with Bunker': 'बंकर से लॉगिन करें',
     'Login with Private Key': 'प्राइवेट की से लॉगिन करें',
+    'Login with npub (read-only)': 'npub से लॉगिन करें (केवल पढ़ने के लिए)',
     'reload notes': 'नोट्स रीलोड करें',
     'Logged in Accounts': 'लॉग इन अकाउंट',
     'Add an Account': 'अकाउंट जोड़ें',

@@ -22,7 +22,6 @@ import { NotificationProvider } from '@/providers/NotificationProvider'
 import { TPageRef } from '@/types'
 import {
   cloneElement,
-  createContext,
   createRef,
   isValidElement,
   lazy,
@@ -31,7 +30,6 @@ import {
   RefObject,
   Suspense,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -49,6 +47,8 @@ import modalManager from './services/modal-manager.service'
 import { decodeRssArticlePathSegment, encodeRssArticlePathSegment } from '@/lib/rss-article'
 import { routes } from './routes'
 import { useScreenSize } from './providers/ScreenSizeProvider'
+import { NoteDrawerContext, useNoteDrawer } from '@/contexts/note-drawer-context'
+import { PrimaryNoteViewContext, usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { SecondaryPageContext, useSecondaryPage } from '@/contexts/secondary-page-context'
 
 /** Lazy-loaded so PageManager does not synchronously import SpellsPage (avoids HMR cycle: SpellsPage → PrimaryPageLayout → PageManager → SpellsPage). */
@@ -196,41 +196,7 @@ function mergePrimaryPageEntry(
 
 export { PrimaryPageContext, usePrimaryPage }
 
-const PrimaryNoteViewContext = createContext<{
-  setPrimaryNoteView: (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => void
-  primaryViewType: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null
-  getNavigationCounter: () => number
-  /** Top URL in the secondary stack (right panel), or undefined if empty. Used so settings sub-pages open in the panel instead of behind it. */
-  getTopSecondaryUrl: () => string | undefined
-  /** Primary overlay (mobile / narrow): child calls this to expose refresh for the chrome bar. */
-  registerPrimaryPanelRefresh: (fn: (() => void) | null) => void
-  triggerPrimaryPanelRefresh: () => void
-} | undefined>(undefined)
-
-const NoteDrawerContext = createContext<{
-  openDrawer: (noteId: string) => void
-  closeDrawer: () => void
-  isDrawerOpen: boolean
-  drawerNoteId: string | null
-} | undefined>(undefined)
-
 export { useSecondaryPage }
-
-export function usePrimaryNoteView() {
-  const context = useContext(PrimaryNoteViewContext)
-  if (!context) {
-    throw new Error('usePrimaryNoteView must be used within a PrimaryNoteViewContext.Provider')
-  }
-  return context
-}
-
-export function useNoteDrawer() {
-  const context = useContext(NoteDrawerContext)
-  if (!context) {
-    throw new Error('useNoteDrawer must be used within a NoteDrawerContext.Provider')
-  }
-  return context
-}
 
 // Helper function to build contextual note URL
 function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): string {

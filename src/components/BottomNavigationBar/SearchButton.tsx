@@ -1,5 +1,5 @@
 import { usePrimaryPage } from '@/contexts/primary-page-context'
-import { usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { Search } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'
 

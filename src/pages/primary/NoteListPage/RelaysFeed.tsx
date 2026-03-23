@@ -11,10 +11,11 @@ const RelaysFeed = forwardRef<
   TNoteListRef,
   {
     setSubHeader?: (node: React.ReactNode) => void
+    onSubHeaderRefresh?: () => void
     /** When set, subscription kinds (fixed list); otherwise uses KindFilterProvider. */
     kindsOverride?: number[]
   }
->(function RelaysFeed({ setSubHeader, kindsOverride }, ref) {
+>(function RelaysFeed({ setSubHeader, onSubHeaderRefresh, kindsOverride }, ref) {
   const { feedInfo, relayUrls } = useFeed()
   const { showKinds } = useKindFilter()
   const [areAlgoRelays, setAreAlgoRelays] = useState(false)
@@ -98,6 +99,7 @@ const RelaysFeed = forwardRef<
       areAlgoRelays={areAlgoRelays}
       isMainFeed
       setSubHeader={setSubHeader}
+      onSubHeaderRefresh={onSubHeaderRefresh}
     />
   )
 })

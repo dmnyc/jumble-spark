@@ -27,7 +27,7 @@ import HelpAndAccountMenu from '@/components/HelpAndAccountMenu'
 import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
-import { usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 
 const NoteListPage = forwardRef<TPageRef>((_, ref) => {
   const { t } = useTranslation()
@@ -39,6 +39,12 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
   const { feedInfo, relayUrls, isReady } = useFeed()
   const [showRelayDetails, setShowRelayDetails] = useState(false)
   const [homeSubHeader, setHomeSubHeader] = useState<React.ReactNode>(null)
+
+  const usesSubHeader =
+    feedInfo.feedType === 'relay' ||
+    feedInfo.feedType === 'relays' ||
+    feedInfo.feedType === 'all-favorites' ||
+    feedInfo.feedType === 'following'
 
   const runFeedRefresh = useCallback(() => {
     if (feedInfo.feedType === 'bookmarks') {
@@ -63,13 +69,8 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
 
   // Clear subHeader when switching to a feed that doesn't use it (e.g. bookmarks)
   useEffect(() => {
-    const usesSubHeader =
-      feedInfo.feedType === 'relay' ||
-      feedInfo.feedType === 'relays' ||
-      feedInfo.feedType === 'all-favorites' ||
-      feedInfo.feedType === 'following'
     if (!usesSubHeader) setHomeSubHeader(null)
-  }, [feedInfo.feedType])
+  }, [usesSubHeader])
 
   // REMOVED: Scroll-to-top logic - feed should NEVER scroll to top when drawer opens/closes
   // The feed stays mounted and maintains scroll position at all times
@@ -123,14 +124,24 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
       content = <BookmarkList ref={bookmarkRef} />
     }
   } else if (feedInfo.feedType === 'following') {
-    content = <FollowingFeed ref={feedRef} setSubHeader={setHomeSubHeaderStable} />
+    content = (
+      <FollowingFeed
+        ref={feedRef}
+        setSubHeader={setHomeSubHeaderStable}
+        onSubHeaderRefresh={runFeedRefresh}
+      />
+    )
   } else {
     content = (
       <>
         {showRelayDetails && feedInfo.feedType === 'relay' && !!feedInfo.id && (
           <RelayInfo url={feedInfo.id!} className="mb-2 pt-3" />
         )}
-        <RelaysFeed ref={feedRef} setSubHeader={setHomeSubHeaderStable} />
+        <RelaysFeed
+          ref={feedRef}
+          setSubHeader={setHomeSubHeaderStable}
+          onSubHeaderRefresh={runFeedRefresh}
+        />
       </>
     )
   }
@@ -143,6 +154,7 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
         <NoteListPageTitlebar
           layoutRef={layoutRef}
           onFeedRefresh={runFeedRefresh}
+          showTitlebarRefresh={!usesSubHeader}
           showRelayDetails={showRelayDetails}
           setShowRelayDetails={
             feedInfo.feedType === 'relay' && !!feedInfo.id ? setShowRelayDetails : undefined
@@ -165,11 +177,13 @@ export default NoteListPage
 function NoteListPageTitlebar({
   layoutRef,
   onFeedRefresh,
+  showTitlebarRefresh,
   showRelayDetails,
   setShowRelayDetails
 }: {
   layoutRef?: React.RefObject<TPageRef>
   onFeedRefresh: () => void
+  showTitlebarRefresh: boolean
   showRelayDetails?: boolean
   setShowRelayDetails?: Dispatch<SetStateAction<boolean>>
 }) {
@@ -217,7 +231,7 @@ function NoteListPageTitlebar({
         </div>
       )}
       <div className="shrink-0 flex gap-1 items-center">
-        <RefreshButton onClick={onFeedRefresh} />
+        {showTitlebarRefresh && <RefreshButton onClick={onFeedRefresh} />}
         {setShowRelayDetails && (
           <Button
             variant="ghost"

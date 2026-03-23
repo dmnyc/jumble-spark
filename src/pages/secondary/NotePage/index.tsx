@@ -1,5 +1,6 @@
 import { RefreshButton } from '@/components/RefreshButton'
-import { usePrimaryNoteView, useSecondaryPage, useSmartNoteNavigation } from '@/PageManager'
+import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
+import { useSecondaryPage, useSmartNoteNavigation } from '@/PageManager'
 import { ExtendedKind } from '@/constants'
 import ContentPreview from '@/components/ContentPreview'
 import client from '@/services/client.service'

@@ -242,6 +242,7 @@ export default {
     'Login with Browser Extension': 'เข้าสู่ระบบด้วยส่วนขยายเบราว์เซอร์',
     'Login with Bunker': 'เข้าสู่ระบบด้วย Bunker',
     'Login with Private Key': 'เข้าสู่ระบบด้วยคีย์ส่วนตัว',
+    'Login with npub (read-only)': 'เข้าสู่ระบบด้วย npub (อ่านอย่างเดียว)',
     'reload notes': 'โหลดโน้ตใหม่',
     'Logged in Accounts': 'บัญชีที่เข้าสู่ระบบ',
     'Add an Account': 'เพิ่มบัญชี',

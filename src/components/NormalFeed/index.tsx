@@ -1,4 +1,5 @@
 import NoteList, { TNoteListRef } from '@/components/NoteList'
+import { RefreshButton } from '@/components/RefreshButton'
 import Tabs, { TabDefinition } from '@/components/Tabs'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
@@ -13,12 +14,15 @@ const NormalFeed = forwardRef<TNoteListRef, {
   isMainFeed?: boolean
   /** When set (e.g. on Home), tabs are rendered in layout subHeader instead of in-feed; avoids overlap */
   setSubHeader?: (node: React.ReactNode) => void
+  /** Shown in the subHeader row to the left of the kind filter (mobile primary feed). */
+  onSubHeaderRefresh?: () => void
 }>(function NormalFeed(
   {
     subRequests,
     areAlgoRelays = false,
     isMainFeed = false,
-    setSubHeader
+    setSubHeader,
+    onSubHeaderRefresh
   },
   ref
 ) {
@@ -70,7 +74,12 @@ const NormalFeed = forwardRef<TNoteListRef, {
       value={listMode}
       tabs={tabs}
       onTabChange={(tab) => handleListModeChange(tab)}
-      options={<KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />}
+      options={
+        <div className="flex items-center gap-1">
+          {onSubHeaderRefresh != null && <RefreshButton onClick={onSubHeaderRefresh} />}
+          <KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />
+        </div>
+      }
     />
   )
 
@@ -78,7 +87,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
     if (!isMainFeed || !setSubHeader) return
     setSubHeader(tabsElement)
     return () => setSubHeader(null)
-  }, [isMainFeed, setSubHeader, listMode, temporaryShowKinds])
+  }, [isMainFeed, setSubHeader, listMode, temporaryShowKinds, onSubHeaderRefresh])
 
   const renderTabsInFeed = !(isMainFeed && setSubHeader)
 

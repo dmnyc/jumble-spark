@@ -242,6 +242,7 @@ export default {
     'Login with Browser Extension': 'ورود با افزونه مرورگر',
     'Login with Bunker': 'ورود با Bunker',
     'Login with Private Key': 'ورود با کلید خصوصی',
+    'Login with npub (read-only)': 'ورود با npub (فقط خواندن)',
     'reload notes': 'بازخوانی یادداشت‌ها',
     'Logged in Accounts': 'حساب‌های وارد شده',
     'Add an Account': 'افزودن حساب',

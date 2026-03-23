@@ -1,5 +1,5 @@
 import { usePrimaryPage } from '@/contexts/primary-page-context'
-import { usePrimaryNoteView } from '@/PageManager'
+import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import storage from '@/services/local-storage.service'
 import { Rss } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'

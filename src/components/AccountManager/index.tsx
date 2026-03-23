@@ -1,6 +1,5 @@
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { isDevEnv } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useTheme } from '@/providers/ThemeProvider'
 import { NstartModal } from 'nstart-modal'
@@ -63,11 +62,9 @@ function AccountManagerNav({
           <Button variant="secondary" onClick={() => setPage('nsec')} className="w-full">
             {t('Login with Private Key')}
           </Button>
-          {isDevEnv() && (
-            <Button variant="secondary" onClick={() => setPage('npub')} className="w-full">
-              Login with Public key (for development)
-            </Button>
-          )}
+          <Button variant="secondary" onClick={() => setPage('npub')} className="w-full">
+            {t('Login with npub (read-only)')}
+          </Button>
         </div>
       </div>
       <Separator />

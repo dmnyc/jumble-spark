@@ -241,6 +241,7 @@ export default {
     'Login with Browser Extension': '浏览器插件登录',
     'Login with Bunker': 'Bunker 登录',
     'Login with Private Key': '私钥登录',
+    'Login with npub (read-only)': '使用 npub 登录（只读）',
     'reload notes': '重新加载笔记',
     'Logged in Accounts': '已登录账户',
     'Add an Account': '添加账户',

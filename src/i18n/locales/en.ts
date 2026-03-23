@@ -243,6 +243,7 @@ export default {
     'Login with Browser Extension': 'Login with Browser Extension',
     'Login with Bunker': 'Login with Bunker',
     'Login with Private Key': 'Login with Private Key',
+    'Login with npub (read-only)': 'Login with npub (read-only)',
     'reload notes': 'reload notes',
     'Logged in Accounts': 'Logged in Accounts',
     'Add an Account': 'Add an Account',

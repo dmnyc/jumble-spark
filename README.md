@@ -92,23 +92,21 @@ docker compose up --build -d
 
 Then open: http://localhost:8089
 
-## Sponsors (original Jumble)
+## Linux desktop (`.deb` / AppImage)
 
-<a target="_blank" href="https://opensats.org/">
-  <img alt="open-sats-logo" src="./resources/open-sats-logo.svg" height="44"> 
-</a>
+Built packages are **not** committed to this repository (only source). They are published as **release assets** when a maintainer uploads them.
 
-## Donate
+- **Download:** [GitHub Releases — latest](https://github.com/Silberengel/jumble/releases/latest) — get the `*.deb` (or AppImage) attached to a release.
+- **Install the `.deb`:** `sudo apt install ./Jumble_*_amd64.deb` (use the exact filename from the download folder; `./` is required so `apt` uses the local file). After install, Jumble should appear in your app menu (often under **Network**).
 
-**Original author** — if you want to support the project Jumble was forked from:
+**Maintainers — build artifacts locally:**
 
-lightning: ⚡️ codytseng@getalby.com ⚡️
+```bash
+npm install
+npm run electron:pack
+```
 
-bitcoin: bc1qx8kvutghdhejx7vuvatmvw2ghypdungu0qm7ds
-
-geyser: https://geyser.fund/project/jumble
-
----
+Outputs land in `release/` (`.deb`, `.AppImage`). Upload those files when you create or edit a GitHub Release for that version.
 
 ## License
 
