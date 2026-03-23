@@ -39,7 +39,54 @@
     <meta name="twitter:image" content="https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div
+        id="jumble-boot-splash"
+        style="
+          position: fixed;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 1rem;
+          font-family: system-ui, sans-serif;
+          font-size: 0.95rem;
+          color: #737373;
+          background: #fafafa;
+        "
+      >
+        <div
+          style="
+            width: 2rem;
+            height: 2rem;
+            border: 3px solid #e5e5e5;
+            border-top-color: #404040;
+            border-radius: 50%;
+            animation: jumble-spin 0.7s linear infinite;
+          "
+          aria-hidden="true"
+        ></div>
+        <p style="margin: 0; max-width: 18rem; text-align: center">Loading Jumble…</p>
+      </div>
+      <style>
+        @keyframes jumble-spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        @media (prefers-color-scheme: dark) {
+          #jumble-boot-splash {
+            color: #a3a3a3;
+            background: #171717;
+          }
+          #jumble-boot-splash div[aria-hidden] {
+            border-color: #404040;
+            border-top-color: #d4d4d4;
+          }
+        }
+      </style>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -25,6 +25,7 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
     id: DEFAULT_FAVORITE_RELAYS[0]
   })
   const feedInfoRef = useRef<TFeedInfo>(feedInfo)
+  const loggedWaitingForNostrInitRef = useRef(false)
 
   const switchFeed = useCallback(async (
     feedType: TFeedType,
@@ -148,8 +149,15 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
     const init = async () => {
       logger.debug('FeedProvider init:', { isInitialized, pubkey, favoriteRelays: favoriteRelays.length, blockedRelays: blockedRelays.length })
       if (!isInitialized) {
+        if (!loggedWaitingForNostrInitRef.current) {
+          loggedWaitingForNostrInitRef.current = true
+          logger.info(
+            '[FeedProvider] Waiting for Nostr session restore before attaching feeds (home may show a loading state)'
+          )
+        }
         return
       }
+      loggedWaitingForNostrInitRef.current = false
 
       // Wait for favoriteRelays to be initialized (should have at least default relays)
       // If favoriteRelays is empty, it might not be initialized yet, so wait

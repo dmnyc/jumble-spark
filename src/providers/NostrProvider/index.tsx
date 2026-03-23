@@ -43,7 +43,7 @@ import { Event, kinds, VerifiedEvent, validateEvent } from 'nostr-tools'
 import * as nip19 from 'nostr-tools/nip19'
 import * as nip49 from 'nostr-tools/nip49'
 import { NostrContext } from '@/providers/nostr-context'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { BunkerSigner } from './bunker.signer'
@@ -142,9 +142,13 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   const [userEmojiListEvent, setUserEmojiListEvent] = useState<Event | null>(null)
   const [rssFeedListEvent, setRssFeedListEvent] = useState<Event | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
+  const [isAccountSessionHydrating, setIsAccountSessionHydrating] = useState(false)
+  /** Bumps on each account hydration run so stale async completions cannot clear {@link isAccountSessionHydrating}. */
+  const accountHydrationGenerationRef = useRef(0)
 
   useEffect(() => {
     const init = async () => {
+      logger.info('[NostrProvider] Restoring session (login / first account)…')
       if (hasNostrLoginHash()) {
         return await loginByNostrLoginHash()
       }
@@ -155,9 +159,15 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
 
       await loginWithAccountPointer(act)
     }
-    init().then(() => {
-      setIsInitialized(true)
-    })
+    init()
+      .then(() => {
+        logger.info('[NostrProvider] Session restore finished; feeds and UI can initialize')
+        setIsInitialized(true)
+      })
+      .catch((e) => {
+        logger.error('[NostrProvider] Session restore failed', { error: e })
+        setIsInitialized(true)
+      })
 
     const handleHashChange = () => {
       if (hasNostrLoginHash()) {
@@ -172,7 +182,14 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  /** Logged-out: run IndexedDB + NIP-66 prewarm once session gate opens (logged-in path includes this inside hydrate). */
   useEffect(() => {
+    if (!isInitialized || account) return
+    void client.runSessionPrewarm({ pubkey: null })
+  }, [isInitialized, account])
+
+  useEffect(() => {
+    let hydrationGenForThisRun = -1
     const init = async () => {
       setRelayList(null)
       setProfile(null)
@@ -184,9 +201,17 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       setBookmarkListEvent(null)
       setRssFeedListEvent(null)
       if (!account) {
-        return
+        accountHydrationGenerationRef.current += 1
+        setIsAccountSessionHydrating(false)
+        return undefined
       }
 
+      hydrationGenForThisRun = accountHydrationGenerationRef.current += 1
+      setIsAccountSessionHydrating(true)
+      logger.info('[NostrProvider] Account session hydrate: loading cache and relays…', {
+        pubkeySlice: account.pubkey.slice(0, 12),
+        hydrationGen: hydrationGenForThisRun
+      })
       const controller = new AbortController()
       const storedNsec = storage.getAccountNsec(account.pubkey)
       if (storedNsec) {
@@ -488,14 +513,31 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      client.initUserIndexFromFollowings(account.pubkey, controller.signal)
+      void client.runSessionPrewarm({ pubkey: account.pubkey, signal: controller.signal })
+      logger.info('[NostrProvider] Account session hydrate: core relay/profile merge finished; client prewarm started (parallel)', {
+        pubkeySlice: account.pubkey.slice(0, 12)
+      })
       return controller
     }
     const promise = init()
+    const finishHydration = () => {
+      if (
+        hydrationGenForThisRun >= 0 &&
+        accountHydrationGenerationRef.current === hydrationGenForThisRun
+      ) {
+        setIsAccountSessionHydrating(false)
+      }
+    }
+    promise.then(finishHydration).catch((e) => {
+      logger.error('[NostrProvider] Account session hydrate failed', { error: e })
+      finishHydration()
+    })
     return () => {
-      promise.then((controller) => {
-        controller?.abort()
-      })
+      promise
+        .then((controller) => {
+          controller?.abort()
+        })
+        .catch(() => {})
     }
   }, [account])
 
@@ -1084,6 +1126,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     <NostrContext.Provider
       value={{
         isInitialized,
+        isAccountSessionHydrating,
         pubkey: account?.pubkey ?? null,
         profile,
         profileEvent,

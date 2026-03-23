@@ -14,6 +14,8 @@ import { createContext, useContext } from 'react'
 
 export type TNostrContext = {
   isInitialized: boolean
+  /** True while replaceable events + relay list are loading from cache/relays after login or account switch. */
+  isAccountSessionHydrating: boolean
   pubkey: string | null
   profile: TProfile | null
   profileEvent: Event | null

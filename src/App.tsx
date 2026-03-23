@@ -21,6 +21,7 @@ import { ThemeProvider } from '@/providers/ThemeProvider'
 import { UserPreferencesProvider } from '@/providers/UserPreferencesProvider'
 import { UserTrustProvider } from '@/providers/UserTrustProvider'
 import { ZapProvider } from '@/providers/ZapProvider'
+import StartupSessionBanner from '@/components/StartupSessionBanner'
 import { PageManager } from './PageManager'
 
 export default function App(): JSX.Element {
@@ -31,34 +32,39 @@ export default function App(): JSX.Element {
           <ScreenSizeProvider>
           <DeletedEventProvider>
             <NostrProvider>
-              <ZapProvider>
-                  <FavoriteRelaysProvider>
-                    <FollowListProvider>
-                      <MuteListProvider>
-                        <InterestListProvider>
-                          <GroupListProvider>
-                            <UserTrustProvider>
-                              <BookmarksProvider>
-                                <FeedProvider>
-                                  <ReplyProvider>
-                                    <MediaUploadServiceProvider>
-                                      <KindFilterProvider>
-                                        <UserPreferencesProvider>
-                                          <PageManager />
-                                          <Toaster />
-                                        </UserPreferencesProvider>
-                                      </KindFilterProvider>
-                                    </MediaUploadServiceProvider>
-                                  </ReplyProvider>
-                                </FeedProvider>
-                              </BookmarksProvider>
-                            </UserTrustProvider>
-                          </GroupListProvider>
-                        </InterestListProvider>
-                      </MuteListProvider>
-                    </FollowListProvider>
-                  </FavoriteRelaysProvider>
-                </ZapProvider>
+              <div className="flex min-h-[100dvh] flex-col">
+                <StartupSessionBanner />
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                  <ZapProvider>
+                    <FavoriteRelaysProvider>
+                      <FollowListProvider>
+                        <MuteListProvider>
+                          <InterestListProvider>
+                            <GroupListProvider>
+                              <UserTrustProvider>
+                                <BookmarksProvider>
+                                  <FeedProvider>
+                                    <ReplyProvider>
+                                      <MediaUploadServiceProvider>
+                                        <KindFilterProvider>
+                                          <UserPreferencesProvider>
+                                            <PageManager />
+                                            <Toaster />
+                                          </UserPreferencesProvider>
+                                        </KindFilterProvider>
+                                      </MediaUploadServiceProvider>
+                                    </ReplyProvider>
+                                  </FeedProvider>
+                                </BookmarksProvider>
+                              </UserTrustProvider>
+                            </GroupListProvider>
+                          </InterestListProvider>
+                        </MuteListProvider>
+                      </FollowListProvider>
+                    </FavoriteRelaysProvider>
+                  </ZapProvider>
+                </div>
+              </div>
             </NostrProvider>
           </DeletedEventProvider>
         </ScreenSizeProvider>

@@ -120,6 +120,12 @@ class ClientService extends EventTarget {
   /** Session-only: relay URL -> { successCount, sumLatencyMs } for preferring faster, proven relays when picking "random" relays. */
   private sessionRelayPublishStats = new Map<string, { successCount: number; sumLatencyMs: number }>()
 
+  /**
+   * IndexedDB profile index + NIP-66 relay discovery run once per page session; followings prewarm runs when logged in.
+   * @see {@link runSessionPrewarm}
+   */
+  private sessionPrewarmBaseCompleted = false
+
   constructor() {
     super()
     this.pool = new SimplePool()
@@ -138,20 +144,53 @@ class ClientService extends EventTarget {
   public static getInstance(): ClientService {
     if (!ClientService.instance) {
       ClientService.instance = new ClientService()
-      ClientService.instance.init()
     }
     return ClientService.instance
   }
 
-  async init() {
-    await indexedDb.iterateProfileEvents((profileEvent) => this.addUsernameToIndex(profileEvent))
-    // Defer NIP-66 discovery so the first WebSocket slots go to login, relay list, and feed — not background search.
-    const runNip66 = () => this.fetchNip66RelayDiscovery().catch(() => {})
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(() => runNip66(), { timeout: 8000 })
-    } else {
-      setTimeout(runNip66, 2500)
+  private async prewarmProfileSearchIndexFromIdb(): Promise<void> {
+    const t0 = typeof performance !== 'undefined' ? performance.now() : 0
+    let profileRows = 0
+    await indexedDb.iterateProfileEvents((profileEvent) => {
+      this.addUsernameToIndex(profileEvent)
+      profileRows += 1
+    })
+    logger.info('[client] Prewarm: profile @-mention index from IndexedDB done', {
+      profileRows,
+      ms: typeof performance !== 'undefined' ? Math.round(performance.now() - t0) : undefined
+    })
+  }
+
+  /**
+   * One-shot batch: local profile search index + NIP-66 relay discovery (once per session) + optional following-profile fetch (parallel).
+   * Call after Nostr session is ready so it does not compete with the first relay-list REQ.
+   */
+  async runSessionPrewarm(options: { pubkey: string | null; signal?: AbortSignal }): Promise<void> {
+    const signal = options.signal ?? new AbortController().signal
+    const t0 = typeof performance !== 'undefined' ? performance.now() : 0
+    const tasks: Promise<unknown>[] = []
+
+    if (!this.sessionPrewarmBaseCompleted) {
+      this.sessionPrewarmBaseCompleted = true
+      tasks.push(this.prewarmProfileSearchIndexFromIdb(), this.fetchNip66RelayDiscovery())
     }
+    if (options.pubkey) {
+      tasks.push(this.initUserIndexFromFollowings(options.pubkey, signal))
+    }
+
+    if (tasks.length === 0) {
+      return
+    }
+
+    logger.info('[client] Session prewarm batch started (parallel)', {
+      hasPubkey: !!options.pubkey,
+      taskCount: tasks.length
+    })
+    const results = await Promise.allSettled(tasks)
+    logger.info('[client] Session prewarm batch finished', {
+      ms: typeof performance !== 'undefined' ? Math.round(performance.now() - t0) : undefined,
+      results: results.map((r) => r.status)
+    })
   }
 
   // Update signer in query service when it changes
@@ -174,10 +213,10 @@ class ClientService extends EventTarget {
       if (events.length > 0) {
         const capped = events.length > 2000 ? events.slice(0, 2000) : events
         nip66Service.loadFromEvents(capped)
-        logger.debug('NIP-66: loaded relay discovery events', { count: capped.length })
+        logger.info('[client] Prewarm: NIP-66 relay discovery list updated', { count: capped.length })
       }
     } catch (err) {
-      logger.debug('NIP-66: failed to fetch relay discovery', { err })
+      logger.warn('[client] Prewarm: NIP-66 relay discovery fetch failed', { err })
     }
   }
 
@@ -1919,15 +1958,33 @@ class ClientService extends EventTarget {
   /** =========== Followings =========== */
   // Moved to ReplaceableEventService
 
-  async initUserIndexFromFollowings(pubkey: string, signal: AbortSignal) {
+  /** Part of {@link runSessionPrewarm}; batches followings to limit relay load. */
+  private async initUserIndexFromFollowings(pubkey: string, signal: AbortSignal) {
     const followings = await this.replaceableEventService.fetchFollowings(pubkey)
+    if (followings.length === 0) {
+      logger.info('[client] Prewarm: following profiles skipped (no followings)', {
+        pubkeySlice: pubkey.slice(0, 12)
+      })
+      return
+    }
+    logger.info('[client] Prewarm: following profile fetch started', {
+      pubkeySlice: pubkey.slice(0, 12),
+      followingCount: followings.length
+    })
     for (let i = 0; i * 20 < followings.length; i++) {
-      if (signal.aborted) return
+      if (signal.aborted) {
+        logger.info('[client] Prewarm: following profiles aborted', { pubkeySlice: pubkey.slice(0, 12) })
+        return
+      }
       await Promise.all(
-        followings.slice(i * 20, (i + 1) * 20).map((pubkey) => this.fetchProfileEvent(pubkey))
+        followings.slice(i * 20, (i + 1) * 20).map((pk) => this.fetchProfileEvent(pk))
       )
       await new Promise((resolve) => setTimeout(resolve, 1000))
     }
+    logger.info('[client] Prewarm: following profile fetch finished', {
+      pubkeySlice: pubkey.slice(0, 12),
+      followingCount: followings.length
+    })
   }
 
   /** =========== Profile =========== */
