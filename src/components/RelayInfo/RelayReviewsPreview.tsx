@@ -11,14 +11,15 @@ import { FAST_READ_RELAY_URLS, ExtendedKind } from '@/constants'
 import { compareEvents } from '@/lib/event'
 import { getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
 import { toRelayReviews } from '@/lib/link'
+import { normalizeUrl } from '@/lib/url'
 import { cn, isTouchDevice } from '@/lib/utils'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import { queryService } from '@/services/client.service'
 import { WheelGesturesPlugin } from 'embla-carousel-wheel-gestures'
-import { Filter, NostrEvent } from 'nostr-tools'
-import { useEffect, useMemo, useState } from 'react'
+import type { NostrEvent } from 'nostr-tools'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Stars from '../Stars'
 import RelayReviewCard from './RelayReviewCard'
@@ -51,69 +52,77 @@ export default function RelayReviewsPreview({ relayUrl }: { relayUrl: string }) 
     }
   }, [myReview, reviews])
 
+  const ingestReviewEvent = useCallback(
+    (evt: NostrEvent) => {
+      if (mutePubkeySet.has(evt.pubkey)) return
+      if (hideUntrustedNotes && !isUserTrusted(evt.pubkey)) return
+      const stars = getStarsFromRelayReviewEvent(evt)
+      if (!stars) return
+
+      if (pubkey && evt.pubkey === pubkey) {
+        setMyReview((prev) => (!prev || evt.created_at > prev.created_at ? evt : prev))
+        return
+      }
+
+      setReviews((prev) => {
+        const existing = prev.find((e) => e.pubkey === evt.pubkey)
+        if (existing && existing.created_at >= evt.created_at) return prev
+        const filtered = prev.filter((e) => e.pubkey !== evt.pubkey)
+        return [...filtered, evt].sort((a, b) => compareEvents(b, a))
+      })
+    },
+    [pubkey, mutePubkeySet, hideUntrustedNotes, isUserTrusted]
+  )
+
   useEffect(() => {
     let cancelled = false
-    const init = async () => {
-      try {
-        const filters: Filter[] = [
-          { kinds: [ExtendedKind.RELAY_REVIEW], '#d': [relayUrl], limit: 100 }
-        ]
-        if (pubkey) {
-          filters.push({ kinds: [ExtendedKind.RELAY_REVIEW], authors: [pubkey], '#d': [relayUrl] })
-        }
-        // Use FAST_READ_RELAY_URLS first so we don't block on a slow/failing relay;
-        // add relayUrl as fallback so we still get reviews from the relay itself.
-        const relayUrls = [...FAST_READ_RELAY_URLS, relayUrl]
-        const events = await queryService.fetchEvents(relayUrls, filters, {
-          eoseTimeout: 3000,
-          globalTimeout: 6000
-        })
+    setMyReview(null)
+    setReviews([])
+    setInitialized(false)
 
-        if (cancelled) return
+    const normalizedTarget = normalizeUrl(relayUrl) || relayUrl
+    const uniqueUrls = [
+      ...new Set([...FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u), normalizedTarget])
+    ]
 
-        const pubkeySet = new Set<string>()
-        const reviewsList: NostrEvent[] = []
-        let myReviewEvt: NostrEvent | null = null
-
-        events.sort((a, b) => compareEvents(b, a))
-        for (const evt of events) {
-          if (
-            mutePubkeySet.has(evt.pubkey) ||
-            pubkeySet.has(evt.pubkey) ||
-            (hideUntrustedNotes && !isUserTrusted(evt.pubkey))
-          ) {
-            continue
-          }
-          const stars = getStarsFromRelayReviewEvent(evt)
-          if (!stars) {
-            continue
-          }
-
-          pubkeySet.add(evt.pubkey)
-          if (evt.pubkey === pubkey) {
-            myReviewEvt = evt
-          } else {
-            reviewsList.push(evt)
-          }
-        }
-
-        setMyReview(myReviewEvt)
-        setReviews(reviewsList)
-      } catch (_) {
-        // Don't block UI: show "No reviews yet" so feed and rest of page stay usable
-        if (!cancelled) {
-          setMyReview(null)
-          setReviews([])
-        }
-      } finally {
-        if (!cancelled) setInitialized(true)
-      }
+    const filter = {
+      kinds: [ExtendedKind.RELAY_REVIEW],
+      '#d': [relayUrl],
+      limit: 100
     }
-    init()
+
+    let dispose: (() => void) | undefined
+    let closed = false
+    const finish = () => {
+      if (closed) return
+      closed = true
+      if (!cancelled) setInitialized(true)
+      dispose?.()
+    }
+
+    const sub = queryService.subscribe(uniqueUrls, filter, {
+      onevent: (evt) => {
+        if (cancelled || evt.kind !== ExtendedKind.RELAY_REVIEW) return
+        ingestReviewEvent(evt)
+      },
+      oneose: () => {
+        if (cancelled) return
+        finish()
+      }
+    })
+    dispose = sub.close
+
+    const safety = window.setTimeout(() => {
+      if (cancelled) return
+      finish()
+    }, 12_000)
+
     return () => {
       cancelled = true
+      window.clearTimeout(safety)
+      finish()
     }
-  }, [relayUrl, pubkey, mutePubkeySet, hideUntrustedNotes, isUserTrusted])
+  }, [relayUrl, ingestReviewEvent])
 
   const handleReviewed = (evt: NostrEvent) => {
     setMyReview(evt)

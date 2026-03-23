@@ -1,6 +1,6 @@
 import RelayReviewCard from '@/components/RelayInfo/RelayReviewCard'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ExtendedKind } from '@/constants'
+import { ExtendedKind, FIRST_RELAY_RESULT_GRACE_MS } from '@/constants'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { getRelayUrlFromRelayReviewEvent } from '@/lib/event-metadata'
 import { getRelayUrlsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
@@ -66,7 +66,14 @@ export default function ExploreRelayReviews() {
           relayUrls,
           { kinds: [ExtendedKind.RELAY_REVIEW], limit: REVIEW_QUERY_LIMIT },
           {
-            firstRelayResultGraceMs: false,
+            onevent: (e) => {
+              if (cancelled) return
+              if (e.kind === ExtendedKind.RELAY_REVIEW && getRelayUrlFromRelayReviewEvent(e)) {
+                setLoading(false)
+                setEvents((prev) => dedupeRelayReviewsNewestFirst([...prev, e]))
+              }
+            },
+            firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS,
             globalTimeout: 12_000,
             eoseTimeout: 800,
             cache: true
