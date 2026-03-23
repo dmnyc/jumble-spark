@@ -7,7 +7,7 @@ import indexedDb from './indexed-db.service'
 import type { QueryService } from './client-query.service'
 import client from './client.service'
 import { isReplaceableEvent } from '@/lib/event'
-import { isStringifiedJsonObjectContentNostrEvent } from '@/lib/event-ingest-filter'
+import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 
 /**
@@ -75,7 +75,7 @@ export class EventService {
   private getSessionEventIfAllowed(hexId: string): NEvent | undefined {
     const e = this.sessionEventCache.get(hexId)
     if (!e) return undefined
-    if (isStringifiedJsonObjectContentNostrEvent(e)) {
+    if (shouldDropEventOnIngest(e)) {
       this.sessionEventCache.delete(hexId)
       return undefined
     }
@@ -151,11 +151,11 @@ export class EventService {
       const cachedPromise = this.eventCacheMap.get(hexId)
       if (cachedPromise) {
         const resolved = await cachedPromise
-        if (resolved && !isStringifiedJsonObjectContentNostrEvent(resolved)) return resolved
+        if (resolved && !shouldDropEventOnIngest(resolved)) return resolved
         const fromSessionAfterMiss = this.getSessionEventIfAllowed(hexId)
         if (fromSessionAfterMiss) return fromSessionAfterMiss
         const fromDb = await indexedDb.getEventFromPublicationStore(hexId)
-        if (fromDb && !isStringifiedJsonObjectContentNostrEvent(fromDb)) {
+        if (fromDb && !shouldDropEventOnIngest(fromDb)) {
           this.addEventToCache(fromDb)
           return fromDb
         }
@@ -168,7 +168,7 @@ export class EventService {
       const fromSessionAfter = this.getSessionEventIfAllowed(hexId)
       if (fromSessionAfter) return fromSessionAfter
     }
-    if (loaded && isStringifiedJsonObjectContentNostrEvent(loaded)) {
+    if (loaded && shouldDropEventOnIngest(loaded)) {
       return undefined
     }
     return loaded
@@ -318,7 +318,7 @@ export class EventService {
    * Add event to session cache
    */
   addEventToCache(event: NEvent): void {
-    if (isStringifiedJsonObjectContentNostrEvent(event)) return
+    if (shouldDropEventOnIngest(event)) return
     const cleanEvent = { ...event }
     delete (cleanEvent as any).relayStatuses
     // REQ filters and nip19 decode use lowercase hex; some relays/clients emit uppercase ids.
@@ -340,7 +340,7 @@ export class EventService {
     const queryLower = query.toLowerCase()
     
     for (const [, event] of this.sessionEventCache.entries()) {
-      if (isStringifiedJsonObjectContentNostrEvent(event)) continue
+      if (shouldDropEventOnIngest(event)) continue
       if (allowedKinds && !allowedKinds.includes(event.kind)) continue
 
       const content = event.content.toLowerCase()
@@ -436,7 +436,7 @@ export class EventService {
     // Try cache first
     if (filter.ids?.length) {
       const cached = await indexedDb.getEventFromPublicationStore(filter.ids[0])
-      if (cached && !isStringifiedJsonObjectContentNostrEvent(cached)) {
+      if (cached && !shouldDropEventOnIngest(cached)) {
         this.addEventToCache(cached)
         // Extract relay hints from cached event's tags (e, a, q tags)
         const eventRelayHints = this.extractRelayHintsFromEvent(cached)
@@ -450,7 +450,7 @@ export class EventService {
     // Try big relays first (uses user's inboxes + defaults)
     if (filter.ids?.length) {
       const event = await this.fetchEventFromBigRelaysDataloader.load(filter.ids[0])
-      if (event && !isStringifiedJsonObjectContentNostrEvent(event)) {
+      if (event && !shouldDropEventOnIngest(event)) {
         this.addEventToCache(event)
         // Extract relay hints from found event's tags (e, a, q tags)
         const eventRelayHints = this.extractRelayHintsFromEvent(event)
@@ -463,7 +463,7 @@ export class EventService {
 
     // Always try comprehensive relay list (author's outboxes + user's inboxes + hints + seen + defaults)
     const event = await this.tryHarderToFetchEvent(relays, filter, true)
-    if (event && !isStringifiedJsonObjectContentNostrEvent(event)) {
+    if (event && !shouldDropEventOnIngest(event)) {
       this.addEventToCache(event)
       return event
     }
@@ -523,7 +523,7 @@ export class EventService {
     })
     
     const event = events
-      .filter((e) => !isStringifiedJsonObjectContentNostrEvent(e))
+      .filter((e) => !shouldDropEventOnIngest(e))
       .sort((a, b) => b.created_at - a.created_at)[0]
     
     // For non-replaceable events, we've already returned immediately via immediateReturn
@@ -561,7 +561,7 @@ export class EventService {
     
     const eventsMap = new Map<string, NEvent>()
     for (const event of events) {
-      if (isStringifiedJsonObjectContentNostrEvent(event)) continue
+      if (shouldDropEventOnIngest(event)) continue
       const key = /^[0-9a-f]{64}$/i.test(event.id) ? event.id.toLowerCase() : event.id
       eventsMap.set(key, event)
       // Note: We can't track which relay returned which event in batch queries,

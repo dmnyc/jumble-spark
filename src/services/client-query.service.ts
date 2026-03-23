@@ -5,7 +5,7 @@ import {
   MAX_CONCURRENT_RELAY_CONNECTIONS,
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
-import { isStringifiedJsonObjectContentNostrEvent } from '@/lib/event-ingest-filter'
+import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
 import type { Filter, Event as NEvent } from 'nostr-tools'
@@ -396,7 +396,7 @@ export class QueryService {
 
     const forwardOnevent = callbacks.onevent
       ? (evt: NEvent) => {
-          if (isStringifiedJsonObjectContentNostrEvent(evt)) return
+          if (shouldDropEventOnIngest(evt)) return
           callbacks.onevent!(evt)
         }
       : undefined

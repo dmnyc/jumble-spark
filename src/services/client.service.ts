@@ -17,7 +17,7 @@ function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
   const { search: _search, ...rest } = f
   return rest as Filter
 }
-import { isStringifiedJsonObjectContentNostrEvent } from '@/lib/event-ingest-filter'
+import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { dispatchTombstonesUpdated } from '@/lib/tombstone-events'
@@ -1380,7 +1380,7 @@ class ClientService extends EventTarget {
 
     const forwardOnevent = onevent
       ? (evt: NEvent) => {
-          if (isStringifiedJsonObjectContentNostrEvent(evt)) return
+          if (shouldDropEventOnIngest(evt)) return
           onevent(evt)
         }
       : undefined
@@ -1521,7 +1521,7 @@ class ClientService extends EventTarget {
       const customEvent = data as CustomEvent<NEvent>
       const evt = customEvent.detail
       if (!matchFilters(filters, evt)) return
-      if (isStringifiedJsonObjectContentNostrEvent(evt)) return
+      if (shouldDropEventOnIngest(evt)) return
 
       const id = evt.id
       const have = _knownIds.has(id)
