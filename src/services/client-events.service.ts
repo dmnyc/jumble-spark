@@ -7,6 +7,7 @@ import indexedDb from './indexed-db.service'
 import type { QueryService } from './client-query.service'
 import client from './client.service'
 import { isReplaceableEvent } from '@/lib/event'
+import { isStringifiedJsonObjectContentNostrEvent } from '@/lib/event-ingest-filter'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 
 /**
@@ -70,6 +71,17 @@ export class EventService {
     return null
   }
 
+  /** Returns cached event or undefined; evicts stringified-JSON-object spam from the session LRU. */
+  private getSessionEventIfAllowed(hexId: string): NEvent | undefined {
+    const e = this.sessionEventCache.get(hexId)
+    if (!e) return undefined
+    if (isStringifiedJsonObjectContentNostrEvent(e)) {
+      this.sessionEventCache.delete(hexId)
+      return undefined
+    }
+    return e
+  }
+
   private notifySessionEventWaiters(hexId: string): void {
     const waiters = this.sessionEventWaiters.get(hexId)
     if (!waiters?.size) return
@@ -90,7 +102,7 @@ export class EventService {
     const hex = this.resolveHexWaiterKey(eventId)
     if (!hex) return () => {}
 
-    if (this.sessionEventCache.has(hex)) {
+    if (this.getSessionEventIfAllowed(hex)) {
       queueMicrotask(() => callback())
     }
 
@@ -134,16 +146,16 @@ export class EventService {
       }
     }
     if (hexId) {
-      const fromSession = this.sessionEventCache.get(hexId)
+      const fromSession = this.getSessionEventIfAllowed(hexId)
       if (fromSession) return fromSession
       const cachedPromise = this.eventCacheMap.get(hexId)
       if (cachedPromise) {
         const resolved = await cachedPromise
-        if (resolved) return resolved
-        const fromSessionAfterMiss = this.sessionEventCache.get(hexId)
+        if (resolved && !isStringifiedJsonObjectContentNostrEvent(resolved)) return resolved
+        const fromSessionAfterMiss = this.getSessionEventIfAllowed(hexId)
         if (fromSessionAfterMiss) return fromSessionAfterMiss
         const fromDb = await indexedDb.getEventFromPublicationStore(hexId)
-        if (fromDb) {
+        if (fromDb && !isStringifiedJsonObjectContentNostrEvent(fromDb)) {
           this.addEventToCache(fromDb)
           return fromDb
         }
@@ -153,8 +165,11 @@ export class EventService {
     }
     const loaded = await this.eventDataLoader.load(hexId ?? trimmed)
     if (hexId) {
-      const fromSessionAfter = this.sessionEventCache.get(hexId)
+      const fromSessionAfter = this.getSessionEventIfAllowed(hexId)
       if (fromSessionAfter) return fromSessionAfter
+    }
+    if (loaded && isStringifiedJsonObjectContentNostrEvent(loaded)) {
+      return undefined
     }
     return loaded
   }
@@ -203,7 +218,7 @@ export class EventService {
           .filter((id) => /^[0-9a-f]{64}$/.test(id))
       )
     ]
-    const toFetch = hexIds.filter((id) => !this.sessionEventCache.has(id))
+    const toFetch = hexIds.filter((id) => !this.getSessionEventIfAllowed(id))
     if (toFetch.length === 0) return
 
     const relayUrls = await buildComprehensiveRelayListForEvents(undefined, [], [], [])
@@ -303,6 +318,7 @@ export class EventService {
    * Add event to session cache
    */
   addEventToCache(event: NEvent): void {
+    if (isStringifiedJsonObjectContentNostrEvent(event)) return
     const cleanEvent = { ...event }
     delete (cleanEvent as any).relayStatuses
     // REQ filters and nip19 decode use lowercase hex; some relays/clients emit uppercase ids.
@@ -324,8 +340,9 @@ export class EventService {
     const queryLower = query.toLowerCase()
     
     for (const [, event] of this.sessionEventCache.entries()) {
+      if (isStringifiedJsonObjectContentNostrEvent(event)) continue
       if (allowedKinds && !allowedKinds.includes(event.kind)) continue
-      
+
       const content = event.content.toLowerCase()
       if (content.includes(queryLower)) {
         results.push(event)
@@ -419,7 +436,7 @@ export class EventService {
     // Try cache first
     if (filter.ids?.length) {
       const cached = await indexedDb.getEventFromPublicationStore(filter.ids[0])
-      if (cached) {
+      if (cached && !isStringifiedJsonObjectContentNostrEvent(cached)) {
         this.addEventToCache(cached)
         // Extract relay hints from cached event's tags (e, a, q tags)
         const eventRelayHints = this.extractRelayHintsFromEvent(cached)
@@ -433,7 +450,7 @@ export class EventService {
     // Try big relays first (uses user's inboxes + defaults)
     if (filter.ids?.length) {
       const event = await this.fetchEventFromBigRelaysDataloader.load(filter.ids[0])
-      if (event) {
+      if (event && !isStringifiedJsonObjectContentNostrEvent(event)) {
         this.addEventToCache(event)
         // Extract relay hints from found event's tags (e, a, q tags)
         const eventRelayHints = this.extractRelayHintsFromEvent(event)
@@ -446,7 +463,7 @@ export class EventService {
 
     // Always try comprehensive relay list (author's outboxes + user's inboxes + hints + seen + defaults)
     const event = await this.tryHarderToFetchEvent(relays, filter, true)
-    if (event) {
+    if (event && !isStringifiedJsonObjectContentNostrEvent(event)) {
       this.addEventToCache(event)
       return event
     }
@@ -455,7 +472,7 @@ export class EventService {
     if (filter.ids?.length === 1) {
       const raw = filter.ids[0]
       const key = /^[0-9a-f]{64}$/i.test(raw) ? raw.toLowerCase() : raw
-      const sess = this.sessionEventCache.get(key)
+      const sess = this.getSessionEventIfAllowed(key)
       if (sess) return sess
     }
 
@@ -505,7 +522,9 @@ export class EventService {
       globalTimeout: isSingleEventById ? 12000 : 10000
     })
     
-    const event = events.sort((a, b) => b.created_at - a.created_at)[0]
+    const event = events
+      .filter((e) => !isStringifiedJsonObjectContentNostrEvent(e))
+      .sort((a, b) => b.created_at - a.created_at)[0]
     
     // For non-replaceable events, we've already returned immediately via immediateReturn
     // But log it for debugging
@@ -542,6 +561,7 @@ export class EventService {
     
     const eventsMap = new Map<string, NEvent>()
     for (const event of events) {
+      if (isStringifiedJsonObjectContentNostrEvent(event)) continue
       const key = /^[0-9a-f]{64}$/i.test(event.id) ? event.id.toLowerCase() : event.id
       eventsMap.set(key, event)
       // Note: We can't track which relay returned which event in batch queries,

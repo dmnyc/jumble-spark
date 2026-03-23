@@ -5,6 +5,7 @@ import {
   MAX_CONCURRENT_RELAY_CONNECTIONS,
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
+import { isStringifiedJsonObjectContentNostrEvent } from '@/lib/event-ingest-filter'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
 import type { Filter, Event as NEvent } from 'nostr-tools'
@@ -393,6 +394,13 @@ export class QueryService {
       return false
     }
 
+    const forwardOnevent = callbacks.onevent
+      ? (evt: NEvent) => {
+          if (isStringifiedJsonObjectContentNostrEvent(evt)) return
+          callbacks.onevent!(evt)
+        }
+      : undefined
+
     const subs: { relayKey: string; close: () => void }[] = []
     const allOpened = Promise.all(
       groupedRequests.map(async ({ url, filters: relayFilters }, i) => {
@@ -419,7 +427,7 @@ export class QueryService {
 
           const sub = relay.subscribe(relayFilters, {
             receivedEvent: (_relay, id) => this.trackEventSeenOn(id, _relay),
-            onevent: (evt: NEvent) => callbacks.onevent?.(evt),
+            onevent: (evt: NEvent) => forwardOnevent?.(evt),
             oneose: () => handleEose(i),
             onclose: (reason: string) => {
               releaseOnce()
@@ -452,7 +460,7 @@ export class QueryService {
                       try {
                         const sub2 = liveRelay.subscribe(relayFilters, {
                           receivedEvent: (_relay, id) => this.trackEventSeenOn(id, _relay),
-                          onevent: (evt: NEvent) => callbacks.onevent?.(evt),
+                          onevent: (evt: NEvent) => forwardOnevent?.(evt),
                           oneose: () => handleEose(i),
                           onclose: (reason2: string) => {
                             releaseSlot2()
