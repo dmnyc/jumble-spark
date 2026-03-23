@@ -923,9 +923,11 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         void replaceableEventService.updateReplaceableEventCache(event).catch(() => {})
       }
 
-      // If publishing failed completely, throw an error so the form doesn't close
-      if (!publishResult.success) {
-        logger.error('[Publish] Publishing failed to all relays!', {
+      // Replaceable events and notes: cache above uses successCount >= 1. publishEvent still sets
+      // success only when >=1/3 of relays OK (broad replication). Treat "zero accepts" as failure
+      // so we don't throw when a few relays worked but many timed out (common with large outbox lists).
+      if (publishResult.successCount < 1) {
+        logger.error('[Publish] Publishing failed on every relay', {
           eventKind: event.kind,
           eventId: event.id?.substring(0, 8),
           relayStatuses: publishResult.relayStatuses,
@@ -938,8 +940,15 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
           'Failed to publish to any relay'
         )
         ;(error as any).relayStatuses = publishResult.relayStatuses
-        if (publishResult.successCount >= 1) (error as any).event = event
         throw error
+      }
+      if (!publishResult.success) {
+        logger.warn('[Publish] Partial publish: some relays failed or timed out', {
+          eventKind: event.kind,
+          eventId: event.id?.substring(0, 8),
+          successCount: publishResult.successCount,
+          totalCount: publishResult.totalCount
+        })
       }
 
       logger.debug('[Publish] Publishing successful, attaching relayStatuses to event')

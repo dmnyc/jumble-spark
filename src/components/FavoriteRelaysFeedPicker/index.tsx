@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectLabel,
   SelectSeparator,
@@ -31,7 +32,7 @@ function selectValueToRelaySetId(v: string) {
   return decodeURIComponent(v.slice(3))
 }
 
-/** Top-of-feed control: all favorites, single relays, and relay sets. */
+/** Top-of-feed control: all favorites, relay sets, then single relays. */
 export default function FavoriteRelaysFeedPicker() {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
@@ -71,6 +72,12 @@ export default function FavoriteRelaysFeedPicker() {
   /** Values that exist in the mobile Select (for controlled `value` validation). */
   const selectItems = useMemo(() => {
     const items: { value: string }[] = [{ value: ALL_FAVORITES_VALUE }]
+    for (const set of relaySets) {
+      items.push({ value: relaySetToSelectValue(set.id) })
+    }
+    if (orphanRelaySetId) {
+      items.push({ value: relaySetToSelectValue(orphanRelaySetId) })
+    }
     for (const url of urls) {
       items.push({ value: normalizeUrl(url) || url })
     }
@@ -81,12 +88,6 @@ export default function FavoriteRelaysFeedPicker() {
       !items.some((i) => i.value === currentRelayKey)
     ) {
       items.push({ value: normalizeUrl(feedInfo.id) || feedInfo.id })
-    }
-    for (const set of relaySets) {
-      items.push({ value: relaySetToSelectValue(set.id) })
-    }
-    if (orphanRelaySetId) {
-      items.push({ value: relaySetToSelectValue(orphanRelaySetId) })
     }
     return items
   }, [
@@ -157,35 +158,42 @@ export default function FavoriteRelaysFeedPicker() {
               <SelectItem value={ALL_FAVORITES_VALUE} className="text-xs">
                 {t('All favorite relays')}
               </SelectItem>
-              {urls.map((url) => {
-                const v = normalizeUrl(url) || url
-                return (
-                  <SelectItem key={v} value={v} className="font-mono text-xs" title={url}>
-                    {simplifyUrl(url)}
-                  </SelectItem>
-                )
-              })}
               {relaySets.length > 0 || orphanRelaySetId ? (
                 <>
                   <SelectSeparator />
-                  <SelectLabel className="pl-2">{t('Relay sets')}</SelectLabel>
-                  {relaySets.map((set) => (
-                    <SelectItem
-                      key={set.id}
-                      value={relaySetToSelectValue(set.id)}
-                      className="text-xs font-sans"
-                    >
-                      {set.name}
-                    </SelectItem>
-                  ))}
-                  {orphanRelaySetId ? (
-                    <SelectItem
-                      value={relaySetToSelectValue(orphanRelaySetId)}
-                      className="font-mono text-xs"
-                    >
-                      {orphanRelaySetId}
-                    </SelectItem>
-                  ) : null}
+                  <SelectGroup>
+                    <SelectLabel className="pl-2">{t('Relay sets')}</SelectLabel>
+                    {relaySets.map((set) => (
+                      <SelectItem
+                        key={set.id}
+                        value={relaySetToSelectValue(set.id)}
+                        className="text-xs font-sans"
+                      >
+                        {set.name}
+                      </SelectItem>
+                    ))}
+                    {orphanRelaySetId ? (
+                      <SelectItem
+                        value={relaySetToSelectValue(orphanRelaySetId)}
+                        className="font-mono text-xs"
+                      >
+                        {orphanRelaySetId}
+                      </SelectItem>
+                    ) : null}
+                  </SelectGroup>
+                </>
+              ) : null}
+              {urls.length > 0 ? (
+                <>
+                  {relaySets.length > 0 || orphanRelaySetId ? <SelectSeparator /> : null}
+                  {urls.map((url) => {
+                    const v = normalizeUrl(url) || url
+                    return (
+                      <SelectItem key={v} value={v} className="font-mono text-xs" title={url}>
+                        {simplifyUrl(url)}
+                      </SelectItem>
+                    )
+                  })}
                 </>
               ) : null}
             </SelectContent>
@@ -215,26 +223,6 @@ export default function FavoriteRelaysFeedPicker() {
         >
           {t('All favorite relays')}
         </button>
-        {urls.map((url) => {
-          const key = normalizeUrl(url) || url
-          const active = feedInfo.feedType === 'relay' && currentRelayKey === key
-          return (
-            <button
-              key={key}
-              type="button"
-              className={cn(
-                'max-w-[11rem] shrink-0 truncate rounded-full border px-3 py-1 font-mono text-xs font-semibold transition-colors',
-                active
-                  ? 'border-primary bg-primary/15 text-foreground'
-                  : 'border-border bg-muted/40 text-muted-foreground hover:bg-accent'
-              )}
-              title={url}
-              onClick={() => void switchFeed('relay', { relay: url })}
-            >
-              {simplifyUrl(url)}
-            </button>
-          )
-        })}
         {(relaySets.length > 0 || orphanRelaySetId) && (
           <div className="mx-0.5 shrink-0 self-stretch border-l border-border/80" aria-hidden />
         )}
@@ -270,6 +258,29 @@ export default function FavoriteRelaysFeedPicker() {
             {orphanRelaySetId}
           </button>
         ) : null}
+        {urls.length > 0 && (relaySets.length > 0 || orphanRelaySetId) && (
+          <div className="mx-0.5 shrink-0 self-stretch border-l border-border/80" aria-hidden />
+        )}
+        {urls.map((url) => {
+          const key = normalizeUrl(url) || url
+          const active = feedInfo.feedType === 'relay' && currentRelayKey === key
+          return (
+            <button
+              key={key}
+              type="button"
+              className={cn(
+                'max-w-[11rem] shrink-0 truncate rounded-full border px-3 py-1 font-mono text-xs font-semibold transition-colors',
+                active
+                  ? 'border-primary bg-primary/15 text-foreground'
+                  : 'border-border bg-muted/40 text-muted-foreground hover:bg-accent'
+              )}
+              title={url}
+              onClick={() => void switchFeed('relay', { relay: url })}
+            >
+              {simplifyUrl(url)}
+            </button>
+          )
+        })}
       </div>
       {editSettingsButton}
     </div>

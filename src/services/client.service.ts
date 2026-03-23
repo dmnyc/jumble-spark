@@ -559,10 +559,11 @@ class ClientService extends EventTarget {
           profileFetchRelays: PROFILE_FETCH_RELAY_URLS,
           additionalRelayCount: bootstrapExtras.length
         })
-      } else if (event.kind === ExtendedKind.FAVORITE_RELAYS) {
-        // Use fast write relays for favorite relays to avoid timeouts and payment requirements
+      } else if (event.kind === ExtendedKind.FAVORITE_RELAYS || event.kind === kinds.Relaysets) {
+        // Use fast write relays for favorite-relays and kind 30002 relay-set replaceables to avoid
+        // timeouts and auth-only relays dominating the attempt list.
         bootstrapExtras.push(...FAST_WRITE_RELAY_URLS)
-        logger.debug('[DetermineTargetRelays] Favorite relays event detected, adding FAST_WRITE_RELAY_URLS', {
+        logger.debug('[DetermineTargetRelays] Favorite relays or relay set event, adding FAST_WRITE_RELAY_URLS', {
           kind: event.kind,
           fastWriteRelays: FAST_WRITE_RELAY_URLS,
           additionalRelayCount: bootstrapExtras.length
@@ -571,7 +572,11 @@ class ClientService extends EventTarget {
         bootstrapExtras.push(...FAST_WRITE_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS)
       }
 
-      if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
+      if (
+        event.kind === kinds.RelayList ||
+        event.kind === ExtendedKind.FAVORITE_RELAYS ||
+        event.kind === kinds.Relaysets
+      ) {
         logger.debug('[DetermineTargetRelays] Fetching user relay list for event publication', {
           pubkey: event.pubkey,
           kind: event.kind
@@ -587,7 +592,11 @@ class ClientService extends EventTarget {
         })
         relayList = { write: [], read: [], originalRelays: [] }
       }
-      if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
+      if (
+        event.kind === kinds.RelayList ||
+        event.kind === ExtendedKind.FAVORITE_RELAYS ||
+        event.kind === kinds.Relaysets
+      ) {
         logger.debug('[DetermineTargetRelays] User relay list fetched', {
           hasRelayList: !!relayList,
           writeRelayCount: relayList?.write?.length ?? 0,
@@ -609,7 +618,11 @@ class ClientService extends EventTarget {
         }),
         event
       )
-      if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
+      if (
+        event.kind === kinds.RelayList ||
+        event.kind === ExtendedKind.FAVORITE_RELAYS ||
+        event.kind === kinds.Relaysets
+      ) {
         logger.info('[DetermineTargetRelays] Final relay list for event publication', {
           kind: event.kind,
           totalRelayCount: relays.length,
@@ -786,7 +799,11 @@ class ClientService extends EventTarget {
     })
 
     const uniqueRelayUrls = filtered
-    if (event.kind === kinds.RelayList || event.kind === ExtendedKind.FAVORITE_RELAYS) {
+    if (
+      event.kind === kinds.RelayList ||
+      event.kind === ExtendedKind.FAVORITE_RELAYS ||
+      event.kind === kinds.Relaysets
+    ) {
       logger.info('[PublishEvent] Publishing event to relays', {
         eventId: event.id?.substring(0, 8),
         kind: event.kind,
