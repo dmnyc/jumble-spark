@@ -8,7 +8,7 @@
  * topics go in a single `#t` filter (NIP-01 OR semantics). The notifications spell uses a narrow
  * kind list vs full profile kinds.
  */
-import { ExtendedKind, FAST_READ_RELAY_URLS, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
+import { ExtendedKind, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
 import { buildProfileAugmentedReadRelayUrls } from '@/lib/favorites-feed-relays'
 import { normalizeTopic } from '@/lib/discussion-topics'
 import { userIdToPubkey } from '@/lib/pubkey'
@@ -23,8 +23,8 @@ export const FAUX_SPELL_EVENT_LIMIT = 200
 /** Profile Media tab: single REQ `limit` (matches merged cap in NoteList one-shot). */
 export const PROFILE_MEDIA_REQ_LIMIT = 200
 
-/** Max relay URLs per Medien REQ after read-only + fast-read layers (see {@link buildProfileMediaSubRequests}). */
-export const PROFILE_MEDIA_MAX_RELAYS = 10
+/** Max relay URLs per Medien REQ (author stack + aggregators; see {@link buildProfileMediaSubRequests}). */
+export const PROFILE_MEDIA_MAX_RELAYS = 16
 
 /**
  * Trim relay lists and filter limits (and bookmark `ids`) so faux feeds stay cheap to open.
@@ -134,13 +134,16 @@ export function buildProfileMediaSpellFilter(pubkey: string): Filter {
   }
 }
 
-/** Read-only + {@link FAST_READ_RELAY_URLS} before the author-only base stack; capped at {@link PROFILE_MEDIA_MAX_RELAYS}. */
+/**
+ * Author inboxes/outboxes + read-only + fast read (see {@link buildProfileAugmentedReadRelayUrls}), capped at
+ * {@link PROFILE_MEDIA_MAX_RELAYS}.
+ */
 export function buildProfileMediaSubRequests(
-  profileRelayUrls: string[],
+  authorRelayUrls: string[],
   blockedRelays: string[],
   pubkey: string
 ): TFeedSubRequest[] {
-  const urls = buildProfileAugmentedReadRelayUrls(profileRelayUrls, blockedRelays, PROFILE_MEDIA_MAX_RELAYS)
+  const urls = buildProfileAugmentedReadRelayUrls(authorRelayUrls, blockedRelays, PROFILE_MEDIA_MAX_RELAYS)
   if (!urls.length) return []
   return [{ urls, filter: buildProfileMediaSpellFilter(pubkey) }]
 }

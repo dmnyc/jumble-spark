@@ -1,7 +1,7 @@
 import { Event } from 'nostr-tools'
 import {
+  buildAuthorInboxOutboxRelayUrls,
   buildProfileAugmentedReadRelayUrls,
-  buildProfilePageReadRelayUrls,
   PROFILE_PAGE_PINS_RESOLVE_LIMIT
 } from '@/lib/favorites-feed-relays'
 import {
@@ -70,18 +70,13 @@ function orderPinEvents(pinList: Event, eventsById: Map<string, Event>): Event[]
   return ordered
 }
 
-function relayListsContentKey(favoriteRelays: string[], blockedRelays: string[]): string {
-  const fav = [...favoriteRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort().join('\u0001')
-  const blk = [...blockedRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort().join('\u0001')
-  return `${fav}\u0000${blk}`
+function blockedRelaysContentKey(blockedRelays: string[]): string {
+  return [...blockedRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort().join('\u0001')
 }
 
 export function useProfilePins(pubkey: string | undefined) {
-  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
-  const relayListsKey = useMemo(
-    () => relayListsContentKey(favoriteRelays, blockedRelays),
-    [favoriteRelays, blockedRelays]
-  )
+  const { blockedRelays } = useFavoriteRelays()
+  const blockedKey = useMemo(() => blockedRelaysContentKey(blockedRelays), [blockedRelays])
   const [pinEvents, setPinEvents] = useState<Event[]>([])
   const [loadingPins, setLoadingPins] = useState(false)
 
@@ -137,15 +132,8 @@ export function useProfilePins(pubkey: string | undefined) {
           })),
           client.fetchPinListEvent(pk).catch(() => undefined)
         ])
-        // Same stack as profile feed: viewed npub NIP-65 read+write → your favorites → FAST_READ_RELAY_URLS,
-        // deduped, blocked stripped, max PROFILE_PAGE_FEED_MAX_RELAYS (6). Relays here accept `#d` on REQ.
-        const profileRelays = buildProfilePageReadRelayUrls(
-          favoriteRelays,
-          blockedRelays,
-          authorRl,
-          false
-        )
-        const pinsResolveRelays = buildProfileAugmentedReadRelayUrls(profileRelays, blockedRelays)
+        const authorRelays = buildAuthorInboxOutboxRelayUrls(authorRl, blockedRelays)
+        const pinsResolveRelays = buildProfileAugmentedReadRelayUrls(authorRelays, blockedRelays)
         if (!pinsResolveRelays.length) {
           setPinEvents([])
           return
@@ -249,7 +237,7 @@ export function useProfilePins(pubkey: string | undefined) {
         setLoadingPins(false)
       }
     },
-    [pubkey, relayListsKey, favoriteRelays, blockedRelays]
+    [pubkey, blockedKey, blockedRelays]
   )
 
   useEffect(() => {

@@ -68,19 +68,32 @@ export function mergeRelayUrlLayers(layers: string[][], blockedRelays: string[])
 }
 
 /**
- * Profile pins + media: prepend {@link READ_ONLY_RELAY_URLS} and {@link FAST_READ_RELAY_URLS} to the
- * capped NIP-65 stack so REQ still hits aggregators when the author’s six relays fill the profile cap alone.
+ * Viewed author’s NIP-65 read list (inboxes), then write list (outboxes), each with LAN/local URLs first; blocked
+ * stripped. Used for profile pins + Medien before {@link buildProfileAugmentedReadRelayUrls}.
+ */
+export function buildAuthorInboxOutboxRelayUrls(
+  authorRelayList: { read: string[]; write: string[] },
+  blockedRelays: string[]
+): string[] {
+  const inboxLayer = relayUrlsLocalsFirst(authorRelayList.read ?? [])
+  const outboxLayer = relayUrlsLocalsFirst(authorRelayList.write ?? [])
+  return mergeRelayUrlLayers([inboxLayer, outboxLayer], blockedRelays)
+}
+
+/**
+ * Profile pins + Medien: author NIP-65 tier (pass from {@link buildAuthorInboxOutboxRelayUrls}), then
+ * {@link READ_ONLY_RELAY_URLS}, then {@link FAST_READ_RELAY_URLS}; dedupe, blocked-stripped, capped.
  */
 export const PROFILE_AUGMENTED_READ_MAX_RELAYS = 16
 
 export function buildProfileAugmentedReadRelayUrls(
-  profileRelayUrls: string[],
+  authorRelayUrls: string[],
   blockedRelays: string[],
   maxRelays: number = PROFILE_AUGMENTED_READ_MAX_RELAYS
 ): string[] {
   const readOnlyLayer = READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean)
   const fastReadLayer = FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean)
-  const merged = mergeRelayUrlLayers([readOnlyLayer, fastReadLayer, profileRelayUrls], blockedRelays)
+  const merged = mergeRelayUrlLayers([authorRelayUrls, readOnlyLayer, fastReadLayer], blockedRelays)
   return merged.slice(0, maxRelays)
 }
 

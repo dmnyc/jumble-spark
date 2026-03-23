@@ -1,5 +1,5 @@
 import NoteList, { type TNoteListRef } from '@/components/NoteList'
-import { buildProfilePageReadRelayUrls } from '@/lib/favorites-feed-relays'
+import { buildAuthorInboxOutboxRelayUrls } from '@/lib/favorites-feed-relays'
 import logger from '@/lib/logger'
 import { normalizeHexPubkey } from '@/lib/pubkey'
 import { computeSpellSubRequestsIdentityKey } from '@/lib/spell-feed-request-identity'
@@ -10,82 +10,67 @@ import client from '@/services/client.service'
 import { forwardRef, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-function relayListsContentKey(favoriteRelays: string[], blockedRelays: string[]): string {
-  const fav = [...favoriteRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort().join('\u0001')
-  const blk = [...blockedRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort().join('\u0001')
-  return `${fav}\u0000${blk}`
+function blockedRelaysContentKey(blockedRelays: string[]): string {
+  return [...blockedRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort().join('\u0001')
 }
 
 const MEDIA_LOG = '[ProfileMedia]'
 
 const ProfileMediaFeed = forwardRef<TNoteListRef, { pubkey: string }>(({ pubkey }, ref) => {
   const { t } = useTranslation()
-  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
-  const relayListsKey = useMemo(
-    () => relayListsContentKey(favoriteRelays, blockedRelays),
-    [favoriteRelays, blockedRelays]
-  )
+  const { blockedRelays } = useFavoriteRelays()
+  const blockedKey = useMemo(() => blockedRelaysContentKey(blockedRelays), [blockedRelays])
 
   /**
-   * Start REQ immediately with the same stack as “no NIP-65 yet” (favorites + fast-read), then refine when
-   * {@link client.fetchRelayList} returns — avoids an empty/skeleton Medien tab while Posts already shows cache.
+   * Before NIP-65: empty author tier so REQ still uses read-only + fast-read; refine when
+   * {@link client.fetchRelayList} returns.
    */
-  const provisionalProfileRelayUrls = useMemo(() => {
+  const provisionalAuthorRelayUrls = useMemo(() => {
     if (!pubkey?.trim()) return [] as string[]
-    return buildProfilePageReadRelayUrls(
-      favoriteRelays,
-      blockedRelays,
-      { read: [] as string[], write: [] as string[] },
-      false
-    )
-  }, [pubkey, relayListsKey, favoriteRelays, blockedRelays])
+    return buildAuthorInboxOutboxRelayUrls({ read: [], write: [] }, blockedRelays)
+  }, [pubkey, blockedKey, blockedRelays])
 
-  const [refinedProfileRelayUrls, setRefinedProfileRelayUrls] = useState<string[] | null>(null)
+  const [refinedAuthorRelayUrls, setRefinedAuthorRelayUrls] = useState<string[] | null>(null)
 
   useEffect(() => {
     const pk = pubkey?.trim()
     if (!pk) {
       logger.debug(`${MEDIA_LOG} empty pubkey — no relay resolution`)
-      setRefinedProfileRelayUrls([])
+      setRefinedAuthorRelayUrls([])
       return
     }
     let cancelled = false
-    setRefinedProfileRelayUrls(null)
+    setRefinedAuthorRelayUrls(null)
     void (async () => {
       const authorRl = await client.fetchRelayList(pk).catch(() => ({
         read: [] as string[],
         write: [] as string[]
       }))
       if (cancelled) return
-      const profileStack = buildProfilePageReadRelayUrls(
-        favoriteRelays,
-        blockedRelays,
-        authorRl,
-        false
-      )
+      const authorStack = buildAuthorInboxOutboxRelayUrls(authorRl, blockedRelays)
       const hexPk = normalizeHexPubkey(pk)
-      logger.debug(`${MEDIA_LOG} NIP-65 stack resolved for media tab`, {
+      logger.debug(`${MEDIA_LOG} NIP-65 author relays resolved for media tab`, {
         pubkey: hexPk.slice(0, 8),
         authorReadCount: authorRl.read?.length ?? 0,
         authorWriteCount: authorRl.write?.length ?? 0,
-        profileRelayCount: profileStack.length,
-        profileRelaysSample: profileStack.slice(0, 4)
+        authorRelayCount: authorStack.length,
+        authorRelaysSample: authorStack.slice(0, 4)
       })
-      logger.debug(`${MEDIA_LOG} full profile relay stack`, { profileRelays: profileStack })
-      setRefinedProfileRelayUrls(profileStack)
+      logger.debug(`${MEDIA_LOG} author inbox/outbox relay list`, { authorRelays: authorStack })
+      setRefinedAuthorRelayUrls(authorStack)
     })()
     return () => {
       cancelled = true
     }
-  }, [pubkey, relayListsKey, favoriteRelays, blockedRelays])
+  }, [pubkey, blockedKey, blockedRelays])
 
-  const profileRelayUrls = refinedProfileRelayUrls ?? provisionalProfileRelayUrls
+  const authorRelayUrls = refinedAuthorRelayUrls ?? provisionalAuthorRelayUrls
 
   const subRequests = useMemo(() => {
     const pk = pubkey?.trim()
     if (!pk) return []
-    return buildProfileMediaSubRequests(profileRelayUrls, blockedRelays, pk)
-  }, [pubkey, profileRelayUrls, blockedRelays])
+    return buildProfileMediaSubRequests(authorRelayUrls, blockedRelays, pk)
+  }, [pubkey, authorRelayUrls, blockedRelays])
 
   const feedSubscriptionKey = useMemo(
     () => computeSpellSubRequestsIdentityKey(subRequests),
@@ -98,7 +83,7 @@ const ProfileMediaFeed = forwardRef<TNoteListRef, { pubkey: string }>(({ pubkey 
     if (!subRequests.length) {
       logger.debug(`${MEDIA_LOG} buildProfileMediaSubRequests returned no URLs (blocked or empty stacks)`, {
         pubkey: normalizeHexPubkey(pk).slice(0, 8),
-        profileRelayCount: profileRelayUrls.length
+        authorRelayCount: authorRelayUrls.length
       })
       return
     }
@@ -112,7 +97,7 @@ const ProfileMediaFeed = forwardRef<TNoteListRef, { pubkey: string }>(({ pubkey 
       filterLimit: sr.filter.limit
     })
     logger.debug(`${MEDIA_LOG} augmented relay URLs`, { urls: sr.urls })
-  }, [pubkey, profileRelayUrls, subRequests, feedSubscriptionKey, refinedProfileRelayUrls])
+  }, [pubkey, authorRelayUrls, subRequests, feedSubscriptionKey, refinedAuthorRelayUrls])
 
   const showKinds = useMemo(() => [...PROFILE_MEDIA_TAB_KINDS], [])
 
@@ -141,8 +126,7 @@ const ProfileMediaFeed = forwardRef<TNoteListRef, { pubkey: string }>(({ pubkey 
         showKinds={showKinds}
         useFilterAsIs
         /**
-         * Provisional relay stack (favorites + fast read) then NIP-65 refinement changes URLs without changing the
-         * REQ filter — merge so we do not wipe rows or re-enter a long loading state.
+         * Provisional author tier (empty) then NIP-65 inbox/outbox refinement; REQ filter unchanged — merge rows.
          */
         preserveTimelineOnSubRequestsChange
         mergeTimelineWhenSubRequestFiltersMatch
