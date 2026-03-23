@@ -41,6 +41,7 @@ import PullToRefresh from 'react-simple-pull-to-refresh'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { NoteFeedProfileContext, type NoteFeedProfileContextValue } from '@/providers/NoteFeedProfileContext'
 import type { TProfile } from '@/types'
+import { Loader2 } from 'lucide-react'
 import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
 const LIMIT = 100 // Increased from 200 to load more events per request
@@ -87,7 +88,8 @@ const NoteList = forwardRef(
        */
       preserveTimelineOnSubRequestsChange = false,
       /**
-       * Spells page: after this many ms, clear the loading skeleton so the list area renders; subscription keeps running.
+       * Spells / one-shot feeds: when the initial fetch finishes with zero rows, show explicit empty copy
+       * (see list footer). Does not end loading early — loading stays until EOSE, first events, or safety timeouts.
        */
       spellFetchTimeoutMs,
       /** Spells page: bumps when user picks a feed; used with {@link onSpellFeedFirstPaint}. */
@@ -117,7 +119,7 @@ const NoteList = forwardRef(
       extraShouldHideEvent?: (evt: Event) => boolean
       feedSubscriptionKey?: string
       preserveTimelineOnSubRequestsChange?: boolean
-      /** When set (spells), max time to show the initial loading skeleton (ms). */
+      /** When set (e.g. spells), use explicit empty-feed copy after load completes with no rows. */
       spellFetchTimeoutMs?: number
       spellFeedInstrumentToken?: number
       onSpellFeedFirstPaint?: (detail: { eventCount: number; firstEventId: string }) => void
@@ -732,7 +734,6 @@ const NoteList = forwardRef(
       showKind1111,
       useFilterAsIs,
       areAlgoRelays,
-      spellFetchTimeoutMs,
       oneShotFetch
     ])
 
@@ -757,21 +758,6 @@ const NoteList = forwardRef(
         clearTimeout(timer)
       }
     }, [timelineSubscriptionKey, refreshCount])
-
-    /** Spells: drop loading skeleton quickly so rows (or empty + reload) appear while REQ continues. */
-    useEffect(() => {
-      if (spellFetchTimeoutMs == null || spellFetchTimeoutMs <= 0) return
-      if (!subRequestsRef.current.length) return
-      let cancelled = false
-      const id = window.setTimeout(() => {
-        if (cancelled) return
-        setLoading(false)
-      }, spellFetchTimeoutMs)
-      return () => {
-        cancelled = true
-        clearTimeout(id)
-      }
-    }, [timelineSubscriptionKey, refreshCount, spellFetchTimeoutMs])
 
     // Use refs to avoid dependency issues and ensure latest values in async callbacks
     const showCountRef = useRef(showCount)
@@ -1132,8 +1118,15 @@ const NoteList = forwardRef(
           />
         ))}
         {events.length === 0 && loading ? (
-          <div ref={bottomRef}>
-            <NoteCardLoadingSkeleton />
+          <div
+            ref={bottomRef}
+            className="flex min-h-[40vh] flex-col items-center justify-center gap-3 px-4 py-8"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <Loader2 className="size-8 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+            <p className="text-sm text-muted-foreground">{t('Loading...')}</p>
           </div>
         ) : events.length > 0 && (hasMore || loading) ? (
           <div ref={bottomRef}>

@@ -37,8 +37,7 @@ import {
   ExtendedKind,
   FAUX_SPELL_ORDER,
   FIRST_RELAY_RESULT_GRACE_MS,
-  PROFILE_FEED_KINDS,
-  SPELL_FEED_LOADING_MAX_MS
+  PROFILE_FEED_KINDS
 } from '@/constants'
 import { isUserInEventMentions } from '@/lib/event'
 import { formatPubkey } from '@/lib/pubkey'
@@ -1334,7 +1333,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   subRequests={subRequests}
                   feedSubscriptionKey={spellFeedSubscriptionKey}
                   showKinds={showKinds}
-                  spellFetchTimeoutMs={SPELL_FEED_LOADING_MAX_MS}
+                  spellFetchTimeoutMs={1}
                   spellFeedInstrumentToken={spellFeedInstrumentToken}
                   onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                   useFilterAsIs={fauxNoteListUseFilterAsIs}
@@ -1361,7 +1360,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                 subRequests={subRequests}
                 feedSubscriptionKey={spellFeedSubscriptionKey}
                 showKinds={showKinds}
-                spellFetchTimeoutMs={SPELL_FEED_LOADING_MAX_MS}
+                spellFetchTimeoutMs={1}
                 spellFeedInstrumentToken={spellFeedInstrumentToken}
                 onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                 useFilterAsIs

@@ -29,10 +29,10 @@ export const MAX_REQ_RELAY_URLS = MAX_CONCURRENT_RELAY_CONNECTIONS
 /** Multi-relay queries and timeline initial REQ: after the first event, wait this long then close (query) or finalize EOSE (live feed) while keeping the subscription open for new events. */
 export const FIRST_RELAY_RESULT_GRACE_MS = 2000
 
-/** Spells page NoteList: drop the loading skeleton after this long so the feed can render; REQ stays open and rows stream in. */
+/** Legacy name: was used to cap spell NoteList skeleton time; loading now ends on EOSE / first events / safety timeouts. Kept for forks. */
 export const SPELL_FEED_LOADING_MAX_MS = 1000
 
-/** @deprecated Use {@link SPELL_FEED_LOADING_MAX_MS}; kept so old imports do not break. */
+/** @deprecated Alias of {@link SPELL_FEED_LOADING_MAX_MS}. */
 export const SPELL_FEED_FIRST_RELAY_GRACE_MS = SPELL_FEED_LOADING_MAX_MS
 
 /**
