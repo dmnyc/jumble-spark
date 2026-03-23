@@ -4,9 +4,10 @@
  * waiting for every relay to EOSE on a one-shot query.
  *
  * **Why faux feeds can feel slow:** each timeline shard opens live REQs over the prioritized relay
- * stack (see {@link applyFauxSpellCapsToSubRequests}). The **interests** spell uses **one** shard: all subscribed
- * topics go in a single `#t` filter (NIP-01 OR semantics). The notifications spell uses a narrow
- * kind list vs full profile kinds.
+ * stack (see {@link applyFauxSpellCapsToSubRequests}). Read-only mirrors are **prepended** in
+ * {@link appendCuratedReadOnlyRelays} so the per-shard relay cap still includes aggregators (otherwise
+ * inbox+favorites fill the cap and global kinds/media/hashtags never hit aggr). The **interests** spell
+ * uses **one** shard: all subscribed topics in one `#t` filter (NIP-01 OR semantics).
  */
 import { ExtendedKind, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
 import { buildProfileAugmentedReadRelayUrls } from '@/lib/favorites-feed-relays'
@@ -17,7 +18,7 @@ import type { TFeedSubRequest } from '@/types'
 import { type Event, type Filter, kinds } from 'nostr-tools'
 
 /** Default caps for every faux spell feed (relays per subrequest, events per REQ). */
-export const FAUX_SPELL_MAX_RELAYS = 6
+export const FAUX_SPELL_MAX_RELAYS = 10
 export const FAUX_SPELL_EVENT_LIMIT = 200
 
 /** Profile Media tab: single REQ `limit` (matches merged cap in NoteList one-shot). */
@@ -68,21 +69,23 @@ export const NOTIFICATION_SPELL_KINDS = [
 const INTERESTS_MAX_TOPICS = 80
 
 /**
- * Append {@link READ_ONLY_RELAY_URLS} (e.g. aggr) after the curated set so every faux REQ includes them unless blocked.
+ * Put {@link READ_ONLY_RELAY_URLS} (e.g. aggr) **first**, then curated relays. Faux spells cap URL count
+ * ({@link FAUX_SPELL_MAX_RELAYS}); appending read-only at the end dropped mirrors whenever inbox+favorites
+ * filled the cap.
  */
 export function appendCuratedReadOnlyRelays(curated: string[], blockedRelays: string[]): string[] {
   const blocked = new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
   const seen = new Set<string>()
   const out: string[] = []
-  for (const u of curated) {
-    const k = normalizeUrl(u) || u
-    if (!k || seen.has(k)) continue
-    seen.add(k)
-    out.push(k)
-  }
   for (const u of READ_ONLY_RELAY_URLS) {
     const k = normalizeUrl(u) || u
     if (!k || blocked.has(k) || seen.has(k)) continue
+    seen.add(k)
+    out.push(k)
+  }
+  for (const u of curated) {
+    const k = normalizeUrl(u) || u
+    if (!k || seen.has(k)) continue
     seen.add(k)
     out.push(k)
   }

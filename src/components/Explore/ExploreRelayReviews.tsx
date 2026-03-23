@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next'
 
 const REVIEW_QUERY_LIMIT = 100
 const SHOW_COUNT = 20
-/** Fewer sockets + faster aggregate EOSE than full inbox stack; read-only mirrors still appended then capped. */
+/** Fewer sockets + faster aggregate EOSE than full inbox stack; read-only mirrors prepended then capped. */
 const EXPLORE_REVIEWS_MAX_RELAYS = 12
 /** After all relays EOSE, wait longer than default so slow mirrors can flush events (default query eose is 500ms). */
 const EXPLORE_REVIEWS_EOSE_TAIL_MS = 4500

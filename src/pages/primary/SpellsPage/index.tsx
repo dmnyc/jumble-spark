@@ -657,10 +657,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const syncFauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
     if (!selectedFauxSpell || selectedFauxSpell === 'following') return []
+    /** Widen relay pool: these filters are not kind-1-only; skipping strip keeps fast-read mirrors in the stack. */
     const fauxSpellSkipKind1Blocked =
       selectedFauxSpell === 'calendar' ||
       selectedFauxSpell === 'discussions' ||
-      selectedFauxSpell === 'followPacks'
+      selectedFauxSpell === 'followPacks' ||
+      selectedFauxSpell === 'media' ||
+      selectedFauxSpell === 'bookmarks' ||
+      selectedFauxSpell === 'interests'
     const feedUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
       favoriteRelays,
       blockedRelays,
@@ -676,9 +680,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return [{ urls: feedUrls, filter: buildMentionsSpellFilter(pubkey) }]
     }
     if (selectedFauxSpell === 'discussions') {
-      // Same as followPacks: prioritized stack is capped (MAX_REQ_RELAY_URLS); tier-4 FAST_READ
-      // (incl. aggr) is often dropped when inbox + favorites fill the cap. Append read-only aggr so
-      // kind-11 discussions still resolve; also recover when feedUrls is empty (all blocked / no list).
+      // Read-only prepended in appendCuratedReadOnlyRelays so FAUX_SPELL_MAX_RELAYS still includes aggr.
       const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
       if (!urls.length) return []
       return [{ urls, filter: buildDiscussionFilter() }]
