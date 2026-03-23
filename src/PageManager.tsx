@@ -799,6 +799,14 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         '/notes' + window.location.pathname + window.location.search + window.location.hash
       )
     }
+    // OG HTML proxy (`VITE_PROXY_SERVER`, e.g. https://host/proxy) must be reverse-proxied to the
+    // fetch service. If /proxy is routed to this SPA, normalize to / so we don't push an unknown URL.
+    {
+      const proxyPath = window.location.pathname.split('?')[0].split('#')[0]
+      if (proxyPath === '/proxy' || proxyPath.startsWith('/proxy/')) {
+        window.history.replaceState(null, '', '/')
+      }
+    }
     window.history.pushState(null, '', window.location.href)
     if (window.location.pathname !== '/') {
       const url = window.location.pathname + window.location.search + window.location.hash

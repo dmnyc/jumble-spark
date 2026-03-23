@@ -2,6 +2,9 @@
 # Build main app and NIP-66 monitor images locally; push to silberengel/imwald-jumble and silberengel/imwald-jumble-nip66-monitor as :latest and :<version from package.json>.
 # Then create git tag v<version> and push it.
 # Run from repo root. Requires: docker, docker login, git.
+#
+# Optional env: JUMBLE_PROXY_SERVER_URL — passed as Docker build-arg VITE_PROXY_SERVER (default site origin).
+# Must match Apache: ProxyPass /sites/ → OG backend; the app requests https://<origin>/sites/?url=…
 set -e
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,8 +15,15 @@ GIT_TAG="v${VERSION}"
 IMAGE_APP="silberengel/imwald-jumble"
 IMAGE_MONITOR="silberengel/imwald-jumble-nip66-monitor"
 
-echo "Building main app (version: $VERSION)"
-docker build -t "$IMAGE_APP:latest" -t "$IMAGE_APP:$VERSION" .
+# OG / link-preview HTML: VITE_PROXY_SERVER is baked into the client bundle at image build time (not runtime).
+# Use public origin only (no /proxy path): web.service builds <origin>/sites/?url=…
+# Override: JUMBLE_PROXY_SERVER_URL=https://other.example ./scripts/build-and-push-prod.sh
+JUMBLE_PROXY_SERVER_URL="${JUMBLE_PROXY_SERVER_URL:-https://jumble.imwald.eu}"
+
+echo "Building main app (version: $VERSION, VITE_PROXY_SERVER=$JUMBLE_PROXY_SERVER_URL)"
+docker build \
+  --build-arg "VITE_PROXY_SERVER=$JUMBLE_PROXY_SERVER_URL" \
+  -t "$IMAGE_APP:latest" -t "$IMAGE_APP:$VERSION" .
 
 echo "Building NIP-66 monitor (version: $VERSION)"
 docker build -t "$IMAGE_MONITOR:latest" -t "$IMAGE_MONITOR:$VERSION" ./nip66-cron
