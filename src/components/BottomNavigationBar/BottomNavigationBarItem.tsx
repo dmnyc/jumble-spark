@@ -10,7 +10,7 @@ export default function BottomNavigationBarItem({
 }: {
   children: React.ReactNode
   active?: boolean
-  /** Slightly larger icon (e.g. favorites feed). */
+  /** Slightly larger icon (e.g. home feed). */
   prominent?: boolean
   onClick: MouseEventHandler
 }) {

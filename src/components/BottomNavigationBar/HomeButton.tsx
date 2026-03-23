@@ -1,10 +1,10 @@
 import { cn } from '@/lib/utils'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
-import { Star } from 'lucide-react'
+import { House } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'
 
-/** Favorites feed (primary “home” destination in the bar). */
+/** Home feed (primary timeline). */
 export default function HomeButton() {
   const { navigate, current, display } = usePrimaryPage()
   const { primaryViewType, setPrimaryNoteView } = usePrimaryNoteView()
@@ -23,7 +23,7 @@ export default function HomeButton() {
         }
       }}
     >
-      <Star
+      <House
         strokeWidth={active ? 2.4 : 2}
         className={cn(active && 'fill-green-500/30 dark:fill-green-400/35')}
       />

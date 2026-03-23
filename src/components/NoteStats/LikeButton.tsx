@@ -12,7 +12,7 @@ import { createDeletionRequestDraftEvent, createReactionDraftEvent } from '@/lib
 import { getRootEventHexId } from '@/lib/event'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import { useUserTrust } from '@/providers/UserTrustProvider'
+import { useUserTrust } from '@/contexts/user-trust-context'
 import { eventService } from '@/services/client.service'
 import noteStatsService from '@/services/note-stats.service'
 import { TEmoji } from '@/types'

@@ -10,7 +10,7 @@ import {
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog'
 import { Button, buttonVariants } from '@/components/ui/button'
-import { useUserTrust } from '@/providers/UserTrustProvider'
+import { useUserTrust } from '@/contexts/user-trust-context'
 import { VariantProps } from 'class-variance-authority'
 import { Shield, ShieldCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'

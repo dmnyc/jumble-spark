@@ -6,12 +6,13 @@ import {
   removePubkeyFromPTags
 } from '@/lib/replaceable-list-latest'
 import { getPubkeysFromPTags } from '@/lib/tag'
+import { MuteListContext } from '@/contexts/mute-list-context'
 import client from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import { kinds } from 'nostr-tools'
 import dayjs from 'dayjs'
 import { Event } from 'nostr-tools'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -19,29 +20,7 @@ import { useNostr } from './NostrProvider'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
 import logger from '@/lib/logger'
 
-type TMuteListContext = {
-  mutePubkeySet: Set<string>
-  changing: boolean
-  getMutePubkeys: () => string[]
-  getMuteType: (pubkey: string) => 'public' | 'private' | null
-  mutePubkeyPublicly: (pubkey: string) => Promise<void>
-  mutePubkeyPrivately: (pubkey: string) => Promise<void>
-  unmutePubkey: (pubkey: string) => Promise<void>
-  switchToPublicMute: (pubkey: string) => Promise<void>
-  switchToPrivateMute: (pubkey: string) => Promise<void>
-}
-
-const MuteListContext = createContext<TMuteListContext | undefined>(undefined)
-
-export const useMuteList = () => {
-  const context = useContext(MuteListContext)
-  if (!context) {
-    throw new Error('useMuteList must be used within a MuteListProvider')
-  }
-  return context
-}
-
-export function MuteListProvider({ children }: { children: React.ReactNode }) {
+export function MuteListProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   const {
     pubkey: accountPubkey,

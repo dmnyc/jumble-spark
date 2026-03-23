@@ -3,7 +3,7 @@ import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/eve
 import { normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
-import { useUserTrust } from '@/providers/UserTrustProvider'
+import { useUserTrust } from '@/contexts/user-trust-context'
 import client from '@/services/client.service'
 import dayjs from 'dayjs'
 import { Event, kinds } from 'nostr-tools'

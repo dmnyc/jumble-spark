@@ -19,10 +19,12 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState
 } from 'react'
 import { useTranslation } from 'react-i18next'
+import FavoriteRelaysFeedPicker from '@/components/FavoriteRelaysFeedPicker'
 import HelpAndAccountMenu from '@/components/HelpAndAccountMenu'
 import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
@@ -146,6 +148,34 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
     )
   }
 
+  const showFavoriteRelaysPicker =
+    isReady &&
+    (feedInfo.feedType === 'all-favorites' ||
+      feedInfo.feedType === 'relay' ||
+      feedInfo.feedType === 'relays')
+
+  const feedPageTitle = useMemo(
+    () =>
+      feedInfo.feedType === 'following'
+        ? t('Following')
+        : feedInfo.feedType === 'bookmarks'
+          ? t('Bookmarks')
+          : feedInfo.feedType === 'relays'
+            ? t('relayType_relay_set')
+            : t('Favorite Relays'),
+    [feedInfo.feedType, t]
+  )
+
+  const subHeader = (
+    <>
+      <div className="w-full min-w-0 border-b border-border/80 bg-background px-3 py-2 sm:px-4">
+        <h1 className="text-lg font-semibold leading-tight tracking-tight">{feedPageTitle}</h1>
+      </div>
+      {showFavoriteRelaysPicker ? <FavoriteRelaysFeedPicker /> : null}
+      {homeSubHeader}
+    </>
+  )
+
   return (
     <PrimaryPageLayout
       pageName="feed"
@@ -161,7 +191,7 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
           }
         />
       }
-      subHeader={homeSubHeader ?? undefined}
+      subHeader={subHeader}
       displayScrollToTopButton
     >
       <div className="min-w-0 pt-2">
@@ -192,6 +222,7 @@ function NoteListPageTitlebar({
   const { navigate, current, display } = usePrimaryPage()
   const { primaryViewType, setPrimaryNoteView } = usePrimaryNoteView()
   const exploreActive = display && current === 'explore' && primaryViewType === null
+
   return (
     <div className="relative flex gap-1 items-center h-full justify-between">
       <div className="flex min-w-0 flex-1 items-center gap-1 h-full pl-1 sm:pl-3">
@@ -214,7 +245,6 @@ function NoteListPageTitlebar({
             <Compass />
           </Button>
         )}
-        <div className="min-w-0 truncate text-lg font-semibold">{t('Favorites Feed')}</div>
       </div>
       {isSmallScreen && (
         <div className="absolute left-1/2 transform -translate-x-1/2 z-10">

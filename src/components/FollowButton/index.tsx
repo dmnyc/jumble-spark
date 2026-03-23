@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFollowList } from '@/providers/FollowListProvider'
-import { useMuteList } from '@/providers/MuteListProvider'
+import { useMuteList } from '@/contexts/mute-list-context'
 import { useNostr } from '@/providers/NostrProvider'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'

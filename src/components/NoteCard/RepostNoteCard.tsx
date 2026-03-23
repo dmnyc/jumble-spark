@@ -1,7 +1,7 @@
 import { isMentioningMutedUsers } from '@/lib/event'
 import { tagNameEquals } from '@/lib/tag'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
-import { useMuteList } from '@/providers/MuteListProvider'
+import { useMuteList } from '@/contexts/mute-list-context'
 import client from '@/services/client.service'
 import { eventService } from '@/services/client.service'
 import { Event, kinds, nip19, verifyEvent } from 'nostr-tools'

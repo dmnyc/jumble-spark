@@ -1,7 +1,7 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { isMentioningMutedUsers } from '@/lib/event'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
-import { useMuteList } from '@/providers/MuteListProvider'
+import { useMuteList } from '@/contexts/mute-list-context'
 import { Event, kinds } from 'nostr-tools'
 import { memo, useMemo } from 'react'
 import MainNoteCard from './MainNoteCard'

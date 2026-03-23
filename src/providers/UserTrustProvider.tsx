@@ -2,32 +2,13 @@ import { replaceableEventService } from '@/services/client.service'
 import { getPubkeysFromPTags } from '@/lib/tag'
 import { kinds } from 'nostr-tools'
 import storage from '@/services/local-storage.service'
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { UserTrustContext } from '@/contexts/user-trust-context'
+import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { useNostr } from './NostrProvider'
-
-type TUserTrustContext = {
-  hideUntrustedInteractions: boolean
-  hideUntrustedNotifications: boolean
-  hideUntrustedNotes: boolean
-  updateHideUntrustedInteractions: (hide: boolean) => void
-  updateHideUntrustedNotifications: (hide: boolean) => void
-  updateHideUntrustedNotes: (hide: boolean) => void
-  isUserTrusted: (pubkey: string) => boolean
-}
-
-const UserTrustContext = createContext<TUserTrustContext | undefined>(undefined)
-
-export const useUserTrust = () => {
-  const context = useContext(UserTrustContext)
-  if (!context) {
-    throw new Error('useUserTrust must be used within a UserTrustProvider')
-  }
-  return context
-}
 
 const wotSet = new Set<string>()
 
-export function UserTrustProvider({ children }: { children: React.ReactNode }) {
+export function UserTrustProvider({ children }: { children: ReactNode }) {
   const { pubkey: currentPubkey } = useNostr()
   const [hideUntrustedInteractions, setHideUntrustedInteractions] = useState(() =>
     storage.getHideUntrustedInteractions()

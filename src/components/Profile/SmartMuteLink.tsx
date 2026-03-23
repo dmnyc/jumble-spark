@@ -1,6 +1,6 @@
 import { toMuteList } from '@/lib/link'
 import { useSmartMuteListNavigation } from '@/PageManager'
-import { useMuteList } from '@/providers/MuteListProvider'
+import { useMuteList } from '@/contexts/mute-list-context'
 import { useTranslation } from 'react-i18next'
 
 export default function SmartMuteLink() {

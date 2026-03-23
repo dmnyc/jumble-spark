@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
-import { Star } from 'lucide-react'
+import { House } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import SidebarItem from './SidebarItem'
 
@@ -13,7 +13,7 @@ export default function HomeButton() {
 
   return (
     <SidebarItem
-      title={t('Favorites Feed')}
+      title={t('Favorite Relays')}
       onClick={() => navigate('feed')}
       active={active}
       className={cn(
@@ -22,7 +22,7 @@ export default function HomeButton() {
         active && 'bg-green-500/15 opacity-100 hover:bg-green-500/15 dark:bg-green-500/20'
       )}
     >
-      <Star
+      <House
         strokeWidth={active ? 2.75 : 2.35}
         className={cn(active && 'fill-green-500/30 dark:fill-green-400/35')}
       />

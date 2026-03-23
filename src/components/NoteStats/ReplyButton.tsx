@@ -1,7 +1,7 @@
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
-import { useUserTrust } from '@/providers/UserTrustProvider'
+import { useUserTrust } from '@/contexts/user-trust-context'
 import { MessageCircle } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useMemo, useState } from 'react'
