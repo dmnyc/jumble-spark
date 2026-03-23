@@ -11,6 +11,7 @@ node_modules
 .npm-cache
 dist
 dist-ssr
+release
 dev-dist
 *.local
 .env

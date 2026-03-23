@@ -13,7 +13,7 @@ import storage from './services/local-storage.service'
 
 declare global {
   interface Window {
-    __RUNTIME_CONFIG__?: { NIP66_MONITOR_NPUB?: string }
+    __RUNTIME_CONFIG__?: { NIP66_MONITOR_NPUB?: string; DESKTOP_DOWNLOAD_URL?: string }
   }
 }
 
@@ -36,7 +36,10 @@ async function bootstrap() {
       try {
         const r = await fetch('/config.json')
         if (r.ok) {
-          window.__RUNTIME_CONFIG__ = (await r.json()) as { NIP66_MONITOR_NPUB?: string }
+          window.__RUNTIME_CONFIG__ = (await r.json()) as {
+            NIP66_MONITOR_NPUB?: string
+            DESKTOP_DOWNLOAD_URL?: string
+          }
         }
       } catch {
         window.__RUNTIME_CONFIG__ = {}

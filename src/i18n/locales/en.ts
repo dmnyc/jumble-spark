@@ -84,6 +84,7 @@ export default {
     "username's used relays": "{{username}}'s used relays",
     "username's muted": "{{username}}'s muted",
     Login: 'Login',
+    downloadDesktopApp: 'Download app',
     'Please log in to view notifications.': 'Please log in to view notifications.',
     'Follows you': 'Follows you',
     'Relay Settings': 'Relays and Storage Settings',

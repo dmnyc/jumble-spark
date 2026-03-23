@@ -9,5 +9,7 @@ declare module '*.md?raw' {
 declare global {
   interface Window {
     nostr?: TNip07
+    /** Set by {@link electron/preload.cjs} when running inside Electron. */
+    jumbleElectron?: { isElectron: true }
   }
 }

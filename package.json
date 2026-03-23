@@ -4,6 +4,7 @@
   "description": "A user-friendly Nostr client focused on relay feed browsing and relay discovery, forked from Jumble",
   "private": true,
   "type": "module",
+  "main": "electron/main.cjs",
   "author": "Silberengel",
   "license": "MIT",
   "repository": {
@@ -20,7 +21,10 @@
     "test": "vitest",
     "test:run": "vitest run",
     "i18n:sync": "npx tsx scripts/sync-i18n-locales.ts && prettier --write \"src/i18n/locales/*.ts\"",
-    "i18n:audit": "npx tsx scripts/i18n-audit.ts"
+    "i18n:audit": "npx tsx scripts/i18n-audit.ts",
+    "electron:dev": "concurrently -k -n vite,electron -c blue,green \"vite --host\" \"wait-on http://127.0.0.1:5173 && cross-env NODE_ENV=development electron .\"",
+    "build:electron": "tsc -b && vite build --base ./",
+    "electron:pack": "npm run build:electron && electron-builder"
   },
   "dependencies": {
     "@asciidoctor/core": "^3.0.4",
@@ -118,7 +122,30 @@
     "typescript-eslint": "^8.18.1",
     "vite": "^6.0.3",
     "vite-plugin-pwa": "^0.21.1",
-    "vitest": "^4.0.8"
+    "vitest": "^4.0.8",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "eu.imwald.jumble",
+    "productName": "Jumble",
+    "copyright": "Copyright © Silberengel",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Network",
+      "maintainer": "Silberengel"
+    }
   },
   "overrides": {
     "sucrase": {

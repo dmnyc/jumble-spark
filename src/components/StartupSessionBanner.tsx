@@ -1,6 +1,6 @@
 import { useNostr } from '@/providers/NostrProvider'
 import { cn } from '@/lib/utils'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -36,7 +36,7 @@ export default function StartupSessionBanner() {
         'bg-background px-3 py-2 text-center text-sm text-muted-foreground'
       )}
     >
-      <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
+      <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
       <span>
         {t('startupSessionHydrating', {
           defaultValue: 'Syncing your relays and profile from the network…'

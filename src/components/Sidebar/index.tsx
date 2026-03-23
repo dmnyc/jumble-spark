@@ -11,6 +11,7 @@ import RssButton from './RssButton'
 import SearchButton from './SearchButton'
 import SpellsButton from './SpellsButton'
 import PaneModeToggle from './PaneModeToggle'
+import DownloadDesktopSidebarButton from './DownloadDesktopSidebarButton'
 
 export default function PrimaryPageSidebar() {
   const { isSmallScreen } = useScreenSize()
@@ -40,6 +41,7 @@ export default function PrimaryPageSidebar() {
       <div className="space-y-2">
         <HelpAndAccountMenu variant="sidebar" />
         <PaneModeToggle />
+        <DownloadDesktopSidebarButton />
       </div>
     </div>
   )

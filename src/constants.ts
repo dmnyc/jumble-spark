@@ -8,6 +8,13 @@ export const JUMBLE_API_BASE_URL =
 export const HIVETALK_BASE_URL =
   (import.meta.env.VITE_HIVETALK_BASE_URL as string | undefined) ?? 'https://vanilla.hivetalk.org'
 
+/**
+ * Default URL for the sidebar “Download desktop app” entry (e.g. GitHub Releases with AppImage/deb).
+ * Override per deploy with `DESKTOP_DOWNLOAD_URL` in `/config.json` (empty string hides the entry).
+ */
+export const DESKTOP_APP_DOWNLOAD_URL_DEFAULT =
+  'https://github.com/Silberengel/jumble/releases'
+
 export const DEFAULT_FAVORITE_RELAYS = [
   'wss://theforest.nostr1.com',
   'wss://orly-relay.imwald.eu',
