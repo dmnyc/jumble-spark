@@ -123,7 +123,7 @@ class ClientService extends EventTarget {
   private sessionRelayPublishStats = new Map<string, { successCount: number; sumLatencyMs: number }>()
 
   /**
-   * IndexedDB profile index + NIP-66 relay discovery run once per page session; followings prewarm runs when logged in.
+   * IndexedDB profile index + NIP-66 relay discovery run once per page session; followings prewarm (metadata + kind 10002) runs when logged in.
    * @see {@link runSessionPrewarm}
    */
   private sessionPrewarmBaseCompleted = false
@@ -1969,23 +1969,29 @@ class ClientService extends EventTarget {
       })
       return
     }
-    logger.info('[client] Prewarm: following profile fetch started', {
+    logger.info('[client] Prewarm: following profile + NIP-65 relay list fetch started', {
       pubkeySlice: pubkey.slice(0, 12),
       followingCount: followings.length
     })
-    for (let i = 0; i * 20 < followings.length; i++) {
+    let relayListResolved = 0
+    const chunkSize = 20
+    for (let i = 0; i * chunkSize < followings.length; i++) {
       if (signal.aborted) {
-        logger.info('[client] Prewarm: following profiles aborted', { pubkeySlice: pubkey.slice(0, 12) })
+        logger.info('[client] Prewarm: following profiles + relay lists aborted', { pubkeySlice: pubkey.slice(0, 12) })
         return
       }
-      await Promise.all(
-        followings.slice(i * 20, (i + 1) * 20).map((pk) => this.fetchProfileEvent(pk))
-      )
+      const chunk = followings.slice(i * chunkSize, (i + 1) * chunkSize)
+      const [relayListEvents] = await Promise.all([
+        this.replaceableEventService.fetchReplaceableEventsFromProfileFetchRelays(chunk, kinds.RelayList),
+        Promise.all(chunk.map((pk) => this.fetchProfileEvent(pk)))
+      ])
+      relayListResolved += relayListEvents.filter(Boolean).length
       await new Promise((resolve) => setTimeout(resolve, 1000))
     }
-    logger.info('[client] Prewarm: following profile fetch finished', {
+    logger.info('[client] Prewarm: following profile + NIP-65 relay list fetch finished', {
       pubkeySlice: pubkey.slice(0, 12),
-      followingCount: followings.length
+      followingCount: followings.length,
+      relayListEventsResolved: relayListResolved
     })
   }
 

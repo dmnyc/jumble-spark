@@ -4,7 +4,6 @@ import NormalFeed from '../NormalFeed'
 import Profile from '../Profile'
 import { ProfileListBySearch } from '../ProfileListBySearch'
 import Relay from '../Relay'
-import TrendingNotes from '../TrendingNotes'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { normalizeUrl } from '@/lib/url'
@@ -41,7 +40,7 @@ export default function SearchResult({ searchParams }: { searchParams: TSearchPa
   }, [pubkey, relayList, favoriteRelays, blockedRelays])
   
   if (!searchParams) {
-    return <TrendingNotes variant="searchAccordion" />
+    return null
   }
   if (searchParams.type === 'profile') {
     return <Profile id={searchParams.search} />

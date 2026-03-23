@@ -91,7 +91,6 @@ const SearchPage = forwardRef<TPageRef>((_, ref) => {
           ) : (
             <div className="mb-4 min-w-0 space-y-2">
               <LatestFromFollowsSection />
-              <SearchResult searchParams={null} />
             </div>
           )}
         </div>

@@ -1,17 +1,12 @@
 import NoteCard from '@/components/NoteCard'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  FAST_READ_RELAY_URLS,
-  FAST_WRITE_RELAY_URLS,
-  ExtendedKind,
-  SEARCHABLE_RELAY_URLS
-} from '@/constants'
+import { ExtendedKind } from '@/constants'
+import { buildFollowOutboxAggregateReadUrls } from '@/lib/follow-outbox-aggregate-relays'
 import { shouldFilterEvent } from '@/lib/event-filtering'
 import { toProfile } from '@/lib/link'
 import { getPubkeysFromPTags } from '@/lib/tag'
 import { cn } from '@/lib/utils'
-import { normalizeUrl } from '@/lib/url'
 import { useSecondaryPage } from '@/PageManager'
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -19,6 +14,7 @@ import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import { queryService, replaceableEventService } from '@/services/client.service'
+import type { TRelayList } from '@/types'
 import logger from '@/lib/logger'
 import { ChevronDown, ChevronRight, Star } from 'lucide-react'
 import { Event, kinds, nip19, NostrEvent } from 'nostr-tools'
@@ -33,10 +29,12 @@ export const RECOMMENDED_FOLLOW_CURATOR_NPUB =
   'npub1m4ny6hjqzepn4rxknuq94c2gpqzr29ufkkw7ttcxyak7v43n6vvsajc2jl' as const
 
 const MAX_FOLLOWS = 1000
-const AUTHORS_PER_BATCH = 12
+const AUTHORS_PER_BATCH = 20
 const MAX_POSTS_PER_AUTHOR = 5
 /** Enough headroom to often fill 5 notes per author in a batch. */
 const BATCH_EVENT_LIMIT = 200
+/** Chunk size for batched NIP-65 list load while building the aggregate REQ set. */
+const RELAY_LIST_PRELOAD_CHUNK = 100
 
 const FEED_KINDS = [
   kinds.ShortTextNote,
@@ -90,8 +88,8 @@ function recommendedCuratorHexPubkey(): string | null {
 export default function LatestFromFollowsSection() {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
-  const { pubkey, followListEvent, isInitialized, relayList } = useNostr()
-  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
+  const { pubkey, followListEvent, isInitialized } = useNostr()
+  const { blockedRelays } = useFavoriteRelays()
   const { mutePubkeySet } = useMuteList()
   const { isEventDeleted } = useDeletedEvent()
   const { hideUntrustedNotes, isUserTrusted } = useUserTrust()
@@ -114,18 +112,8 @@ export default function LatestFromFollowsSection() {
   const followsLabel: 'self' | 'recommended' = pubkey ? 'self' : 'recommended'
   const loadingFollowList = !pubkey && isInitialized && !guestListReady
 
-  const searchRelays = useMemo(() => {
-    const relays: string[] = []
-    if (relayList) {
-      relays.push(...(relayList.read || []), ...(relayList.write || []))
-    }
-    relays.push(...(favoriteRelays || []))
-    relays.push(...FAST_READ_RELAY_URLS, ...FAST_WRITE_RELAY_URLS, ...SEARCHABLE_RELAY_URLS)
-    const normalized = Array.from(
-      new Set(relays.map((url) => normalizeUrl(url) || url).filter((url): url is string => !!url))
-    )
-    return normalized.filter((relay) => !blockedRelays.some((blocked) => relay.includes(blocked)))
-  }, [relayList, favoriteRelays, blockedRelays])
+  const [aggregateRelayUrls, setAggregateRelayUrls] = useState<string[]>([])
+  const [aggregateRelaysReady, setAggregateRelaysReady] = useState(false)
 
   const acceptEvent = useCallback(
     (e: Event) => {
@@ -179,10 +167,56 @@ export default function LatestFromFollowsSection() {
     }
   }, [isInitialized, pubkey])
 
-  // Batch-fetch posts per slice of authors; update UI after each batch.
+  // Load each follow's NIP-65 list (IndexedDB + network), then aggregate first outboxes + READ_ONLY relays.
+  useEffect(() => {
+    if (!isInitialized || loadingFollowList) {
+      return
+    }
+    if (followPubkeys.length === 0) {
+      setAggregateRelayUrls([])
+      setAggregateRelaysReady(true)
+      return
+    }
+
+    let cancelled = false
+    setAggregateRelaysReady(false)
+    setAggregateRelayUrls([])
+
+    ;(async () => {
+      try {
+        // Dynamic import avoids a static cycle: client.service → replaceable-events → client.service
+        // (would break React context / HMR when this module loads early).
+        const { default: nostrClient } = await import('@/services/client.service')
+        const allLists: TRelayList[] = []
+        for (let i = 0; i < followPubkeys.length; i += RELAY_LIST_PRELOAD_CHUNK) {
+          if (cancelled) return
+          const chunk = followPubkeys.slice(i, i + RELAY_LIST_PRELOAD_CHUNK)
+          const lists = await nostrClient.fetchRelayLists(chunk)
+          allLists.push(...lists)
+        }
+        if (cancelled) return
+        const urls = buildFollowOutboxAggregateReadUrls(allLists, blockedRelays)
+        setAggregateRelayUrls(urls)
+      } catch (err) {
+        logger.warn('[LatestFromFollows] Failed to build follow outbox aggregate relays', err)
+        if (!cancelled) {
+          setAggregateRelayUrls(buildFollowOutboxAggregateReadUrls([], blockedRelays))
+        }
+      } finally {
+        if (!cancelled) setAggregateRelaysReady(true)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [followPubkeys, blockedRelays, isInitialized, loadingFollowList])
+
+  // Batch-fetch posts per slice of authors against the aggregate relay set.
   useEffect(() => {
     if (!isInitialized || loadingFollowList) return
     if (followPubkeys.length === 0) return
+    if (!aggregateRelaysReady) return
 
     abortedRef.current = false
     let cancelled = false
@@ -196,7 +230,7 @@ export default function LatestFromFollowsSection() {
         const batch = followPubkeys.slice(i, i + AUTHORS_PER_BATCH)
         try {
           const raw = await queryService.fetchEvents(
-            searchRelays,
+            aggregateRelayUrls,
             {
               kinds: [...FEED_KINDS],
               authors: batch,
@@ -220,7 +254,14 @@ export default function LatestFromFollowsSection() {
       abortedRef.current = true
       setBatchBusy(false)
     }
-  }, [followPubkeys, searchRelays, loadingFollowList, isInitialized, acceptEvent])
+  }, [
+    followPubkeys,
+    aggregateRelayUrls,
+    aggregateRelaysReady,
+    loadingFollowList,
+    isInitialized,
+    acceptEvent
+  ])
 
   const sortedRowPubkeys = useMemo(() => {
     const withPosts = followPubkeys.filter((pk) => (postsByPubkey.get(pk)?.length ?? 0) > 0)

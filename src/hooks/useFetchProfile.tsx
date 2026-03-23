@@ -504,7 +504,7 @@ export function useFetchProfile(id?: string, skipCache = false) {
         if (skipCache) {
           // If no profile was found, periodically re-check (profiles might load asynchronously)
           // REDUCED: Check every 10 seconds for up to 30 seconds (3 checks) to prevent too many intervals
-          // This reduces memory usage when many profiles are being fetched (e.g., trending page)
+          // This reduces memory usage when many profiles are being fetched (e.g., large search results)
           let checkCount = 0
           const maxChecks = 3 // Reduced from 4 to further reduce load
           const startTime = Date.now()
