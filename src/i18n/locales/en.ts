@@ -18,6 +18,7 @@ export default {
     'Relay pulse drawer following': 'Following',
     'Relay pulse drawer others': 'Others',
     'Relay pulse drawer no profiles': 'No kind 0 profiles loaded for this sample yet.',
+    'See the newest notes from your follows': 'See the newest notes from your follows',
     'All favorite relays': 'All favorite relays',
     'Pinned note': 'Pinned note',
     'Relay settings': 'Relays and Storage Settings',

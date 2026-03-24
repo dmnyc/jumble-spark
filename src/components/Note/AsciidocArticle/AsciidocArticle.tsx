@@ -1,4 +1,4 @@
-import { useSecondaryPage, useSmartHashtagNavigation, useSmartRelayNavigation } from '@/PageManager'
+import { useSecondaryPageOptional, useSmartHashtagNavigationOptional, useSmartRelayNavigationOptional } from '@/PageManager'
 import Image from '@/components/Image'
 import MediaPlayer from '@/components/MediaPlayer'
 import YoutubeEmbeddedPlayer from '@/components/YoutubeEmbeddedPlayer'
@@ -344,9 +344,10 @@ export default function AsciidocArticle({
   hideImagesAndInfo?: boolean
   parentImageUrl?: string
 }) {
-  const { push } = useSecondaryPage()
-  const { navigateToHashtag } = useSmartHashtagNavigation()
-  const { navigateToRelay } = useSmartRelayNavigation()
+  const secondaryPage = useSecondaryPageOptional()
+  const push = secondaryPage?.push ?? ((url: string) => { window.location.href = url })
+  const { navigateToHashtag } = useSmartHashtagNavigationOptional()
+  const { navigateToRelay } = useSmartRelayNavigationOptional()
   const metadata = useMemo(() => getLongFormArticleMetadataFromEvent(event), [event])
   const bookMetadata = useMemo(() => extractBookMetadata(event), [event])
   const isBookstrEvent = (event.kind === ExtendedKind.PUBLICATION || event.kind === ExtendedKind.PUBLICATION_CONTENT) && !!bookMetadata.book

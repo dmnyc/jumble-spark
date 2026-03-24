@@ -22,3 +22,8 @@ export function useNoteDrawer(): NoteDrawerContextValue {
   }
   return context
 }
+
+/** Returns undefined when outside provider (e.g. embedded notes in createRoot trees). */
+export function useNoteDrawerOptional(): NoteDrawerContextValue | undefined {
+  return useContext(NoteDrawerContext)
+}

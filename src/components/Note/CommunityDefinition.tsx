@@ -1,5 +1,5 @@
 import { getCommunityDefinitionFromEvent } from '@/lib/event-metadata'
-import { useContentPolicy } from '@/providers/ContentPolicyProvider'
+import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
 import { Event } from 'nostr-tools'
 import { useMemo } from 'react'
 import ClientSelect from '../ClientSelect'
@@ -12,7 +12,8 @@ export default function CommunityDefinition({
   event: Event
   className?: string
 }) {
-  const { autoLoadMedia } = useContentPolicy()
+  const contentPolicy = useContentPolicyOptional()
+  const autoLoadMedia = contentPolicy?.autoLoadMedia ?? true
   const metadata = useMemo(() => getCommunityDefinitionFromEvent(event), [event])
 
   const communityNameComponent = (

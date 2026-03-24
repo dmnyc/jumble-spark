@@ -3,7 +3,7 @@ import { useFetchProfile } from '@/hooks'
 import { toProfile } from '@/lib/link'
 import { formatPubkey, userIdToPubkey, pubkeyToNpub, formatNpub } from '@/lib/pubkey'
 import { cn } from '@/lib/utils'
-import { useSmartProfileNavigation } from '@/PageManager'
+import { useSmartProfileNavigationOptional } from '@/PageManager'
 import { useMemo } from 'react'
 
 export default function Username({
@@ -22,7 +22,7 @@ export default function Username({
   style?: React.CSSProperties
 }) {
   const { profile, isFetching } = useFetchProfile(userId)
-  const { navigateToProfile } = useSmartProfileNavigation()
+  const { navigateToProfile } = useSmartProfileNavigationOptional()
 
   // Get pubkey from userId (works even if profile isn't loaded)
   const pubkey = useMemo(() => {

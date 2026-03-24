@@ -5,7 +5,7 @@ import { Separator } from '@/components/ui/separator'
 import { ExtendedKind } from '@/constants'
 import { getReplaceableEventIdentifier, getNoteBech32Id } from '@/lib/event'
 import { toChachiChat } from '@/lib/link'
-import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { useScreenSizeOptional } from '@/providers/ScreenSizeProvider'
 import clientService from '@/services/client.service'
 import { ExternalLink } from 'lucide-react'
 import { Event, kinds, nip19 } from 'nostr-tools'
@@ -85,7 +85,8 @@ export default function ClientSelect({
   event?: Event
   originalNoteId?: string
 }) {
-  const { isSmallScreen } = useScreenSize()
+  const screenSize = useScreenSizeOptional()
+  const isSmallScreen = screenSize?.isSmallScreen ?? false
   const [open, setOpen] = useState(false)
   const { t } = useTranslation()
 

@@ -1,6 +1,6 @@
 import { Separator } from '@/components/ui/separator'
 import { toNote } from '@/lib/link'
-import { useSmartNoteNavigation } from '@/PageManager'
+import { useSmartNoteNavigationOptional } from '@/PageManager'
 import client from '@/services/client.service'
 import { Pin } from 'lucide-react'
 import { Event } from 'nostr-tools'
@@ -27,7 +27,7 @@ export default function MainNoteCard({
   pinned?: boolean
 }) {
   const { t } = useTranslation()
-  const { navigateToNote } = useSmartNoteNavigation()
+  const { navigateToNote } = useSmartNoteNavigationOptional()
 
   return (
     <div

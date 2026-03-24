@@ -25,3 +25,8 @@ export function useMuteList(): TMuteListContext {
   }
   return context
 }
+
+/** Returns undefined when outside provider (e.g. embedded notes in createRoot trees). */
+export function useMuteListOptional(): TMuteListContext | undefined {
+  return useContext(MuteListContext)
+}

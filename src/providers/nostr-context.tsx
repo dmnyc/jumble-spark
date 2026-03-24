@@ -75,3 +75,8 @@ export function useNostr(): TNostrContext {
   }
   return context
 }
+
+/** Returns undefined when outside NostrProvider (e.g. embedded notes in createRoot trees). */
+export function useNostrOptional(): TNostrContext | undefined {
+  return useContext(NostrContext)
+}

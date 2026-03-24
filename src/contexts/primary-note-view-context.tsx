@@ -36,3 +36,8 @@ export function usePrimaryNoteView(): PrimaryNoteViewContextValue {
   }
   return context
 }
+
+/** Returns undefined when outside provider (e.g. embedded notes in createRoot trees). */
+export function usePrimaryNoteViewOptional(): PrimaryNoteViewContextValue | undefined {
+  return useContext(PrimaryNoteViewContext)
+}

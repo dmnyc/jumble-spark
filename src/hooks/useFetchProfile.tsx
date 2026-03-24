@@ -1,7 +1,7 @@
 import { PROFILE_FETCH_PROMISE_TIMEOUT_MS } from '@/constants'
 import { getProfileFromEvent } from '@/lib/event-metadata'
 import { userIdToPubkey } from '@/lib/pubkey'
-import { useNostr } from '@/providers/NostrProvider'
+import { useNostrOptional } from '@/providers/nostr-context'
 import { useNoteFeedProfileContext } from '@/providers/NoteFeedProfileContext'
 import { replaceableEventService } from '@/services/client.service'
 import { TProfile } from '@/types'
@@ -24,7 +24,8 @@ export function useFetchProfile(id?: string, skipCache = false) {
   //   stack: new Error().stack?.split('\n').slice(1, 4).join('\n')
   // })
   
-  const { profile: currentAccountProfile } = useNostr()
+  const nostr = useNostrOptional()
+  const currentAccountProfile = nostr?.profile ?? null
   const noteFeed = useNoteFeedProfileContext()
   /** Hex/npub ids can show npub fallback immediately; avoid a skeleton frame before the first effect. */
   const [isFetching, setIsFetching] = useState(() => {

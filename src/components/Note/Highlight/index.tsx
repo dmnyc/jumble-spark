@@ -5,7 +5,7 @@ import logger from '@/lib/logger'
 import HighlightSourcePreview from '@/components/UniversalContent/HighlightSourcePreview'
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
-import { useSmartNoteNavigation } from '@/PageManager'
+import { useSmartNoteNavigationOptional } from '@/PageManager'
 import { toNote } from '@/lib/link'
 import { useFetchEvent } from '@/hooks'
 import { useEffect, useState, useMemo } from 'react'
@@ -61,7 +61,7 @@ function HighlightAuthorCard({
   eventId?: string
   onClick?: () => void
 }) {
-  const { navigateToNote } = useSmartNoteNavigation()
+  const { navigateToNote } = useSmartNoteNavigationOptional()
   
   const handleNoteClick = (e: React.MouseEvent) => {
     e.stopPropagation()

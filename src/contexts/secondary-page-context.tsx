@@ -23,3 +23,8 @@ export function useSecondaryPage(): SecondaryPageContextValue {
   }
   return context
 }
+
+/** Returns undefined when outside provider (e.g. embedded notes in createRoot trees). */
+export function useSecondaryPageOptional(): SecondaryPageContextValue | undefined {
+  return useContext(SecondaryPageContext)
+}

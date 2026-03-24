@@ -25,6 +25,9 @@ export const useBookmarks = () => {
   return context
 }
 
+/** Returns undefined when outside BookmarksProvider (e.g. embedded notes in createRoot trees). */
+export const useBookmarksOptional = () => useContext(BookmarksContext)
+
 export function BookmarksProvider({ children }: { children: React.ReactNode }) {
   const { pubkey: accountPubkey, publish, updateBookmarkListEvent } = useNostr()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()

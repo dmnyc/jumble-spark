@@ -1,8 +1,8 @@
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
 import { toNote, toNoteList } from '@/lib/link'
-import { useSecondaryPage } from '@/PageManager'
-import { useContentPolicy } from '@/providers/ContentPolicyProvider'
-import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { useSecondaryPageOptional } from '@/PageManager'
+import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
+import { useScreenSizeOptional } from '@/providers/ScreenSizeProvider'
 import { Event, kinds } from 'nostr-tools'
 import { useMemo } from 'react'
 import Image from '../Image'
@@ -14,9 +14,12 @@ export default function WikiCard({
   event: Event
   className?: string
 }) {
-  const { isSmallScreen } = useScreenSize()
-  const { push } = useSecondaryPage()
-  const { autoLoadMedia } = useContentPolicy()
+  const screenSize = useScreenSizeOptional()
+  const isSmallScreen = screenSize?.isSmallScreen ?? false
+  const secondaryPage = useSecondaryPageOptional()
+  const push = secondaryPage?.push ?? ((url: string) => { window.location.href = url })
+  const contentPolicy = useContentPolicyOptional()
+  const autoLoadMedia = contentPolicy?.autoLoadMedia ?? true
   const metadata = useMemo(() => getLongFormArticleMetadataFromEvent(event), [event])
 
   const handleCardClick = (e: React.MouseEvent) => {

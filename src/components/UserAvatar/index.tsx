@@ -3,7 +3,7 @@ import { useFetchProfile } from '@/hooks'
 import { generateImageByPubkey, userIdToPubkey } from '@/lib/pubkey'
 import { toProfile } from '@/lib/link'
 import { cn } from '@/lib/utils'
-import { useSmartProfileNavigation } from '@/PageManager'
+import { useSmartProfileNavigationOptional } from '@/PageManager'
 import { useMemo, useState, useEffect } from 'react'
 
 const UserAvatarSizeCnMap = {
@@ -27,7 +27,7 @@ export default function UserAvatar({
   size?: 'large' | 'big' | 'semiBig' | 'normal' | 'medium' | 'small' | 'xSmall' | 'tiny'
 }) {
   const { profile } = useFetchProfile(userId)
-  const { navigateToProfile } = useSmartProfileNavigation()
+  const { navigateToProfile } = useSmartProfileNavigationOptional()
   
   // Extract pubkey from userId if it's npub/nprofile format
   const pubkey = useMemo(() => {

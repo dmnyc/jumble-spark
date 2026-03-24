@@ -1,8 +1,8 @@
 import { ExtendedKind } from '@/constants'
 import { isMentioningMutedUsers } from '@/lib/event'
 import { cn } from '@/lib/utils'
-import { useContentPolicy } from '@/providers/ContentPolicyProvider'
-import { useMuteList } from '@/contexts/mute-list-context'
+import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
+import { useMuteListOptional } from '@/contexts/mute-list-context'
 import { Event, kinds } from 'nostr-tools'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -29,8 +29,10 @@ export default function ContentPreview({
   className?: string
 }) {
   const { t } = useTranslation()
-  const { mutePubkeySet } = useMuteList()
-  const { hideContentMentioningMutedUsers } = useContentPolicy()
+  const muteList = useMuteListOptional()
+  const mutePubkeySet = muteList?.mutePubkeySet ?? new Set<string>()
+  const contentPolicy = useContentPolicyOptional()
+  const hideContentMentioningMutedUsers = contentPolicy?.hideContentMentioningMutedUsers ?? false
   const isMuted = useMemo(
     () => (event ? mutePubkeySet.has(event.pubkey) : false),
     [mutePubkeySet, event]

@@ -11,7 +11,9 @@ import { BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
-const SearchPage = forwardRef<TPageRef>((_, ref) => {
+type SearchPageProps = { expandFollows?: boolean }
+const SearchPage = forwardRef<TPageRef>((props: SearchPageProps, ref) => {
+  const { expandFollows } = props ?? {}
   const { current, display } = usePrimaryPage()
   const { pubkey, relayList } = useNostr()
   const [input, setInput] = useState('')
@@ -88,11 +90,11 @@ const SearchPage = forwardRef<TPageRef>((_, ref) => {
         <div key={resultRefreshKey} className="min-w-0">
           {searchParams ? (
             <SearchResult searchParams={searchParams} />
-          ) : (
+          ) : pubkey ? (
             <div className="mb-4 min-w-0 space-y-2">
-              <LatestFromFollowsSection />
+              <LatestFromFollowsSection defaultOpen={expandFollows} />
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </PrimaryPageLayout>

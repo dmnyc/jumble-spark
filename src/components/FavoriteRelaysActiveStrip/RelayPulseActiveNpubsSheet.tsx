@@ -8,6 +8,7 @@ import {
   SheetTitle
 } from '@/components/ui/sheet'
 import { getProfileFromEvent } from '@/lib/event-metadata'
+import { cn } from '@/lib/utils'
 import { toProfile } from '@/lib/link'
 import {
   collectAggregatedNip05sFromKind0,
@@ -73,20 +74,35 @@ export function RelayPulseActiveNpubsOpenButton({
 
   if (totalCount === 0) return null
 
+  const countLabel = (
+    <span className="tabular-nums font-medium">
+      {totalCount > 99 ? '99+' : totalCount}
+    </span>
+  )
+
   return (
     <Button
       type="button"
       variant={variant}
       size={size}
-      className={className}
+      className={cn(className, 'relative')}
       aria-label={t('Relay pulse active npubs')}
       title={t('Relay pulse active npubs')}
       onClick={() => setActiveNpubsDrawerOpen(true)}
     >
       <Users className={size === 'icon' ? 'size-4' : 'size-3.5 shrink-0'} />
-      {size !== 'icon' ? (
-        <span className="ml-1.5 text-xs font-medium">{t('Relay pulse active npubs')}</span>
-      ) : null}
+      {size === 'icon' ? (
+        <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.6rem] font-medium text-primary-foreground">
+          {countLabel}
+        </span>
+      ) : (
+        <>
+          <span className="ml-1.5 text-xs font-medium">{countLabel}</span>
+          <span className="ml-1 text-xs text-muted-foreground">
+            {t('Relay pulse active npubs')}
+          </span>
+        </>
+      )}
     </Button>
   )
 }

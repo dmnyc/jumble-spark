@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { useContentPolicy } from '@/providers/ContentPolicyProvider'
+import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
 import mediaManager from '@/services/media-manager.service'
 import { YouTubePlayer } from '@/types/youtube'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -17,7 +17,8 @@ export default function YoutubeEmbeddedPlayer({
   mustLoad?: boolean
 }) {
   const { t } = useTranslation()
-  const { autoLoadMedia } = useContentPolicy()
+  const contentPolicy = useContentPolicyOptional()
+  const autoLoadMedia = contentPolicy?.autoLoadMedia ?? true
   const [display, setDisplay] = useState(autoLoadMedia)
   const { videoId, isShort } = useMemo(() => parseYoutubeUrl(url), [url])
   const [initSuccess, setInitSuccess] = useState(false)

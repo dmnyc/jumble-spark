@@ -1,7 +1,7 @@
 import { getRelayUrlFromRelayReviewEvent, getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
 import { toRelay } from '@/lib/link'
 import { simplifyUrl } from '@/lib/url'
-import { useSmartRelayNavigation } from '@/PageManager'
+import { useSmartRelayNavigationOptional } from '@/PageManager'
 import { Link2 } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useMemo } from 'react'
@@ -9,7 +9,7 @@ import Content from '../Content'
 import Stars from '../Stars'
 
 export default function RelayReview({ event, className }: { event: Event; className?: string }) {
-  const { navigateToRelay } = useSmartRelayNavigation()
+  const { navigateToRelay } = useSmartRelayNavigationOptional()
   const stars = useMemo(() => getStarsFromRelayReviewEvent(event), [event])
   const relayUrl = useMemo(() => getRelayUrlFromRelayReviewEvent(event), [event])
 

@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { RefreshCw, ArrowUp } from 'lucide-react'
 import indexedDb from '@/services/indexed-db.service'
 import { isReplaceableEvent } from '@/lib/event'
-import { useSecondaryPage } from '@/PageManager'
+import { useSecondaryPageOptional } from '@/PageManager'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { dTagToTitleCase } from '@/lib/event-metadata'
 import Image from '@/components/Image'
@@ -61,7 +61,8 @@ export default function PublicationIndex({
   isNested?: boolean
   parentImageUrl?: string
 }) {
-  const { push } = useSecondaryPage()
+  const secondaryPage = useSecondaryPageOptional()
+  const push = secondaryPage?.push ?? ((url: string) => { window.location.href = url })
   // Parse publication metadata from event tags
   const metadata = useMemo<PublicationMetadata>(() => {
     const meta: PublicationMetadata = { tags: [] }

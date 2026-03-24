@@ -28,6 +28,11 @@ export const useContentPolicy = () => {
   return context
 }
 
+/** Returns undefined when outside provider (e.g. embedded notes in createRoot trees). */
+export function useContentPolicyOptional(): TContentPolicyContext | undefined {
+  return useContext(ContentPolicyContext)
+}
+
 export function ContentPolicyProvider({ children }: { children: React.ReactNode }) {
   const [autoplay, setAutoplay] = useState(storage.getAutoplay())
   const [defaultShowNsfw, setDefaultShowNsfw] = useState(storage.getDefaultShowNsfw())

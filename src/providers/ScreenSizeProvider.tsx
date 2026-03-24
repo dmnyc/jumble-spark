@@ -15,6 +15,11 @@ export const useScreenSize = () => {
   return context
 }
 
+/** Returns undefined when outside provider (e.g. embedded notes in createRoot trees). */
+export function useScreenSizeOptional(): TScreenSizeContext | undefined {
+  return useContext(ScreenSizeContext)
+}
+
 export function ScreenSizeProvider({ children }: { children: React.ReactNode }) {
   const [isSmallScreen, setIsSmallScreen] = useState(() => window.innerWidth <= 768)
   const [isLargeScreen, setIsLargeScreen] = useState(() => window.innerWidth >= 1280)

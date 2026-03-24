@@ -1,16 +1,17 @@
 import { Badge } from '@/components/ui/badge'
 import { getLiveEventMetadataFromEvent } from '@/lib/event-metadata'
-import { useContentPolicy } from '@/providers/ContentPolicyProvider'
-import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
+import { useScreenSizeOptional } from '@/providers/ScreenSizeProvider'
 import { Event } from 'nostr-tools'
 import { useMemo } from 'react'
 import ClientSelect from '../ClientSelect'
 import Image from '../Image'
 
 export default function LiveEvent({ event, className }: { event: Event; className?: string }) {
-  const { isSmallScreen } = useScreenSize()
-
-  const { autoLoadMedia } = useContentPolicy()
+  const screenSize = useScreenSizeOptional()
+  const isSmallScreen = screenSize?.isSmallScreen ?? false
+  const contentPolicy = useContentPolicyOptional()
+  const autoLoadMedia = contentPolicy?.autoLoadMedia ?? true
   const metadata = useMemo(() => getLiveEventMetadataFromEvent(event), [event])
 
   const liveStatusComponent =

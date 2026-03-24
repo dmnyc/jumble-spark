@@ -116,11 +116,12 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
   const fetchRef = useRef(fetchActive)
   fetchRef.current = fetchActive
 
-  /** Favorite relay set changed after initial hydration — refresh snapshot (not the hourly cadence). */
+  /** Initial fetch on mount and when relay set changes (refresh snapshot, not hourly cadence). */
   const prevRelayKeyRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (prevRelayKeyRef.current === undefined) {
       prevRelayKeyRef.current = relayKey
+      void fetchRef.current()
       return
     }
     if (prevRelayKeyRef.current === relayKey) return

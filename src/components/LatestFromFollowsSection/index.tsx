@@ -85,11 +85,11 @@ function recommendedCuratorHexPubkey(): string | null {
   }
 }
 
-export default function LatestFromFollowsSection() {
+export default function LatestFromFollowsSection({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
   const { pubkey, followListEvent, isInitialized } = useNostr()
-  const { blockedRelays } = useFavoriteRelays()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { mutePubkeySet } = useMuteList()
   const { isEventDeleted } = useDeletedEvent()
   const { hideUntrustedNotes, isUserTrusted } = useUserTrust()
@@ -105,7 +105,7 @@ export default function LatestFromFollowsSection() {
   const [postsByPubkey, setPostsByPubkey] = useState<Map<string, NostrEvent[]>>(() => new Map())
   const [batchBusy, setBatchBusy] = useState(false)
   /** Search page: start collapsed so the bar doesn’t push the search field; data still prefetches in the background. */
-  const [sectionOpen, setSectionOpen] = useState(false)
+  const [sectionOpen, setSectionOpen] = useState(defaultOpen)
   const abortedRef = useRef(false)
 
   const followPubkeys = pubkey ? (loggedInFollowPubkeys ?? []) : guestFollowPubkeys
@@ -195,12 +195,18 @@ export default function LatestFromFollowsSection() {
           allLists.push(...lists)
         }
         if (cancelled) return
-        const urls = buildFollowOutboxAggregateReadUrls(allLists, blockedRelays)
+        const urls = buildFollowOutboxAggregateReadUrls(
+          allLists,
+          blockedRelays,
+          favoriteRelays
+        )
         setAggregateRelayUrls(urls)
       } catch (err) {
         logger.warn('[LatestFromFollows] Failed to build follow outbox aggregate relays', err)
         if (!cancelled) {
-          setAggregateRelayUrls(buildFollowOutboxAggregateReadUrls([], blockedRelays))
+          setAggregateRelayUrls(
+            buildFollowOutboxAggregateReadUrls([], blockedRelays, favoriteRelays)
+          )
         }
       } finally {
         if (!cancelled) setAggregateRelaysReady(true)
@@ -210,7 +216,7 @@ export default function LatestFromFollowsSection() {
     return () => {
       cancelled = true
     }
-  }, [followPubkeys, blockedRelays, isInitialized, loadingFollowList])
+  }, [followPubkeys, favoriteRelays, blockedRelays, isInitialized, loadingFollowList])
 
   // Batch-fetch posts per slice of authors against the aggregate relay set.
   useEffect(() => {

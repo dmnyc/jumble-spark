@@ -1,4 +1,4 @@
-import { useSecondaryPage, useSmartHashtagNavigation, useSmartRelayNavigation } from '@/PageManager'
+import { useSecondaryPageOptional, useSmartHashtagNavigationOptional, useSmartRelayNavigationOptional } from '@/PageManager'
 import Image from '@/components/Image'
 import MediaPlayer from '@/components/MediaPlayer'
 import Wikilink from '@/components/UniversalContent/Wikilink'
@@ -3225,9 +3225,10 @@ export default function MarkdownArticle({
   /** When viewing a kind-24 invite, render full calendar card with RSVP in place of the naddr embed */
   fullCalendarInvite?: { naddr: string; event: Event }
 }) {
-  const { push } = useSecondaryPage()
-  const { navigateToHashtag } = useSmartHashtagNavigation()
-  const { navigateToRelay } = useSmartRelayNavigation()
+  const secondaryPage = useSecondaryPageOptional()
+  const push = secondaryPage?.push ?? ((url: string) => { window.location.href = url })
+  const { navigateToHashtag } = useSmartHashtagNavigationOptional()
+  const { navigateToRelay } = useSmartRelayNavigationOptional()
   const metadata = useMemo(() => getLongFormArticleMetadataFromEvent(event), [event])
   const iArticleUrl = useMemo(() => getHttpUrlFromITags(event), [event])
   const iArticleCleaned = useMemo(

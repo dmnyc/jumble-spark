@@ -24,3 +24,8 @@ export function usePrimaryPage(): PrimaryPageContextValue {
   }
   return context
 }
+
+/** Returns undefined when outside provider (e.g. embedded notes in createRoot trees). */
+export function usePrimaryPageOptional(): PrimaryPageContextValue | undefined {
+  return useContext(PrimaryPageContext)
+}

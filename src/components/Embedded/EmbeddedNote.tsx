@@ -18,7 +18,7 @@ import { Search } from 'lucide-react'
 import logger from '@/lib/logger'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { contentParserService } from '@/services/content-parser.service'
-import { useSmartNoteNavigation } from '@/PageManager'
+import { useSmartNoteNavigationOptional } from '@/PageManager'
 import { toNote } from '@/lib/link'
 import {
   type EmbeddedNoteIdValidation,
@@ -532,7 +532,7 @@ function EmbeddedNoteNotFound({
 function EmbeddedBookstrEvent({ event, originalNoteId, className }: { event: Event; originalNoteId?: string; className?: string }) {
   const [parsedContent, setParsedContent] = useState<string | null>(null)
   const bookMetadata = extractBookMetadata(event)
-  const { navigateToNote } = useSmartNoteNavigation()
+  const { navigateToNote } = useSmartNoteNavigationOptional()
 
   useEffect(() => {
     const parseContent = async () => {

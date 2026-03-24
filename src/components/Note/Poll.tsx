@@ -4,7 +4,7 @@ import { useFetchPollResults } from '@/hooks/useFetchPollResults'
 import { createPollResponseDraftEvent } from '@/lib/draft-event'
 import { getPollMetadataFromEvent } from '@/lib/event-metadata'
 import { cn, isPartiallyInViewport } from '@/lib/utils'
-import { useNostr } from '@/providers/NostrProvider'
+import { useNostrOptional } from '@/providers/nostr-context'
 import pollResultsService from '@/services/poll-results.service'
 import dayjs from 'dayjs'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,7 +18,10 @@ import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishi
 
 export default function Poll({ event, className }: { event: Event; className?: string }) {
   const { t } = useTranslation()
-  const { pubkey, publish, startLogin } = useNostr()
+  const nostr = useNostrOptional()
+  const pubkey = nostr?.pubkey ?? null
+  const publish = nostr?.publish ?? (async () => { throw new Error('Not logged in') })
+  const startLogin = nostr?.startLogin ?? (() => {})
   const [isVoting, setIsVoting] = useState(false)
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([])
   const pollResults = useFetchPollResults(event.id)

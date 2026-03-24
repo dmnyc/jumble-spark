@@ -20,6 +20,7 @@ export default {
     'Relay pulse drawer following': 'Folge ich',
     'Relay pulse drawer others': 'Andere',
     'Relay pulse drawer no profiles': 'Für diese Stichprobe wurden noch keine Kind-0-Profile geladen.',
+    'See the newest notes from your follows': 'Neueste Notizen von deinen Abos anzeigen',
     'All favorite relays': 'Alle Lieblingsrelais',
     'Pinned note': 'Angehefteter Beitrag',
     'Relay settings': 'Relay-Einstellungen',

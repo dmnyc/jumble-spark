@@ -39,16 +39,21 @@ import { KeyboardShortcutsHelpProvider } from '@/components/KeyboardShortcutsHel
 import {
   PrimaryPageContext,
   usePrimaryPage,
+  usePrimaryPageOptional,
   type PrimaryPageContextValue
 } from '@/contexts/primary-page-context'
 import { normalizeUrl } from './lib/url'
 import modalManager from './services/modal-manager.service'
 import { decodeRssArticlePathSegment, encodeRssArticlePathSegment } from '@/lib/rss-article'
 import { routes } from './routes'
-import { useScreenSize } from './providers/ScreenSizeProvider'
-import { NoteDrawerContext, useNoteDrawer } from '@/contexts/note-drawer-context'
-import { PrimaryNoteViewContext, usePrimaryNoteView } from '@/contexts/primary-note-view-context'
-import { SecondaryPageContext, useSecondaryPage } from '@/contexts/secondary-page-context'
+import { useScreenSize, useScreenSizeOptional } from './providers/ScreenSizeProvider'
+import { NoteDrawerContext, useNoteDrawer, useNoteDrawerOptional } from '@/contexts/note-drawer-context'
+import {
+  PrimaryNoteViewContext,
+  usePrimaryNoteView,
+  usePrimaryNoteViewOptional
+} from '@/contexts/primary-note-view-context'
+import { SecondaryPageContext, useSecondaryPage, useSecondaryPageOptional } from '@/contexts/secondary-page-context'
 
 /** Lazy-loaded so PageManager does not synchronously import SpellsPage (avoids HMR cycle: SpellsPage → PrimaryPageLayout → PageManager → SpellsPage). */
 const SpellsPageLazy = lazy(() => import('./pages/primary/SpellsPage'))
@@ -366,6 +371,59 @@ export function useSmartNoteNavigation() {
   return { navigateToNote }
 }
 
+/** Safe variant for createRoot trees (e.g. AsciidocArticle embedded notes). Returns no-op navigation when outside providers. */
+export function useSmartNoteNavigationOptional() {
+  const pushSecondaryPage = useSecondaryPageOptional()
+  const noteDrawer = useNoteDrawerOptional()
+  const screenSize = useScreenSizeOptional()
+  const primaryPage = usePrimaryPageOptional()
+
+  if (!pushSecondaryPage || !noteDrawer || !screenSize || !primaryPage) {
+    return {
+      navigateToNote: (url: string, _event?: Event, _relatedEvents?: Event[]) => {
+        window.location.href = url
+      }
+    }
+  }
+
+  const { push } = pushSecondaryPage
+  const { openDrawer, isDrawerOpen } = noteDrawer
+  const { isSmallScreen } = screenSize
+  const { current: currentPrimaryPage } = primaryPage
+
+  const navigateToNote = (url: string, event?: Event, relatedEvents?: Event[]) => {
+    const { noteId } = parseNoteUrl(url)
+    if (event) {
+      navigationEventStore.setEvent(event)
+      client.addEventToCache(event)
+    }
+    if (relatedEvents?.length) {
+      for (const ev of relatedEvents) {
+        if (ev && ev !== event) client.addEventToCache(ev)
+      }
+    }
+    const contextualUrl = buildNoteUrl(noteId, currentPrimaryPage)
+    if (isSmallScreen) {
+      push(contextualUrl)
+      openDrawer(noteId, event)
+    } else {
+      const currentPanelMode = storage.getPanelMode()
+      if (currentPanelMode === 'single') {
+        if (isDrawerOpen) {
+          push(contextualUrl)
+          openDrawer(noteId, event)
+        } else {
+          window.history.pushState(null, '', contextualUrl)
+          openDrawer(noteId, event)
+        }
+      } else {
+        push(contextualUrl)
+      }
+    }
+  }
+  return { navigateToNote }
+}
+
 // Fixed: Relay navigation now uses primary note view on mobile, secondary routing (drawer in single-pane, side panel in double-pane) on desktop
 export function useSmartRelayNavigation() {
   const { setPrimaryNoteView } = usePrimaryNoteView()
@@ -393,6 +451,35 @@ export function useSmartRelayNavigation() {
     }
   }
   
+  return { navigateToRelay }
+}
+
+/** Safe variant for createRoot trees. Returns fallback navigation when outside providers. */
+export function useSmartRelayNavigationOptional() {
+  const primaryNoteView = usePrimaryNoteViewOptional()
+  const secondaryPage = useSecondaryPageOptional()
+  const screenSize = useScreenSizeOptional()
+  const primaryPage = usePrimaryPageOptional()
+  if (!primaryNoteView || !secondaryPage || !screenSize || !primaryPage) {
+    return { navigateToRelay: (url: string) => { window.location.href = url } }
+  }
+  const { setPrimaryNoteView } = primaryNoteView
+  const { push: pushSecondaryPage } = secondaryPage
+  const { isSmallScreen } = screenSize
+  const { current: currentPrimaryPage } = primaryPage
+  const navigateToRelay = (url: string) => {
+    const relayUrlMatch =
+      url.match(/\/(discussions|search|profile|home|feed|spells|explore)\/relays\/(.+)$/) ||
+      url.match(/\/relays\/(.+)$/)
+    const relayUrl = relayUrlMatch ? decodeURIComponent(relayUrlMatch[relayUrlMatch.length - 1]) : decodeURIComponent(url.replace(/.*\/relays\//, ''))
+    const contextualUrl = buildRelayUrl(relayUrl, currentPrimaryPage)
+    if (isSmallScreen) {
+      window.history.pushState(null, '', contextualUrl)
+      setPrimaryNoteView(<SecondaryRelayPage url={relayUrl} index={0} hideTitlebar={true} />, 'relay')
+    } else {
+      pushSecondaryPage(contextualUrl)
+    }
+  }
   return { navigateToRelay }
 }
 
@@ -437,6 +524,51 @@ export function useSmartProfileNavigation() {
   return { navigateToProfile }
 }
 
+/** Safe variant for createRoot trees (e.g. AsciidocArticle embedded mentions). Returns fallback navigation when outside providers. */
+export function useSmartProfileNavigationOptional() {
+  const primaryNoteView = usePrimaryNoteViewOptional()
+  const secondaryPage = useSecondaryPageOptional()
+  const screenSize = useScreenSizeOptional()
+  const noteDrawer = useNoteDrawerOptional()
+
+  if (!primaryNoteView || !secondaryPage || !screenSize || !noteDrawer) {
+    return {
+      navigateToProfile: (url: string) => {
+        window.location.href = url
+      }
+    }
+  }
+
+  const { setPrimaryNoteView } = primaryNoteView
+  const { push: pushSecondaryPage } = secondaryPage
+  const { isSmallScreen } = screenSize
+  const { closeDrawer, isDrawerOpen } = noteDrawer
+
+  const navigateToProfile = (url: string) => {
+    if (isDrawerOpen) {
+      closeDrawer()
+      setTimeout(() => {
+        if (isSmallScreen) {
+          const profileId = url.replace('/users/', '')
+          window.history.pushState(null, '', url)
+          setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+        } else {
+          pushSecondaryPage(url)
+        }
+      }, 400)
+    } else {
+      if (isSmallScreen) {
+        const profileId = url.replace('/users/', '')
+        window.history.pushState(null, '', url)
+        setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+      } else {
+        pushSecondaryPage(url)
+      }
+    }
+  }
+  return { navigateToProfile }
+}
+
 // Fixed: Hashtag navigation now uses primary note view since secondary panel is disabled
 export function useSmartHashtagNavigation() {
   const { setPrimaryNoteView, getNavigationCounter } = usePrimaryNoteView()
@@ -468,6 +600,31 @@ export function useSmartHashtagNavigation() {
     window.dispatchEvent(new CustomEvent('hashtag-navigation', { detail: { url: parsedUrl } }))
   }
   
+  return { navigateToHashtag }
+}
+
+/** Safe variant for createRoot trees. Returns fallback navigation when outside providers. */
+export function useSmartHashtagNavigationOptional() {
+  const primaryNoteView = usePrimaryNoteViewOptional()
+  if (!primaryNoteView) {
+    return { navigateToHashtag: (url: string) => { window.location.href = url.startsWith('/') ? url : `/${url}` } }
+  }
+  const { setPrimaryNoteView, getNavigationCounter } = primaryNoteView
+  const navigateToHashtag = (url: string) => {
+    const parsedUrl = url.startsWith('/') ? url : `/${url}`
+    window.history.pushState(null, '', parsedUrl)
+    const searchParams = new URLSearchParams(parsedUrl.includes('?') ? parsedUrl.split('?')[1] : '')
+    const hashtag = searchParams.get('t') || ''
+    const counter = getNavigationCounter()
+    const key = `hashtag-${hashtag}-${counter + 1}`
+    setPrimaryNoteView(
+      <Suspense fallback={primaryPageLazyFallback}>
+        <SecondaryNoteListPageLazy key={key} hideTitlebar={true} />
+      </Suspense>,
+      'hashtag'
+    )
+    window.dispatchEvent(new CustomEvent('hashtag-navigation', { detail: { url: parsedUrl } }))
+  }
   return { navigateToHashtag }
 }
 

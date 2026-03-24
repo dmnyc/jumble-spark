@@ -1,13 +1,13 @@
-import { useSmartNoteNavigation } from '@/PageManager'
+import { useSmartNoteNavigationOptional } from '@/PageManager'
 import { ExtendedKind } from '@/constants'
 import { isRenderableNoteKind } from '@/lib/note-renderable-kinds'
 import { getHttpUrlFromITags, getParentBech32Id, isNsfwEvent } from '@/lib/event'
 import { toNote } from '@/lib/link'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
-import { useContentPolicy } from '@/providers/ContentPolicyProvider'
-import { useMuteList } from '@/contexts/mute-list-context'
-import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
+import { useMuteListOptional } from '@/contexts/mute-list-context'
+import { useScreenSizeOptional } from '@/providers/ScreenSizeProvider'
 import type { HighlightData } from '@/components/PostEditor/HighlightEditor'
 import { Event, kinds } from 'nostr-tools'
 import { useCallback, useMemo, useState } from 'react'
@@ -71,15 +71,18 @@ export default function Note({
   fullCalendarInvite?: { event: Event; naddr: string }
 }) {
   const { t } = useTranslation()
-  const { navigateToNote } = useSmartNoteNavigation()
-  const { isSmallScreen } = useScreenSize()
+  const { navigateToNote } = useSmartNoteNavigationOptional()
+  const screenSize = useScreenSizeOptional()
+  const isSmallScreen = screenSize?.isSmallScreen ?? false
   const parentEventId = useMemo(
     () => (hideParentNotePreview ? undefined : getParentBech32Id(event)),
     [event, hideParentNotePreview]
   )
-  const { defaultShowNsfw } = useContentPolicy()
+  const contentPolicy = useContentPolicyOptional()
+  const defaultShowNsfw = contentPolicy?.defaultShowNsfw ?? true
   const [showNsfw, setShowNsfw] = useState(false)
-  const { mutePubkeySet } = useMuteList()
+  const muteList = useMuteListOptional()
+  const mutePubkeySet = muteList?.mutePubkeySet ?? new Set<string>()
   const [showMuted, setShowMuted] = useState(false)
   const [highlightData, setHighlightData] = useState<HighlightData | undefined>(undefined)
   const [highlightDefaultContent, setHighlightDefaultContent] = useState<string>('')

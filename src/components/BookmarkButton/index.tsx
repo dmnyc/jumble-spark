@@ -1,17 +1,21 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
-import { useBookmarks } from '@/providers/BookmarksProvider'
-import { useNostr } from '@/providers/NostrProvider'
+import { NostrContext } from '@/providers/nostr-context'
+import { useBookmarksOptional } from '@/providers/BookmarksProvider'
 import { BookmarkIcon } from 'lucide-react'
 import { Event } from 'nostr-tools'
-import { useMemo, useState } from 'react'
+import { useContext, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 export default function BookmarkButton({ event }: { event: Event }) {
   const { t } = useTranslation()
-  const { pubkey: accountPubkey, bookmarkListEvent, checkLogin } = useNostr()
-  const { addBookmark, removeBookmark } = useBookmarks()
+  const nostrContext = useContext(NostrContext)
+  const bookmarksContext = useBookmarksOptional()
+  const accountPubkey = nostrContext?.pubkey ?? null
+  const bookmarkListEvent = nostrContext?.bookmarkListEvent ?? null
+  const checkLogin = nostrContext?.checkLogin ?? (async () => {})
+  const { addBookmark, removeBookmark } = bookmarksContext ?? { addBookmark: async () => {}, removeBookmark: async () => {} }
   const [updating, setUpdating] = useState(false)
   const isBookmarked = useMemo(() => {
     const isReplaceable = isReplaceableEvent(event.kind)
@@ -22,7 +26,7 @@ export default function BookmarkButton({ event }: { event: Event }) {
     )
   }, [bookmarkListEvent, event])
 
-  if (!accountPubkey) return null
+  if (!bookmarksContext || !accountPubkey) return null
 
   const handleBookmark = async (e: React.MouseEvent) => {
     e.stopPropagation()

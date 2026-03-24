@@ -8,7 +8,7 @@ import { Zap as ZapIcon } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSmartNoteNavigation, useSecondaryPage } from '@/PageManager'
+import { useSmartNoteNavigationOptional, useSecondaryPageOptional } from '@/PageManager'
 import Username from '../Username'
 import UserAvatar from '../UserAvatar'
 
@@ -26,8 +26,9 @@ export default function Zap({ event, className }: { event: Event; className?: st
     return null
   }
   const { t } = useTranslation()
-  const { navigateToNote } = useSmartNoteNavigation()
-  const { push } = useSecondaryPage()
+  const { navigateToNote } = useSmartNoteNavigationOptional()
+  const secondaryPage = useSecondaryPageOptional()
+  const push = secondaryPage?.push ?? ((url: string) => { window.location.href = url })
 
   if (!zapInfo || !zapInfo.senderPubkey || !zapInfo.amount) {
     return (
