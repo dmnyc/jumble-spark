@@ -169,6 +169,12 @@ export const KIND_1_BLOCKED_RELAY_URLS = [
   'wss://wikifreedia.xyz'
 ]
 
+/** Relays that reject #e (and similar) tag filters; skip for reply/quote/stats fetches. */
+export const E_TAG_FILTER_BLOCKED_RELAY_URLS = [
+  'wss://nostr.v0l.io',
+  'wss://nostr.sovbit.host'
+]
+
 // Optimized relay list for read operations (includes aggregator)
 export const FAST_READ_RELAY_URLS = [
   'wss://theforest.nostr1.com',

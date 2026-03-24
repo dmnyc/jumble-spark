@@ -18,6 +18,8 @@ import {
 const EVENT_EMBEDDED_NOTES_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_EMBEDDED_PUBKEYS_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_IS_REPLY_NOTE_CACHE = new LRUCache<string, boolean>({ max: 10000 })
+/** Bump when isReplyNoteEvent logic changes so cached booleans are not stale. */
+const IS_REPLY_NOTE_CACHE_KEY_SUFFIX = ':v2'
 
 export function isNsfwEvent(event: Event) {
   return event.tags.some(
@@ -38,12 +40,24 @@ export function isReplyNoteEvent(event: Event) {
 
   if (event.kind !== kinds.ShortTextNote) return false
 
-  const cache = EVENT_IS_REPLY_NOTE_CACHE.get(event.id)
+  const cacheKey = event.id + IS_REPLY_NOTE_CACHE_KEY_SUFFIX
+  const cache = EVENT_IS_REPLY_NOTE_CACHE.get(cacheKey)
   if (cache !== undefined) return cache
 
-  const isReply = !!getParentETag(event) || !!getParentATag(event)
-  EVENT_IS_REPLY_NOTE_CACHE.set(event.id, isReply)
+  // Include #q (quote) — many clients omit e-tags on quote-only notes; they still belong in the thread.
+  const isReply =
+    !!getParentETag(event) ||
+    !!getParentATag(event) ||
+    !!getQuotedEventHexIdFromQTags(event)
+  EVENT_IS_REPLY_NOTE_CACHE.set(cacheKey, isReply)
   return isReply
+}
+
+/** First hex event id from `q` / `Q` tags (NIP-18 quote). */
+export function getQuotedEventHexIdFromQTags(event: Event): string | undefined {
+  const q = event.tags.find((t) => t[0] === 'q' || t[0] === 'Q')?.[1]
+  if (q && /^[0-9a-f]{64}$/i.test(q)) return q.toLowerCase()
+  return undefined
 }
 
 export function isReplaceableEvent(kind: number) {
@@ -183,6 +197,21 @@ export function getRootATag(event?: Event) {
 export function getRootEventHexId(event?: Event) {
   const tag = getRootETag(event)
   return tag?.[1]
+}
+
+/** True if event references targetHexId as root, parent, or quoted (#q) — used to hide redundant preview when showing quotes of current note. */
+export function eventReferencesEventId(event: Event | undefined, targetHexId: string): boolean {
+  if (!event || !targetHexId) return false
+  const target = targetHexId.toLowerCase()
+  const rootId = getRootETag(event)?.[1]?.toLowerCase()
+  if (rootId === target) return true
+  const parentId = getParentETag(event)?.[1]?.toLowerCase()
+  if (parentId === target) return true
+  const qTag = event.tags.find((t) => t[0] === 'q' || t[0] === 'Q')?.[1]?.toLowerCase()
+  if (qTag === target) return true
+  const eTags = event.tags.filter((t) => t[0] === 'e' || t[0] === 'E')
+  if (eTags.some((t) => t[1]?.toLowerCase() === target)) return true
+  return false
 }
 
 export function getRootBech32Id(event?: Event) {

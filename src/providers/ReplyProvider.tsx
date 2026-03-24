@@ -1,5 +1,11 @@
 import { getArticleUrlFromCommentITags } from '@/lib/rss-article'
-import { getParentATag, getParentETag, getRootATag, getRootETag } from '@/lib/event'
+import {
+  getParentATag,
+  getParentETag,
+  getQuotedEventHexIdFromQTags,
+  getRootATag,
+  getRootETag
+} from '@/lib/event'
 import { Event } from 'nostr-tools'
 import { createContext, useCallback, useContext, useState } from 'react'
 
@@ -33,7 +39,7 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
       let rootId: string | undefined
       const rootETag = getRootETag(reply)
       if (rootETag) {
-        rootId = rootETag[1]
+        rootId = rootETag[1]?.toLowerCase?.() ?? rootETag[1]
       } else {
         const rootATag = getRootATag(reply)
         if (rootATag) {
@@ -52,7 +58,7 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
       let parentId: string | undefined
       const parentETag = getParentETag(reply)
       if (parentETag) {
-        parentId = parentETag[1]
+        parentId = parentETag[1]?.toLowerCase?.() ?? parentETag[1]
       } else {
         const parentATag = getParentATag(reply)
         if (parentATag) {
@@ -62,25 +68,35 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
       if (parentId && parentId !== rootId) {
         newReplyEventMap.set(parentId, [...(newReplyEventMap.get(parentId) || []), reply])
       }
+
+      // Quote-only notes (#q, no e-tags): still index under the quoted event id.
+      if (!rootId && !parentId) {
+        const qid = getQuotedEventHexIdFromQTags(reply)
+        if (qid) {
+          newReplyEventMap.set(qid, [...(newReplyEventMap.get(qid) || []), reply])
+        }
+      }
     })
     if (newReplyEventMap.size === 0) return
 
     setRepliesMap((prev) => {
+      const next = new Map(prev)
       for (const [id, newReplyEvents] of newReplyEventMap.entries()) {
-        const replies = prev.get(id) || { events: [], eventIdSet: new Set() }
+        const existing = next.get(id)
+        const events = existing ? [...existing.events] : []
+        const eventIdSet = existing ? new Set(existing.eventIdSet) : new Set<string>()
         newReplyEvents.forEach((reply) => {
-          const existingIdx = replies.events.findIndex((e) => e.id === reply.id)
+          const existingIdx = events.findIndex((e) => e.id === reply.id)
           if (existingIdx >= 0) {
-            replies.events[existingIdx] = reply
-            replies.eventIdSet.add(reply.id)
+            events[existingIdx] = reply
           } else {
-            replies.events.push(reply)
-            replies.eventIdSet.add(reply.id)
+            events.push(reply)
           }
+          eventIdSet.add(reply.id)
         })
-        prev.set(id, replies)
+        next.set(id, { events, eventIdSet })
       }
-      return new Map(prev)
+      return next
     })
   }, [])
 

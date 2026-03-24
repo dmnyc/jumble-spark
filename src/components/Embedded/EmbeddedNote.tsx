@@ -24,6 +24,7 @@ import {
   type EmbeddedNoteIdValidation,
   validateEmbeddedNotePointer
 } from './embeddedNotePointer'
+import { useSuppressEmbeddedNoteId } from '@/contexts/suppress-embedded-note-context'
 
 /** Embedded `noteId` is often raw hex from parsers; must accept A–F and normalize for REQ `ids`. */
 function hexEventIdFromNoteId(noteId: string): string | null {
@@ -60,6 +61,11 @@ export function EmbeddedNote({
   className?: string
   containingEvent?: Event
 }) {
+  const suppressId = useSuppressEmbeddedNoteId()
+  const embeddedHexId = useMemo(() => hexEventIdFromNoteId(noteId), [noteId])
+  if (suppressId && embeddedHexId && embeddedHexId === suppressId.toLowerCase()) {
+    return null
+  }
   const validation = useMemo(() => validateEmbeddedNotePointer(noteId), [noteId])
   if (!validation.valid) {
     return (

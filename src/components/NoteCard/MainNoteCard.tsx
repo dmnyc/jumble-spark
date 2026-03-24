@@ -16,7 +16,8 @@ export default function MainNoteCard({
   reposter,
   embedded,
   originalNoteId,
-  pinned = false
+  pinned = false,
+  hideParentNotePreview = false
 }: {
   event: Event
   className?: string
@@ -25,6 +26,8 @@ export default function MainNoteCard({
   originalNoteId?: string
   /** Profile (or other) pinned highlight */
   pinned?: boolean
+  /** Hide the parent note preview (e.g. when showing quotes of current note). */
+  hideParentNotePreview?: boolean
 }) {
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigationOptional()
@@ -71,6 +74,7 @@ export default function MainNoteCard({
             event={event}
             originalNoteId={originalNoteId}
             disableClick={true}
+            hideParentNotePreview={hideParentNotePreview}
           />
         </Collapsible>
         {!embedded && (

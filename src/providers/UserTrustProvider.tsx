@@ -10,6 +10,7 @@ const wotSet = new Set<string>()
 
 export function UserTrustProvider({ children }: { children: ReactNode }) {
   const { pubkey: currentPubkey } = useNostr()
+  const [isTrustLoaded, setIsTrustLoaded] = useState(false)
   const [hideUntrustedInteractions, setHideUntrustedInteractions] = useState(() =>
     storage.getHideUntrustedInteractions()
   )
@@ -21,7 +22,14 @@ export function UserTrustProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
-    if (!currentPubkey) return
+    if (!currentPubkey) {
+      setIsTrustLoaded(false)
+      return
+    }
+
+    // Clear wotSet when account changes to avoid cross-account contamination
+    wotSet.clear()
+    setIsTrustLoaded(false)
 
     const initWoT = async () => {
       const followListEvent = await replaceableEventService.fetchReplaceableEvent(currentPubkey, kinds.Contacts)
@@ -72,6 +80,7 @@ export function UserTrustProvider({ children }: { children: ReactNode }) {
   return (
     <UserTrustContext.Provider
       value={{
+        isTrustLoaded,
         hideUntrustedInteractions,
         hideUntrustedNotifications,
         hideUntrustedNotes,

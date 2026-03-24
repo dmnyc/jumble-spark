@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import NotePage from '@/pages/secondary/NotePage'
+import { useSecondaryPage } from '@/PageManager'
 import type { Event } from 'nostr-tools'
 
 interface NoteDrawerProps {
@@ -11,6 +12,7 @@ interface NoteDrawerProps {
 }
 
 export default function NoteDrawer({ open, onOpenChange, noteId, initialEvent }: NoteDrawerProps) {
+  const { currentIndex } = useSecondaryPage()
   const [displayNoteId, setDisplayNoteId] = useState<string | null>(noteId)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -44,8 +46,13 @@ export default function NoteDrawer({ open, onOpenChange, noteId, initialEvent }:
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-[1042px] overflow-y-auto p-0">
-        <div className="h-full">
-          <NotePage id={displayNoteId} index={0} hideTitlebar={false} initialEvent={initialEvent ?? undefined} />
+        <div className="min-h-full">
+          <NotePage
+            id={displayNoteId}
+            index={currentIndex}
+            hideTitlebar={false}
+            initialEvent={initialEvent ?? undefined}
+          />
         </div>
       </SheetContent>
     </Sheet>

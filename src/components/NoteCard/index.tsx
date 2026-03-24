@@ -11,12 +11,15 @@ const NoteCard = memo(function NoteCard({
   event,
   className,
   filterMutedNotes = true,
-  pinned = false
+  pinned = false,
+  hideParentNotePreview = false
 }: {
   event: Event
   className?: string
   filterMutedNotes?: boolean
   pinned?: boolean
+  /** When true, hide the parent/root note preview (e.g. when showing quotes of the current note). */
+  hideParentNotePreview?: boolean
 }) {
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
@@ -41,7 +44,14 @@ const NoteCard = memo(function NoteCard({
       />
     )
   }
-  return <MainNoteCard event={event} className={className} pinned={pinned} />
+  return (
+    <MainNoteCard
+      event={event}
+      className={className}
+      pinned={pinned}
+      hideParentNotePreview={hideParentNotePreview}
+    />
+  )
 }, (prevProps, nextProps) => {
   // Custom comparison function for memo
   return (
@@ -49,7 +59,8 @@ const NoteCard = memo(function NoteCard({
     prevProps.event.created_at === nextProps.event.created_at &&
     prevProps.className === nextProps.className &&
     prevProps.filterMutedNotes === nextProps.filterMutedNotes &&
-    prevProps.pinned === nextProps.pinned
+    prevProps.pinned === nextProps.pinned &&
+    prevProps.hideParentNotePreview === nextProps.hideParentNotePreview
   )
 })
 

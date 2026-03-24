@@ -1,6 +1,7 @@
-import { ExtendedKind } from '@/constants'
+import { E_TAG_FILTER_BLOCKED_RELAY_URLS, ExtendedKind } from '@/constants'
 import { getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import {
+  eventReferencesEventId,
   getParentETag,
   getReplaceableCoordinateFromEvent,
   getRootATag,
@@ -33,8 +34,10 @@ import { Filter, Event as NEvent, kinds } from 'nostr-tools'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuoteEvents } from '@/hooks'
+import { SuppressEmbeddedNoteContext } from '@/contexts/suppress-embedded-note-context'
 import { LoadingBar } from '../LoadingBar'
-import QuoteList from '../QuoteList'
+import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 import ReplyNote, { ReplyNoteSkeleton } from '../ReplyNote'
 import ZapReplyFeedRow from './ZapReplyFeedRow'
 
@@ -61,15 +64,19 @@ function ReplyNoteList({
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigation()
   const { currentIndex } = useSecondaryPage()
-  const { hideUntrustedInteractions, isUserTrusted } = useUserTrust()
+  const { hideUntrustedInteractions, isUserTrusted, isTrustLoaded } = useUserTrust()
   const noteStats = useNoteStatsById(event.id)
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
-  const { relayList: userRelayList, pubkey: userPubkey } = useNostr()
+  const { pubkey: userPubkey } = useNostr()
   const { blockedRelays } = useFavoriteRelays()
   const { relayUrls: browsingRelayUrls } = useCurrentRelays()
   const [rootInfo, setRootInfo] = useState<TRootInfo | undefined>(undefined)
   const { repliesMap, addReplies } = useReply()
+  const { quoteEvents, quoteLoading } = useQuoteEvents(
+    event,
+    showQuotes ?? false
+  )
 
   // Helper function to get vote score for a reply
   const getReplyVoteScore = (reply: NEvent) => {
@@ -115,9 +122,9 @@ function ReplyNoteList({
     const replyEvents: NEvent[] = []
     const currentEventKey = isReplaceableEvent(event.kind)
       ? getReplaceableCoordinateFromEvent(event)
-      : event.id
+      : /^[0-9a-f]{64}$/i.test(event.id) ? event.id.toLowerCase() : event.id
     // For replaceable events, also check the event ID in case replies are stored there
-    const eventIdKey = event.id
+    const eventIdKey = /^[0-9a-f]{64}$/i.test(event.id) ? event.id.toLowerCase() : event.id
     let parentEventKeys = [currentEventKey]
     if (isReplaceableEvent(event.kind) && currentEventKey !== eventIdKey) {
       parentEventKeys.push(eventIdKey)
@@ -201,12 +208,30 @@ function ReplyNoteList({
     }
   }, [event.id, repliesMap, mutePubkeySet, hideContentMentioningMutedUsers, sort])
 
+  const replyIdSet = useMemo(() => new Set(replies.map((r) => r.id)), [replies])
+  const mergedFeed = useMemo(() => {
+    if (!showQuotes) return replies
+    const quoteOnly = quoteEvents.filter((e) => !replyIdSet.has(e.id))
+    const merged = [...replies, ...quoteOnly]
+    if (sort === 'oldest') return merged.sort((a, b) => a.created_at - b.created_at)
+    if (sort === 'newest') return merged.sort((a, b) => b.created_at - a.created_at)
+    if (sort === 'top' || sort === 'controversial' || sort === 'most-zapped') {
+      const replyIds = new Set(replies.map((r) => r.id))
+      const sortedReplies = [...replies]
+      const qo = merged.filter((e) => !replyIds.has(e.id))
+      const sortedQuotes = [...qo].sort((a, b) => b.created_at - a.created_at)
+      return [...sortedReplies, ...sortedQuotes]
+    }
+    return merged.sort((a, b) => b.created_at - a.created_at)
+  }, [replies, quoteEvents, showQuotes, sort, replyIdSet])
+
   const zapsForFeed = useMemo(() => {
     if (shouldHideInteractions(event)) return []
     const raw = noteStats?.zaps ?? []
-    const filtered = hideUntrustedInteractions ? raw.filter((z) => isUserTrusted(z.pubkey)) : raw
+    const filtered =
+      isTrustLoaded && hideUntrustedInteractions ? raw.filter((z) => isUserTrusted(z.pubkey)) : raw
     return [...filtered].sort((a, b) => b.amount - a.amount)
-  }, [event, noteStats, hideUntrustedInteractions, isUserTrusted])
+  }, [event, noteStats, isTrustLoaded, hideUntrustedInteractions, isUserTrusted])
 
   const [timelineKey] = useState<string | undefined>(undefined)
   const [until, setUntil] = useState<number | undefined>(undefined)
@@ -312,8 +337,12 @@ function ReplyNoteList({
     }
   }, [rootInfo, onNewReply])
 
+  const replyFetchGenRef = useRef(0)
+
   useEffect(() => {
     if (!rootInfo || currentIndex !== index) return
+
+    const fetchGeneration = ++replyFetchGenRef.current
 
     const init = async () => {
       // Check cache first - get cached data even if stale (for instant display)
@@ -345,7 +374,7 @@ function ReplyNoteList({
       
       async function fetchFromRelays() {
         if (!rootInfo) return // Type guard
-        
+
         try {
           // READ from: FAST_READ_RELAY_URLS + user's inboxes + local relays + OP author's outboxes
           const opAuthorPubkey = rootInfo.type === 'E' || rootInfo.type === 'A' ? rootInfo.pubkey : undefined
@@ -354,11 +383,17 @@ function ReplyNoteList({
           const threadRelayHints = [
             ...new Set([...relayHintsFromEventTags(event), ...seenOn, ...fromBrowsingFeed])
           ]
-          const finalRelayUrls = await buildReplyReadRelayList(
+          let finalRelayUrls = await buildReplyReadRelayList(
             opAuthorPubkey,
             userPubkey || undefined,
             blockedRelays || [],
             threadRelayHints
+          )
+          const eTagBlockedSet = new Set(
+            E_TAG_FILTER_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u)
+          )
+          finalRelayUrls = finalRelayUrls.filter(
+            (u) => !eTagBlockedSet.has(normalizeUrl(u) || u)
           )
 
           const filters: Filter[] = []
@@ -373,6 +408,12 @@ function ReplyNoteList({
             filters.push({
               '#E': [rootInfo.id],
               kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
+              limit: LIMIT
+            })
+            // Kind-1 notes that quote via #q without e-tags (still part of this thread)
+            filters.push({
+              '#q': [rootInfo.id],
+              kinds: [kinds.ShortTextNote],
               limit: LIMIT
             })
             // For public messages (kind 24), also look for replies using 'q' tags
@@ -416,6 +457,8 @@ function ReplyNoteList({
           // Use fetchEvents instead of subscribeTimeline for one-time fetching
           const allReplies = await queryService.fetchEvents(finalRelayUrls, filters)
 
+          if (fetchGeneration !== replyFetchGenRef.current) return
+
           // Filter and add replies
           const regularReplies = allReplies.filter((evt) => isReplyNoteEvent(evt))
           
@@ -443,6 +486,7 @@ function ReplyNoteList({
           }
         } catch (error) {
           logger.error('[ReplyNoteList] Error fetching replies:', error)
+          if (fetchGeneration !== replyFetchGenRef.current) return
           if (!hasCache) {
             // Only set loading to false if we don't have cache to fall back on
             setLoading(false)
@@ -452,7 +496,17 @@ function ReplyNoteList({
     }
 
     init()
-  }, [rootInfo, currentIndex, index, userRelayList, event, blockedRelays, browsingRelayUrls, addReplies])
+  }, [
+    rootInfo,
+    currentIndex,
+    index,
+    userPubkey,
+    event.id,
+    event.kind,
+    blockedRelays,
+    browsingRelayUrls,
+    addReplies
+  ])
 
   useEffect(() => {
     if (replies.length === 0 && !loading && timelineKey) {
@@ -468,7 +522,7 @@ function ReplyNoteList({
     }
 
     const observerInstance = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && showCount < replies.length) {
+      if (entries[0].isIntersecting && showCount < mergedFeed.length) {
         setShowCount((prev) => prev + SHOW_COUNT)
       }
     }, options)
@@ -484,7 +538,7 @@ function ReplyNoteList({
         observerInstance.unobserve(currentBottomRef)
       }
     }
-  }, [replies, showCount])
+  }, [mergedFeed.length, showCount])
 
   const loadMore = useCallback(async () => {
     if (loading || !until || !timelineKey) return
@@ -516,7 +570,7 @@ function ReplyNoteList({
   }, [])
 
   return (
-    <div className="min-h-[80vh]">
+    <div className="min-h-[80vh] pb-12">
       {loading && <LoadingBar />}
       {zapsForFeed.map((zap) => (
         <ZapReplyFeedRow key={zap.pr} zap={zap} />
@@ -530,10 +584,13 @@ function ReplyNoteList({
         </div>
       )}
       <div>
-        {replies.slice(0, showCount).map((reply) => {
-          if (hideUntrustedInteractions && !isUserTrusted(reply.pubkey)) {
-            const repliesForThisReply = repliesMap.get(reply.id)
-            // If the reply is not trusted and there are no trusted replies for this reply, skip rendering
+        {mergedFeed.slice(0, showCount).map((item) => {
+          const isQuote = !replyIdSet.has(item.id)
+          // Don't filter by trust until trust data is loaded - prevents replies from
+          // vanishing when wotSet is still empty (all non-self appear untrusted)
+          if (isTrustLoaded && hideUntrustedInteractions && !isUserTrusted(item.pubkey)) {
+            if (isQuote) return null
+            const repliesForThisReply = repliesMap.get(item.id)
             if (
               !repliesForThisReply ||
               repliesForThisReply.events.every((evt) => !isUserTrusted(evt.pubkey))
@@ -542,11 +599,38 @@ function ReplyNoteList({
             }
           }
 
+          if (isQuote) {
+            const quoteLabel =
+              item.kind === kinds.Highlights
+                ? t('highlighted this note')
+                : item.kind === kinds.LongFormArticle
+                  ? t('cited in article')
+                  : t('quoted this note')
+            const hideQuotedNote = eventReferencesEventId(item, event.id)
+            return (
+              <SuppressEmbeddedNoteContext.Provider key={item.id} value={event.id}>
+                <div
+                  ref={(el) => (replyRefs.current[item.id] = el)}
+                  className="scroll-mt-12 border-l-2 border-muted-foreground/40 pl-3 py-1 my-1 rounded-r"
+                >
+                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                    {quoteLabel}
+                  </div>
+                  <NoteCard
+                    event={item}
+                    className="w-full"
+                    hideParentNotePreview={hideQuotedNote}
+                  />
+                </div>
+              </SuppressEmbeddedNoteContext.Provider>
+            )
+          }
+
+          const reply = item
           const parentETag = getParentETag(reply)
           const parentEventHexId = parentETag?.[1]
           const parentEventId = parentETag ? generateBech32IdFromETag(parentETag) : undefined
           
-          // Check if this reply belongs to the same thread as the root event
           const replyRootId = getRootEventHexId(reply)
           const belongsToSameThread = rootInfo && (
             (rootInfo.type === 'E' && replyRootId === rootInfo.id) ||
@@ -572,17 +656,12 @@ function ReplyNoteList({
                   highlightReply(parentEventHexId)
                 }}
                 onClickReply={belongsToSameThread ? (replyEvent) => {
-                  // Update URL without full navigation
                   const replyNoteUrl = toNote(replyEvent.id)
                   window.history.pushState(null, '', replyNoteUrl)
-                  
-                  // Ensure the reply is visible by expanding the list if needed
-                  const replyIndex = replies.findIndex(r => r.id === replyEvent.id)
+                  const replyIndex = mergedFeed.findIndex((r) => r.id === replyEvent.id)
                   if (replyIndex >= 0 && replyIndex >= showCount) {
                     setShowCount(replyIndex + 1)
                   }
-                  
-                  // Highlight and scroll to the reply (use setTimeout to ensure DOM is updated)
                   setTimeout(() => {
                     highlightReply(replyEvent.id, true)
                   }, 50)
@@ -593,14 +672,14 @@ function ReplyNoteList({
           )
         })}
       </div>
-      {!loading && (
+      {quoteLoading && showQuotes && <NoteCardLoadingSkeleton />}
+      {!loading && !quoteLoading && (
         <div className="text-sm mt-2 mb-3 text-center text-muted-foreground">
-          {replies.length > 0 ? t('no more replies') : t('no replies')}
+          {mergedFeed.length > 0 ? t('no more replies') : t('no replies')}
         </div>
       )}
       <div ref={bottomRef} />
       {loading && <ReplyNoteSkeleton />}
-      {showQuotes && <QuoteList event={event} embedded />}
     </div>
   )
 }

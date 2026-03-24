@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 
 export type TUserTrustContext = {
+  isTrustLoaded: boolean
   hideUntrustedInteractions: boolean
   hideUntrustedNotifications: boolean
   hideUntrustedNotes: boolean
