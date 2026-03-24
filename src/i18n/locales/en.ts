@@ -483,13 +483,13 @@ export default {
     relayType_randomly_selected: 'Random (optional)',
     'Session relays': 'Session relays',
     'Session relays tab description':
-      'Relay logic for this session: working and striked preset relays, and scored random relays (used to prefer faster, proven relays when adding random relays to publish).',
+      'Relay logic for this session: working and striked preset relays, and scored random relays (used to prefer faster, proven relays when adding random relays to publish). Striked relays are skipped for reads and publishes until reload.',
     'Session relays preset working': 'Working preset relays',
     'Session relays preset working hint':
-      'Preset relays (from app defaults) that have not reached 3 publish failures this session.',
+      'Preset relays (from app defaults) that have not reached the session failure threshold (2 failures).',
     'Session relays preset striked': 'Striked preset relays',
     'Session relays preset striked hint':
-      'Preset relays that have reached 3 publish failures this session and are skipped for the rest of the session.',
+      'Preset relays that have reached 2 connection or publish failures this session and are skipped for reads and writes until you reload the app.',
     'Session relays scored random': 'Scored random relays',
     'Session relays scored random hint':
       'Relays that have accepted at least one publish this session; used to prefer faster relays when picking random relays. Sorted by average latency.',

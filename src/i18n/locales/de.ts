@@ -492,13 +492,13 @@ export default {
     relayType_randomly_selected: 'Zufällig (optional)',
     'Session relays': 'Session-Relays',
     'Session relays tab description':
-      'Relay-Logik für diese Session: funktionierende und gestrichene Preset-Relays sowie bewertete Zufallsrelays (bevorzugt schnellere, bewährte Relays beim Hinzufügen von Zufallsrelays).',
+      'Relay-Logik für diese Session: funktionierende und gestrichene Preset-Relays sowie bewertete Zufallsrelays. Gestrichene Relays werden für Lesen und Schreiben bis zum Neuladen der App übersprungen.',
     'Session relays preset working': 'Funktionierende Preset-Relays',
     'Session relays preset working hint':
-      'Preset-Relays (App-Standard), die in dieser Session keine 3 Publish-Fehler erreicht haben.',
+      'Preset-Relays (App-Standard), die die Session-Fehlerschwelle (2 Fehler) noch nicht erreicht haben.',
     'Session relays preset striked': 'Gestrichene Preset-Relays',
     'Session relays preset striked hint':
-      'Preset-Relays mit 3 Publish-Fehlern in dieser Session; werden für den Rest der Session übersprungen.',
+      'Preset-Relays mit 2 Verbindungs- oder Publish-Fehlern in dieser Session; werden für Lesen und Schreiben bis zum Neuladen übersprungen.',
     'Session relays scored random': 'Bewertete Zufallsrelays',
     'Session relays scored random hint':
       'Relays, die in dieser Session mindestens ein Publish angenommen haben; werden beim Auswählen von Zufallsrelays bevorzugt. Sortiert nach durchschnittlicher Latenz.',

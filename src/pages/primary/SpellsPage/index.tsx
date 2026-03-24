@@ -93,7 +93,8 @@ import {
   buildDiscussionFilter,
   buildInterestsSubRequests,
   buildMediaSpellFilter,
-  buildMentionsSpellFilter,
+  buildNotificationsSpellSubRequests,
+  NOTIFICATION_SPELL_LOADING_SAFETY_MS,
   FAUX_SPELL_EVENT_LIMIT,
   MEDIA_SPELL_KINDS,
   NOTIFICATION_SPELL_KINDS
@@ -680,7 +681,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
     if (selectedFauxSpell === 'notifications') {
       if (!pubkey || !feedUrls.length) return []
-      return [{ urls: feedUrls, filter: buildMentionsSpellFilter(pubkey) }]
+      return buildNotificationsSpellSubRequests(feedUrls, pubkey)
     }
     if (selectedFauxSpell === 'discussions') {
       // Read-only prepended in appendCuratedReadOnlyRelays so FAUX_SPELL_MAX_RELAYS still includes aggr.
@@ -1359,6 +1360,12 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   spellFetchTimeoutMs={1}
                   spellFeedInstrumentToken={spellFeedInstrumentToken}
                   onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
+                  timelineLoadingSafetyTimeoutMs={
+                    selectedFauxSpell === 'notifications'
+                      ? NOTIFICATION_SPELL_LOADING_SAFETY_MS
+                      : undefined
+                  }
+                  clientSideKindFilter={selectedFauxSpell === 'notifications'}
                   useFilterAsIs={fauxNoteListUseFilterAsIs}
                   oneShotFetch={false}
                   showKind1OPs={selectedFauxSpell === 'following' ? showKind1OPs : true}

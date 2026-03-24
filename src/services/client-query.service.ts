@@ -47,11 +47,20 @@ export interface SubscribeCallbacks {
   onAllClose?: (reasons: string[]) => void
 }
 
+export type QueryServiceRelaySessionOptions = {
+  /** Skip opening REQ/publish paths to this normalized URL for the rest of the page session. */
+  shouldSkipRelayForSession?: (normalizedUrl: string) => boolean
+  /** After failed `ensureRelay` (timeout / connection error), increment client session strike counter. */
+  onRelayConnectionFailure?: (normalizedUrl: string) => void
+}
+
 export class QueryService {
   private pool: SimplePool
   private signer?: ISigner
   private signerType?: TSignerType
-  
+  private shouldSkipRelayForSession?: (normalizedUrl: string) => boolean
+  private onRelayConnectionFailure?: (normalizedUrl: string) => void
+
   /** Max concurrent REQ subscriptions per relay URL */
   private static readonly MAX_CONCURRENT_SUBS_PER_RELAY = MAX_CONCURRENT_RELAY_CONNECTIONS
   private activeSubCountByRelay = new Map<string, number>()
@@ -81,8 +90,10 @@ export class QueryService {
     if (next) next()
   }
 
-  constructor(pool: SimplePool) {
+  constructor(pool: SimplePool, relaySession?: QueryServiceRelaySessionOptions) {
     this.pool = pool
+    this.shouldSkipRelayForSession = relaySession?.shouldSkipRelayForSession
+    this.onRelayConnectionFailure = relaySession?.onRelayConnectionFailure
   }
 
   setSigner(signer: ISigner | undefined, signerType: TSignerType | undefined) {
@@ -347,6 +358,17 @@ export class QueryService {
       const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
       relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
     }
+    if (this.shouldSkipRelayForSession) {
+      relays = relays.filter((url) => {
+        const n = normalizeUrl(url) || url
+        return !this.shouldSkipRelayForSession!(n)
+      })
+    }
+
+    if (relays.length === 0) {
+      queueMicrotask(() => callbacks.oneose?.(true))
+      return { close: () => {} }
+    }
 
     const _knownIds = new Set<string>()
     const grouped = new Map<string, Filter[]>()
@@ -412,6 +434,7 @@ export class QueryService {
           try {
             relay = await this.pool.ensureRelay(url, { connectionTimeout: 5000 })
           } catch (err) {
+            this.onRelayConnectionFailure?.(relayKey)
             this.releaseSubSlot(relayKey)
             handleClose(i, (err as Error)?.message ?? String(err))
             return
@@ -446,6 +469,7 @@ export class QueryService {
                       try {
                         liveRelay = await this.pool.ensureRelay(url, { connectionTimeout: 5000 })
                       } catch (err) {
+                        this.onRelayConnectionFailure?.(relayKey)
                         this.releaseSubSlot(relayKey)
                         handleClose(i, (err as Error)?.message ?? String(err))
                         return

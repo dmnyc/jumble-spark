@@ -24,9 +24,9 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { useZap } from '@/providers/ZapProvider'
 import client from '@/services/client.service'
-import { TFeedSubRequest } from '@/types'
+import type { TFeedSubRequest, TSubRequestFilter } from '@/types'
 import dayjs from 'dayjs'
-import { Event, kinds } from 'nostr-tools'
+import { type Event, type Filter, kinds } from 'nostr-tools'
 import { decode } from 'nostr-tools/nip19'
 import {
   forwardRef,
@@ -66,6 +66,16 @@ function mergeEventBatchesById(prev: Event[], incoming: Event[], cap: number): E
     .slice(0, cap)
 }
 
+/** When omitting `kinds` from a live REQ, require another scope so we never subscribe to a whole relay. */
+function timelineFilterHasNonKindScope(f: Filter): boolean {
+  return (
+    (Array.isArray(f.authors) && f.authors.length > 0) ||
+    (Array.isArray(f.ids) && f.ids.length > 0) ||
+    (Array.isArray(f['#p']) && f['#p']!.length > 0) ||
+    (Array.isArray(f['#e']) && f['#e']!.length > 0)
+  )
+}
+
 const NoteList = forwardRef(
   (
     {
@@ -103,6 +113,16 @@ const NoteList = forwardRef(
       spellFeedInstrumentToken,
       /** Spells page: fired once when the filtered list first has rows after a picker change. */
       onSpellFeedFirstPaint,
+      /**
+       * After this many ms with no forced completion, loading is cleared so empty state can show (default 15s).
+       * Use a larger value for slow feeds (e.g. notifications `#p` across many relays).
+       */
+      timelineLoadingSafetyTimeoutMs,
+      /**
+       * With {@link useFilterAsIs}: omit relay `kinds` when the subrequest filter has none, and narrow
+       * incoming events to {@link showKinds} before merging (so caps are not filled by unrelated kinds).
+       */
+      clientSideKindFilter = false,
       /**
        * When true, load events with parallel {@link client.fetchEvents} per subRequest instead of
        * {@link client.subscribeTimeline}. No live stream or `loadMore` timeline pagination; use for faux spells
@@ -146,6 +166,8 @@ const NoteList = forwardRef(
       spellFetchTimeoutMs?: number
       spellFeedInstrumentToken?: number
       onSpellFeedFirstPaint?: (detail: { eventCount: number; firstEventId: string }) => void
+      timelineLoadingSafetyTimeoutMs?: number
+      clientSideKindFilter?: boolean
       oneShotFetch?: boolean
       oneShotMergedCap?: number
       revealBatchSize?: number
@@ -259,6 +281,13 @@ const NoteList = forwardRef(
       if (!showKinds || showKinds.length === 0) return ''
       return JSON.stringify([...showKinds].sort((a, b) => a - b))
     }, [showKinds])
+
+    const showKindsRef = useRef(showKinds)
+    showKindsRef.current = showKinds
+    const useFilterAsIsRef = useRef(useFilterAsIs)
+    useFilterAsIsRef.current = useFilterAsIs
+    const clientSideKindFilterRef = useRef(clientSideKindFilter)
+    clientSideKindFilterRef.current = clientSideKindFilter
 
     const shouldHideEvent = useCallback(
       (evt: Event) => {
@@ -525,35 +554,43 @@ const NoteList = forwardRef(
         setHasMore(true)
         consecutiveEmptyRef.current = 0 // Reset counter on refresh
 
+        const defaultKinds = showKinds.length > 0 ? showKinds : [kinds.ShortTextNote]
+
         const mappedSubRequests = subRequestsRef.current.map(({ urls, filter }) => {
-          // CRITICAL: Always ensure filter has kinds - relays require this to return events
-          const defaultKinds = showKinds.length > 0 ? showKinds : [kinds.ShortTextNote]
-          const finalFilter = useFilterAsIs
-            ? {
-                ...filter,
-                // If filter doesn't have kinds, add them (required for relay queries)
-                kinds: filter.kinds && filter.kinds.length > 0 ? filter.kinds : defaultKinds,
-                limit: filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT)
+          const baseLimit = filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT)
+          if (useFilterAsIs) {
+            const finalFilter: Filter = { ...filter, limit: baseLimit }
+            const hasKindsInRequest = Array.isArray(filter.kinds) && filter.kinds.length > 0
+            if (clientSideKindFilter) {
+              if (hasKindsInRequest) {
+                finalFilter.kinds = filter.kinds
+              } else {
+                delete finalFilter.kinds
               }
-            : {
-                ...filter,
-                // If showKinds is empty, default to kind 1 (ShortTextNote) only
-                kinds: defaultKinds,
-                limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
-              }
-          
-          // CRITICAL: Validate filter has kinds before subscribing
-          if (!finalFilter.kinds || finalFilter.kinds.length === 0) {
-            finalFilter.kinds = [kinds.ShortTextNote]
+            } else if (hasKindsInRequest) {
+              finalFilter.kinds = filter.kinds
+            } else {
+              finalFilter.kinds = defaultKinds
+            }
+            return { urls, filter: finalFilter }
           }
-          
-          return { urls, filter: finalFilter }
+          return {
+            urls,
+            filter: {
+              ...filter,
+              kinds: defaultKinds,
+              limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
+            }
+          }
         })
-        
-        // CRITICAL: Validate all filters have kinds before subscribing
-        const invalidFilters = mappedSubRequests.filter(({ filter }) => !filter.kinds || filter.kinds.length === 0)
+
+        const filterMissingKinds = (f: Filter) => !f.kinds || f.kinds.length === 0
+        const invalidFilters = mappedSubRequests.filter(({ filter: f }) => {
+          if (!filterMissingKinds(f)) return false
+          if (useFilterAsIs && clientSideKindFilter && timelineFilterHasNonKindScope(f)) return false
+          return true
+        })
         if (invalidFilters.length > 0) {
-          // Don't subscribe with invalid filters - this would return no events
           if (oneShotDebugLabel) {
             logger.warn(`[${oneShotDebugLabel}] abort: filter missing kinds`, {
               subRequestsKey: timelineSubscriptionKey
@@ -561,8 +598,12 @@ const NoteList = forwardRef(
           }
           setLoading(false)
           setEvents([])
-          // Return a no-op closer function to satisfy the cleanup function
           return () => {}
+        }
+
+        const narrowLiveBatch = (evs: Event[]) => {
+          if (!useFilterAsIs || !clientSideKindFilter) return evs
+          return evs.filter((e) => showKinds.includes(e.kind))
         }
 
         if (oneShotFetch) {
@@ -595,9 +636,12 @@ const NoteList = forwardRef(
               }
             }
             const cap = oneShotMergedCap ?? ONE_SHOT_MERGED_CAP
-            const merged = [...byId.values()]
+            let merged = [...byId.values()]
               .sort((a, b) => b.created_at - a.created_at)
               .slice(0, cap)
+            if (useFilterAsIs && clientSideKindFilter) {
+              merged = merged.filter((e) => showKinds.includes(e.kind))
+            }
             if (oneShotDebugLabel) {
               const f0 = mappedSubRequests[0]?.filter
               const batchEventCounts = batches.map((b) => b.length)
@@ -662,53 +706,61 @@ const NoteList = forwardRef(
           const eventCap = areAlgoRelays ? ALGO_LIMIT : LIMIT
 
           timelineSubscribePromise = client.subscribeTimeline(
-            mappedSubRequests,
+            mappedSubRequests as Array<{ urls: string[]; filter: TSubRequestFilter }>,
             {
               onEvents: (batch: Event[], eosed: boolean) => {
                 if (!effectActive) return
+                const narrowed = narrowLiveBatch(batch)
                 if (batch.length > 0) {
-                  if (preserveTimelineOnSubRequestsChange) {
-                    setEvents((prev) => {
-                      const next = mergeEventBatchesById(prev, batch, eventCap)
-                      lastEventsForTimelinePrefetchRef.current = next
-                      return next
-                    })
-                  } else {
-                    setEvents(batch)
-                    lastEventsForTimelinePrefetchRef.current = batch
-                  }
-                  // Do not wait for full EOSE across many relays — otherwise loading/skeleton stays up for 10–30s+
-                  setLoading(false)
-
-                  // Defer profile + embed prefetch: streaming timelines fire onEvents often; starting
-                  // fetchProfilesForPubkeys on every update spams relays (multi-second each) and cancels hooks.
-                  if (timelinePrefetchDebounceRef.current) {
-                    clearTimeout(timelinePrefetchDebounceRef.current)
-                  }
-                  timelinePrefetchDebounceRef.current = setTimeout(() => {
-                    timelinePrefetchDebounceRef.current = null
-                    if (!effectActive) return
-                    const evs = lastEventsForTimelinePrefetchRef.current
-                    if (evs.length === 0) return
-
-                    const { hexIds, nip19Pointers } = mergePrefetchTargetsFromEvents(evs.slice(0, 50))
-                    const hexIdsToFetch = hexIds.filter((id) => !prefetchedEventIdsRef.current.has(id))
-                    const nip19ToFetch = nip19Pointers.filter((p) => !prefetchedEventIdsRef.current.has(p))
-                    if (hexIdsToFetch.length > 0 || nip19ToFetch.length > 0) {
-                      hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
-                      nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.add(p))
-                      const run = async () => {
-                        try {
-                          await client.prefetchHexEventIds(hexIdsToFetch)
-                          await Promise.all(nip19ToFetch.map((p) => client.fetchEvent(p)))
-                        } catch {
-                          hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
-                          nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.delete(p))
-                        }
-                      }
-                      void run()
+                  if (narrowed.length > 0) {
+                    if (preserveTimelineOnSubRequestsChange) {
+                      setEvents((prev) => {
+                        const next = mergeEventBatchesById(prev, narrowed, eventCap)
+                        lastEventsForTimelinePrefetchRef.current = next
+                        return next
+                      })
+                    } else {
+                      setEvents(narrowed)
+                      lastEventsForTimelinePrefetchRef.current = narrowed
                     }
-                  }, 450)
+                    // Do not wait for full EOSE across many relays — otherwise loading/skeleton stays up for 10–30s+
+                    setLoading(false)
+
+                    // Defer profile + embed prefetch: streaming timelines fire onEvents often; starting
+                    // fetchProfilesForPubkeys on every update spams relays (multi-second each) and cancels hooks.
+                    if (timelinePrefetchDebounceRef.current) {
+                      clearTimeout(timelinePrefetchDebounceRef.current)
+                    }
+                    timelinePrefetchDebounceRef.current = setTimeout(() => {
+                      timelinePrefetchDebounceRef.current = null
+                      if (!effectActive) return
+                      const evs = lastEventsForTimelinePrefetchRef.current
+                      if (evs.length === 0) return
+
+                      const { hexIds, nip19Pointers } = mergePrefetchTargetsFromEvents(evs.slice(0, 50))
+                      const hexIdsToFetch = hexIds.filter((id) => !prefetchedEventIdsRef.current.has(id))
+                      const nip19ToFetch = nip19Pointers.filter((p) => !prefetchedEventIdsRef.current.has(p))
+                      if (hexIdsToFetch.length > 0 || nip19ToFetch.length > 0) {
+                        hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.add(id))
+                        nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.add(p))
+                        const run = async () => {
+                          try {
+                            await client.prefetchHexEventIds(hexIdsToFetch)
+                            await Promise.all(nip19ToFetch.map((p) => client.fetchEvent(p)))
+                          } catch {
+                            hexIdsToFetch.forEach((id) => prefetchedEventIdsRef.current.delete(id))
+                            nip19ToFetch.forEach((p) => prefetchedEventIdsRef.current.delete(p))
+                          }
+                        }
+                        void run()
+                      }
+                    }, 450)
+                  } else if (eosed) {
+                    if (!preserveTimelineOnSubRequestsChange) {
+                      setEvents([])
+                    }
+                    setLoading(false)
+                  }
                 } else if (eosed) {
                   if (!preserveTimelineOnSubRequestsChange) {
                     setEvents([])
@@ -738,6 +790,7 @@ const NoteList = forwardRef(
             onNew: (event: Event) => {
               if (!effectActive) return
               if (!useFilterAsIs && !showKinds.includes(event.kind)) return
+              if (clientSideKindFilter && useFilterAsIs && !showKinds.includes(event.kind)) return
               if (event.kind === kinds.ShortTextNote) {
                 const isReply = isReplyNoteEvent(event)
                 if (isReply && !showKind1Replies) return
@@ -815,7 +868,8 @@ const NoteList = forwardRef(
       oneShotDebugLabel,
       oneShotGlobalTimeoutMs,
       oneShotEoseTimeoutMs,
-      oneShotFirstRelayGraceMs
+      oneShotFirstRelayGraceMs,
+      clientSideKindFilter
     ])
 
     const oneShotDebugPrevLoadingRef = useRef(false)
@@ -855,6 +909,8 @@ const NoteList = forwardRef(
       eventsRef.current = events
     }, [events])
 
+    const loadingSafetyMs = timelineLoadingSafetyTimeoutMs ?? 15_000
+
     useEffect(() => {
       if (!subRequestsRef.current.length) return
       let cancelled = false
@@ -866,12 +922,12 @@ const NoteList = forwardRef(
         if (eventsRef.current.length === 0) {
           setHasMore(false)
         }
-      }, 15_000)
+      }, loadingSafetyMs)
       return () => {
         cancelled = true
         clearTimeout(timer)
       }
-    }, [timelineSubscriptionKey, refreshCount])
+    }, [timelineSubscriptionKey, refreshCount, loadingSafetyMs])
 
     // Use refs to avoid dependency issues and ensure latest values in async callbacks
     const showCountRef = useRef(showCount)
@@ -994,11 +1050,43 @@ const NoteList = forwardRef(
               setLoading(false)
               return
             }
-            
-            // Reset consecutive empty counter on success
+
+            let fetchBatch = newEvents
+            let toAppend =
+              useFilterAsIsRef.current && clientSideKindFilterRef.current
+                ? fetchBatch.filter((e) => showKindsRef.current.includes(e.kind))
+                : fetchBatch
+
+            if (
+              useFilterAsIsRef.current &&
+              clientSideKindFilterRef.current &&
+              toAppend.length === 0 &&
+              fetchBatch.length > 0
+            ) {
+              let skipUntil = Math.min(...fetchBatch.map((e) => e.created_at)) - 1
+              for (let depth = 0; depth < 8 && toAppend.length === 0; depth++) {
+                fetchBatch = await client.loadMoreTimeline(latestTimelineKey, skipUntil, LIMIT)
+                if (fetchBatch.length === 0) break
+                toAppend = fetchBatch.filter((e) => showKindsRef.current.includes(e.kind))
+                if (toAppend.length > 0) break
+                skipUntil = Math.min(...fetchBatch.map((e) => e.created_at)) - 1
+              }
+            }
+
+            if (toAppend.length === 0) {
+              consecutiveEmptyRef.current += 1
+              const eventCount = latestEvents.length
+              const shouldStop = consecutiveEmptyRef.current >= (eventCount < 50 ? 30 : 15)
+              if (shouldStop) {
+                setHasMore(false)
+              }
+              setLoading(false)
+              return
+            }
+
             consecutiveEmptyRef.current = 0
-            
-            setEvents((oldEvents) => [...oldEvents, ...newEvents])
+
+            setEvents((oldEvents) => [...oldEvents, ...toAppend])
             
             // After appending, the bottom sentinel may have moved below the fold. Re-check after
             // paint: if it's still in/near view, trigger loadMore again so user doesn't have to scroll.
@@ -1018,7 +1106,7 @@ const NoteList = forwardRef(
             
             // CRITICAL: Prefetch profiles for newly loaded events (optimized to reduce stuttering)
             // Only prefetch if we're not currently loading to avoid blocking scroll
-            if (newEvents.length > 0 && !loadingRef.current) {
+            if (toAppend.length > 0 && !loadingRef.current) {
               // Use requestIdleCallback if available, otherwise setTimeout with longer delay
               const schedulePrefetch = (callback: () => void) => {
                 if (typeof requestIdleCallback !== 'undefined') {
@@ -1029,7 +1117,7 @@ const NoteList = forwardRef(
               }
               
               schedulePrefetch(() => {
-                const { hexIds, nip19Pointers } = mergePrefetchTargetsFromEvents(newEvents.slice(0, 30))
+                const { hexIds, nip19Pointers } = mergePrefetchTargetsFromEvents(toAppend.slice(0, 30))
                 const hexIdsToFetch = hexIds.filter((id) => !prefetchedEventIdsRef.current.has(id))
                 const nip19ToFetch = nip19Pointers.filter((p) => !prefetchedEventIdsRef.current.has(p))
                 if (hexIdsToFetch.length === 0 && nip19ToFetch.length === 0) return

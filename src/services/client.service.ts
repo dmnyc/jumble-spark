@@ -123,9 +123,12 @@ class ClientService extends EventTarget {
   })
 
 
-  /** Session-only: relay URL -> publish failure count; after 3 strikes we skip that relay for the rest of the session. */
+  /**
+   * Session-only: connection/publish failures per normalized relay URL. After
+   * {@link ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD} strikes we skip that relay for reads and publishes until reload.
+   */
   private publishStrikeCount = new Map<string, number>()
-  private static readonly PUBLISH_STRIKES_THRESHOLD = 3
+  private static readonly SESSION_RELAY_FAILURE_STRIKE_THRESHOLD = 2
 
   /** Session-only: relay URL -> { successCount, sumLatencyMs } for preferring faster, proven relays when picking "random" relays. */
   private sessionRelayPublishStats = new Map<string, { successCount: number; sumLatencyMs: number }>()
@@ -142,7 +145,12 @@ class ClientService extends EventTarget {
     this.pool.trackRelays = true
 
     // Initialize sub-services
-    this.queryService = new QueryService(this.pool)
+    this.queryService = new QueryService(this.pool, {
+      shouldSkipRelayForSession: (normalizedUrl) =>
+        (this.publishStrikeCount.get(normalizedUrl) ?? 0) >=
+        ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD,
+      onRelayConnectionFailure: (normalizedUrl) => this.recordSessionRelayFailure(normalizedUrl)
+    })
     this.eventService = new EventService(this.queryService)
     this.replaceableEventService = new ReplaceableEventService(
       this.queryService,
@@ -660,15 +668,24 @@ class ClientService extends EventTarget {
     return relays
   }
 
-  /** Record publish failures for 3-strikes session policy (skip relay for rest of session after 3 rejections). */
-  private recordPublishFailures(relayStatuses: { url: string; success: boolean; error?: string }[]) {
-    relayStatuses.filter((s) => !s.success).forEach((s) => {
-      const n = normalizeUrl(s.url) || s.url
-      const count = (this.publishStrikeCount.get(n) ?? 0) + 1
-      this.publishStrikeCount.set(n, count)
-      if (count >= ClientService.PUBLISH_STRIKES_THRESHOLD) {
-        logger.debug('[PublishEvent] Relay reached 3 strikes, skipping for session', { url: n })
-      }
+  /** One failed publish or subscribe connection per normalized URL (accumulates until {@link SESSION_RELAY_FAILURE_STRIKE_THRESHOLD}). */
+  private recordSessionRelayFailure(url: string) {
+    const n = normalizeUrl(url) || url
+    if (!n) return
+    const count = (this.publishStrikeCount.get(n) ?? 0) + 1
+    this.publishStrikeCount.set(n, count)
+    if (count >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) {
+      logger.info('[Relay] Session strike threshold — relay skipped for reads/publishes until reload', {
+        url: n,
+        strikes: count
+      })
+    }
+  }
+
+  private filterSessionStrikedRelays(urls: string[]): string[] {
+    return urls.filter((u) => {
+      const n = normalizeUrl(u) || u
+      return (this.publishStrikeCount.get(n) ?? 0) < ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD
     })
   }
 
@@ -695,7 +712,7 @@ class ClientService extends EventTarget {
       if (stats.successCount < 1) continue
       const n = normalizeUrl(url) || url
       if (!n || readOnlySet.has(n)) continue
-      if ((this.publishStrikeCount.get(n) ?? 0) >= ClientService.PUBLISH_STRIKES_THRESHOLD) continue
+      if ((this.publishStrikeCount.get(n) ?? 0) >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) continue
       out.push(n)
     }
     out.sort((a, b) => {
@@ -709,6 +726,7 @@ class ClientService extends EventTarget {
 
   /**
    * Session-only debug info for the Session Relays settings tab: working/striked preset relays and scored random relays.
+   * Strikes accrue from failed publishes and failed subscribe/query connections (same counter).
    */
   getSessionRelayDebug(): {
     strikedUrls: string[]
@@ -723,10 +741,14 @@ class ClientService extends EventTarget {
     }
     const preset = Array.from(presetSet)
     const strikedUrls = Array.from(this.publishStrikeCount.entries())
-      .filter(([, count]) => count >= ClientService.PUBLISH_STRIKES_THRESHOLD)
+      .filter(([, count]) => count >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD)
       .map(([url]) => url)
-    const presetStriked = preset.filter((url) => (this.publishStrikeCount.get(url) ?? 0) >= ClientService.PUBLISH_STRIKES_THRESHOLD)
-    const presetWorking = preset.filter((url) => (this.publishStrikeCount.get(url) ?? 0) < ClientService.PUBLISH_STRIKES_THRESHOLD)
+    const presetStriked = preset.filter(
+      (url) => (this.publishStrikeCount.get(url) ?? 0) >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD
+    )
+    const presetWorking = preset.filter(
+      (url) => (this.publishStrikeCount.get(url) ?? 0) < ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD
+    )
     const scoredRelays = Array.from(this.sessionRelayPublishStats.entries()).map(([url, s]) => ({
       url,
       successCount: s.successCount,
@@ -746,7 +768,9 @@ class ClientService extends EventTarget {
       .map((u) => normalizeUrl(u) || u)
       .filter((n) => n && !readOnlySet.has(n))
     const unique = Array.from(new Set(normalizedCandidates))
-    const notStruckOut = unique.filter((n) => (this.publishStrikeCount.get(n) ?? 0) < ClientService.PUBLISH_STRIKES_THRESHOLD)
+    const notStruckOut = unique.filter(
+      (n) => (this.publishStrikeCount.get(n) ?? 0) < ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD
+    )
     const preferred: string[] = []
     const rest: string[] = []
     for (const url of notStruckOut) {
@@ -789,7 +813,7 @@ class ClientService extends EventTarget {
       if (readOnlySet.has(n)) return false
       if (event.kind === kinds.ShortTextNote && kind1BlockedSet.has(n)) return false
       const strikes = this.publishStrikeCount.get(n) ?? 0
-      if (strikes >= ClientService.PUBLISH_STRIKES_THRESHOLD) return false
+      if (strikes >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) return false
       return true
     })
     filtered = Array.from(new Set(filtered))
@@ -854,6 +878,7 @@ class ClientService extends EventTarget {
           if (!alreadyFinished) {
             logger.warn('[PublishEvent] Marking relay as timed out', { url })
             relayStatuses.push({ url, success: false, error: 'Timeout: Operation took too long' })
+            client.recordSessionRelayFailure(url)
             finishedCount++
           }
         })
@@ -861,7 +886,6 @@ class ClientService extends EventTarget {
         // Ensure we resolve even if not all relays finished
         if (!hasResolved) {
           hasResolved = true
-          client.recordPublishFailures(relayStatuses)
           logger.debug('[PublishEvent] Resolving due to timeout', {
             success: successCount >= uniqueRelayUrls.length / 3,
             successCount,
@@ -955,11 +979,13 @@ class ClientService extends EventTarget {
                       logger.error(`[PublishEvent] Auth or publish failed`, { url, error: authError.message })
                       errors.push({ url, error: authError })
                       relayStatuses.push({ url, success: false, error: authError.message })
+                      that.recordSessionRelayFailure(url)
                     })
                 } else {
                   logger.error(`[PublishEvent] Publish failed`, { url, error: error.message })
                   errors.push({ url, error })
                   relayStatuses.push({ url, success: false, error: error.message })
+                  that.recordSessionRelayFailure(url)
                 }
               })
             
@@ -978,6 +1004,7 @@ class ClientService extends EventTarget {
               success: false, 
               error: error instanceof Error ? error.message : 'Connection failed' 
             })
+            that.recordSessionRelayFailure(url)
           } finally {
             clearTimeout(relayTimeout)
             const currentFinished = ++finishedCount
@@ -995,7 +1022,6 @@ class ClientService extends EventTarget {
             }
             if (currentFinished >= uniqueRelayUrls.length && !hasResolved) {
               hasResolved = true
-              client.recordPublishFailures(relayStatuses)
               logger.debug('[PublishEvent] All relays finished, resolving', {
                 success: successCount >= uniqueRelayUrls.length / 3,
                 successCount,
@@ -1018,7 +1044,6 @@ class ClientService extends EventTarget {
               setTimeout(() => {
                 if (!hasResolved) {
                   hasResolved = true
-                  client.recordPublishFailures(relayStatuses)
                   logger.debug('[PublishEvent] Resolving early with enough successes', {
                     success: true,
                     successCount,
@@ -1304,6 +1329,7 @@ class ClientService extends EventTarget {
       const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
       relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
     }
+    relays = this.filterSessionStrikedRelays(relays)
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const that = this
@@ -1423,6 +1449,7 @@ class ClientService extends EventTarget {
           try {
             relay = await that.pool.ensureRelay(url, { connectionTimeout: SUBSCRIBE_RELAY_CONNECTION_TIMEOUT_MS })
           } catch (err) {
+            that.recordSessionRelayFailure(url)
             that.queryService.releaseSubSlot(relayKey)
             handleClose(i, (err as Error)?.message ?? String(err))
             return
@@ -1465,6 +1492,7 @@ class ClientService extends EventTarget {
                           connectionTimeout: SUBSCRIBE_RELAY_CONNECTION_TIMEOUT_MS
                         })
                       } catch (err) {
+                        that.recordSessionRelayFailure(url)
                         that.queryService.releaseSubSlot(relayKey)
                         handleClose(i, (err as Error)?.message ?? String(err))
                         return
@@ -1931,9 +1959,13 @@ class ClientService extends EventTarget {
     if (!normalized) {
       return { events: [], connectionError: 'Invalid relay URL' }
     }
+    if (this.filterSessionStrikedRelays([normalized]).length === 0) {
+      return { events: [], connectionError: 'Relay skipped this session (repeated failures)' }
+    }
     try {
       await this.pool.ensureRelay(normalized, { connectionTimeout: 12_000 })
     } catch (e) {
+      this.recordSessionRelayFailure(normalized)
       const msg = e instanceof Error ? e.message : String(e)
       return { events: [], connectionError: msg }
     }

@@ -49,6 +49,9 @@ export function applyFauxSpellCapsToSubRequests(requests: TFeedSubRequest[]): TF
 /**
  * Mention/notification-shaped kinds only (aligned with global notification-shaped kinds, plus zap receipts).
  * Not full {@link PROFILE_FEED_KINDS} — that asked relays for huge multi-kind slices per `#p`.
+ *
+ * Live notifications spell: REQ uses `#p` only (no relay `kinds`); {@link NOTIFICATION_SPELL_KINDS} is applied
+ * in NoteList via `clientSideKindFilter` so the timeline buffer is not filled by other kinds that mention you.
  */
 export const NOTIFICATION_SPELL_KINDS = [
   kinds.ShortTextNote,
@@ -62,6 +65,9 @@ export const NOTIFICATION_SPELL_KINDS = [
   ExtendedKind.PUBLIC_MESSAGE,
   ExtendedKind.ZAP_RECEIPT
 ] as const
+
+/** Live notifications spell: longer than NoteList’s default 15s before empty state (slow `#p` on some relays). */
+export const NOTIFICATION_SPELL_LOADING_SAFETY_MS = 90_000
 
 /**
  * Max distinct `t` tag values in one filter (very long `#t` arrays can hit relay limits).
@@ -105,14 +111,24 @@ export const MEDIA_SPELL_KINDS = [
  */
 export const PROFILE_MEDIA_TAB_KINDS = [...MEDIA_SPELL_KINDS] as const
 
+function normalizeMentionPubkey(pubkey: string): string {
+  return /^[0-9a-f]{64}$/i.test(pubkey.trim()) ? pubkey.trim().toLowerCase() : pubkey.trim()
+}
+
 /** Notifications faux spell: `#p` = you, narrow kinds — see module docstring. */
 export function buildMentionsSpellFilter(pubkey: string): Filter {
-  const pk = /^[0-9a-f]{64}$/i.test(pubkey.trim()) ? pubkey.trim().toLowerCase() : pubkey.trim()
+  const pk = normalizeMentionPubkey(pubkey)
   return {
     kinds: [...NOTIFICATION_SPELL_KINDS],
     limit: FAUX_SPELL_EVENT_LIMIT,
     '#p': [pk]
   }
+}
+
+/** Live timeline: one REQ per relay set, any kind with `#p` = you; kinds narrowed in the client. */
+export function buildNotificationsSpellSubRequests(urls: string[], pubkey: string): TFeedSubRequest[] {
+  const pk = normalizeMentionPubkey(pubkey)
+  return [{ urls, filter: { limit: FAUX_SPELL_EVENT_LIMIT, '#p': [pk] } }]
 }
 
 export function buildDiscussionFilter(): Filter {
