@@ -1,10 +1,10 @@
-import { ExtendedKind, FAST_READ_RELAY_URLS } from '@/constants'
+import { E_TAG_FILTER_BLOCKED_RELAY_URLS, ExtendedKind, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { getEmojiInfosFromEmojiTags, getFirstHexEventIdFromETags, tagNameEquals } from '@/lib/tag'
 import { normalizeUrl } from '@/lib/url'
-import { eventService } from '@/services/client.service'
+import client, { eventService } from '@/services/client.service'
 import { TEmoji } from '@/types'
 import dayjs from 'dayjs'
 import { Event, Filter, kinds } from 'nostr-tools'
@@ -113,8 +113,7 @@ class NoteStatsService {
         since = oldStats.updatedAt
       }
 
-      // Use optimized relay selection - fewer relays, better performance
-      const finalRelayUrls = this.getOptimizedRelayList()
+      const finalRelayUrls = await this.buildNoteStatsRelayList(event)
       
       const replaceableCoordinate = isReplaceableEvent(event.kind)
         ? getReplaceableCoordinateFromEvent(event)
@@ -145,14 +144,41 @@ class NoteStatsService {
     }
   }
 
-  private getOptimizedRelayList(): string[] {
-    // Use only FAST_READ_RELAY_URLS for optimal performance
-    const normalizedRelays = FAST_READ_RELAY_URLS
-      .map(url => normalizeUrl(url))
-      .filter((url): url is string => !!url)
-      .slice(0, 2) // Limit to 2 relays for better performance and reduced load
-    
-    return Array.from(new Set(normalizedRelays))
+  /**
+   * Build relay list for note stats: search relays + relay(s) event was seen on + author's inboxes, deduplicated.
+   * Excludes E_TAG_FILTER_BLOCKED_RELAY_URLS (stats use #e filters).
+   */
+  private async buildNoteStatsRelayList(event: Event): Promise<string[]> {
+    const blocked = new Set(
+      E_TAG_FILTER_BLOCKED_RELAY_URLS.map((u) => (normalizeUrl(u) || u).toLowerCase()).filter(Boolean)
+    )
+    const seen = new Set<string>()
+
+    const add = (url: string | undefined) => {
+      if (!url) return
+      const n = normalizeUrl(url)
+      if (!n || blocked.has(n.toLowerCase()) || seen.has(n)) return
+      seen.add(n)
+    }
+
+    // 1. Search relays
+    SEARCHABLE_RELAY_URLS.forEach(add)
+
+    // 2. Relay(s) where the event was seen
+    client.getSeenEventRelayUrls(event.id).forEach(add)
+
+    // 3. Author's inboxes (read relays from kind 10002)
+    try {
+      const relayList = await Promise.race([
+        client.fetchRelayList(event.pubkey),
+        new Promise<{ read?: string[] }>((r) => setTimeout(() => r({}), 2000))
+      ])
+      ;(relayList?.read ?? []).slice(0, 10).forEach(add)
+    } catch {
+      // ignore
+    }
+
+    return Array.from(seen)
   }
 
   private buildFilters(event: Event, replaceableCoordinate?: string, since?: number): Filter[] {
@@ -161,6 +187,11 @@ class NoteStatsService {
         '#e': [event.id],
         kinds: [kinds.Reaction, kinds.Repost, kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Highlights],
         limit: 50 // Reduced limit for better performance
+      },
+      {
+        '#e': [event.id],
+        kinds: [kinds.Zap],
+        limit: 100
       },
       {
         '#q': [event.id],
@@ -175,6 +206,11 @@ class NoteStatsService {
           '#a': [replaceableCoordinate],
           kinds: [kinds.Reaction, kinds.Repost, kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Highlights],
           limit: 50
+        },
+        {
+          '#a': [replaceableCoordinate],
+          kinds: [kinds.Zap],
+          limit: 100
         },
         {
           '#q': [replaceableCoordinate],
@@ -379,6 +415,7 @@ class NoteStatsService {
     if (!info) return
     const { originalEventId, senderPubkey, invoice, amount, comment } = info
     if (!originalEventId || !senderPubkey) return
+    if (!amount || amount <= 0) return // Suppress 0 sat zaps (spam)
 
     if (originalEventAuthor && originalEventAuthor === senderPubkey) {
       return

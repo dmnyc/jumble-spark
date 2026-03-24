@@ -15,7 +15,6 @@ import Likes from './Likes'
 import ReplyButton from './ReplyButton'
 import RepostButton from './RepostButton'
 import SeenOnButton from './SeenOnButton'
-import TopZaps from './TopZaps'
 import ZapButton from './ZapButton'
 
 export default function NoteStats({
@@ -76,7 +75,6 @@ export default function NoteStats({
       <div className={cn('select-none', className)} data-note-stats onClick={(e) => e.stopPropagation()}>
         {displayTopZapsAndLikes && (
           <>
-            {!isRssArticleRoot && <TopZaps event={event} />}
             {/* Kind 11: LikeButton already shows ⬆️/⬇️; Likes row would duplicate those pills */}
             {!isDiscussion && !isRssArticleRoot && <Likes event={event} />}
           </>
@@ -105,7 +103,6 @@ export default function NoteStats({
     <div className={cn('select-none', className)} data-note-stats onClick={(e) => e.stopPropagation()}>
       {displayTopZapsAndLikes && (
         <>
-          {!isRssArticleRoot && <TopZaps event={event} />}
           {!isDiscussion && !isRssArticleRoot && <Likes event={event} />}
         </>
       )}

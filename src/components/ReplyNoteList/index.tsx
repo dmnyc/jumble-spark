@@ -230,9 +230,10 @@ function ReplyNoteList({
   const zapsForFeed = useMemo(() => {
     if (shouldHideInteractions(event)) return []
     const raw = noteStats?.zaps ?? []
+    const nonZero = raw.filter((z) => z.amount > 0) // Suppress 0 sat zaps (spam)
     const filtered =
-      isTrustLoaded && hideUntrustedInteractions ? raw.filter((z) => isUserTrusted(z.pubkey)) : raw
-    return [...filtered].sort((a, b) => b.amount - a.amount)
+      isTrustLoaded && hideUntrustedInteractions ? nonZero.filter((z) => isUserTrusted(z.pubkey)) : nonZero
+    return [...filtered].sort((a, b) => b.amount - a.amount) // Largest to smallest
   }, [event, noteStats, isTrustLoaded, hideUntrustedInteractions, isUserTrusted])
 
   const [timelineKey] = useState<string | undefined>(undefined)
