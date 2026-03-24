@@ -209,6 +209,8 @@ function ReplyNoteList({
   }, [event.id, repliesMap, mutePubkeySet, hideContentMentioningMutedUsers, sort])
 
   const replyIdSet = useMemo(() => new Set(replies.map((r) => r.id)), [replies])
+  /** Events that quote the note (from useQuoteEvents) — render with quote styling and without embedded quote. */
+  const quoteIdSet = useMemo(() => new Set(quoteEvents.map((e) => e.id)), [quoteEvents])
   const mergedFeed = useMemo(() => {
     if (!showQuotes) return replies
     const quoteOnly = quoteEvents.filter((e) => !replyIdSet.has(e.id))
@@ -383,17 +385,15 @@ function ReplyNoteList({
           const threadRelayHints = [
             ...new Set([...relayHintsFromEventTags(event), ...seenOn, ...fromBrowsingFeed])
           ]
-          let finalRelayUrls = await buildReplyReadRelayList(
+          const replyBlockedRelays = [
+            ...(blockedRelays || []),
+            ...E_TAG_FILTER_BLOCKED_RELAY_URLS
+          ]
+          const finalRelayUrls = await buildReplyReadRelayList(
             opAuthorPubkey,
             userPubkey || undefined,
-            blockedRelays || [],
+            replyBlockedRelays,
             threadRelayHints
-          )
-          const eTagBlockedSet = new Set(
-            E_TAG_FILTER_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u)
-          )
-          finalRelayUrls = finalRelayUrls.filter(
-            (u) => !eTagBlockedSet.has(normalizeUrl(u) || u)
           )
 
           const filters: Filter[] = []
@@ -585,7 +585,7 @@ function ReplyNoteList({
       )}
       <div>
         {mergedFeed.slice(0, showCount).map((item) => {
-          const isQuote = !replyIdSet.has(item.id)
+          const isQuote = quoteIdSet.has(item.id)
           // Don't filter by trust until trust data is loaded - prevents replies from
           // vanishing when wotSet is still empty (all non-self appear untrusted)
           if (isTrustLoaded && hideUntrustedInteractions && !isUserTrusted(item.pubkey)) {
@@ -606,9 +606,15 @@ function ReplyNoteList({
                 : item.kind === kinds.LongFormArticle
                   ? t('cited in article')
                   : t('quoted this note')
-            const hideQuotedNote = eventReferencesEventId(item, event.id)
+            const hideQuotedNote = eventReferencesEventId(item, event)
             return (
-              <SuppressEmbeddedNoteContext.Provider key={item.id} value={event.id}>
+              <SuppressEmbeddedNoteContext.Provider
+                key={item.id}
+                value={{
+                  hexId: event.id,
+                  coordinate: isReplaceableEvent(event.kind) ? getReplaceableCoordinateFromEvent(event) : undefined
+                }}
+              >
                 <div
                   ref={(el) => (replyRefs.current[item.id] = el)}
                   className="scroll-mt-12 border-l-2 border-muted-foreground/40 pl-3 py-1 my-1 rounded-r"

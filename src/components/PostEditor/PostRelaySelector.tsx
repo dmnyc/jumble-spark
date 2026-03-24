@@ -1,3 +1,4 @@
+import { KIND_1_BLOCKED_RELAY_URLS } from '@/constants'
 import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
 import { simplifyUrl, isLocalNetworkUrl, normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
@@ -92,7 +93,14 @@ export default function PostRelaySelector({
 
   // Memoize arrays to prevent unnecessary re-renders
   const memoizedFavoriteRelays = useMemo(() => favoriteRelays, [favoriteRelays])
-  const memoizedBlockedRelays = useMemo(() => blockedRelays, [blockedRelays])
+  const memoizedBlockedRelays = useMemo(() => {
+    // For kind 1 replies and top-level posts, also block KIND_1_BLOCKED_RELAY_URLS
+    const isKind1Publish =
+      !isPublicMessage && (typeof _parentEvent?.kind === 'undefined' || _parentEvent?.kind === 1)
+    return isKind1Publish
+      ? [...blockedRelays, ...KIND_1_BLOCKED_RELAY_URLS]
+      : blockedRelays
+  }, [blockedRelays, isPublicMessage, _parentEvent?.kind])
   const memoizedRelaySets = useMemo(() => relaySets, [relaySets])
   const memoizedOpenFrom = useMemo(() => openFrom, [openFrom])
 

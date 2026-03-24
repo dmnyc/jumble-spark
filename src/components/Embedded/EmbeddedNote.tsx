@@ -42,6 +42,20 @@ function hexEventIdFromNoteId(noteId: string): string | null {
   }
 }
 
+/** For naddr (replaceable events), return coordinate kind:pubkey:identifier for suppression matching. */
+function coordinateFromNoteId(noteId: string): string | null {
+  try {
+    const { type, data } = nip19.decode(noteId.trim())
+    if (type === 'naddr' && data) {
+      const id = data.identifier ?? ''
+      return `${data.kind}:${data.pubkey}:${id}`.toLowerCase()
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 /** True if `fetchEventWithExternalRelays(noteId, …)` can build a REQ filter (hex, note, nevent, naddr). */
 function canSearchOnExternalRelays(noteId: string): boolean {
   if (hexEventIdFromNoteId(noteId)) return true
@@ -61,10 +75,13 @@ export function EmbeddedNote({
   className?: string
   containingEvent?: Event
 }) {
-  const suppressId = useSuppressEmbeddedNoteId()
+  const suppress = useSuppressEmbeddedNoteId()
   const embeddedHexId = useMemo(() => hexEventIdFromNoteId(noteId), [noteId])
-  if (suppressId && embeddedHexId && embeddedHexId === suppressId.toLowerCase()) {
-    return null
+  const embeddedCoordinate = useMemo(() => coordinateFromNoteId(noteId), [noteId])
+  if (suppress) {
+    if (embeddedHexId && embeddedHexId === suppress.hexId.toLowerCase()) return null
+    if (suppress.coordinate && embeddedCoordinate && embeddedCoordinate === suppress.coordinate.toLowerCase())
+      return null
   }
   const validation = useMemo(() => validateEmbeddedNotePointer(noteId), [noteId])
   if (!validation.valid) {

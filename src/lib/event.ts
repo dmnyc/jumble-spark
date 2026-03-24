@@ -199,18 +199,38 @@ export function getRootEventHexId(event?: Event) {
   return tag?.[1]
 }
 
-/** True if event references targetHexId as root, parent, or quoted (#q) — used to hide redundant preview when showing quotes of current note. */
-export function eventReferencesEventId(event: Event | undefined, targetHexId: string): boolean {
-  if (!event || !targetHexId) return false
-  const target = targetHexId.toLowerCase()
-  const rootId = getRootETag(event)?.[1]?.toLowerCase()
-  if (rootId === target) return true
-  const parentId = getParentETag(event)?.[1]?.toLowerCase()
-  if (parentId === target) return true
-  const qTag = event.tags.find((t) => t[0] === 'q' || t[0] === 'Q')?.[1]?.toLowerCase()
-  if (qTag === target) return true
-  const eTags = event.tags.filter((t) => t[0] === 'e' || t[0] === 'E')
-  if (eTags.some((t) => t[1]?.toLowerCase() === target)) return true
+/** True if event references target as root, parent, or quoted (#q, #a) — used to hide redundant preview when showing quotes of current note. */
+export function eventReferencesEventId(
+  event: Event | undefined,
+  targetHexIdOrEvent: string | Event
+): boolean {
+  if (!event) return false
+  const targetEvent = typeof targetHexIdOrEvent === 'object' ? targetHexIdOrEvent : undefined
+  const targetHexId =
+    typeof targetHexIdOrEvent === 'string'
+      ? targetHexIdOrEvent.toLowerCase()
+      : targetHexIdOrEvent.id?.toLowerCase()
+  const targetCoordinate =
+    targetEvent && isReplaceableEvent(targetEvent.kind)
+      ? getReplaceableCoordinateFromEvent(targetEvent)
+      : undefined
+
+  if (targetHexId) {
+    const rootId = getRootETag(event)?.[1]?.toLowerCase()
+    if (rootId === targetHexId) return true
+    const parentId = getParentETag(event)?.[1]?.toLowerCase()
+    if (parentId === targetHexId) return true
+    const qTag = event.tags.find((t) => t[0] === 'q' || t[0] === 'Q')?.[1]?.toLowerCase()
+    if (qTag === targetHexId) return true
+    const eTags = event.tags.filter((t) => t[0] === 'e' || t[0] === 'E')
+    if (eTags.some((t) => t[1]?.toLowerCase() === targetHexId)) return true
+  }
+
+  if (targetCoordinate) {
+    const aTags = event.tags.filter((t) => t[0] === 'a' || t[0] === 'A')
+    if (aTags.some((t) => t[1]?.toLowerCase() === targetCoordinate.toLowerCase())) return true
+  }
+
   return false
 }
 

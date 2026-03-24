@@ -157,6 +157,12 @@ export const BOOKSTR_RELAY_URLS = [
   'wss://orly-relay.imwald.eu'
 ]
 
+/**
+ * Block-list order (applied in sequence when building relay lists):
+ * 1. READ_ONLY — never publish
+ * 2. KIND_1_BLOCKED — skip for kind 1 read/write
+ * 3. E_TAG_FILTER_BLOCKED — skip for reply/quote/stats fetches (#e, #a, #q filters)
+ */
 /** Relays that must never be used for publishing (read-only aggregators, etc.). */
 export const READ_ONLY_RELAY_URLS = ['wss://aggr.nostr.land']
 
