@@ -41,12 +41,21 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } f
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { toast } from 'sonner'
+import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { Event } from 'nostr-tools'
 
 export default function CacheRelaysSetting() {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
-  const { pubkey, cacheRelayListEvent, checkLogin, publish, updateCacheRelayListEvent } = useNostr()
+  const {
+    pubkey,
+    cacheRelayListEvent,
+    checkLogin,
+    publish,
+    updateCacheRelayListEvent,
+    relayList,
+    requestAccountNetworkHydrate
+  } = useNostr()
   const [relays, setRelays] = useState<TMailboxRelay[]>([])
   const [hasChange, setHasChange] = useState(false)
   const [pushing, setPushing] = useState(false)
@@ -62,6 +71,7 @@ export default function CacheRelaysSetting() {
   const [showConsoleLogs, setShowConsoleLogs] = useState(false)
   const [consoleLogSearch, setConsoleLogSearch] = useState('')
   const [consoleLogLevel, setConsoleLogLevel] = useState<'errors-warnings' | 'all'>('all')
+  const [cacheRefreshBusy, setCacheRefreshBusy] = useState(false)
   const consoleLogRef = useRef<Array<{ type: string; message: string; formattedParts?: Array<{ text: string; style?: string }>; timestamp: number }>>([])
 
   const sensors = useSensors(
@@ -282,16 +292,19 @@ export default function CacheRelaysSetting() {
 
   const handleRefreshCache = async () => {
     try {
-      // Force database upgrade to update structure
+      setCacheRefreshBusy(true)
       await indexedDb.forceDatabaseUpgrade()
-      
-      // Reload cache info
       await loadCacheInfo()
-      
+      if (pubkey) {
+        await requestAccountNetworkHydrate()
+        await syncUserDeletionTombstones(pubkey, relayList)
+      }
       toast.success(t('Cache refreshed successfully'))
     } catch (error) {
       logger.error('Failed to refresh cache', { error })
       toast.error(t('Failed to refresh cache'))
+    } finally {
+      setCacheRefreshBusy(false)
     }
   }
 
@@ -848,14 +861,25 @@ export default function CacheRelaysSetting() {
         <h3 className="text-sm font-semibold">{t('In-Browser Cache')}</h3>
         <div className="text-xs text-muted-foreground space-y-1">
           <div>{t('Clear cached data stored in your browser, including IndexedDB events, localStorage settings, and service worker caches.')}</div>
+          <div>
+            {t('refreshCacheButtonExplainer', {
+              defaultValue:
+                'Refresh Cache runs an IndexedDB upgrade check, re-fetches your relay lists and profile-related events from the network (same work as the automatic startup sync), syncs kind-5 deletions into tombstones and removes deleted items from the local cache, then refreshes the store counts below.'
+            })}
+          </div>
         </div>
         <div className="flex min-w-0 flex-wrap gap-2">
           <Button variant="outline" className="shrink-0" onClick={handleClearCache}>
             <Trash2 className="mr-2 h-4 w-4" />
             {t('Clear Cache')}
           </Button>
-          <Button variant="outline" className="shrink-0" onClick={handleRefreshCache}>
-            <RefreshCw className="mr-2 h-4 w-4" />
+          <Button
+            variant="outline"
+            className="shrink-0"
+            onClick={handleRefreshCache}
+            disabled={cacheRefreshBusy}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${cacheRefreshBusy ? 'animate-spin' : ''}`} />
             {t('Refresh Cache')}
           </Button>
           <Button variant="outline" className="shrink-0" onClick={handleBrowseCache}>

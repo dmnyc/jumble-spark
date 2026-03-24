@@ -34,7 +34,7 @@ export const MAX_PUBLISH_RELAYS = MAX_CONCURRENT_RELAY_CONNECTIONS
 export const MAX_REQ_RELAY_URLS = MAX_CONCURRENT_RELAY_CONNECTIONS
 
 /** Multi-relay queries and timeline initial REQ: after the first event, wait this long then close (query) or finalize EOSE (live feed) while keeping the subscription open for new events. */
-export const FIRST_RELAY_RESULT_GRACE_MS = 2000
+export const FIRST_RELAY_RESULT_GRACE_MS = 5000
 
 /** Legacy name: was used to cap spell NoteList skeleton time; loading now ends on EOSE / first events / safety timeouts. Kept for forks. */
 export const SPELL_FEED_LOADING_MAX_MS = 1000
@@ -47,6 +47,12 @@ export const SPELL_FEED_FIRST_RELAY_GRACE_MS = SPELL_FEED_LOADING_MAX_MS
  * filters is at least this value. Omitting `limit` counts as 0 (no implicit grace).
  */
 export const FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT = 200
+
+/**
+ * Minimum time between full account network hydrates (NostrProvider: relay + replaceable fetch from relays).
+ * IndexedDB cache still applies on every load; this only skips redundant network merges after a recent run.
+ */
+export const ACCOUNT_SESSION_NETWORK_HYDRATE_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 /**
  * Batched kind-0 queries (ReplaceableEventService) over many relays (inbox, favorites, cache, defaults).
@@ -86,6 +92,8 @@ export const StorageKey = {
   QUICK_ZAP: 'quickZap',
   ZAP_REPLY_THRESHOLD: 'zapReplyThreshold',
   ACCOUNT_FEED_INFO_MAP: 'accountFeedInfoMap',
+  /** Per-pubkey ms timestamps: last full network hydrate (see ACCOUNT_SESSION_NETWORK_HYDRATE_MIN_INTERVAL_MS). */
+  ACCOUNT_NETWORK_HYDRATE_AT_MAP: 'accountNetworkHydrateAtMap',
   AUTOPLAY: 'autoplay',
   HIDE_UNTRUSTED_INTERACTIONS: 'hideUntrustedInteractions',
   HIDE_UNTRUSTED_NOTIFICATIONS: 'hideUntrustedNotifications',

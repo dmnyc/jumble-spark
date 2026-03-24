@@ -22,6 +22,7 @@ import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { createPaymentInfoDraftEvent, createProfileDraftEvent } from '@/lib/draft-event'
 import { generateImageByPubkey } from '@/lib/pubkey'
 import { isEmail } from '@/lib/utils'
+import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
@@ -34,7 +35,15 @@ import { toast } from 'sonner'
 const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
   const { t } = useTranslation()
   const { pop } = useSecondaryPage()
-  const { account, profile, profileEvent, publish, updateProfileEvent } = useNostr()
+  const {
+    account,
+    profile,
+    profileEvent,
+    publish,
+    updateProfileEvent,
+    relayList,
+    requestAccountNetworkHydrate
+  } = useNostr()
   const [banner, setBanner] = useState<string>('')
   const [avatar, setAvatar] = useState<string>('')
   const [username, setUsername] = useState<string>('')
@@ -239,6 +248,8 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     if (!account?.pubkey) return
     setRefreshingCache(true)
     try {
+      await requestAccountNetworkHydrate()
+      await syncUserDeletionTombstones(account.pubkey, relayList)
       await client.forceRefreshProfileAndPaymentInfoCache(account.pubkey)
       const [profileEvt, paymentEvt] = await Promise.all([
         client.fetchProfileEvent(account.pubkey),
@@ -252,7 +263,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     } finally {
       setRefreshingCache(false)
     }
-  }, [account?.pubkey, updateProfileEvent, t])
+  }, [account?.pubkey, relayList, requestAccountNetworkHydrate, updateProfileEvent, t])
 
   if (!account || !profile) return null
 
@@ -298,7 +309,10 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
         onClick={forceRefreshProfileAndPaymentCache}
         disabled={refreshingCache}
         className="gap-1.5"
-        title={t('Force-refresh profile and payment info from relays')}
+        title={t('profileEditorRefreshCacheHint', {
+          defaultValue:
+            'Full account sync from relays (like Settings → Cache), deletion tombstones, then profile and payment info.'
+        })}
       >
         {refreshingCache ? <Skeleton className="size-3.5 shrink-0 rounded-sm" aria-hidden /> : <RefreshCw className="h-3.5 w-3.5" />}
         {t('Refresh cache')}

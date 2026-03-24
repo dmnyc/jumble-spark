@@ -638,9 +638,11 @@ const NoteList = forwardRef(
         }
 
         const totalRelayUrls = mappedSubRequests.reduce((n, r) => n + r.urls.length, 0)
-        // Wide REQ batches open many sockets; a short race rejects and drops the subscription before first paint.
-        const subscribeSetupRaceMs =
-          totalRelayUrls > 24 ? 30_000 : totalRelayUrls > 8 ? 15_000 : 5000
+        // Many relays are opened under MAX_CONCURRENT_RELAY_CONNECTIONS; a short race aborts the whole feed.
+        const subscribeSetupRaceMs = Math.min(
+          300_000,
+          Math.max(90_000, 25_000 + totalRelayUrls * 2_500)
+        )
 
         let closer: (() => void) | undefined
         let timelineKey: string | undefined

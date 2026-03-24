@@ -934,6 +934,30 @@ class LocalStorageService {
     this.panelMode = mode
     this.persistSetting(StorageKey.PANE_MODE, mode)
   }
+
+  getAccountNetworkHydrateAt(pubkey: string): number | undefined {
+    try {
+      const raw = window.localStorage.getItem(StorageKey.ACCOUNT_NETWORK_HYDRATE_AT_MAP)
+      if (!raw) return undefined
+      const map = JSON.parse(raw) as Record<string, unknown>
+      const pk = pubkey.trim().toLowerCase()
+      const v = map[pk]
+      return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  setAccountNetworkHydrateAt(pubkey: string, atMs: number): void {
+    try {
+      const raw = window.localStorage.getItem(StorageKey.ACCOUNT_NETWORK_HYDRATE_AT_MAP)
+      const map: Record<string, number> = raw ? (JSON.parse(raw) as Record<string, number>) : {}
+      map[pubkey.trim().toLowerCase()] = atMs
+      window.localStorage.setItem(StorageKey.ACCOUNT_NETWORK_HYDRATE_AT_MAP, JSON.stringify(map))
+    } catch {
+      /* ignore quota / privacy mode */
+    }
+  }
 }
 
 const instance = new LocalStorageService()

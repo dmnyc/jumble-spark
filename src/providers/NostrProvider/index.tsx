@@ -1,5 +1,6 @@
 import LoginDialog from '@/components/LoginDialog'
 import {
+  ACCOUNT_SESSION_NETWORK_HYDRATE_MIN_INTERVAL_MS,
   DEFAULT_FAVORITE_RELAYS,
   FAST_READ_RELAY_URLS,
   ExtendedKind,
@@ -43,7 +44,7 @@ import { Event, kinds, VerifiedEvent, validateEvent } from 'nostr-tools'
 import * as nip19 from 'nostr-tools/nip19'
 import * as nip49 from 'nostr-tools/nip49'
 import { NostrContext } from '@/providers/nostr-context'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { BunkerSigner } from './bunker.signer'
@@ -145,6 +146,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   const [isAccountSessionHydrating, setIsAccountSessionHydrating] = useState(false)
   /** Bumps on each account hydration run so stale async completions cannot clear {@link isAccountSessionHydrating}. */
   const accountHydrationGenerationRef = useRef(0)
+  /** When true, next hydrate run performs a full network merge without clearing UI state from IndexedDB first. */
+  const forceNextAccountNetworkHydrateRef = useRef(false)
+  const manualNetworkHydrateResolveRef = useRef<(() => void) | null>(null)
+  const [accountNetworkHydrateBump, setAccountNetworkHydrateBump] = useState(0)
 
   useEffect(() => {
     const init = async () => {
@@ -191,19 +196,37 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let hydrationGenForThisRun = -1
     const init = async () => {
-      setRelayList(null)
-      setProfile(null)
-      setProfileEvent(null)
-      setNsec(null)
-      setFavoriteRelaysEvent(null)
-      setFollowListEvent(null)
-      setMuteListEvent(null)
-      setBookmarkListEvent(null)
-      setRssFeedListEvent(null)
       if (!account) {
         accountHydrationGenerationRef.current += 1
         setIsAccountSessionHydrating(false)
+        forceNextAccountNetworkHydrateRef.current = false
+        setRelayList(null)
+        setProfile(null)
+        setProfileEvent(null)
+        setNsec(null)
+        setFavoriteRelaysEvent(null)
+        setFollowListEvent(null)
+        setMuteListEvent(null)
+        setBookmarkListEvent(null)
+        setRssFeedListEvent(null)
         return undefined
+      }
+
+      const userForcedAccountNetworkHydrate = forceNextAccountNetworkHydrateRef.current
+      if (userForcedAccountNetworkHydrate) {
+        forceNextAccountNetworkHydrateRef.current = false
+      }
+
+      if (!userForcedAccountNetworkHydrate) {
+        setRelayList(null)
+        setProfile(null)
+        setProfileEvent(null)
+        setNsec(null)
+        setFavoriteRelaysEvent(null)
+        setFollowListEvent(null)
+        setMuteListEvent(null)
+        setBookmarkListEvent(null)
+        setRssFeedListEvent(null)
       }
 
       hydrationGenForThisRun = accountHydrationGenerationRef.current += 1
@@ -226,6 +249,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         setNcryptsec(null)
       }
 
+      const INTEREST_LIST_KIND = 10015
+
       const [
         storedRelayListEvent,
         storedCacheRelayListEvent,
@@ -236,7 +261,9 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         storedFavoriteRelaysEvent,
         storedBlockedRelaysEvent,
         storedUserEmojiListEvent,
-        storedRssFeedListEvent
+        storedRssFeedListEvent,
+        storedInterestListEvent,
+        storedBlossomServerListEvent
       ] = await Promise.all([
         indexedDb.getReplaceableEvent(account.pubkey, kinds.RelayList),
         indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.CACHE_RELAYS),
@@ -247,7 +274,9 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.FAVORITE_RELAYS),
         indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.BLOCKED_RELAYS),
         indexedDb.getReplaceableEvent(account.pubkey, kinds.UserEmojiList),
-        indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.RSS_FEED_LIST)
+        indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.RSS_FEED_LIST),
+        indexedDb.getReplaceableEvent(account.pubkey, INTEREST_LIST_KIND),
+        indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.BLOSSOM_SERVER_LIST)
       ])
       
       // Extract blocked relays from event
@@ -261,12 +290,14 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
             }
           }
         })
-        setBlockedRelaysEvent(storedBlockedRelaysEvent)
+        if (!userForcedAccountNetworkHydrate) {
+          setBlockedRelaysEvent(storedBlockedRelaysEvent)
+        }
       }
       
       // Set initial relay list from stored events (will be updated with merged list later)
       // Merge cache relays even at initial load so cache relays are available immediately
-      if (storedRelayListEvent || storedCacheRelayListEvent) {
+      if (!userForcedAccountNetworkHydrate && (storedRelayListEvent || storedCacheRelayListEvent)) {
         const baseRelayList = storedRelayListEvent 
           ? getRelayListFromEvent(storedRelayListEvent, blockedRelays)
           : { write: [], read: [], originalRelays: [] }
@@ -300,82 +331,105 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
           setRelayList(baseRelayList)
         }
       }
-      if (storedProfileEvent) {
-        setProfileEvent(storedProfileEvent)
-        setProfile(getProfileFromEvent(storedProfileEvent))
-      }
-      if (storedFollowListEvent) {
-        setFollowListEvent(storedFollowListEvent)
-      }
-      if (storedMuteListEvent) {
-        setMuteListEvent(storedMuteListEvent)
-      }
-      if (storedBookmarkListEvent) {
-        setBookmarkListEvent(storedBookmarkListEvent)
-      }
-      if (storedFavoriteRelaysEvent) {
-        setFavoriteRelaysEvent(storedFavoriteRelaysEvent)
-      }
-      if (storedUserEmojiListEvent) {
-        setUserEmojiListEvent(storedUserEmojiListEvent)
-      }
-      if (storedRssFeedListEvent) {
-        setRssFeedListEvent(storedRssFeedListEvent)
-        logger.debug('[NostrProvider] Loaded RSS feed list event from cache', {
-          eventId: storedRssFeedListEvent.id,
-          created_at: storedRssFeedListEvent.created_at
-        })
-      }
-
-      // Fetch RSS feed list from relays if cache is missing or stale (older than 1 hour)
-      const rssFeedListStale = !storedRssFeedListEvent || 
-        (dayjs().unix() - storedRssFeedListEvent.created_at > 3600) // 1 hour
-      
-      if (rssFeedListStale) {
-        logger.debug('[NostrProvider] RSS feed list cache is missing or stale, fetching from relays', {
-          hasCache: !!storedRssFeedListEvent,
-          cacheAge: storedRssFeedListEvent ? dayjs().unix() - storedRssFeedListEvent.created_at : 'N/A'
-        })
-        
-        // Fetch in background - don't block initialization
-        queryService.fetchEvents(FAST_WRITE_RELAY_URLS.concat(PROFILE_RELAY_URLS), {
-          kinds: [ExtendedKind.RSS_FEED_LIST],
-          authors: [account.pubkey],
-          limit: 1
-        }).then(events => {
-          const latestEvent = getLatestEvent(events)
-          if (latestEvent) {
-            // Only update if the fetched event is newer than cached
-            if (!storedRssFeedListEvent || latestEvent.created_at > storedRssFeedListEvent.created_at) {
-              logger.debug('[NostrProvider] Found newer RSS feed list event from relays', {
-                eventId: latestEvent.id,
-                created_at: latestEvent.created_at,
-                wasCached: !!storedRssFeedListEvent
-              })
-              indexedDb.putReplaceableEvent(latestEvent).then(() => {
-                setRssFeedListEvent(latestEvent)
-                logger.debug('[NostrProvider] Updated RSS feed list event in cache and state')
-              }).catch(err => {
-                logger.error('[NostrProvider] Failed to cache RSS feed list event', { error: err })
-              })
-            } else {
-              logger.debug('[NostrProvider] Cached RSS feed list event is up to date', {
-                cachedCreatedAt: storedRssFeedListEvent.created_at,
-                fetchedCreatedAt: latestEvent.created_at
-              })
-            }
-          } else if (!storedRssFeedListEvent) {
-            logger.debug('[NostrProvider] No RSS feed list event found on relays (user may not have created one yet)')
-          }
-        }).catch(err => {
-          logger.error('[NostrProvider] Failed to fetch RSS feed list from relays', { error: err })
-          // Don't clear cache on fetch error - use cached value
-        })
-      } else {
-        logger.debug('[NostrProvider] RSS feed list cache is fresh, using cached value')
+      if (!userForcedAccountNetworkHydrate) {
+        if (storedProfileEvent) {
+          setProfileEvent(storedProfileEvent)
+          setProfile(getProfileFromEvent(storedProfileEvent))
+        }
+        if (storedFollowListEvent) {
+          setFollowListEvent(storedFollowListEvent)
+        }
+        if (storedMuteListEvent) {
+          setMuteListEvent(storedMuteListEvent)
+        }
+        if (storedBookmarkListEvent) {
+          setBookmarkListEvent(storedBookmarkListEvent)
+        }
+        if (storedFavoriteRelaysEvent) {
+          setFavoriteRelaysEvent(storedFavoriteRelaysEvent)
+        }
+        if (storedUserEmojiListEvent) {
+          setUserEmojiListEvent(storedUserEmojiListEvent)
+        }
+        if (storedRssFeedListEvent) {
+          setRssFeedListEvent(storedRssFeedListEvent)
+          logger.debug('[NostrProvider] Loaded RSS feed list event from cache', {
+            eventId: storedRssFeedListEvent.id,
+            created_at: storedRssFeedListEvent.created_at
+          })
+        }
+        if (storedInterestListEvent) {
+          setInterestListEvent(storedInterestListEvent)
+        }
+        if (storedBlossomServerListEvent) {
+          void client.updateBlossomServerListEventCache(storedBlossomServerListEvent)
+        }
       }
 
-      const [relayListEvents, cacheRelayListEvents] = await Promise.all([
+      const lastNetworkHydrateAt = storage.getAccountNetworkHydrateAt(account.pubkey)
+      const hasLocalRelayAndProfile = !!storedRelayListEvent && !!storedProfileEvent
+      const skipNetworkHydrate =
+        !userForcedAccountNetworkHydrate &&
+        hasLocalRelayAndProfile &&
+        typeof lastNetworkHydrateAt === 'number' &&
+        Date.now() - lastNetworkHydrateAt < ACCOUNT_SESSION_NETWORK_HYDRATE_MIN_INTERVAL_MS
+
+      if (!skipNetworkHydrate) {
+        // Fetch RSS feed list from relays if cache is missing or stale (older than 1 hour)
+        const rssFeedListStale =
+          !storedRssFeedListEvent ||
+          dayjs().unix() - storedRssFeedListEvent.created_at > 3600 // 1 hour
+
+        if (rssFeedListStale) {
+          logger.debug('[NostrProvider] RSS feed list cache is missing or stale, fetching from relays', {
+            hasCache: !!storedRssFeedListEvent,
+            cacheAge: storedRssFeedListEvent ? dayjs().unix() - storedRssFeedListEvent.created_at : 'N/A'
+          })
+
+          queryService
+            .fetchEvents(FAST_WRITE_RELAY_URLS.concat(PROFILE_RELAY_URLS), {
+              kinds: [ExtendedKind.RSS_FEED_LIST],
+              authors: [account.pubkey],
+              limit: 1
+            })
+            .then((events) => {
+              const latestEvent = getLatestEvent(events)
+              if (latestEvent) {
+                if (!storedRssFeedListEvent || latestEvent.created_at > storedRssFeedListEvent.created_at) {
+                  logger.debug('[NostrProvider] Found newer RSS feed list event from relays', {
+                    eventId: latestEvent.id,
+                    created_at: latestEvent.created_at,
+                    wasCached: !!storedRssFeedListEvent
+                  })
+                  indexedDb
+                    .putReplaceableEvent(latestEvent)
+                    .then(() => {
+                      setRssFeedListEvent(latestEvent)
+                      logger.debug('[NostrProvider] Updated RSS feed list event in cache and state')
+                    })
+                    .catch((err) => {
+                      logger.error('[NostrProvider] Failed to cache RSS feed list event', { error: err })
+                    })
+                } else {
+                  logger.debug('[NostrProvider] Cached RSS feed list event is up to date', {
+                    cachedCreatedAt: storedRssFeedListEvent.created_at,
+                    fetchedCreatedAt: latestEvent.created_at
+                  })
+                }
+              } else if (!storedRssFeedListEvent) {
+                logger.debug(
+                  '[NostrProvider] No RSS feed list event found on relays (user may not have created one yet)'
+                )
+              }
+            })
+            .catch((err) => {
+              logger.error('[NostrProvider] Failed to fetch RSS feed list from relays', { error: err })
+            })
+        } else {
+          logger.debug('[NostrProvider] RSS feed list cache is fresh, using cached value')
+        }
+
+        const [relayListEvents, cacheRelayListEvents] = await Promise.all([
         queryService.fetchEvents(FAST_READ_RELAY_URLS, {
           kinds: [kinds.RelayList],
           authors: [account.pubkey]
@@ -414,7 +468,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
             kinds.Contacts,
             kinds.Mutelist,
             kinds.BookmarkList,
-            10015, // Interest list
+            INTEREST_LIST_KIND,
             ExtendedKind.FAVORITE_RELAYS,
             ExtendedKind.BLOCKED_RELAYS,
             ExtendedKind.BLOSSOM_SERVER_LIST,
@@ -428,7 +482,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       const followListEvent = sortedEvents.find((e) => e.kind === kinds.Contacts)
       const muteListEvent = sortedEvents.find((e) => e.kind === kinds.Mutelist)
       const bookmarkListEvent = sortedEvents.find((e) => e.kind === kinds.BookmarkList)
-      const interestListEvent = sortedEvents.find((e) => e.kind === 10015)
+      const interestListEvent = sortedEvents.find((e) => e.kind === INTEREST_LIST_KIND)
       const favoriteRelaysEvent = sortedEvents.find((e) => e.kind === ExtendedKind.FAVORITE_RELAYS)
       const blockedRelaysEvent = sortedEvents.find((e) => e.kind === ExtendedKind.BLOCKED_RELAYS)
       const blossomServerListEvent = sortedEvents.find(
@@ -513,13 +567,29 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      void client.runSessionPrewarm({ pubkey: account.pubkey, signal: controller.signal })
-      logger.info('[NostrProvider] Account session hydrate: core relay/profile merge finished; client prewarm started (parallel)', {
-        pubkeySlice: account.pubkey.slice(0, 12)
-      })
+        storage.setAccountNetworkHydrateAt(account.pubkey, Date.now())
+        void client.runSessionPrewarm({ pubkey: account.pubkey, signal: controller.signal })
+        logger.info('[NostrProvider] Account session hydrate: core relay/profile merge finished; client prewarm started (parallel)', {
+          pubkeySlice: account.pubkey.slice(0, 12)
+        })
+      } else {
+        logger.info('[NostrProvider] Skipped network hydrate (within min interval); IndexedDB cache only', {
+          pubkeySlice: account.pubkey.slice(0, 12),
+          lastNetworkHydrateAt,
+          ageMs: Date.now() - (lastNetworkHydrateAt ?? 0)
+        })
+        if (storedRelayListEvent) {
+          client.updateRelayListCache(storedRelayListEvent)
+        }
+      }
       return controller
     }
     const promise = init()
+    void promise.finally(() => {
+      const r = manualNetworkHydrateResolveRef.current
+      manualNetworkHydrateResolveRef.current = null
+      r?.()
+    })
     const finishHydration = () => {
       if (
         hydrationGenForThisRun >= 0 &&
@@ -539,7 +609,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         })
         .catch(() => {})
     }
-  }, [account])
+  }, [account, accountNetworkHydrateBump])
 
   useEffect(() => {
     if (!account) return
@@ -1133,6 +1203,15 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     setRssFeedListEvent(newRssFeedListEvent)
   }
 
+  const requestAccountNetworkHydrate = useCallback(() => {
+    if (!account) return Promise.resolve()
+    forceNextAccountNetworkHydrateRef.current = true
+    return new Promise<void>((resolve) => {
+      manualNetworkHydrateResolveRef.current = resolve
+      setAccountNetworkHydrateBump((n) => n + 1)
+    })
+  }, [account])
+
   return (
     <NostrContext.Provider
       value={{
@@ -1180,7 +1259,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         updateInterestListEvent,
         updateFavoriteRelaysEvent,
         updateBlockedRelaysEvent,
-        updateRssFeedListEvent
+        updateRssFeedListEvent,
+        requestAccountNetworkHydrate
       }}
     >
       {children}

@@ -20,7 +20,7 @@ function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
-import { dispatchTombstonesUpdated } from '@/lib/tombstone-events'
+import { buildDeletionRelayUrls, dispatchTombstonesUpdated } from '@/lib/tombstone-events'
 import { hexPubkeysEqual, isValidPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib/pubkey'
 import { getPubkeysFromPTags, tagNameEquals } from '@/lib/tag'
 import {
@@ -52,7 +52,8 @@ import {
   Event as NEvent,
   Relay,
   SimplePool,
-  VerifiedEvent
+  VerifiedEvent,
+  verifyEvent
 } from 'nostr-tools'
 import { AbstractRelay } from 'nostr-tools/abstract-relay'
 import indexedDb from './indexed-db.service'
@@ -62,6 +63,13 @@ import { QueryService } from './client-query.service'
 /** Live timeline REQ: dead relays fail fast; EOSE caps “connected but silent” relays. */
 const SUBSCRIBE_RELAY_CONNECTION_TIMEOUT_MS = 2800
 const SUBSCRIBE_RELAY_EOSE_TIMEOUT_MS = 4800
+
+/**
+ * After initial timeline EOSE (incl. grace), events with `created_at` older than this many seconds
+ * (relative to wall clock at EOSE) are treated as backlog stragglers and merged into the feed;
+ * fresher timestamps go to `onNew` (live / “new notes” UX).
+ */
+const TIMELINE_STRAGGLER_MAX_AGE_SEC = 600
 
 function summarizeFiltersForRelayLog(filters: Filter[]): Record<string, unknown> {
   const f = filters[0]
@@ -1608,7 +1616,9 @@ class ClientService extends EventTarget {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const that = this
     let events: NEvent[] = []
+    /** `null` until initial backlog is considered complete; then wall-clock unix at completion (for straggler vs live). */
     let eosedAt: number | null = null
+    let eventIds = new Set<string>()
 
     let firstResultGraceTimer: ReturnType<typeof setTimeout> | null = null
     const clearFirstResultGraceTimer = () => {
@@ -1670,6 +1680,7 @@ class ClientService extends EventTarget {
       }
 
       events = events.sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
+      eventIds = new Set(events.map((e) => e.id))
 
       const tl = that.timelines[key]
       if (!tl || Array.isArray(tl)) {
@@ -1678,8 +1689,10 @@ class ClientService extends EventTarget {
           filter,
           urls
         }
+      } else if (tl.refs.length === 0) {
+        tl.refs = events.map((evt) => [evt.id, evt.created_at] as TTimelineRef)
       } else {
-        const firstRefCreatedAt = tl.refs.length > 0 ? tl.refs[0][1] : dayjs().unix()
+        const firstRefCreatedAt = tl.refs[0]![1]
         const newRefs = events
           .filter((evt) => evt.created_at > firstRefCreatedAt)
           .map((evt) => [evt.id, evt.created_at] as TTimelineRef)
@@ -1698,44 +1711,63 @@ class ClientService extends EventTarget {
         that.addEventToCache(evt)
         // not eosed yet, push to events
         if (!eosedAt) {
+          if (eventIds.has(evt.id)) return
+          eventIds.add(evt.id)
           events.push(evt)
           flushStreamingSnapshot()
           armFirstResultGraceAfterFirstEvent()
           return
         }
-        // new event
-        if (evt.created_at > eosedAt) {
-          onNew(evt)
+
+        if (eventIds.has(evt.id)) return
+
+        const wallClockAtEose = eosedAt
+        const isBacklogStraggler =
+          evt.created_at + TIMELINE_STRAGGLER_MAX_AGE_SEC < wallClockAtEose
+
+        if (isBacklogStraggler) {
+          eventIds.add(evt.id)
+          events.push(evt)
+          if (needSort) {
+            events = events.sort((a, b) => b.created_at - a.created_at).slice(0, filter.limit)
+          }
+          eventIds = new Set(events.map((e) => e.id))
+          onEvents([...events], false)
+
+          const timeline = that.timelines[key]
+          if (timeline && !Array.isArray(timeline)) {
+            timeline.refs = events
+              .map((e) => [e.id, e.created_at] as TTimelineRef)
+              .sort((a, b) => b[1] - a[1])
+          }
+          return
         }
 
-        // Update timeline refs for pagination tracking
-        // This is needed for loadMoreTimeline to know what events have been loaded
+        eventIds.add(evt.id)
+        onNew(evt)
+
         const timeline = that.timelines[key]
         if (!timeline || Array.isArray(timeline)) {
           return
         }
-        
-        // Initialize refs if empty (needed for pagination even when not using cache)
-        if (!timeline.refs || timeline.refs.length === 0) {
-          timeline.refs = []
+
+        if (timeline.refs.length === 0) {
+          timeline.refs = events.map((e) => [e.id, e.created_at] as TTimelineRef).sort((a, b) => b[1] - a[1])
+          return
         }
 
-        // find the right position to insert
         let idx = 0
         for (const ref of timeline.refs) {
           if (evt.created_at > ref[1] || (evt.created_at === ref[1] && evt.id < ref[0])) {
             break
           }
-          // the event is already in the cache
           if (evt.created_at === ref[1] && evt.id === ref[0]) {
             return
           }
           idx++
         }
-        // the event is too old, ignore it
         if (idx >= timeline.refs.length) return
 
-        // insert the event to the right position
         timeline.refs.splice(idx, 0, [evt.id, evt.created_at])
       },
       oneose: handleTimelineEose,
@@ -1760,7 +1792,11 @@ class ClientService extends EventTarget {
 
     const { filter, urls } = timeline
 
-    let events = await this.query(urls, { ...filter, until, limit })
+    let events = await this.query(urls, { ...filter, until, limit }, undefined, {
+      firstRelayResultGraceMs: false,
+      globalTimeout: 25_000,
+      eoseTimeout: 2500
+    })
     events.forEach((evt) => {
       this.addEventToCache(evt)
     })
@@ -2071,19 +2107,68 @@ class ClientService extends EventTarget {
   }
 
   /**
-   * Fetch deletion events (kind 5) and update the tombstone list.
-   * Network sync is intentionally disabled: it queried many relays on every refresh/login and saturated
-   * the connection pool. Tombstones still update via {@link applyDeletionRequestToLocalCache} when the user deletes from this client.
+   * Fetch kind-5 deletion events for an author, merge tombstones, remove matching rows from IndexedDB,
+   * and notify the UI. Intended for **manual** refresh (e.g. cache settings); not run on every login.
    */
-  async fetchDeletionEvents(_relayUrls: string[] = [], _authorPubkey?: string): Promise<void> {
-    return
+  async fetchDeletionEvents(relayUrls: string[] = [], authorPubkey?: string): Promise<void> {
+    const pk = authorPubkey?.trim().toLowerCase()
+    if (!pk || !/^[0-9a-f]{64}$/.test(pk)) return
+
+    const urls = (relayUrls.length > 0 ? relayUrls : [...PROFILE_FETCH_RELAY_URLS])
+      .map((u) => normalizeUrl(u) || u)
+      .filter(Boolean)
+    const capped = Array.from(new Set(urls)).slice(0, 16)
+    if (capped.length === 0) return
+
+    try {
+      const events = await this.queryService.fetchEvents(
+        capped,
+        {
+          kinds: [kinds.EventDeletion],
+          authors: [pk],
+          limit: 500
+        },
+        {
+          firstRelayResultGraceMs: false,
+          globalTimeout: 22_000,
+          eoseTimeout: 2500
+        }
+      )
+
+      let any = false
+      for (const e of events) {
+        if (e.kind !== kinds.EventDeletion || e.pubkey.toLowerCase() !== pk) continue
+        if (!verifyEvent(e)) continue
+        if (shouldDropEventOnIngest(e)) continue
+        await this.addTombstoneEntriesFromDeletionEvent(e)
+        any = true
+      }
+
+      if (any) {
+        const removed = await indexedDb.removeTombstonedFromCache()
+        if (removed > 0) {
+          logger.info('[ClientService] Removed tombstoned events from cache after deletion sync', {
+            count: removed
+          })
+        }
+        dispatchTombstonesUpdated()
+      }
+    } catch (e) {
+      logger.warn('[ClientService] fetchDeletionEvents failed', { error: e })
+    }
   }
 
-  /**
-   * @deprecated No-op — see {@link fetchDeletionEvents}.
-   */
-  async fetchDeletionEventsForPubkey(_profilePubkey: string): Promise<void> {
-    return
+  /** Fetch deletions for a profile pubkey using that user’s NIP-65 read stack when possible. */
+  async fetchDeletionEventsForPubkey(profilePubkey: string): Promise<void> {
+    const pk = profilePubkey.trim().toLowerCase()
+    if (!/^[0-9a-f]{64}$/.test(pk)) return
+    try {
+      const rl = await this.fetchRelayList(pk)
+      const urls = buildDeletionRelayUrls(rl)
+      await this.fetchDeletionEvents(urls, pk)
+    } catch {
+      await this.fetchDeletionEvents(buildDeletionRelayUrls(null), pk)
+    }
   }
 
   async searchNpubsForMention(
