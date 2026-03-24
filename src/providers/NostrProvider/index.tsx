@@ -3,10 +3,11 @@ import {
   ACCOUNT_SESSION_NETWORK_HYDRATE_MIN_INTERVAL_MS,
   DEFAULT_FAVORITE_RELAYS,
   FAST_READ_RELAY_URLS,
-  ExtendedKind,
   FAST_WRITE_RELAY_URLS,
+  ExtendedKind,
   PROFILE_FETCH_RELAY_URLS,
-  PROFILE_RELAY_URLS
+  PROFILE_RELAY_URLS,
+  SEARCHABLE_RELAY_URLS
 } from '@/constants'
 import {
   buildAltTag,
@@ -458,9 +459,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
 
       const normalizedRelays = [
         ...relayList.write.map((url: string) => normalizeUrl(url) || url),
+        ...FAST_WRITE_RELAY_URLS.map((url: string) => normalizeUrl(url) || url),
         ...PROFILE_FETCH_RELAY_URLS.map((url: string) => normalizeUrl(url) || url)
       ]
-      const fetchRelays = Array.from(new Set(normalizedRelays)).slice(0, 8)
+      const fetchRelays = Array.from(new Set(normalizedRelays)).slice(0, 16)
       const events = await queryService.fetchEvents(fetchRelays, [
         {
           kinds: [
@@ -509,6 +511,51 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         if (updatedFollowListEvent.id === followListEvent.id) {
           setFollowListEvent(followListEvent)
         }
+      } else {
+        // Hydrate batch uses limited relays; fallback fetches from broader set (author relays, etc.)
+        const trySetFollowList = (evt: Event) => {
+          if (hydrationGenForThisRun !== accountHydrationGenerationRef.current) return
+          indexedDb
+            .putReplaceableEvent(evt)
+            .then(() => {
+              if (hydrationGenForThisRun === accountHydrationGenerationRef.current) {
+                setFollowListEvent(evt)
+                logger.info('[NostrProvider] Follow list loaded via fallback fetch')
+              }
+            })
+            .catch(() => {
+              if (hydrationGenForThisRun === accountHydrationGenerationRef.current) {
+                setFollowListEvent(evt)
+              }
+            })
+        }
+        const followListRelays = Array.from(
+          new Set([
+            ...mergedRelayList.write.map((u) => normalizeUrl(u) || u),
+            ...SEARCHABLE_RELAY_URLS.map((u) => normalizeUrl(u) || u)
+          ])
+        ).filter(Boolean)
+        queryService
+          .fetchEvents(followListRelays, {
+            authors: [account.pubkey],
+            kinds: [kinds.Contacts],
+            limit: 1
+          })
+          .then((evts) => {
+            const evt = evts.sort((a, b) => b.created_at - a.created_at)[0]
+            if (evt && hydrationGenForThisRun === accountHydrationGenerationRef.current) {
+              trySetFollowList(evt)
+              return
+            }
+            client.fetchFollowListEvent(account.pubkey, followListRelays).then((f) => {
+              if (f) trySetFollowList(f)
+            })
+          })
+          .catch(() => {
+            client.fetchFollowListEvent(account.pubkey, followListRelays).then((f) => {
+              if (f) trySetFollowList(f)
+            })
+          })
       }
       if (muteListEvent) {
         const updatedMuteListEvent = await indexedDb.putReplaceableEvent(muteListEvent)
@@ -581,6 +628,36 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         if (storedRelayListEvent) {
           client.updateRelayListCache(storedRelayListEvent)
         }
+        if (!storedFollowListEvent) {
+          const trySetFollowListSkip = (evt: Event) => {
+            if (hydrationGenForThisRun !== accountHydrationGenerationRef.current) return
+            indexedDb
+              .putReplaceableEvent(evt)
+              .then(() => {
+                if (hydrationGenForThisRun === accountHydrationGenerationRef.current) {
+                  setFollowListEvent(evt)
+                  logger.info('[NostrProvider] Follow list loaded via fallback (skip-network path)')
+                }
+              })
+              .catch(() => {
+                if (hydrationGenForThisRun === accountHydrationGenerationRef.current) {
+                  setFollowListEvent(evt)
+                }
+              })
+          }
+          const getFollowListRelays = async () => {
+            const rl = storedRelayListEvent
+              ? getRelayListFromEvent(storedRelayListEvent, blockedRelays)
+              : { write: [] as string[], read: [] as string[] }
+            const writes = rl.write.map((u) => normalizeUrl(u) || u).filter(Boolean)
+            return Array.from(new Set([...writes, ...SEARCHABLE_RELAY_URLS.map((u) => normalizeUrl(u) || u)])).filter(Boolean)
+          }
+          getFollowListRelays().then((relays) =>
+            client.fetchFollowListEvent(account.pubkey, relays.length > 0 ? relays : undefined).then((fallback) => {
+              if (fallback) trySetFollowListSkip(fallback)
+            })
+          )
+        }
       }
       return controller
     }
@@ -610,6 +687,26 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         .catch(() => {})
     }
   }, [account, accountNetworkHydrateBump])
+
+  /** Recovery: if hydrate finished but follow list is still null, fetch using user write + search relays. */
+  useEffect(() => {
+    if (!account || followListEvent !== null || isAccountSessionHydrating) return
+    let cancelled = false
+    client
+      .fetchRelayList(account.pubkey)
+      .then((rl) => {
+        const writes = rl.write.map((u) => normalizeUrl(u) || u).filter(Boolean)
+        const relays = Array.from(new Set([...writes, ...SEARCHABLE_RELAY_URLS.map((u) => normalizeUrl(u) || u)])).filter(Boolean)
+        return client.fetchFollowListEvent(account.pubkey, relays.length > 0 ? relays : undefined)
+      })
+      .then((evt) => {
+        if (!cancelled && evt) setFollowListEvent(evt)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [account, followListEvent, isAccountSessionHydrating])
 
   useEffect(() => {
     if (!account) return

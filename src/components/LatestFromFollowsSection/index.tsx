@@ -88,7 +88,7 @@ function recommendedCuratorHexPubkey(): string | null {
 export default function LatestFromFollowsSection({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
-  const { pubkey, followListEvent, isInitialized } = useNostr()
+  const { pubkey, followListEvent, isInitialized, isAccountSessionHydrating } = useNostr()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { mutePubkeySet } = useMuteList()
   const { isEventDeleted } = useDeletedEvent()
@@ -110,7 +110,19 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
 
   const followPubkeys = pubkey ? (loggedInFollowPubkeys ?? []) : guestFollowPubkeys
   const followsLabel: 'self' | 'recommended' = pubkey ? 'self' : 'recommended'
-  const loadingFollowList = !pubkey && isInitialized && !guestListReady
+  const [followListGraceExpired, setFollowListGraceExpired] = useState(false)
+  useEffect(() => {
+    if (!pubkey || followListEvent) {
+      setFollowListGraceExpired(false)
+      return
+    }
+    const t = setTimeout(() => setFollowListGraceExpired(true), 4000)
+    return () => clearTimeout(t)
+  }, [pubkey, followListEvent])
+
+  const loadingFollowList =
+    (!pubkey && isInitialized && !guestListReady) ||
+    (!!pubkey && !followListEvent && (isAccountSessionHydrating || !followListGraceExpired))
 
   const [aggregateRelayUrls, setAggregateRelayUrls] = useState<string[]>([])
   const [aggregateRelaysReady, setAggregateRelaysReady] = useState(false)

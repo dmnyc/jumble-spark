@@ -33,6 +33,7 @@ export default {
     Following: 'Folgende',
     followings: 'Folgekonten',
     boosted: 'geboostet',
+    'Boosted by:': 'Geboostet von:',
     'just now': 'gerade eben',
     'n minutes ago': 'vor {{n}} Minuten',
     'n m': 'vor {{n}}m',

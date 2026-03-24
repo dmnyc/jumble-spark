@@ -203,7 +203,7 @@ function mergePrimaryPageEntry(
 
 export { PrimaryPageContext, usePrimaryPage }
 
-export { useSecondaryPage }
+export { useSecondaryPage, useSecondaryPageOptional }
 
 // Helper function to build contextual note URL
 function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): string {

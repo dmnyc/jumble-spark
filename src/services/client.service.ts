@@ -2579,9 +2579,9 @@ class ClientService extends EventTarget {
 
   /** =========== Replaceable event =========== */
 
-  // Delegate to ReplaceableEventService
-  async fetchFollowListEvent(pubkey: string) {
-    return this.replaceableEventService.fetchFollowListEvent(pubkey)
+  // Delegate to ReplaceableEventService. Pass relayUrls for fallback (user write + search relays).
+  async fetchFollowListEvent(pubkey: string, relayUrls?: string[]) {
+    return this.replaceableEventService.fetchFollowListEvent(pubkey, relayUrls)
   }
 
   async fetchFollowings(pubkey: string): Promise<string[]> {

@@ -1,6 +1,7 @@
 import {
   ExtendedKind,
   FAST_READ_RELAY_URLS,
+  FAST_WRITE_RELAY_URLS,
   MAX_CONCURRENT_RELAY_CONNECTIONS,
   METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS,
   METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS,
@@ -495,6 +496,15 @@ export class ReplaceableEventService {
           relayUrls = Array.from(
             new Set(
               [...READ_ONLY_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS, ...FAST_READ_RELAY_URLS].map(
+                (u) => normalizeUrl(u) || u
+              )
+            )
+          ).filter(Boolean)
+        } else if (kind === kinds.Contacts) {
+          // Contacts (follow list) are published to user's write relays; use write + read + profile relays
+          relayUrls = Array.from(
+            new Set(
+              [...FAST_WRITE_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS, ...FAST_READ_RELAY_URLS].map(
                 (u) => normalizeUrl(u) || u
               )
             )
@@ -1001,9 +1011,24 @@ export class ReplaceableEventService {
    */
 
   /**
-   * Fetch follow list event
+   * Fetch follow list event.
+   * When relayUrls are provided (e.g. user write + search relays), queries those directly.
+   * Otherwise uses the default relay set (FAST_WRITE + PROFILE_FETCH + FAST_READ).
    */
-  async fetchFollowListEvent(pubkey: string): Promise<NEvent | undefined> {
+  async fetchFollowListEvent(pubkey: string, relayUrls?: string[]): Promise<NEvent | undefined> {
+    if (relayUrls && relayUrls.length > 0) {
+      const normalized = Array.from(
+        new Set(relayUrls.map((u) => normalizeUrl(u) || u).filter(Boolean))
+      )
+      const events = await this.queryService.query(
+        normalized,
+        { authors: [pubkey], kinds: [kinds.Contacts], limit: 1 },
+        undefined,
+        { replaceableRace: true, eoseTimeout: 1500, globalTimeout: 8000 }
+      )
+      const latest = events.sort((a, b) => b.created_at - a.created_at)[0]
+      return latest
+    }
     return await this.fetchReplaceableEvent(pubkey, kinds.Contacts)
   }
 

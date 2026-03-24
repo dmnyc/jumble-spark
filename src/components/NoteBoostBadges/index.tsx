@@ -34,23 +34,21 @@ export default function NoteBoostBadges({ event, className }: { event: Event; cl
 
   return (
     <div
-      className={cn('flex flex-wrap items-center gap-x-0 gap-y-1', className)}
+      className={cn('flex flex-wrap items-center gap-x-1 gap-y-1', className)}
       role="list"
       aria-label={t('Boosts')}
     >
-      {visible.map((r, i) => (
-        <div
-          key={r.id}
-          role="listitem"
-          className={cn(i > 0 && '-ml-2')}
-          style={{ zIndex: visible.length - i }}
-        >
+      <span className="text-muted-foreground text-sm shrink-0 mr-1">
+        {t('Boosted by:')}
+      </span>
+      {visible.map((r) => (
+        <div key={r.id} role="listitem">
           <UserAvatar userId={r.pubkey} size="small" className="ring-2 ring-background" />
         </div>
       ))}
       {overflow > 0 ? (
         <span
-          className="-ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground ring-2 ring-background"
+          className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground ring-2 ring-background"
           title={t('n more boosts', { count: overflow })}
         >
           +{overflow}

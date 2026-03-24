@@ -116,6 +116,13 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
   const fetchRef = useRef(fetchActive)
   fetchRef.current = fetchActive
 
+  /** Reset pulse state when account or relay set changes so we show loading until fresh data. */
+  const resetForRefetch = useCallback(() => {
+    setRelayActivityReady(false)
+    setOrderedPubkeys([])
+    setProfileKind0ByPubkey({})
+  }, [])
+
   /** Initial fetch on mount and when relay set changes (refresh snapshot, not hourly cadence). */
   const prevRelayKeyRef = useRef<string | undefined>(undefined)
   useEffect(() => {
@@ -126,17 +133,19 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
     }
     if (prevRelayKeyRef.current === relayKey) return
     prevRelayKeyRef.current = relayKey
+    resetForRefetch()
     void fetchRef.current()
-  }, [relayKey])
+  }, [relayKey, resetForRefetch])
 
   /** Logged-in user changed — refetch for the new account. Follow list changes update partition via useMemo. */
   const prevViewerRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (prevViewerRef.current !== undefined && prevViewerRef.current !== viewerPubkey) {
+      resetForRefetch()
       void fetchRef.current()
     }
     prevViewerRef.current = viewerPubkey ?? undefined
-  }, [viewerPubkey])
+  }, [viewerPubkey, resetForRefetch])
 
   /** While the document is visible: poll once per hour; when returning after a long background, catch up if due. */
   useEffect(() => {
