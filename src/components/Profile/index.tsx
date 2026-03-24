@@ -49,7 +49,7 @@ import ProfileFeedWithPins from './ProfileFeedWithPins'
 import ProfileMediaFeed from './ProfileMediaFeed'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { TNoteListRef } from '@/components/NoteList'
-import ProfileHeaderInteractions from './ProfileHeaderInteractions'
+import ProfileInteractionsAccordion from './ProfileInteractionsAccordion'
 import SmartFollowings from './SmartFollowings'
 import SmartMuteLink from './SmartMuteLink'
 import SmartRelays from './SmartRelays'
@@ -62,8 +62,6 @@ import {
 } from '@/components/ScheduleVideoCallDialog'
 import RawEventDialog from '@/components/NoteOptions/RawEventDialog'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
-import { useProfileInteractions } from '@/hooks/useProfileInteractions'
-import { useProfileBadges } from '@/hooks/useProfileBadges'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import { nip66Service } from '@/services/nip66.service'
@@ -287,10 +285,8 @@ export default function Profile({
     [profile]
   )
   const isSelf = accountPubkey === profile?.pubkey
-  const { zaps: profileZaps, reactions: profileReactions, comments: profileComments, loading: profileInteractionsLoading, refresh: refreshProfileInteractions } =
-    useProfileInteractions(profile?.pubkey, profileEvent)
-  const { badges: profileBadges, loading: profileBadgesLoading, refresh: refreshProfileBadges } =
-    useProfileBadges(profile?.pubkey)
+  const [profileInteractionsExpanded, setProfileInteractionsExpanded] = useState(false)
+  const profileInteractionsRefreshRef = useRef<(() => void) | null>(null)
 
   /** All available relays: current feed, favorites, relay sets, defaults (FAST_READ, FAST_WRITE). */
   const allAvailableRelayUrls = useMemo(() => {
@@ -354,8 +350,7 @@ export default function Profile({
     const m = r as MutableRefObject<{ refresh: () => void } | null>
     m.current = {
       refresh: () => {
-        refreshProfileInteractions()
-        refreshProfileBadges()
+        profileInteractionsRefreshRef.current?.()
         postsFeedRef.current?.refresh()
         mediaFeedRef.current?.refresh()
       }
@@ -363,7 +358,7 @@ export default function Profile({
     return () => {
       m.current = null
     }
-  }, [refreshProfileInteractions, refreshProfileBadges])
+  }, [])
 
   useEffect(() => {
     if (!profile?.pubkey) return
@@ -427,7 +422,7 @@ export default function Profile({
                   ? (url) => setOpenCallInviteTo({ pubkey, url })
                   : undefined
               }
-              onProfileInteractionsRefresh={refreshProfileInteractions}
+              onProfileInteractionsRefresh={() => profileInteractionsRefreshRef.current?.()}
             />
             {isSelf ? (
               <DropdownMenu>
@@ -454,7 +449,7 @@ export default function Profile({
                               const evt = await publish(reaction)
                               if (evt) {
                                 showSimplePublishSuccess(t('Reaction published'))
-                                refreshProfileInteractions()
+                                profileInteractionsRefreshRef.current?.()
                               }
                             } finally {
                               setSelfReacting(false)
@@ -510,7 +505,7 @@ export default function Profile({
                 parentEvent={profileEvent}
                 open={openSelfReply}
                 setOpen={setOpenSelfReply}
-                onPublishSuccess={refreshProfileInteractions}
+                onPublishSuccess={() => profileInteractionsRefreshRef.current?.()}
               />
             )}
             {!isSelf ? (
@@ -536,18 +531,18 @@ export default function Profile({
             {nip05List && nip05List.length > 1 && (
               <Nip05List nip05List={nip05List.slice(1)} pubkey={pubkey} />
             )}
-            <div className="flex gap-1 mt-1">
-              <PubkeyCopy pubkey={pubkey} />
+            <div className="flex flex-wrap gap-1 mt-1 min-w-0">
+              <PubkeyCopy pubkey={pubkey} showFull />
               <NpubQrCode pubkey={pubkey} />
             </div>
-            <ProfileHeaderInteractions
-              zaps={profileZaps}
-              reactions={profileReactions}
-              comments={profileComments}
-              badges={profileBadges}
-              loading={profileInteractionsLoading}
-              badgesLoading={profileBadgesLoading}
-            />
+            <div className="mt-4 pt-2">
+              <ProfileInteractionsAccordion
+                pubkey={pubkey}
+                isExpanded={profileInteractionsExpanded}
+                onExpandedChange={setProfileInteractionsExpanded}
+                onRefreshReady={(refresh) => { profileInteractionsRefreshRef.current = refresh ?? null }}
+              />
+            </div>
             <Collapsible>
               <ProfileAbout
                 about={about}

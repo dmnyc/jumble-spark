@@ -1,11 +1,11 @@
-import { E_TAG_FILTER_BLOCKED_RELAY_URLS, ExtendedKind } from '@/constants'
+import { ExtendedKind } from '@/constants'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { queryService } from '@/services/client.service'
+import { hexPubkeysEqual } from '@/lib/pubkey'
 import { Event, Filter, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
-import { useNostr } from '@/providers/NostrProvider'
+import { buildProfileRelayUrls } from '@/lib/profile-relay-urls'
 
 export type TProfileZap = {
   pr: string
@@ -15,9 +15,11 @@ export type TProfileZap = {
   comment?: string
 }
 
-/** Fetches zaps, reactions (likes), and comments for a profile. */
-export function useProfileInteractions(pubkey: string | undefined, profileEvent: Event | undefined) {
-  const { pubkey: accountPubkey } = useNostr()
+const NOTE_IDS_FOR_REACTIONS = 50
+
+/** Fetches zaps, reactions (likes on profile's notes), and comments (on profile's notes). */
+/** Uses profile owner's outboxes + PROFILE_FETCH_RELAY_URLS. Pass relayUrls to share with other profile fetches. */
+export function useProfileInteractions(pubkey: string | undefined, relayUrls?: string[]) {
   const { blockedRelays } = useFavoriteRelays()
   const [zaps, setZaps] = useState<TProfileZap[]>([])
   const [reactions, setReactions] = useState<Event[]>([])
@@ -37,60 +39,110 @@ export function useProfileInteractions(pubkey: string | undefined, profileEvent:
     setLoading(true)
 
     try {
-      const relayUrls = await buildComprehensiveRelayList({
-        authorPubkey: pubkey,
-        userPubkey: accountPubkey ?? undefined,
-        blockedRelays: [...blockedRelays, ...E_TAG_FILTER_BLOCKED_RELAY_URLS],
-        includeFastReadRelays: true,
-        includeSearchableRelays: true,
-        includeProfileFetchRelays: true,
-        includeLocalRelays: true
-      })
-
-      const filters: Filter[] = [{ '#p': [pubkey], kinds: [kinds.Zap], limit: 100 }]
-      if (profileEvent) {
-        filters.push({
-          '#e': [profileEvent.id],
-          kinds: [kinds.Reaction, ExtendedKind.COMMENT],
-          limit: 50
-        })
-      }
+      const urls = relayUrls ?? (await buildProfileRelayUrls(pubkey, blockedRelays))
 
       const collectedZaps: TProfileZap[] = []
-      const collectedReactions: Event[] = []
+      const reactionsByPubkey = new Map<string, Event>() // one reaction per npub, newest kept
       const collectedComments: Event[] = []
       const seenZaps = new Set<string>()
       const seenReactions = new Set<string>()
+      let noteIds: string[] = []
 
-      await queryService.fetchEvents(relayUrls, filters, {
+      // Phase 1: zaps + profile's recent notes (to find reactions/comments on their content)
+      const phase1Filters: Filter[] = [
+        { '#p': [pubkey], kinds: [kinds.Zap], limit: 100 },
+        { authors: [pubkey], kinds: [kinds.ShortTextNote], limit: NOTE_IDS_FOR_REACTIONS }
+      ]
+
+      const flushZaps = () => {
+        if (myFetchId !== fetchIdRef.current) return
+        const sorted = [...collectedZaps].sort((a, b) => b.amount - a.amount)
+        setZaps(sorted)
+      }
+      await queryService.fetchEvents(urls, phase1Filters, {
+        eoseTimeout: 2000,
+        globalTimeout: 15000,
+        firstRelayResultGraceMs: false,
         onevent: (evt) => {
           if (evt.kind === kinds.Zap) {
             const info = getZapInfoFromEvent(evt)
-            if (!info || info.recipientPubkey !== pubkey || !info.amount || info.amount <= 0) return
+            if (!info || !hexPubkeysEqual(info.recipientPubkey ?? '', pubkey) || !info.amount || info.amount <= 0) return
+            const sender = info.senderPubkey ?? evt.pubkey
+            if (hexPubkeysEqual(sender, pubkey)) return // skip self-zaps (likely tests)
             if (seenZaps.has(evt.id)) return
             seenZaps.add(evt.id)
             collectedZaps.push({
               pr: evt.id,
-              pubkey: info.senderPubkey ?? evt.pubkey,
+              pubkey: sender,
               amount: info.amount,
               created_at: evt.created_at,
               comment: info.comment
             })
-          } else if (evt.kind === kinds.Reaction || evt.kind === ExtendedKind.COMMENT) {
-            if (seenReactions.has(evt.id)) return
-            seenReactions.add(evt.id)
-            if (evt.kind === kinds.Reaction) {
-              collectedReactions.push(evt)
-            } else {
-              collectedComments.push(evt)
-            }
+            flushZaps() // render incrementally as events arrive from slow relays
+          } else if (evt.kind === kinds.ShortTextNote) {
+            noteIds.push(evt.id)
           }
         }
       })
 
+      noteIds = [...new Set(noteIds)].slice(0, NOTE_IDS_FOR_REACTIONS)
+      if (myFetchId !== fetchIdRef.current) return
+
+      const flushReactions = () => {
+        if (myFetchId !== fetchIdRef.current) return
+        setReactions(Array.from(reactionsByPubkey.values()).sort((a, b) => b.created_at - a.created_at))
+      }
+      const flushComments = () => {
+        if (myFetchId !== fetchIdRef.current) return
+        setComments([...collectedComments].sort((a, b) => b.created_at - a.created_at))
+      }
+      const handleReactionOrComment = (evt: Event) => {
+        if (hexPubkeysEqual(evt.pubkey, pubkey)) return // skip self-reactions/self-comments (likely tests)
+        if (seenReactions.has(evt.id)) return
+        seenReactions.add(evt.id)
+        if (evt.kind === kinds.Reaction) {
+          const existing = reactionsByPubkey.get(evt.pubkey)
+          if (!existing || evt.created_at > existing.created_at) {
+            reactionsByPubkey.set(evt.pubkey, evt)
+          }
+          flushReactions()
+        } else {
+          collectedComments.push(evt)
+          flushComments()
+        }
+      }
+
+      const phase2Opts = {
+        eoseTimeout: 2000,
+        globalTimeout: 15000,
+        firstRelayResultGraceMs: false as const,
+        onevent: (evt: Event) => {
+          if (evt.kind === kinds.Reaction || evt.kind === ExtendedKind.COMMENT) {
+            handleReactionOrComment(evt)
+          }
+        }
+      }
+
+      // Phase 2a: reactions and comments on profile's notes (#e)
+      if (noteIds.length > 0) {
+        await queryService.fetchEvents(urls, [{
+          '#e': noteIds,
+          kinds: [kinds.Reaction, ExtendedKind.COMMENT],
+          limit: 50
+        }], phase2Opts)
+      }
+
+      // Phase 2b: comments ON the profile itself (kind 0) - use #a (required), p is optional
+      const profileAddrs = [`0:${pubkey}:`, `0:${pubkey}:profile`]
+      await queryService.fetchEvents(urls, [{
+        '#a': profileAddrs,
+        kinds: [ExtendedKind.COMMENT],
+        limit: 50
+      }], phase2Opts)
+
       if (myFetchId !== fetchIdRef.current) return
       collectedZaps.sort((a, b) => b.amount - a.amount)
-      collectedReactions.sort((a, b) => b.created_at - a.created_at)
+      const collectedReactions = Array.from(reactionsByPubkey.values()).sort((a, b) => b.created_at - a.created_at)
       collectedComments.sort((a, b) => b.created_at - a.created_at)
       setZaps(collectedZaps)
       setReactions(collectedReactions)
@@ -100,7 +152,7 @@ export function useProfileInteractions(pubkey: string | undefined, profileEvent:
     } finally {
       if (myFetchId === fetchIdRef.current) setLoading(false)
     }
-  }, [pubkey, profileEvent?.id, accountPubkey, blockedRelays])
+  }, [pubkey, blockedRelays, relayUrls])
 
   useEffect(() => {
     fetchAll()
@@ -111,6 +163,6 @@ export function useProfileInteractions(pubkey: string | undefined, profileEvent:
 
 /** @deprecated Use useProfileInteractions instead. Returns zaps only for compatibility. */
 export function useProfileZaps(pubkey: string | undefined) {
-  const result = useProfileInteractions(pubkey, undefined)
+  const result = useProfileInteractions(pubkey)
   return { zaps: result.zaps, loading: result.loading, refresh: result.refresh }
 }

@@ -239,7 +239,8 @@ export const PROFILE_RELAY_URLS = [
     'wss://nos.lol',
     'wss://relay.damus.io',
     'wss://profiles.nostr1.com',
-    'wss://purplepag.es'
+    'wss://purplepag.es',
+    'wss://thecitadel.nostr1.com'
   ]
 
 // Combined relay URLs for profile fetching - includes both FAST_READ_RELAY_URLS and SEARCHABLE_RELAY_URLS

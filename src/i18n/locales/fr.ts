@@ -442,6 +442,7 @@ export default {
     Bookmarks: 'Favoris',
     'Follow Packs': 'Follow Packs',
     'Follow Pack': 'Follow Pack',
+    'In Follow Packs': 'Dans les Follow Packs',
     'Please log in to follow': 'Please log in to follow',
     'Following All': 'Following All',
     'Followed {{count}} users': 'Followed {{count}} users',

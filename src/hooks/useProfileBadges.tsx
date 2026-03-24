@@ -1,10 +1,9 @@
-import { E_TAG_FILTER_BLOCKED_RELAY_URLS, ExtendedKind } from '@/constants'
+import { ExtendedKind } from '@/constants'
 import { queryService, replaceableEventService } from '@/services/client.service'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { tagNameEquals } from '@/lib/tag'
-import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
-import { useNostr } from '@/providers/NostrProvider'
+import { buildProfileRelayUrls } from '@/lib/profile-relay-urls'
 
 export type TProfileBadge = {
   /** Badge definition coordinate (e.g. "30009:alice:bravery") */
@@ -29,8 +28,8 @@ function parseATag(aTag: string): { kind: number; pubkey: string; d: string } | 
 }
 
 /** NIP-58: Fetches profile badges (kind 30008) and resolves badge definitions (kind 30009). */
-export function useProfileBadges(pubkey: string | undefined) {
-  const { pubkey: accountPubkey } = useNostr()
+/** Pass relayUrls to share with other profile fetches. */
+export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[]) {
   const { blockedRelays } = useFavoriteRelays()
   const [badges, setBadges] = useState<TProfileBadge[]>([])
   const [loading, setLoading] = useState(false)
@@ -46,20 +45,12 @@ export function useProfileBadges(pubkey: string | undefined) {
     setLoading(true)
 
     try {
-      const relayUrls = await buildComprehensiveRelayList({
-        authorPubkey: pubkey,
-        userPubkey: accountPubkey ?? undefined,
-        blockedRelays: [...blockedRelays, ...E_TAG_FILTER_BLOCKED_RELAY_URLS],
-        includeFastReadRelays: true,
-        includeSearchableRelays: true,
-        includeProfileFetchRelays: true,
-        includeLocalRelays: true
-      })
+      const urls = relayUrls ?? (await buildProfileRelayUrls(pubkey, blockedRelays))
 
       const events = await queryService.fetchEvents(
-        relayUrls,
+        urls,
         { authors: [pubkey], kinds: [ExtendedKind.PROFILE_BADGES], '#d': ['profile_badges'] },
-        undefined
+        { eoseTimeout: 2000, globalTimeout: 15000, firstRelayResultGraceMs: false }
       )
       const profileBadgesEvent = events.sort((a, b) => b.created_at - a.created_at)[0]
 
@@ -118,7 +109,7 @@ export function useProfileBadges(pubkey: string | undefined) {
     } finally {
       if (myFetchId === fetchIdRef.current) setLoading(false)
     }
-  }, [pubkey, accountPubkey, blockedRelays])
+  }, [pubkey, blockedRelays, relayUrls])
 
   useEffect(() => {
     fetchBadges()

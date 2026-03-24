@@ -8,7 +8,8 @@ import Emoji from '@/components/Emoji'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import type { TProfileZap } from '@/hooks/useProfileInteractions'
 import type { TProfileBadge } from '@/hooks/useProfileBadges'
-import { Zap, MessageCircle, ThumbsUp } from 'lucide-react'
+import type { TProfileFollowPack } from '@/hooks/useProfileFollowPacks'
+import { Zap, MessageCircle, ThumbsUp, Users } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslation } from 'react-i18next'
 import { Event } from 'nostr-tools'
@@ -18,8 +19,10 @@ type Props = {
   reactions: Event[]
   comments: Event[]
   badges: TProfileBadge[]
+  followPacks: TProfileFollowPack[]
   loading: boolean
   badgesLoading: boolean
+  followPacksLoading: boolean
 }
 
 const ZAPS_PER_ROW = 4
@@ -28,6 +31,7 @@ const MAX_ZAPS = ZAPS_PER_ROW * ZAP_ROWS
 const BADGES_PER_ROW = 4
 const BADGE_ROWS = 2
 const MAX_BADGES = BADGES_PER_ROW * BADGE_ROWS
+const MAX_FOLLOW_PACKS = 8
 
 function ZapBadge({ zap }: { zap: TProfileZap }) {
   const { push } = useSecondaryPage()
@@ -85,6 +89,21 @@ function CommentBadge({ event }: { event: Event }) {
   )
 }
 
+function FollowPackBadge({ pack }: { pack: TProfileFollowPack }) {
+  const { push } = useSecondaryPage()
+  return (
+    <button
+      type="button"
+      className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/80 border hover:bg-muted cursor-pointer text-left min-w-0 w-full"
+      onClick={() => push(toNote(pack.event.id))}
+      title={pack.title}
+    >
+      <Users className="size-3 shrink-0 text-primary" aria-hidden />
+      <span className="truncate text-xs text-foreground min-w-0">{pack.title}</span>
+    </button>
+  )
+}
+
 function BadgeItem({ badge }: { badge: TProfileBadge }) {
   const imageUrl = badge.thumb ?? badge.image
   const label = badge.name ?? badge.a.split(':').pop() ?? ''
@@ -116,10 +135,20 @@ function BadgeItem({ badge }: { badge: TProfileBadge }) {
   )
 }
 
-export default function ProfileHeaderInteractions({ zaps, reactions, comments, badges, loading, badgesLoading }: Props) {
+export default function ProfileHeaderInteractions({
+  zaps,
+  reactions,
+  comments,
+  badges,
+  followPacks,
+  loading,
+  badgesLoading,
+  followPacksLoading
+}: Props) {
   const { t } = useTranslation()
   const displayZaps = zaps.slice(0, MAX_ZAPS)
   const displayBadges = badges.slice(0, MAX_BADGES)
+  const displayFollowPacks = followPacks.slice(0, MAX_FOLLOW_PACKS)
 
   const Section = ({ title, isEmpty, isLoading, children, skeletonCount = 6 }: {
     title: string
@@ -171,6 +200,13 @@ export default function ProfileHeaderInteractions({ zaps, reactions, comments, b
         <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 grid-rows-2 gap-1.5">
           {displayBadges.map((badge) => (
             <BadgeItem key={`${badge.a}-${badge.awardId}`} badge={badge} />
+          ))}
+        </div>
+      </Section>
+      <Section title={t('In Follow Packs')} isEmpty={displayFollowPacks.length === 0} isLoading={followPacksLoading} skeletonCount={6}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+          {displayFollowPacks.map((pack) => (
+            <FollowPackBadge key={pack.event.id} pack={pack} />
           ))}
         </div>
       </Section>

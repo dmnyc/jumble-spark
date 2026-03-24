@@ -479,6 +479,7 @@ export default {
     Bookmarks: 'Lesezeichen',
     'Follow Packs': 'Follow-Packs',
     'Follow Pack': 'Follow-Pack',
+    'In Follow Packs': 'In Follow-Packs',
     'Please log in to follow': 'Zum Folgen bitte anmelden',
     'Following All': 'Allen gefolgt',
     'Followed {{count}} users': '{{count}} Nutzer:innen gefolgt',
