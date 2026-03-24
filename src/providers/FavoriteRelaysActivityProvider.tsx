@@ -1,10 +1,11 @@
 import logger from '@/lib/logger'
 import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
-import { hexPubkeysEqual, normalizeHexPubkey } from '@/lib/pubkey'
+import { hexPubkeysEqual, normalizeHexPubkey, userIdToPubkey } from '@/lib/pubkey'
+import { getPubkeysFromPTags } from '@/lib/tag'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
-import { useFollowListOptional } from '@/providers/FollowListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { queryService, replaceableEventService } from '@/services/client.service'
+import indexedDb from '@/services/indexed-db.service'
 import type { Event } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -14,6 +15,7 @@ import {
 } from './favorite-relays-activity-context'
 
 const ACTIVE_WINDOW_SEC = 3600
+const FETCH_RETRY_DELAY_MS = 2500
 /** Wall-clock cadence while the tab is visible */
 const POLL_INTERVAL_MS = 60 * 60 * 1000
 /** Enough events to surface many distinct authors without overloading relays */
@@ -40,13 +42,16 @@ function partitionByFollows(orderedPubkeys: string[], followings: string[]) {
     }
   }
   const followSet = new Set(
-    followings.map((p) => normalizeHexPubkey(p)).filter((p) => p.length === 64)
+    followings
+      .map((p) => userIdToPubkey(p))
+      .filter((hex): hex is string => !!hex && /^[0-9a-f]{64}$/i.test(hex))
+      .map((hex) => hex.toLowerCase())
   )
   const followPubkeys: string[] = []
   const otherPubkeys: string[] = []
   for (const pk of orderedPubkeys) {
-    const normalized = normalizeHexPubkey(pk)
-    if (normalized.length === 64 && followSet.has(normalized)) followPubkeys.push(pk)
+    const hex = normalizeHexPubkey(pk)
+    if (hex.length === 64 && followSet.has(hex)) followPubkeys.push(pk)
     else otherPubkeys.push(pk)
   }
   return {
@@ -59,9 +64,11 @@ function partitionByFollows(orderedPubkeys: string[], followings: string[]) {
 
 export function FavoriteRelaysActivityProvider({ children }: { children: React.ReactNode }) {
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
-  const followList = useFollowListOptional()
-  const followings = followList?.followings ?? []
-  const { pubkey: viewerPubkey } = useNostr()
+  const { pubkey: viewerPubkey, followListEvent } = useNostr()
+  const followings = useMemo(
+    () => (followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []),
+    [followListEvent]
+  )
   const [orderedPubkeys, setOrderedPubkeys] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [relayActivityReady, setRelayActivityReady] = useState(false)
@@ -69,49 +76,54 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
   const [profileKind0ByPubkey, setProfileKind0ByPubkey] = useState<Record<string, Event>>({})
   const [profilesLoading, setProfilesLoading] = useState(false)
   const [activeNpubsDrawerOpen, setActiveNpubsDrawerOpen] = useState(false)
+  const [fallbackFollowings, setFallbackFollowings] = useState<string[]>([])
   const lastCompletedFetchAtRef = useRef(Date.now())
   const relayKey = useMemo(
     () => getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays).join('\n'),
     [favoriteRelays, blockedRelays]
   )
 
-  const fetchActive = useCallback(async () => {
-    const urls = getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
-    if (urls.length === 0) {
-      setOrderedPubkeys([])
-      setProfileKind0ByPubkey({})
-      setLoading(false)
-      setRelayActivityReady(true)
-      const now = Date.now()
-      lastCompletedFetchAtRef.current = now
-      setLastFetchedAtMs(now)
-      return
-    }
-    setLoading(true)
-    const since = Math.floor(Date.now() / 1000) - ACTIVE_WINDOW_SEC
-    try {
-      const events = await queryService.fetchEvents(
-        urls,
-        { since, limit: REQ_LIMIT },
-        {
-          firstRelayResultGraceMs: false,
-          eoseTimeout: 1800,
-          globalTimeout: 14_000
+  const fetchActive = useCallback(
+    async (useDefaultRelays = false) => {
+      const urls = useDefaultRelays
+        ? getFavoritesFeedRelayUrls([], blockedRelays)
+        : getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
+      if (urls.length === 0) {
+        setLoading(false)
+        setRelayActivityReady(true)
+        const now = Date.now()
+        lastCompletedFetchAtRef.current = now
+        setLastFetchedAtMs(now)
+        return
+      }
+      setLoading(true)
+      const since = Math.floor(Date.now() / 1000) - ACTIVE_WINDOW_SEC
+      try {
+        const events = await queryService.fetchEvents(
+          urls,
+          { since, limit: REQ_LIMIT },
+          {
+            firstRelayResultGraceMs: false,
+            eoseTimeout: 1800,
+            globalTimeout: 14_000
+          }
+        )
+        const now = Date.now()
+        setOrderedPubkeys(aggregatePubkeysByRecency(events))
+        lastCompletedFetchAtRef.current = now
+        setLastFetchedAtMs(now)
+      } catch (error) {
+        logger.debug('[FavoriteRelaysActivity] fetch failed', { error, useDefaultRelays })
+        if (!useDefaultRelays && favoriteRelays.length > 0) {
+          setTimeout(() => void fetchRef.current(true), FETCH_RETRY_DELAY_MS)
         }
-      )
-      setOrderedPubkeys(aggregatePubkeysByRecency(events))
-    } catch (error) {
-      logger.debug('[FavoriteRelaysActivity] fetch failed', { error })
-      setOrderedPubkeys([])
-      setProfileKind0ByPubkey({})
-    } finally {
-      setLoading(false)
-      setRelayActivityReady(true)
-      const now = Date.now()
-      lastCompletedFetchAtRef.current = now
-      setLastFetchedAtMs(now)
-    }
-  }, [favoriteRelays, blockedRelays])
+      } finally {
+        setLoading(false)
+        setRelayActivityReady(true)
+      }
+    },
+    [favoriteRelays, blockedRelays]
+  )
 
   const fetchRef = useRef(fetchActive)
   fetchRef.current = fetchActive
@@ -123,7 +135,8 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
     setProfileKind0ByPubkey({})
   }, [])
 
-  /** Initial fetch on mount and when relay set changes (refresh snapshot, not hourly cadence). */
+  /** Initial fetch on mount and when relay set changes. Use stale-while-revalidate: keep previous
+   * data visible until new fetch completes instead of clearing and showing skeleton. */
   const prevRelayKeyRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (prevRelayKeyRef.current === undefined) {
@@ -133,19 +146,39 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
     }
     if (prevRelayKeyRef.current === relayKey) return
     prevRelayKeyRef.current = relayKey
-    resetForRefetch()
     void fetchRef.current()
-  }, [relayKey, resetForRefetch])
+  }, [relayKey])
 
   /** Logged-in user changed — refetch for the new account. Follow list changes update partition via useMemo. */
   const prevViewerRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     if (prevViewerRef.current !== undefined && prevViewerRef.current !== viewerPubkey) {
       resetForRefetch()
+      setFallbackFollowings([])
       void fetchRef.current()
     }
     prevViewerRef.current = viewerPubkey ?? undefined
   }, [viewerPubkey, resetForRefetch])
+
+  /** When follow list from context is empty but we have a logged-in viewer, try IndexedDB cache.
+   * Fixes race where pulse data arrives before NostrProvider has hydrated follow list from cache. */
+  useEffect(() => {
+    if (!viewerPubkey || followings.length > 0) {
+      setFallbackFollowings([])
+      return
+    }
+    let cancelled = false
+    indexedDb
+      .getReplaceableEvent(viewerPubkey, kinds.Contacts)
+      .then((evt) => {
+        if (cancelled || !evt) return
+        setFallbackFollowings(getPubkeysFromPTags(evt.tags))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [viewerPubkey, followings.length])
 
   /** While the document is visible: poll once per hour; when returning after a long background, catch up if due. */
   useEffect(() => {
@@ -222,9 +255,10 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
     return orderedPubkeys.filter((pk) => !hexPubkeysEqual(pk, viewerPubkey))
   }, [orderedPubkeys, viewerPubkey])
 
+  const effectiveFollowings = followings.length > 0 ? followings : fallbackFollowings
   const { followPubkeys, otherPubkeys, followCount, otherCount } = useMemo(
-    () => partitionByFollows(displayPubkeys, followings),
-    [displayPubkeys, followings]
+    () => partitionByFollows(displayPubkeys, effectiveFollowings),
+    [displayPubkeys, effectiveFollowings]
   )
 
   const pubkeys = useMemo(

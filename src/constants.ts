@@ -122,6 +122,8 @@ export const StorageKey = {
   SHOW_RSS_FEED: 'showRssFeed',
   PANE_MODE: 'paneMode',
   ADD_RANDOM_RELAYS_TO_PUBLISH: 'addRandomRelaysToPublish',
+  /** Temporary draft cache: new notes and replies. Persisted after 30s idle; restored on refresh; cleared on logout/switch. */
+  POST_EDITOR_DRAFT: 'postEditorDraft',
   MEDIA_UPLOAD_SERVICE: 'mediaUploadService', // deprecated
   HIDE_UNTRUSTED_EVENTS: 'hideUntrustedEvents', // deprecated
   ACCOUNT_RELAY_LIST_EVENT_MAP: 'accountRelayListEventMap', // deprecated

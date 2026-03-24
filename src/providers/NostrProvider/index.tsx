@@ -27,6 +27,7 @@ import client from '@/services/client.service'
 import { queryService, replaceableEventService } from '@/services/client.service'
 import customEmojiService from '@/services/custom-emoji.service'
 import indexedDb from '@/services/indexed-db.service'
+import postEditorCache from '@/services/post-editor-cache.service'
 import storage from '@/services/local-storage.service'
 import noteStatsService from '@/services/note-stats.service'
 import {
@@ -687,6 +688,17 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         .catch(() => {})
     }
   }, [account, accountNetworkHydrateBump])
+
+  /** Clear persisted post draft when user logs out or switches accounts (not on initial load). */
+  const prevAccountPubkeyRef = useRef<string | null | undefined>(undefined)
+  useEffect(() => {
+    const prev = prevAccountPubkeyRef.current
+    const curr = account?.pubkey ?? null
+    prevAccountPubkeyRef.current = curr
+    if (prev !== undefined && prev !== curr) {
+      postEditorCache.clearOnAccountChange()
+    }
+  }, [account?.pubkey])
 
   /** Recovery: if hydrate finished but follow list is still null, fetch using user write + search relays. */
   useEffect(() => {

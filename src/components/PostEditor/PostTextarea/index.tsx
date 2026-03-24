@@ -153,10 +153,10 @@ const PostTextarea = forwardRef<
           return parseEditorJsonToText(content.toJSON())
         }
       },
-      content: postEditorCache.getPostContentCache({ defaultContent, parentEvent }),
+      content: postEditorCache.getPostContentCache({ kind, defaultContent, parentEvent }),
       onUpdate(props) {
         setText(parseEditorJsonToText(props.editor.getJSON()))
-        postEditorCache.setPostContentCache({ defaultContent, parentEvent }, props.editor.getJSON())
+        postEditorCache.setPostContentCache({ kind, defaultContent, parentEvent }, props.editor.getJSON())
       },
       onCreate(props) {
         setText(parseEditorJsonToText(props.editor.getJSON()))
@@ -207,7 +207,7 @@ const PostTextarea = forwardRef<
           // Clear the editor content and reset to empty document
           editor.chain().clearContent().run()
           // Also clear the cache
-          postEditorCache.setPostContentCache({ defaultContent, parentEvent }, editor.getJSON())
+          postEditorCache.setPostContentCache({ kind, defaultContent, parentEvent }, editor.getJSON())
           setText('')
         }
       },

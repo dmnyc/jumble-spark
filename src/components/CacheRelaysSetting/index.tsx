@@ -272,7 +272,7 @@ export default function CacheRelaysSetting() {
       }
 
       // Clear post editor cache
-      postEditorCache.clearPostCache({})
+      postEditorCache.clearAllPostCaches()
 
       // Clear in-memory caches so profile pics and reactions work after clear
       client.clearInMemoryCaches()

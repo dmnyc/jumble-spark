@@ -1,12 +1,22 @@
+import { StorageKey } from '@/constants'
+import storage from '@/services/local-storage.service'
 import { TPollCreateData } from '@/types'
 import { Content } from '@tiptap/react'
 import { Event } from 'nostr-tools'
+
+const PERSIST_DEBOUNCE_MS = 30_000
 
 type TPostSettings = {
   isNsfw?: boolean
   isPoll?: boolean
   pollCreateData?: TPollCreateData
   addClientTag?: boolean
+}
+
+type TCacheKeyParams = {
+  kind: number
+  defaultContent?: string
+  parentEvent?: Event
 }
 
 /** Cached draft for the Discussions "Create Thread" dialog (kind 11). */
@@ -16,12 +26,21 @@ export type TThreadDraft = {
   topic: string
 }
 
+type TPersistedDraft = {
+  accountPubkey: string
+  postContentCache: Record<string, Content>
+  postSettingsCache: Record<string, TPostSettings>
+  threadDraft: TThreadDraft | null
+}
+
 class PostEditorCacheService {
   static instance: PostEditorCacheService
 
   private postContentCache: Map<string, Content> = new Map()
   private postSettingsCache: Map<string, TPostSettings> = new Map()
   private threadDraftCache: TThreadDraft | null = null
+  private persistTimeoutId: ReturnType<typeof setTimeout> | null = null
+  private restoredFromStorage = false
 
   constructor() {
     if (!PostEditorCacheService.instance) {
@@ -38,11 +57,89 @@ class PostEditorCacheService {
     return text.replace(/&/g, '&amp;')
   }
 
-  getPostContentCache({
-    defaultContent,
-    parentEvent
-  }: { defaultContent?: string; parentEvent?: Event } = {}) {
-    const cached = this.postContentCache.get(this.generateCacheKey(defaultContent, parentEvent))
+  private restoreFromStorageIfNeeded() {
+    if (this.restoredFromStorage) return
+    this.restoredFromStorage = true
+    const account = storage.getCurrentAccount()
+    if (!account?.pubkey) return
+    try {
+      const raw = window.localStorage.getItem(StorageKey.POST_EDITOR_DRAFT)
+      if (!raw) return
+      const data = JSON.parse(raw) as TPersistedDraft
+      if (data.accountPubkey !== account.pubkey) return
+      if (data.postContentCache && typeof data.postContentCache === 'object') {
+        Object.entries(data.postContentCache).forEach(([k, v]) => {
+          if (v) this.postContentCache.set(k, v)
+        })
+      }
+      if (data.postSettingsCache && typeof data.postSettingsCache === 'object') {
+        Object.entries(data.postSettingsCache).forEach(([k, v]) => {
+          if (v) this.postSettingsCache.set(k, v)
+        })
+      }
+      if (data.threadDraft) {
+        this.threadDraftCache = data.threadDraft
+      }
+    } catch {
+      // Ignore corrupt or stale data
+    }
+  }
+
+  private schedulePersist() {
+    if (this.persistTimeoutId) {
+      clearTimeout(this.persistTimeoutId)
+    }
+    this.persistTimeoutId = setTimeout(() => {
+      this.persistTimeoutId = null
+      this.persistNow()
+    }, PERSIST_DEBOUNCE_MS)
+  }
+
+  private persistNow() {
+    const account = storage.getCurrentAccount()
+    if (!account?.pubkey) return
+    try {
+      const postContentCache: Record<string, Content> = {}
+      this.postContentCache.forEach((v, k) => {
+        postContentCache[k] = v
+      })
+      const postSettingsCache: Record<string, TPostSettings> = {}
+      this.postSettingsCache.forEach((v, k) => {
+        postSettingsCache[k] = v
+      })
+      const data: TPersistedDraft = {
+        accountPubkey: account.pubkey,
+        postContentCache,
+        postSettingsCache,
+        threadDraft: this.threadDraftCache
+      }
+      window.localStorage.setItem(StorageKey.POST_EDITOR_DRAFT, JSON.stringify(data))
+    } catch {
+      // Ignore quota / serialization errors
+    }
+  }
+
+  /** Call when user logs out or switches accounts. Clears in-memory cache and persisted draft. */
+  clearOnAccountChange() {
+    if (this.persistTimeoutId) {
+      clearTimeout(this.persistTimeoutId)
+      this.persistTimeoutId = null
+    }
+    this.postContentCache.clear()
+    this.postSettingsCache.clear()
+    this.threadDraftCache = null
+    this.restoredFromStorage = false
+    try {
+      window.localStorage.removeItem(StorageKey.POST_EDITOR_DRAFT)
+    } catch {
+      // Ignore
+    }
+  }
+
+  getPostContentCache({ kind, defaultContent, parentEvent }: TCacheKeyParams) {
+    this.restoreFromStorageIfNeeded()
+    const cacheKey = this.generateCacheKey({ kind, defaultContent, parentEvent })
+    const cached = this.postContentCache.get(cacheKey)
     if (cached !== undefined) return cached
     if (defaultContent !== undefined && defaultContent !== '') {
       return this.escapeAmpersandsForHtml(defaultContent)
@@ -50,53 +147,67 @@ class PostEditorCacheService {
     return defaultContent
   }
 
-  setPostContentCache(
-    { defaultContent, parentEvent }: { defaultContent?: string; parentEvent?: Event },
-    content: Content
-  ) {
-    this.postContentCache.set(this.generateCacheKey(defaultContent, parentEvent), content)
+  setPostContentCache({ kind, defaultContent, parentEvent }: TCacheKeyParams, content: Content) {
+    const cacheKey = this.generateCacheKey({ kind, defaultContent, parentEvent })
+    this.postContentCache.set(cacheKey, content)
+    this.schedulePersist()
   }
 
-  getPostSettingsCache({
-    defaultContent,
-    parentEvent
-  }: { defaultContent?: string; parentEvent?: Event } = {}): TPostSettings | undefined {
-    return this.postSettingsCache.get(this.generateCacheKey(defaultContent, parentEvent))
+  getPostSettingsCache({ kind, defaultContent, parentEvent }: TCacheKeyParams): TPostSettings | undefined {
+    this.restoreFromStorageIfNeeded()
+    return this.postSettingsCache.get(this.generateCacheKey({ kind, defaultContent, parentEvent }))
   }
 
-  setPostSettingsCache(
-    { defaultContent, parentEvent }: { defaultContent?: string; parentEvent?: Event },
-    settings: TPostSettings
-  ) {
-    this.postSettingsCache.set(this.generateCacheKey(defaultContent, parentEvent), settings)
+  setPostSettingsCache({ kind, defaultContent, parentEvent }: TCacheKeyParams, settings: TPostSettings) {
+    const cacheKey = this.generateCacheKey({ kind, defaultContent, parentEvent })
+    this.postSettingsCache.set(cacheKey, settings)
+    this.schedulePersist()
   }
 
-  clearPostCache({
-    defaultContent,
-    parentEvent
-  }: {
-    defaultContent?: string
-    parentEvent?: Event
-  }) {
-    const cacheKey = this.generateCacheKey(defaultContent, parentEvent)
+  clearPostCache({ kind, defaultContent, parentEvent }: TCacheKeyParams) {
+    const cacheKey = this.generateCacheKey({ kind, defaultContent, parentEvent })
     this.postContentCache.delete(cacheKey)
     this.postSettingsCache.delete(cacheKey)
+    if (this.persistTimeoutId) {
+      clearTimeout(this.persistTimeoutId)
+      this.persistTimeoutId = null
+    }
+    this.persistNow()
   }
 
-  generateCacheKey(defaultContent: string = '', parentEvent?: Event): string {
-    return parentEvent ? parentEvent.id : defaultContent
+  /** Clear all post and settings drafts. Use when user explicitly clears caches. */
+  clearAllPostCaches() {
+    this.postContentCache.clear()
+    this.postSettingsCache.clear()
+    if (this.persistTimeoutId) {
+      clearTimeout(this.persistTimeoutId)
+      this.persistTimeoutId = null
+    }
+    this.persistNow()
+  }
+
+  generateCacheKey({ kind, defaultContent = '', parentEvent }: TCacheKeyParams): string {
+    const parentPart = parentEvent ? parentEvent.id : ''
+    return `${kind}:${parentPart}`
   }
 
   getThreadDraft(): TThreadDraft | null {
+    this.restoreFromStorageIfNeeded()
     return this.threadDraftCache
   }
 
   setThreadDraft(draft: TThreadDraft): void {
     this.threadDraftCache = draft
+    this.schedulePersist()
   }
 
   clearThreadDraft(): void {
     this.threadDraftCache = null
+    if (this.persistTimeoutId) {
+      clearTimeout(this.persistTimeoutId)
+      this.persistTimeoutId = null
+    }
+    this.persistNow()
   }
 }
 

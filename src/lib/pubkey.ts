@@ -78,7 +78,7 @@ export function hexPubkeysEqual(a: string, b: string): boolean {
 }
 
 export function isValidPubkey(pubkey: string) {
-  return /^[0-9a-f]{64}$/.test(pubkey)
+  return /^[0-9a-f]{64}$/i.test(pubkey)
 }
 
 const pubkeyImageCache = new LRUCache<string, string>({ max: 1000 })

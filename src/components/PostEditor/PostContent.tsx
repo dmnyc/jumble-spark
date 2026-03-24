@@ -308,39 +308,6 @@ export default function PostContent({
     }
   }, [initialHighlightData])
 
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false
-      const cachedSettings = postEditorCache.getPostSettingsCache({
-        defaultContent,
-        parentEvent
-      })
-      if (cachedSettings) {
-        setIsNsfw(cachedSettings.isNsfw ?? false)
-        setIsPoll(cachedSettings.isPoll ?? false)
-        setPollCreateData(
-          cachedSettings.pollCreateData ?? {
-            isMultipleChoice: false,
-            options: ['', ''],
-            endsAt: undefined,
-            relays: []
-          }
-        )
-        setAddClientTag(cachedSettings.addClientTag ?? storage.getAddClientTag())
-      }
-      return
-    }
-    postEditorCache.setPostSettingsCache(
-      { defaultContent, parentEvent },
-      {
-        isNsfw,
-        isPoll,
-        pollCreateData,
-        addClientTag
-      }
-    )
-  }, [defaultContent, parentEvent, isNsfw, isPoll, pollCreateData, addClientTag])
-
   // Extract mentions from content for public messages
   const extractMentionsFromContent = useCallback(async (content: string) => {
     try {
@@ -439,6 +406,40 @@ export default function PostContent({
     isPoll,
     parentEvent
   ])
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      const cachedSettings = postEditorCache.getPostSettingsCache({
+        kind: getDeterminedKind,
+        defaultContent,
+        parentEvent
+      })
+      if (cachedSettings) {
+        setIsNsfw(cachedSettings.isNsfw ?? false)
+        setIsPoll(cachedSettings.isPoll ?? false)
+        setPollCreateData(
+          cachedSettings.pollCreateData ?? {
+            isMultipleChoice: false,
+            options: ['', ''],
+            endsAt: undefined,
+            relays: []
+          }
+        )
+        setAddClientTag(cachedSettings.addClientTag ?? storage.getAddClientTag())
+      }
+      return
+    }
+    postEditorCache.setPostSettingsCache(
+      { kind: getDeterminedKind, defaultContent, parentEvent },
+      {
+        isNsfw,
+        isPoll,
+        pollCreateData,
+        addClientTag
+      }
+    )
+  }, [getDeterminedKind, defaultContent, parentEvent, isNsfw, isPoll, pollCreateData, addClientTag])
 
   const rssReplyExtraPreviewTags = useMemo((): string[][] | undefined => {
     if (!parentEvent || parentEvent.kind !== ExtendedKind.RSS_THREAD_ROOT) return undefined
@@ -920,7 +921,7 @@ export default function PostContent({
         }
         
         // Full success - clean up and close
-        postEditorCache.clearPostCache({ defaultContent, parentEvent })
+        postEditorCache.clearPostCache({ kind: getDeterminedKind, defaultContent, parentEvent })
         deleteDraftEventCache(draftEvent)
         const relayStatuses = (newEvent as any).relayStatuses as TRelayPublishStatus[] | undefined
         const cleanEvent = { ...newEvent }
@@ -970,7 +971,7 @@ export default function PostContent({
               delete (clean as any).relayStatuses
               mergePublishedReplyIntoThread(clean, (error as any).relayStatuses)
             }
-            postEditorCache.clearPostCache({ defaultContent, parentEvent })
+            postEditorCache.clearPostCache({ kind: getDeterminedKind, defaultContent, parentEvent })
             if (draftEvent) deleteDraftEventCache(draftEvent)
             onPublishSuccess?.()
             close()
@@ -1482,7 +1483,7 @@ export default function PostContent({
 
   const handleClear = () => {
     // Clear the post editor cache
-    postEditorCache.clearPostCache({ defaultContent, parentEvent })
+    postEditorCache.clearPostCache({ kind: getDeterminedKind, defaultContent, parentEvent })
     
     // Clear the editor content
     textareaRef.current?.clear()

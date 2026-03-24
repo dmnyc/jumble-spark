@@ -290,7 +290,7 @@ export default function CreateThreadDialog({
     setTopicInput(displayTopicLabel('general', DISCUSSION_TOPICS))
     setErrors({})
     postEditorCache.clearThreadDraft()
-    postEditorCache.clearPostCache({ parentEvent: THREAD_POST_EDITOR_PARENT })
+    postEditorCache.clearPostCache({ kind: ExtendedKind.DISCUSSION, parentEvent: THREAD_POST_EDITOR_PARENT })
     postTextareaRef.current?.clear()
   }, [])
 
@@ -542,7 +542,7 @@ export default function CreateThreadDialog({
         }
         
         postEditorCache.clearThreadDraft()
-        postEditorCache.clearPostCache({ parentEvent: THREAD_POST_EDITOR_PARENT })
+        postEditorCache.clearPostCache({ kind: ExtendedKind.DISCUSSION, parentEvent: THREAD_POST_EDITOR_PARENT })
         onThreadCreated(publishedEvent)
         onClose()
       } else {
