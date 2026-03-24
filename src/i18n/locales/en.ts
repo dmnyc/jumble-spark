@@ -415,6 +415,7 @@ export default {
     All: 'All',
     Reactions: 'Reactions',
     Zaps: 'Zaps',
+    Badges: 'Badges',
     'Enjoying Jumble?': 'Enjoying Jumble?',
     'Your donation helps me maintain Jumble and make it better! 😊':
       'Your donation helps me maintain Jumble and make it better! 😊',

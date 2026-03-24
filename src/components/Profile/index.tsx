@@ -13,7 +13,9 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFetchProfile } from '@/hooks'
 import { kinds, type NostrEvent } from 'nostr-tools'
+import { createReactionDraftEvent } from '@/lib/draft-event'
 import { getPaymentInfoFromEvent } from '@/lib/event-metadata'
+import { showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import { toProfileEditor } from '@/lib/link'
 import { generateImageByPubkey } from '@/lib/pubkey'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
@@ -28,7 +30,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Copy, Ellipsis, Calendar, MapPin, Pencil, SatelliteDish, Code, Gift, Link } from 'lucide-react'
+import { Copy, Ellipsis, Calendar, MapPin, Pencil, SatelliteDish, Code, Gift, Link, MessageCircle, ThumbsUp } from 'lucide-react'
 import {
   useEffect,
   useLayoutEffect,
@@ -47,6 +49,7 @@ import ProfileFeedWithPins from './ProfileFeedWithPins'
 import ProfileMediaFeed from './ProfileMediaFeed'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { TNoteListRef } from '@/components/NoteList'
+import ProfileHeaderInteractions from './ProfileHeaderInteractions'
 import SmartFollowings from './SmartFollowings'
 import SmartMuteLink from './SmartMuteLink'
 import SmartRelays from './SmartRelays'
@@ -59,6 +62,8 @@ import {
 } from '@/components/ScheduleVideoCallDialog'
 import RawEventDialog from '@/components/NoteOptions/RawEventDialog'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
+import { useProfileInteractions } from '@/hooks/useProfileInteractions'
+import { useProfileBadges } from '@/hooks/useProfileBadges'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import { nip66Service } from '@/services/nip66.service'
@@ -182,7 +187,7 @@ export default function Profile({
   const mediaFeedRef = useRef<TNoteListRef>(null)
 
   const { profile, isFetching } = useFetchProfile(id)
-  const { pubkey: accountPubkey } = useNostr()
+  const { pubkey: accountPubkey, publish, checkLogin } = useNostr()
   const [paymentInfo, setPaymentInfo] = useState<ReturnType<typeof getPaymentInfoFromEvent> | null>(null)
   const [profileEvent, setProfileEvent] = useState<NostrEvent | undefined>(undefined)
   const [openZapDialog, setOpenZapDialog] = useState(false)
@@ -191,6 +196,8 @@ export default function Profile({
   const [openScheduleOwnCall, setOpenScheduleOwnCall] = useState(false)
   const [openScheduleInPersonMeeting, setOpenScheduleInPersonMeeting] = useState(false)
   const [isRawEventDialogOpen, setIsRawEventDialogOpen] = useState(false)
+  const [openSelfReply, setOpenSelfReply] = useState(false)
+  const [selfReacting, setSelfReacting] = useState(false)
   const { relayUrls: currentBrowsingRelayUrls } = useCurrentRelays()
   const { relaySets, favoriteRelays } = useFavoriteRelays()
 
@@ -280,6 +287,10 @@ export default function Profile({
     [profile]
   )
   const isSelf = accountPubkey === profile?.pubkey
+  const { zaps: profileZaps, reactions: profileReactions, comments: profileComments, loading: profileInteractionsLoading, refresh: refreshProfileInteractions } =
+    useProfileInteractions(profile?.pubkey, profileEvent)
+  const { badges: profileBadges, loading: profileBadgesLoading, refresh: refreshProfileBadges } =
+    useProfileBadges(profile?.pubkey)
 
   /** All available relays: current feed, favorites, relay sets, defaults (FAST_READ, FAST_WRITE). */
   const allAvailableRelayUrls = useMemo(() => {
@@ -343,6 +354,8 @@ export default function Profile({
     const m = r as MutableRefObject<{ refresh: () => void } | null>
     m.current = {
       refresh: () => {
+        refreshProfileInteractions()
+        refreshProfileBadges()
         postsFeedRef.current?.refresh()
         mediaFeedRef.current?.refresh()
       }
@@ -350,7 +363,7 @@ export default function Profile({
     return () => {
       m.current = null
     }
-  }, [])
+  }, [refreshProfileInteractions, refreshProfileBadges])
 
   useEffect(() => {
     if (!profile?.pubkey) return
@@ -414,6 +427,7 @@ export default function Profile({
                   ? (url) => setOpenCallInviteTo({ pubkey, url })
                   : undefined
               }
+              onProfileInteractionsRefresh={refreshProfileInteractions}
             />
             {isSelf ? (
               <DropdownMenu>
@@ -423,6 +437,38 @@ export default function Profile({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {profileEvent && (
+                    <>
+                      <DropdownMenuItem onClick={() => setOpenSelfReply(true)}>
+                        <MessageCircle />
+                        {t('Reply')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          if (!profileEvent) return
+                          checkLogin(async () => {
+                            if (selfReacting) return
+                            setSelfReacting(true)
+                            try {
+                              const reaction = createReactionDraftEvent(profileEvent, '+')
+                              const evt = await publish(reaction)
+                              if (evt) {
+                                showSimplePublishSuccess(t('Reaction published'))
+                                refreshProfileInteractions()
+                              }
+                            } finally {
+                              setSelfReacting(false)
+                            }
+                          })
+                        }}
+                        disabled={selfReacting}
+                      >
+                        <ThumbsUp />
+                        {selfReacting ? t('Publishing...') : t('Like')}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
                   <DropdownMenuItem onClick={() => setOpenScheduleOwnCall(true)}>
                     <Calendar />
                     {t('Schedule a video call')}
@@ -458,14 +504,23 @@ export default function Profile({
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
-            ) : (
+            ) : null}
+            {profileEvent && isSelf && (
+              <PostEditor
+                parentEvent={profileEvent}
+                open={openSelfReply}
+                setOpen={setOpenSelfReply}
+                onPublishSuccess={refreshProfileInteractions}
+              />
+            )}
+            {!isSelf ? (
               <>
                 {mergedPaymentMethods.some((m) => m.type === 'lightning') && (
                   <ProfileZapButton pubkey={pubkey} openZapDialog={openZapDialog} setOpenZapDialog={setOpenZapDialog} />
                 )}
                 <FollowButton pubkey={pubkey} />
               </>
-            )}
+            ) : null}
           </div>
           <div className="pt-2 md:pl-56">
             <div className="flex gap-2 items-center">
@@ -485,6 +540,14 @@ export default function Profile({
               <PubkeyCopy pubkey={pubkey} />
               <NpubQrCode pubkey={pubkey} />
             </div>
+            <ProfileHeaderInteractions
+              zaps={profileZaps}
+              reactions={profileReactions}
+              comments={profileComments}
+              badges={profileBadges}
+              loading={profileInteractionsLoading}
+              badgesLoading={profileBadgesLoading}
+            />
             <Collapsible>
               <ProfileAbout
                 about={about}

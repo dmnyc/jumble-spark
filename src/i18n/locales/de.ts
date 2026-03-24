@@ -422,6 +422,7 @@ export default {
     All: 'Alle',
     Reactions: 'Reaktionen',
     Zaps: 'Zaps',
+    Badges: 'Abzeichen',
     'Enjoying Jumble?': 'Gefällt dir Jumble?',
     'Your donation helps me maintain Jumble and make it better! 😊':
       'Deine Spende hilft mir, Jumble zu pflegen und zu verbessern! 😊',

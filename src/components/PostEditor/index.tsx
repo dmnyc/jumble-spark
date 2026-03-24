@@ -27,7 +27,8 @@ export default function PostEditor({
   setOpen,
   openFrom,
   initialHighlightData,
-  initialPublicMessageTo
+  initialPublicMessageTo,
+  onPublishSuccess
 }: {
   defaultContent?: string
   parentEvent?: Event
@@ -37,6 +38,8 @@ export default function PostEditor({
   initialHighlightData?: import('./HighlightEditor').HighlightData
   /** When set, opens in public message mode with this pubkey in the mention list. */
   initialPublicMessageTo?: string
+  /** Called after a reply/post is successfully published, before closing. */
+  onPublishSuccess?: () => void
 }) {
   const { isSmallScreen } = useScreenSize()
 
@@ -58,9 +61,10 @@ export default function PostEditor({
         openFrom={openFrom}
         initialHighlightData={initialHighlightData}
         initialPublicMessageTo={initialPublicMessageTo}
+        onPublishSuccess={onPublishSuccess}
       />
     )
-  }, [effectiveDefaultContent, parentEvent, openFrom, setOpen, initialHighlightData, initialPublicMessageTo])
+  }, [effectiveDefaultContent, parentEvent, openFrom, setOpen, initialHighlightData, initialPublicMessageTo, onPublishSuccess])
 
   if (isSmallScreen) {
     return (

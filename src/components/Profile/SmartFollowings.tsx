@@ -1,7 +1,7 @@
 import { useFetchFollowings } from '@/hooks'
 import { toFollowingList } from '@/lib/link'
 import { useSmartFollowingListNavigation } from '@/PageManager'
-import { useFollowList } from '@/providers/FollowListProvider'
+import { useFollowListOptional } from '@/providers/FollowListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslation } from 'react-i18next'
@@ -9,7 +9,8 @@ import { useTranslation } from 'react-i18next'
 export default function SmartFollowings({ pubkey }: { pubkey: string }) {
   const { t } = useTranslation()
   const { pubkey: accountPubkey } = useNostr()
-  const { followings: selfFollowings } = useFollowList()
+  const followList = useFollowListOptional()
+  const selfFollowings = followList?.followings ?? []
   const { followings, isFetching } = useFetchFollowings(pubkey)
   const { navigateToFollowingList } = useSmartFollowingListNavigation()
 

@@ -296,7 +296,11 @@ export const ExtendedKind = {
   /** NIP-52 Calendar event RSVP */
   CALENDAR_EVENT_RSVP: 31925,
   /** NIP-A7 Spells: portable relay query filters (kind 777) */
-  SPELL: 777
+  SPELL: 777,
+  /** NIP-58 Badges: profile badges list (addressable, d=profile_badges) */
+  PROFILE_BADGES: 30008,
+  /** NIP-58 Badges: badge definition (addressable) */
+  BADGE_DEFINITION: 30009
 }
 
 /** NIP-52 calendar event kinds (addressable by d-tag); use in isReplaceableEvent. */

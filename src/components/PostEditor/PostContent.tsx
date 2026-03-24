@@ -92,7 +92,8 @@ export default function PostContent({
   close,
   openFrom,
   initialHighlightData,
-  initialPublicMessageTo
+  initialPublicMessageTo,
+  onPublishSuccess
 }: {
   defaultContent?: string
   parentEvent?: Event
@@ -101,6 +102,8 @@ export default function PostContent({
   initialHighlightData?: HighlightData
   /** When set, opens in public message mode with this pubkey in the mention list. */
   initialPublicMessageTo?: string
+  /** Called after a reply/post is successfully published, before closing. */
+  onPublishSuccess?: () => void
 }) {
   const { t } = useTranslation()
   const { pubkey, publish, checkLogin } = useNostr()
@@ -927,6 +930,7 @@ export default function PostContent({
           mergePublishedReplyIntoThread(cleanEvent, relayStatuses)
         }
 
+        onPublishSuccess?.()
         close()
       } catch (error) {
         // AggregateError = "Failed to publish to any relay" is already logged in NostrProvider with relayStatuses; avoid duplicate noise
@@ -968,6 +972,7 @@ export default function PostContent({
             }
             postEditorCache.clearPostCache({ defaultContent, parentEvent })
             if (draftEvent) deleteDraftEventCache(draftEvent)
+            onPublishSuccess?.()
             close()
           }
         } else {

@@ -18,8 +18,11 @@ import client from '@/services/client.service'
 import { replaceableEventService } from '@/services/client.service'
 import { nip66Service } from '@/services/nip66.service'
 import RawEventDialog from '@/components/NoteOptions/RawEventDialog'
-import { Bell, BellOff, Copy, Ellipsis, MessageCircle, Send, Video, SatelliteDish, Code } from 'lucide-react'
+import { Bell, BellOff, Copy, Ellipsis, ThumbsUp, MessageCircle, Send, Video, SatelliteDish, Code } from 'lucide-react'
 import { useMemo, useState, useEffect } from 'react'
+import { createReactionDraftEvent } from '@/lib/draft-event'
+import PostEditor from '@/components/PostEditor'
+import { showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Event } from 'nostr-tools'
@@ -28,7 +31,8 @@ export default function ProfileOptions({
   pubkey,
   profileEvent,
   onSendPublicMessage,
-  onSendCallInvite
+  onSendCallInvite,
+  onProfileInteractionsRefresh
 }: {
   pubkey: string
   /** Optional profile event (kind 0) for republishing and viewing JSON */
@@ -37,13 +41,17 @@ export default function ProfileOptions({
   onSendPublicMessage?: () => void
   /** Opens the post editor to send the call invite URL as a public message to this profile. */
   onSendCallInvite?: (url: string) => void
+  /** Called after Like or Reply to refresh profile header interactions. */
+  onProfileInteractionsRefresh?: () => void
 }) {
   const { t } = useTranslation()
-  const { pubkey: accountPubkey, profile } = useNostr()
+  const { pubkey: accountPubkey, profile, publish, checkLogin } = useNostr()
   const { mutePubkeySet, mutePubkeyPrivately, mutePubkeyPublicly, unmutePubkey } = useMuteList()
   const { relayUrls: currentBrowsingRelayUrls } = useCurrentRelays()
   const { relaySets, favoriteRelays } = useFavoriteRelays()
   const [isRawEventDialogOpen, setIsRawEventDialogOpen] = useState(false)
+  const [openReply, setOpenReply] = useState(false)
+  const [reacting, setReacting] = useState(false)
   const [monitoringListRelayCount, setMonitoringListRelayCount] = useState<number | null>(null)
   const [localProfileEvent, setLocalProfileEvent] = useState<Event | undefined>(profileEvent)
   
@@ -143,6 +151,26 @@ export default function ProfileOptions({
     })
   }
 
+  const eventToUse = localProfileEvent || profileEvent
+
+  const handleLike = () => {
+    if (!eventToUse) return
+    checkLogin(async () => {
+      if (reacting) return
+      setReacting(true)
+      try {
+        const reaction = createReactionDraftEvent(eventToUse, '+')
+        const evt = await publish(reaction)
+        if (evt) {
+          showSimplePublishSuccess(t('Reaction published'))
+          onProfileInteractionsRefresh?.()
+        }
+      } finally {
+        setReacting(false)
+      }
+    })
+  }
+
   if (pubkey === accountPubkey) return null
 
   const callInviteUrl =
@@ -160,6 +188,19 @@ export default function ProfileOptions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent>
+        {eventToUse && (
+          <>
+            <DropdownMenuItem onClick={() => setOpenReply(true)}>
+              <MessageCircle />
+              {t('Reply')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleLike} disabled={reacting}>
+              <ThumbsUp />
+              {reacting ? t('Publishing...') : t('Like')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         {onSendPublicMessage && (
           <DropdownMenuItem onClick={onSendPublicMessage}>
             <MessageCircle />
@@ -244,8 +285,16 @@ export default function ProfileOptions({
           </>
         )}
       </DropdownMenuContent>
-      {(localProfileEvent || profileEvent) && (
-        <RawEventDialog
+        {eventToUse && (
+          <PostEditor
+            parentEvent={eventToUse}
+            open={openReply}
+            setOpen={setOpenReply}
+            onPublishSuccess={onProfileInteractionsRefresh}
+          />
+        )}
+        {(localProfileEvent || profileEvent) && (
+          <RawEventDialog
           event={(localProfileEvent || profileEvent)!}
           isOpen={isRawEventDialogOpen}
           onClose={() => setIsRawEventDialogOpen(false)}
