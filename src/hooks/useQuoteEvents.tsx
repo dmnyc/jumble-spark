@@ -35,11 +35,12 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
       return
     }
 
+    const ev = event
     let cancelled = false
     let loadTimeoutId: ReturnType<typeof setTimeout> | undefined
 
     async function init() {
-      const noteRowId = event.id
+      const noteRowId = ev.id
       const isNewTarget = lastSubscribedEventIdRef.current !== noteRowId
       lastSubscribedEventIdRef.current = noteRowId
 
@@ -60,7 +61,7 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
 
       const userRelays = userRelayList?.read || []
       const fromFeed = browsingRelayUrls.map((u) => normalizeUrl(u) || u).filter(Boolean)
-      const seenOn = client.getSeenEventRelayUrls(event.id)
+      const seenOn = client.getSeenEventRelayUrls(ev.id)
       const eTagBlockedSet = new Set(
         E_TAG_FILTER_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u)
       )
@@ -76,12 +77,12 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
         .filter(Boolean)
         .filter((u) => !eTagBlockedSet.has(normalizeUrl(u) || u))
 
-      const filterQeId = isReplaceableEvent(event.kind)
-        ? getReplaceableCoordinateFromEvent(event)
-        : event.id
-      const eventCoordinate = isReplaceableEvent(event.kind)
-        ? getReplaceableCoordinateFromEvent(event)
-        : `${event.kind}:${event.pubkey}:${event.id}`
+      const filterQeId = isReplaceableEvent(ev.kind)
+        ? getReplaceableCoordinateFromEvent(ev)
+        : ev.id
+      const eventCoordinate = isReplaceableEvent(ev.kind)
+        ? getReplaceableCoordinateFromEvent(ev)
+        : `${ev.kind}:${ev.pubkey}:${ev.id}`
 
       const { closer, timelineKey } = await client.subscribeTimeline(
         [

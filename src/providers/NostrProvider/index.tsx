@@ -695,7 +695,9 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     const prev = prevAccountPubkeyRef.current
     const curr = account?.pubkey ?? null
     prevAccountPubkeyRef.current = curr
-    if (prev !== undefined && prev !== curr) {
+    if (prev != null && curr != null && prev !== curr) {
+      postEditorCache.clearOnAccountChange()
+    } else if (prev != null && curr === null) {
       postEditorCache.clearOnAccountChange()
     }
   }, [account?.pubkey])

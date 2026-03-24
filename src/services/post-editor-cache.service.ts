@@ -3,8 +3,9 @@ import storage from '@/services/local-storage.service'
 import { TPollCreateData } from '@/types'
 import { Content } from '@tiptap/react'
 import { Event } from 'nostr-tools'
+import { parseEditorJsonToText } from '@/lib/tiptap'
 
-const PERSIST_DEBOUNCE_MS = 30_000
+const PERSIST_DEBOUNCE_MS = 5_000
 
 type TPostSettings = {
   isNsfw?: boolean
@@ -41,12 +42,25 @@ class PostEditorCacheService {
   private threadDraftCache: TThreadDraft | null = null
   private persistTimeoutId: ReturnType<typeof setTimeout> | null = null
   private restoredFromStorage = false
+  private keysRestoredThisSession = new Set<string>()
 
   constructor() {
     if (!PostEditorCacheService.instance) {
       PostEditorCacheService.instance = this
+      if (typeof window !== 'undefined') {
+        window.addEventListener('beforeunload', () => this.flushPersist())
+      }
     }
     return PostEditorCacheService.instance
+  }
+
+  /** Flush pending draft to localStorage immediately. Called on beforeunload so drafts survive reload. */
+  flushPersist() {
+    if (this.persistTimeoutId) {
+      clearTimeout(this.persistTimeoutId)
+      this.persistTimeoutId = null
+    }
+    this.persistNow()
   }
 
   /**
@@ -55,6 +69,14 @@ class PostEditorCacheService {
    */
   private escapeAmpersandsForHtml(text: string): string {
     return text.replace(/&/g, '&amp;')
+  }
+
+  /** Normalize cache key so hex event ids are lowercase; ensures consistent lookup across sessions. */
+  private normalizeCacheKey(key: string): string {
+    const [, parentPart] = key.split(':', 2)
+    if (!parentPart) return key
+    const normalized = /^[0-9a-f]{64}$/i.test(parentPart) ? parentPart.toLowerCase() : parentPart
+    return `${key.split(':')[0]}:${normalized}`
   }
 
   private restoreFromStorageIfNeeded() {
@@ -69,12 +91,16 @@ class PostEditorCacheService {
       if (data.accountPubkey !== account.pubkey) return
       if (data.postContentCache && typeof data.postContentCache === 'object') {
         Object.entries(data.postContentCache).forEach(([k, v]) => {
-          if (v) this.postContentCache.set(k, v)
+          if (v) {
+            const key = this.normalizeCacheKey(k)
+            this.postContentCache.set(key, v)
+            this.keysRestoredThisSession.add(key)
+          }
         })
       }
       if (data.postSettingsCache && typeof data.postSettingsCache === 'object') {
         Object.entries(data.postSettingsCache).forEach(([k, v]) => {
-          if (v) this.postSettingsCache.set(k, v)
+          if (v) this.postSettingsCache.set(this.normalizeCacheKey(k), v)
         })
       }
       if (data.threadDraft) {
@@ -128,6 +154,7 @@ class PostEditorCacheService {
     this.postContentCache.clear()
     this.postSettingsCache.clear()
     this.threadDraftCache = null
+    this.keysRestoredThisSession.clear()
     this.restoredFromStorage = false
     try {
       window.localStorage.removeItem(StorageKey.POST_EDITOR_DRAFT)
@@ -148,7 +175,23 @@ class PostEditorCacheService {
   }
 
   setPostContentCache({ kind, defaultContent, parentEvent }: TCacheKeyParams, content: Content) {
+    this.restoreFromStorageIfNeeded()
     const cacheKey = this.generateCacheKey({ kind, defaultContent, parentEvent })
+    const incomingText = (
+      typeof content === 'string' ? content : parseEditorJsonToText(content ?? undefined)
+    ).trim()
+    const existing = this.postContentCache.get(cacheKey)
+    const existingText = existing
+      ? (typeof existing === 'string' ? existing : parseEditorJsonToText(existing)).trim()
+      : ''
+    if (
+      incomingText === '' &&
+      existingText !== '' &&
+      this.keysRestoredThisSession.has(cacheKey)
+    ) {
+      return
+    }
+    this.keysRestoredThisSession.delete(cacheKey)
     this.postContentCache.set(cacheKey, content)
     this.schedulePersist()
   }
@@ -166,6 +209,7 @@ class PostEditorCacheService {
 
   clearPostCache({ kind, defaultContent, parentEvent }: TCacheKeyParams) {
     const cacheKey = this.generateCacheKey({ kind, defaultContent, parentEvent })
+    this.keysRestoredThisSession.delete(cacheKey)
     this.postContentCache.delete(cacheKey)
     this.postSettingsCache.delete(cacheKey)
     if (this.persistTimeoutId) {
@@ -177,6 +221,7 @@ class PostEditorCacheService {
 
   /** Clear all post and settings drafts. Use when user explicitly clears caches. */
   clearAllPostCaches() {
+    this.keysRestoredThisSession.clear()
     this.postContentCache.clear()
     this.postSettingsCache.clear()
     if (this.persistTimeoutId) {
@@ -186,8 +231,10 @@ class PostEditorCacheService {
     this.persistNow()
   }
 
-  generateCacheKey({ kind, defaultContent = '', parentEvent }: TCacheKeyParams): string {
-    const parentPart = parentEvent ? parentEvent.id : ''
+  generateCacheKey({ kind, parentEvent }: TCacheKeyParams): string {
+    if (!parentEvent?.id) return `${kind}:`
+    const id = parentEvent.id.trim()
+    const parentPart = /^[0-9a-f]{64}$/i.test(id) ? id.toLowerCase() : id
     return `${kind}:${parentPart}`
   }
 
