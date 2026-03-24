@@ -29,6 +29,11 @@ export const useFollowList = () => {
   return context
 }
 
+/** Same as {@link useFollowList} but returns undefined outside the provider (avoids HMR / refresh-boundary crashes). */
+export function useFollowListOptional(): TFollowListContext | undefined {
+  return useContext(FollowListContext)
+}
+
 export function FollowListProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   const { pubkey: accountPubkey, followListEvent, publish, updateFollowListEvent } = useNostr()

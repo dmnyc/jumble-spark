@@ -10,6 +10,7 @@ import PostButton from './PostButton'
 import RssButton from './RssButton'
 import SearchButton from './SearchButton'
 import SpellsButton from './SpellsButton'
+import { FavoriteRelaysActiveStripSidebar } from '@/components/FavoriteRelaysActiveStrip'
 import PaneModeToggle from './PaneModeToggle'
 import DownloadDesktopSidebarButton from './DownloadDesktopSidebarButton'
 
@@ -36,6 +37,7 @@ export default function PrimaryPageSidebar() {
         <SearchButton />
         <SpellsButton />
         <RssButton />
+        <FavoriteRelaysActiveStripSidebar />
         <PostButton />
       </div>
       <div className="space-y-2">

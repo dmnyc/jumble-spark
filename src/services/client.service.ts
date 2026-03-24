@@ -672,9 +672,13 @@ class ClientService extends EventTarget {
   private recordSessionRelayFailure(url: string) {
     const n = normalizeUrl(url) || url
     if (!n) return
-    const count = (this.publishStrikeCount.get(n) ?? 0) + 1
+    const prev = this.publishStrikeCount.get(n) ?? 0
+    if (prev >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) {
+      return
+    }
+    const count = prev + 1
     this.publishStrikeCount.set(n, count)
-    if (count >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) {
+    if (count === ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) {
       logger.info('[Relay] Session strike threshold — relay skipped for reads/publishes until reload', {
         url: n,
         strikes: count
@@ -1932,6 +1936,7 @@ class ClientService extends EventTarget {
       const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
       relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
     }
+    relays = this.filterSessionStrikedRelays(relays)
     const events = await this.queryService.query(relays, filter, onevent, {
       eoseTimeout,
       globalTimeout,

@@ -66,8 +66,7 @@ export default function ReplyNote({
         if (onClickReply) {
           onClickReply(event)
         } else {
-          client.addEventToCache(event)
-          navigateToNote(toNote(event))
+          navigateToNote(toNote(event), event)
         }
       }}
     >

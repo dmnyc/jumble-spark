@@ -572,9 +572,8 @@ function EmbeddedBookstrEvent({ event, originalNoteId, className }: { event: Eve
           return
         }
         e.stopPropagation()
-        client.addEventToCache(event)
         const noteUrl = toNote(originalNoteId ?? event)
-        navigateToNote(noteUrl)
+        navigateToNote(noteUrl, event)
       }}
     >
       {/* Header */}

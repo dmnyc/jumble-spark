@@ -76,6 +76,9 @@ const SidebarLazy = lazy(() => import('@/components/Sidebar'))
 const BottomNavigationBarLazy = lazy(() => import('@/components/BottomNavigationBar'))
 const TooManyRelaysAlertDialogLazy = lazy(() => import('@/components/TooManyRelaysAlertDialog'))
 const CreateWalletGuideToastLazy = lazy(() => import('@/components/CreateWalletGuideToast'))
+const RelayPulseActiveNpubsSheetLazy = lazy(
+  () => import('@/components/FavoriteRelaysActiveStrip/RelayPulseActiveNpubsSheet').then((m) => ({ default: m.RelayPulseActiveNpubsSheet }))
+)
 
 type TStackItem = {
   index: number
@@ -314,15 +317,20 @@ export function useSmartNoteNavigation() {
   const { isSmallScreen } = useScreenSize()
   const { current: currentPrimaryPage } = usePrimaryPage()
   
-  const navigateToNote = (url: string, event?: Event) => {
+  const navigateToNote = (url: string, event?: Event, relatedEvents?: Event[]) => {
     // Extract noteId from URL (handles both /notes/{id} and /{context}/notes/{id})
     const { noteId } = parseNoteUrl(url)
     
     // If event is provided, store it in navigation event store to avoid re-fetching
     if (event) {
       navigationEventStore.setEvent(event)
-      // Also add to cache for future use
       client.addEventToCache(event)
+    }
+    // Pre-cache related events (parent, root, embedded) so NotePage avoids re-fetching
+    if (relatedEvents?.length) {
+      for (const ev of relatedEvents) {
+        if (ev && ev !== event) client.addEventToCache(ev)
+      }
     }
     
     // Build contextual URL based on current page
@@ -332,7 +340,7 @@ export function useSmartNoteNavigation() {
       // Mobile: always push to secondary stack AND update drawer
       // This ensures back button works when clicking embedded events
       pushSecondaryPage(contextualUrl)
-      openDrawer(noteId)
+      openDrawer(noteId, event)
     } else {
       // Desktop: check panel mode
       const currentPanelMode = storage.getPanelMode()
@@ -342,11 +350,11 @@ export function useSmartNoteNavigation() {
         if (isDrawerOpen) {
           // Navigating from within drawer - push to stack for back button support
           pushSecondaryPage(contextualUrl)
-          openDrawer(noteId)
+          openDrawer(noteId, event)
         } else {
           // Opening drawer for first time
           window.history.pushState(null, '', contextualUrl)
-          openDrawer(noteId)
+          openDrawer(noteId, event)
         }
       } else {
         // Double-pane: use secondary panel
@@ -751,8 +759,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   }
 
   // Drawer handlers
-  const openDrawer = useCallback((noteId: string) => {
+  const [drawerInitialEvent, setDrawerInitialEvent] = useState<Event | null>(null)
+  const openDrawer = useCallback((noteId: string, initialEvent?: Event) => {
     setDrawerNoteId(noteId)
+    setDrawerInitialEvent(initialEvent ?? null)
     setDrawerOpen(true)
   }, [])
 
@@ -1126,6 +1136,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         setDrawerOpen(false)
         setTimeout(() => {
           setDrawerNoteId(null)
+          setDrawerInitialEvent(null)
           // Restore URL to current primary page
           const pageUrl = buildPrimaryPageUrl(
             currentPrimaryPage,
@@ -1184,6 +1195,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               const historyUrl = state!.url
               setTimeout(() => {
                 setDrawerNoteId(null)
+                setDrawerInitialEvent(null)
                 // Ensure URL matches the primary page (preserve /spells?spell=)
                 const pageUrl = restoredPrimaryBrowserUrl(pathname, historyUrl)
                 window.history.replaceState(null, '', pageUrl)
@@ -1460,7 +1472,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     if (drawerOpen && secondaryStack.length === 0) {
       // Close drawer and reveal the background page
       setDrawerOpen(false)
-      setTimeout(() => setDrawerNoteId(null), 350)
+      setTimeout(() => {
+        setDrawerNoteId(null)
+        setDrawerInitialEvent(null)
+      }, 350)
       return
     }
     
@@ -1468,7 +1483,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     if ((isSmallScreen || panelMode === 'single') && secondaryStack.length === 1 && drawerOpen) {
       // Close drawer (this will restore the URL to the correct primary page)
       setDrawerOpen(false)
-      setTimeout(() => setDrawerNoteId(null), 350)
+      setTimeout(() => {
+        setDrawerNoteId(null)
+        setDrawerInitialEvent(null)
+      }, 350)
       // Clear stack
       setSecondaryStack([])
       
@@ -1558,7 +1576,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                 triggerPrimaryPanelRefresh
               }}
             >
-            <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId }}>
+            <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId, drawerInitialEvent }}>
             {primaryNoteView ? (
               // Show primary note view with back button on mobile
               <div className="flex flex-col h-full w-full">
@@ -1629,8 +1647,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               </>
             )}
             {drawerNoteId && (
-              <NoteDrawer 
-                open={drawerOpen} 
+              <NoteDrawer
+                open={drawerOpen}
+                initialEvent={drawerInitialEvent}
                 onOpenChange={(open) => {
                   setDrawerOpen(open)
                   // Only clear noteId when Sheet is fully closed (after animation completes)
@@ -1642,10 +1661,13 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                       primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
                     )
                     window.history.replaceState(null, '', pageUrl)
-                    setTimeout(() => setDrawerNoteId(null), 350)
+                    setTimeout(() => {
+                      setDrawerNoteId(null)
+                      setDrawerInitialEvent(null)
+                    }, 350)
                   }
-                }} 
-                noteId={drawerNoteId} 
+                }}
+                noteId={drawerNoteId}
               />
             )}
             <Suspense fallback={null}>
@@ -1656,6 +1678,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             </Suspense>
             <Suspense fallback={null}>
               <CreateWalletGuideToastLazy />
+            </Suspense>
+            <Suspense fallback={null}>
+              <RelayPulseActiveNpubsSheetLazy />
             </Suspense>
             </NoteDrawerContext.Provider>
             </PrimaryNoteViewContext.Provider>
@@ -1684,7 +1709,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                 triggerPrimaryPanelRefresh
               }}
             >
-            <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId }}>
+            <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId, drawerInitialEvent }}>
             <div className="flex flex-col items-center bg-surface-background">
               <div
                 className="flex h-[var(--vh)] w-full bg-surface-background"
@@ -1756,8 +1781,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               </div>
             </div>
             {drawerNoteId && (
-              <NoteDrawer 
-                open={drawerOpen} 
+              <NoteDrawer
+                open={drawerOpen}
+                initialEvent={drawerInitialEvent}
                 onOpenChange={(open) => {
                   setDrawerOpen(open)
                   // Only clear noteId when Sheet is fully closed (after animation completes)
@@ -1769,10 +1795,13 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                       primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
                     )
                     window.history.replaceState(null, '', pageUrl)
-                    setTimeout(() => setDrawerNoteId(null), 350)
+                    setTimeout(() => {
+                      setDrawerNoteId(null)
+                      setDrawerInitialEvent(null)
+                    }, 350)
                   }
-                }} 
-                noteId={drawerNoteId} 
+                }}
+                noteId={drawerNoteId}
               />
             )}
             {/* Generic drawer for secondary stack in single-pane mode (for relay pages, etc.) */}
@@ -1806,6 +1835,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             </Suspense>
             <Suspense fallback={null}>
               <CreateWalletGuideToastLazy />
+            </Suspense>
+            <Suspense fallback={null}>
+              <RelayPulseActiveNpubsSheetLazy />
             </Suspense>
             </NoteDrawerContext.Provider>
             </PrimaryNoteViewContext.Provider>

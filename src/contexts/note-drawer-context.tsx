@@ -1,10 +1,12 @@
 import { createContext, useContext } from 'react'
+import type { Event } from 'nostr-tools'
 
 export type NoteDrawerContextValue = {
-  openDrawer: (noteId: string) => void
+  openDrawer: (noteId: string, initialEvent?: Event) => void
   closeDrawer: () => void
   isDrawerOpen: boolean
   drawerNoteId: string | null
+  drawerInitialEvent: Event | null
 }
 
 /**

@@ -75,7 +75,7 @@ export default function Zap({ event, className }: { event: Event; className?: st
           if (isEventZap) {
             // Event zap - navigate to the zapped event
             if (targetEvent) {
-              navigateToNote(toNote(targetEvent.id))
+              navigateToNote(toNote(targetEvent.id), targetEvent)
             } else if (zapInfo.eventId) {
               navigateToNote(toNote(zapInfo.eventId))
             }

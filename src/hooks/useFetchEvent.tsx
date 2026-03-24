@@ -1,3 +1,4 @@
+import { getNoteBech32Id } from '@/lib/event'
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import { useReply } from '@/providers/ReplyProvider'
 import { eventService } from '@/services/client.service'
@@ -27,11 +28,18 @@ export function useFetchEvent(eventId?: string, initialEvent?: Event) {
     const skipShortcuts = refetchToken > 0
 
     // If we have an initial event that matches the eventId, use it and skip fetching
-    if (
-      !skipShortcuts &&
+    const initialMatches =
       initialEvent &&
-      (initialEvent.id === eventId || eventId.includes(initialEvent.id))
-    ) {
+      (initialEvent.id === eventId ||
+        eventId.includes(initialEvent.id) ||
+        (() => {
+          try {
+            return getNoteBech32Id(initialEvent) === eventId
+          } catch {
+            return false
+          }
+        })())
+    if (!skipShortcuts && initialMatches && initialEvent) {
       if (!isEventDeleted(initialEvent)) {
         setEvent(initialEvent)
         addReplies([initialEvent])

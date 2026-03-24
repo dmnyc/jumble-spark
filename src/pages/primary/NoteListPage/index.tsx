@@ -24,13 +24,13 @@ import React, {
   useState
 } from 'react'
 import { useTranslation } from 'react-i18next'
+import { FavoriteRelaysActiveStripMobileBar } from '@/components/FavoriteRelaysActiveStrip'
 import FavoriteRelaysFeedPicker from '@/components/FavoriteRelaysFeedPicker'
 import HelpAndAccountMenu from '@/components/HelpAndAccountMenu'
 import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
-
 const NoteListPage = forwardRef<TPageRef>((_, ref) => {
   const { t } = useTranslation()
   const { addRelayUrls, removeRelayUrls } = useCurrentRelays()
@@ -39,6 +39,7 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
   const bookmarkRef = useRef<{ refresh: () => void }>(null)
   const { pubkey, checkLogin } = useNostr()
   const { feedInfo, relayUrls, isReady } = useFeed()
+  const { isSmallScreen } = useScreenSize()
   const [showRelayDetails, setShowRelayDetails] = useState(false)
   const [homeSubHeader, setHomeSubHeader] = useState<React.ReactNode>(null)
 
@@ -168,6 +169,7 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
 
   const subHeader = (
     <>
+      {isSmallScreen ? <FavoriteRelaysActiveStripMobileBar /> : null}
       <div className="w-full min-w-0 border-b border-border/80 bg-background px-3 py-2 sm:px-4">
         <h1 className="text-lg font-semibold leading-tight tracking-tight">{feedPageTitle}</h1>
       </div>
