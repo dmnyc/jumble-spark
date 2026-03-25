@@ -1,7 +1,6 @@
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
-import { ExtendedKind } from '@/constants'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { shouldHideInteractions } from '@/lib/event-filtering'
 import { createReactionDraftEvent } from '@/lib/draft-event'
@@ -30,9 +29,6 @@ export default function Likes({ event }: { event: Event }) {
     let _likes = noteStats?.likes
     if (!_likes) return []
 
-    if (event.kind === ExtendedKind.DISCUSSION) {
-      _likes = _likes.filter((item) => item.emoji === '⬆️' || item.emoji === '⬇️')
-    }
     if (hideUntrustedInteractions) {
       _likes = _likes.filter((item) => isUserTrusted(item.pubkey))
     }
@@ -103,9 +99,9 @@ export default function Likes({ event }: { event: Event }) {
 
     if (isCompleted) {
       const completedKey = isCompleted
-      const completedEmoji = likes.find((l) => l.key === completedKey)?.emoji
-      if (completedEmoji) {
-        like(completedKey, completedEmoji)
+      const row = likes.find((l) => l.key === completedKey)
+      if (row) {
+        like(completedKey, row.emoji)
       }
     }
 

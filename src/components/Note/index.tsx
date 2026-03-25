@@ -3,6 +3,15 @@ import { ExtendedKind } from '@/constants'
 import { isRenderableNoteKind } from '@/lib/note-renderable-kinds'
 import { getHttpUrlFromITags, getParentBech32Id, isNsfwEvent } from '@/lib/event'
 import { toNote } from '@/lib/link'
+import { cn } from '@/lib/utils'
+import {
+  DISCUSSION_DOWNVOTE_DISPLAY,
+  DISCUSSION_UPVOTE_DISPLAY
+} from '@/lib/discussion-votes'
+import {
+  notificationReactionSummaryKey,
+  useNotificationReactionDisplay
+} from '@/hooks/useNotificationReactionDisplay'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
 import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
@@ -41,8 +50,10 @@ import MutedNote from './MutedNote'
 import NsfwNote from './NsfwNote'
 import PictureNote from './PictureNote'
 import Poll from './Poll'
-import NotificationEventCard, { reactionDisplayEmoji } from './NotificationEventCard'
+import NotificationEventCard from './NotificationEventCard'
+import ReactionEmojiDisplay from './ReactionEmojiDisplay'
 import UnknownNote from './UnknownNote'
+import { Skeleton } from '@/components/ui/skeleton'
 import VideoNote from './VideoNote'
 import RelayReview from './RelayReview'
 import Zap from './Zap'
@@ -89,6 +100,7 @@ export default function Note({
   const [postEditorOpen, setPostEditorOpen] = useState(false)
   const [publicMessageTo, setPublicMessageTo] = useState<string | null>(null)
   const [callInviteContent, setCallInviteContent] = useState<string | null>(null)
+  const reactionDisplay = useNotificationReactionDisplay(event)
 
   const openHighlight = useCallback((data: HighlightData, eventContent?: string) => {
     setHighlightData(data)
@@ -279,12 +291,34 @@ export default function Note({
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {event.kind === kinds.Reaction ? (
               <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
-                <span
-                  className="shrink-0 text-2xl leading-none select-none"
-                  aria-hidden
-                >
-                  {reactionDisplayEmoji(event)}
-                </span>
+                {reactionDisplay.status === 'pending' ? (
+                  <Skeleton
+                    className={cn('shrink-0 rounded-sm', size === 'small' ? 'size-7' : 'size-8')}
+                    aria-hidden
+                  />
+                ) : reactionDisplay.status === 'vote_up' ? (
+                  <span
+                    className={cn(
+                      'inline-flex shrink-0 select-none leading-none',
+                      size === 'small' ? 'text-xl' : 'text-2xl'
+                    )}
+                    aria-hidden
+                  >
+                    {DISCUSSION_UPVOTE_DISPLAY}
+                  </span>
+                ) : reactionDisplay.status === 'vote_down' ? (
+                  <span
+                    className={cn(
+                      'inline-flex shrink-0 select-none leading-none',
+                      size === 'small' ? 'text-xl' : 'text-2xl'
+                    )}
+                    aria-hidden
+                  >
+                    {DISCUSSION_DOWNVOTE_DISPLAY}
+                  </span>
+                ) : (
+                  <ReactionEmojiDisplay event={event} />
+                )}
                 <UserAvatar userId={event.pubkey} size={size === 'small' ? 'medium' : 'normal'} />
                 <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-hidden">
                   <Username
@@ -294,7 +328,7 @@ export default function Note({
                   />
                   <ClientTag event={event} />
                   <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                    {t('Notification reaction summary')}
+                    {t(notificationReactionSummaryKey(reactionDisplay))}
                   </span>
                 </div>
                 <FormattedTimestamp

@@ -3,18 +3,9 @@ import { cn } from '@/lib/utils'
 import { Event, kinds } from 'nostr-tools'
 import { useTranslation } from 'react-i18next'
 
-/** Reaction `content` as display emoji/text (NIP-25); empty content → heart. */
-export function reactionDisplayEmoji(event: Event): string {
-  if (event.kind !== kinds.Reaction) return ''
-  const raw = event.content?.trim() ?? ''
-  if (!raw) return '❤️'
-  if (raw.length > 64) return `${raw.slice(0, 64)}…`
-  return raw
-}
-
 /**
  * Compact card for interaction events in notification-style feeds (boosts, poll votes).
- * Reactions use a one-line header in {@link Note} (emoji + user + blurb) instead of this card.
+ * Reactions use ReactionEmojiDisplay in Note (emoji + user + blurb) instead of this card.
  */
 export default function NotificationEventCard({ event, className }: { event: Event; className?: string }) {
   const { t } = useTranslation()

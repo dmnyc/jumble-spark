@@ -6,7 +6,7 @@ import {
   getRootATag,
   getRootETag
 } from '@/lib/event'
-import { Event } from 'nostr-tools'
+import { Event, kinds } from 'nostr-tools'
 import { createContext, useCallback, useContext, useState } from 'react'
 
 type TReplyContext = {
@@ -34,6 +34,7 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
     const newReplyEventMap = new Map<string, Event[]>()
     replies.forEach((reply) => {
       if (newReplyIdSet.has(reply.id)) return
+      if (reply.kind === kinds.Reaction) return
       newReplyIdSet.add(reply.id)
 
       let rootId: string | undefined

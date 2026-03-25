@@ -395,6 +395,8 @@ export default {
     'Open in a': 'Öffnen in {{a}}',
     'Cannot handle event of kind k': 'Ereignis des Typs {{k}} kann nicht verarbeitet werden',
     'Notification reaction summary': 'hat auf diese Notiz reagiert.',
+    'Notification discussion upvote summary': 'hat in dieser Diskussion positiv bewertet.',
+    'Notification discussion downvote summary': 'hat in dieser Diskussion negativ bewertet.',
     'Notification boost summary': 'Hat diese Notiz geboostet',
     'Notification boost detail': 'Die Vorschau darüber ist der Originalbeitrag.',
     'Notification poll vote summary': 'Hat an der Umfrage darüber teilgenommen.',

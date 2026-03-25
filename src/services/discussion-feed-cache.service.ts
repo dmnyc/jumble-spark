@@ -1,4 +1,4 @@
-import { Event as NEvent } from 'nostr-tools'
+import { Event as NEvent, kinds } from 'nostr-tools'
 import logger from '@/lib/logger'
 
 interface CachedThreadData {
@@ -94,7 +94,7 @@ class DiscussionFeedCacheService {
       logger.debug('[DiscussionFeedCache] Cache hit (fresh) for thread:', cacheKey, 'replies:', cachedData.replies.length)
     }
     
-    return cachedData.replies
+    return cachedData.replies.filter((r) => r.kind !== kinds.Reaction)
   }
 
   /**
@@ -134,11 +134,13 @@ class DiscussionFeedCacheService {
       // Merge with existing cached replies - keep all unique replies
       const existingReplyIds = new Set(existingData.replies.map(r => r.id))
       const newReplies = replies.filter(r => !existingReplyIds.has(r.id))
-      mergedReplies = [...existingData.replies, ...newReplies]
+      mergedReplies = [...existingData.replies, ...newReplies].filter(
+        (r) => r.kind !== kinds.Reaction
+      )
       logger.debug('[DiscussionFeedCache] Merged replies for thread:', cacheKey, 'existing:', existingData.replies.length, 'new:', newReplies.length, 'total:', mergedReplies.length)
     } else {
       // No existing cache or rootInfo mismatch, use new replies
-      mergedReplies = [...replies]
+      mergedReplies = replies.filter((r) => r.kind !== kinds.Reaction)
       logger.debug('[DiscussionFeedCache] Cached new replies for thread:', cacheKey, 'replies:', replies.length)
     }
     

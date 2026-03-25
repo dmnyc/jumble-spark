@@ -1,4 +1,10 @@
-import { E_TAG_FILTER_BLOCKED_RELAY_URLS, ExtendedKind, SEARCHABLE_RELAY_URLS } from '@/constants'
+import {
+  E_TAG_FILTER_BLOCKED_RELAY_URLS,
+  ExtendedKind,
+  FAST_READ_RELAY_URLS,
+  SEARCHABLE_RELAY_URLS
+} from '@/constants'
+import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
@@ -34,6 +40,8 @@ class NoteStatsService {
   
   // Batch processing
   private pendingEvents = new Set<string>()
+  /** Favorite relays passed from the last fetchNoteStats call per note (used in processSingleEvent). */
+  private pendingFetchFavoriteRelays = new Map<string, string[] | null | undefined>()
   private batchTimeout: NodeJS.Timeout | null = null
   private readonly BATCH_DELAY = 1000 // 1 second batch delay
   private readonly MAX_BATCH_SIZE = 10 // Process up to 10 events at once
@@ -45,7 +53,7 @@ class NoteStatsService {
     return NoteStatsService.instance
   }
 
-  async fetchNoteStats(event: Event, _pubkey?: string | null, _favoriteRelays?: string[]) {
+  async fetchNoteStats(event: Event, _pubkey?: string | null, favoriteRelays?: string[] | null) {
     const eventId = event.id
     
     // Rate limiting: Don't process the same event more than once per 10 seconds
@@ -55,8 +63,8 @@ class NoteStatsService {
       logger.debug('[NoteStats] Skipping duplicate fetch for event', eventId.substring(0, 8), 'too soon')
       return
     }
-    
-    // Add to batch processing queue
+
+    this.pendingFetchFavoriteRelays.set(eventId, favoriteRelays ?? null)
     this.pendingEvents.add(eventId)
     this.lastProcessedTime.set(eventId, now)
     
@@ -77,18 +85,25 @@ class NoteStatsService {
 
   private async processBatch() {
     if (this.pendingEvents.size === 0) return
-    
+
     const eventsToProcess = Array.from(this.pendingEvents).slice(0, this.MAX_BATCH_SIZE)
-    this.pendingEvents.clear()
-    
+    for (const id of eventsToProcess) {
+      this.pendingEvents.delete(id)
+    }
+
     if (this.batchTimeout) {
       clearTimeout(this.batchTimeout)
       this.batchTimeout = null
     }
-    
-    
-    // Process all events in the batch
-    await Promise.all(eventsToProcess.map(eventId => this.processSingleEvent(eventId)))
+
+    await Promise.all(eventsToProcess.map((eventId) => this.processSingleEvent(eventId)))
+
+    if (this.pendingEvents.size > 0) {
+      this.batchTimeout = setTimeout(() => {
+        this.batchTimeout = null
+        this.processBatch()
+      }, this.BATCH_DELAY)
+    }
   }
 
   private async processSingleEvent(eventId: string) {
@@ -98,7 +113,10 @@ class NoteStatsService {
     }
     
     this.processingCache.add(eventId)
-    
+
+    const favoriteRelays = this.pendingFetchFavoriteRelays.get(eventId)
+    this.pendingFetchFavoriteRelays.delete(eventId)
+
     try {
       // Get the event from cache or fetch it
       const event = await eventService.fetchEvent(eventId)
@@ -107,19 +125,13 @@ class NoteStatsService {
         return
       }
 
-      const oldStats = this.noteStatsMap.get(eventId)
-      let since: number | undefined
-      if (oldStats?.updatedAt) {
-        since = oldStats.updatedAt
-      }
-
-      const finalRelayUrls = await this.buildNoteStatsRelayList(event)
+      const finalRelayUrls = await this.buildNoteStatsRelayList(event, favoriteRelays)
       
       const replaceableCoordinate = isReplaceableEvent(event.kind)
         ? getReplaceableCoordinateFromEvent(event)
         : undefined
 
-      const filters: Filter[] = this.buildFilters(event, replaceableCoordinate, since)
+      const filters: Filter[] = this.buildFilters(event, replaceableCoordinate)
 
       const events: Event[] = []
       logger.debug('[NoteStats] Fetching stats for event', event.id.substring(0, 8), 'from', finalRelayUrls.length, 'relays')
@@ -133,22 +145,23 @@ class NoteStatsService {
       })
       
       logger.debug('[NoteStats] Fetched', events.length, 'events for stats')
-      
+
       this.noteStatsMap.set(event.id, {
         ...(this.noteStatsMap.get(event.id) ?? {}),
         updatedAt: dayjs().unix()
       })
-      
+      // Always notify: when relays return 0 rows, no updateNoteStatsByEvents ran — subscribers would never re-render.
+      this.notifyNoteStats(event.id)
     } finally {
       this.processingCache.delete(eventId)
     }
   }
 
   /**
-   * Build relay list for note stats: search relays + relay(s) event was seen on + author's inboxes, deduplicated.
+   * Build relay list for note stats: SEARCHABLE + FAST_READ + optional user favorites + seen relays + author NIP-65 read (slice 10).
    * Excludes E_TAG_FILTER_BLOCKED_RELAY_URLS (stats use #e filters).
    */
-  private async buildNoteStatsRelayList(event: Event): Promise<string[]> {
+  private async buildNoteStatsRelayList(event: Event, favoriteRelays?: string[] | null): Promise<string[]> {
     const blocked = new Set(
       E_TAG_FILTER_BLOCKED_RELAY_URLS.map((u) => (normalizeUrl(u) || u).toLowerCase()).filter(Boolean)
     )
@@ -161,13 +174,19 @@ class NoteStatsService {
       seen.add(n)
     }
 
-    // 1. Search relays
+    // 1. Broad search index / aggregator relays
     SEARCHABLE_RELAY_URLS.forEach(add)
 
-    // 2. Relay(s) where the event was seen
+    // 2. Default fast read set (includes e.g. theforest — not in SEARCHABLE)
+    FAST_READ_RELAY_URLS.forEach(add)
+
+    // 3. User's favorite relays (spell feed / sidebar) — was previously ignored
+    favoriteRelays?.forEach(add)
+
+    // 4. Relay(s) where the event was seen
     client.getSeenEventRelayUrls(event.id).forEach(add)
 
-    // 3. Author's inboxes (read relays from kind 10002)
+    // 5. Author's inboxes (read relays from kind 10002)
     try {
       const relayList = await Promise.race([
         client.fetchRelayList(event.pubkey),
@@ -181,12 +200,26 @@ class NoteStatsService {
     return Array.from(seen)
   }
 
-  private buildFilters(event: Event, replaceableCoordinate?: string, since?: number): Filter[] {
+  /**
+   * Reactions must not share one `limit` with replies — relays often return newest notes first and
+   * fill the bucket with kind 1/1111, dropping kind 7 entirely.
+   * Do not use `since` from last fetch `updatedAt`: reaction `created_at` is usually far in the past,
+   * so incremental filters would return nothing and leave stats stuck empty.
+   */
+  private buildFilters(event: Event, replaceableCoordinate?: string): Filter[] {
+    const reactionLimit = 300
+    const interactionLimit = 80
+
     const filters: Filter[] = [
       {
         '#e': [event.id],
-        kinds: [kinds.Reaction, kinds.Repost, kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Highlights],
-        limit: 50 // Reduced limit for better performance
+        kinds: [kinds.Reaction],
+        limit: reactionLimit
+      },
+      {
+        '#e': [event.id],
+        kinds: [kinds.Repost, kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Highlights],
+        limit: interactionLimit
       },
       {
         '#e': [event.id],
@@ -204,8 +237,13 @@ class NoteStatsService {
       filters.push(
         {
           '#a': [replaceableCoordinate],
-          kinds: [kinds.Reaction, kinds.Repost, kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Highlights],
-          limit: 50
+          kinds: [kinds.Reaction],
+          limit: reactionLimit
+        },
+        {
+          '#a': [replaceableCoordinate],
+          kinds: [kinds.Repost, kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Highlights],
+          limit: interactionLimit
         },
         {
           '#a': [replaceableCoordinate],
@@ -218,12 +256,6 @@ class NoteStatsService {
           limit: 50
         }
       )
-    }
-
-    if (since) {
-      filters.forEach((filter) => {
-        filter.since = since
-      })
     }
 
     return filters
@@ -367,7 +399,12 @@ class NoteStatsService {
       if (emojiInfo) {
         emoji = emojiInfo
       } else {
-        emoji = '+'
+        const customCodes = emojiInfos.map((e) => e.shortcode)
+        const normalized = replaceStandardEmojiShortcodesInContent(emoji, customCodes)
+        if (normalized !== emoji) {
+          emoji = normalized
+        }
+        // else keep `:custom:` string; UI resolves via reactor profile (ReactionEmojiDisplay)
       }
     }
 

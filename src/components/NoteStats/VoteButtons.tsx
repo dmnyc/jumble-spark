@@ -1,4 +1,10 @@
 import { Button } from '@/components/ui/button'
+import {
+  DISCUSSION_DOWNVOTE,
+  DISCUSSION_UPVOTE,
+  isDiscussionDownvoteEmoji,
+  isDiscussionUpvoteEmoji
+} from '@/lib/discussion-votes'
 import { createReactionDraftEvent } from '@/lib/draft-event'
 import { useNostr } from '@/providers/NostrProvider'
 import noteStatsService from '@/services/note-stats.service'
@@ -21,8 +27,8 @@ export default function VoteButtons({ event }: { event: Event }) {
     const stats = noteStats || {}
     const reactions = stats.likes || []
     
-    const upvoteReactions = reactions.filter(r => r.emoji === '⬆️')
-    const downvoteReactions = reactions.filter(r => r.emoji === '⬇️')
+    const upvoteReactions = reactions.filter((r) => isDiscussionUpvoteEmoji(r.emoji))
+    const downvoteReactions = reactions.filter((r) => isDiscussionDownvoteEmoji(r.emoji))
     
     const score = upvoteReactions.length - downvoteReactions.length
     
@@ -57,7 +63,7 @@ export default function VoteButtons({ event }: { event: Event }) {
         }
 
         // Create the vote reaction
-        const emoji = type === 'up' ? '⬆️' : '⬇️'
+        const emoji = type === 'up' ? DISCUSSION_UPVOTE : DISCUSSION_DOWNVOTE
         
         // Check if user already voted this way
         const existingVote = userVote === type
@@ -87,7 +93,7 @@ export default function VoteButtons({ event }: { event: Event }) {
         } else {
           // If user voted the opposite way, first remove the old vote
           if (userVote) {
-            const oldEmoji = userVote === 'up' ? '⬆️' : '⬇️'
+            const oldEmoji = userVote === 'up' ? DISCUSSION_UPVOTE : DISCUSSION_DOWNVOTE
             const removeReaction = createReactionDraftEvent(event, oldEmoji)
             await publish(removeReaction)
           }

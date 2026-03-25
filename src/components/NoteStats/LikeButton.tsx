@@ -7,9 +7,18 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExtendedKind } from '@/constants'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
+import { useReplyUnderDiscussionRoot } from '@/hooks/useReplyUnderDiscussionRoot'
 import { shouldHideInteractions } from '@/lib/event-filtering'
 import { createDeletionRequestDraftEvent, createReactionDraftEvent } from '@/lib/draft-event'
-import { getRootEventHexId } from '@/lib/event'
+import {
+  DISCUSSION_DOWNVOTE_DISPLAY,
+  DISCUSSION_UPVOTE_DISPLAY,
+  DISCUSSION_VOTE_EMOJIS,
+  discussionVoteMatches,
+  isDiscussionDownvoteEmoji,
+  isDiscussionUpvoteEmoji,
+  isDiscussionVoteEmoji
+} from '@/lib/discussion-votes'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
@@ -27,8 +36,6 @@ import SuggestedEmojis from '../SuggestedEmojis'
 import { formatCount } from './utils'
 import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 
-const DISCUSSION_EMOJIS = ['⬆️', '⬇️']
-
 export default function LikeButton({ event, hideCount = false }: { event: Event; hideCount?: boolean }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
@@ -40,43 +47,30 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
   const noteStats = useNoteStatsById(event.id)
   const isDiscussion = event.kind === ExtendedKind.DISCUSSION
   const inQuietMode = shouldHideInteractions(event)
-  
-  // Check if this is a reply to a discussion event
-  const [isReplyToDiscussion, setIsReplyToDiscussion] = useState(false)
-  
-  useMemo(() => {
-    if (isDiscussion) return // Already a discussion event
-    
-    const rootEventId = getRootEventHexId(event)
-    if (rootEventId) {
-      // Fetch the root event to check if it's a discussion
-      eventService.fetchEvent(rootEventId).then(rootEvent => {
-        if (rootEvent && rootEvent.kind === ExtendedKind.DISCUSSION) {
-          setIsReplyToDiscussion(true)
-        }
-      }).catch(() => {
-        // If we can't fetch the root event, assume it's not a discussion reply
-        setIsReplyToDiscussion(false)
-      })
-    }
-  }, [event.id, isDiscussion])
+  const isReplyToDiscussion = useReplyUnderDiscussionRoot(event)
+  const showDiscussionVotes = isDiscussion || isReplyToDiscussion
+
   const { myLastEmoji, likeCount, upVoteCount, downVoteCount } = useMemo(() => {
     const stats = noteStats || {}
-    const myLike = stats.likes?.find((like) => like.pubkey === pubkey)
     const likes = hideUntrustedInteractions
       ? stats.likes?.filter((like) => isUserTrusted(like.pubkey))
       : stats.likes
-    
-    // Calculate separate up/down vote counts for discussions
+
+    const myLike = likes?.find((like) => {
+      if (like.pubkey !== pubkey) return false
+      if (showDiscussionVotes) return isDiscussionVoteEmoji(like.emoji)
+      return true
+    })
+
     let upVoteCount = 0
     let downVoteCount = 0
-    if (isDiscussion || isReplyToDiscussion) {
-      upVoteCount = likes?.filter(like => like.emoji === '⬆️').length || 0
-      downVoteCount = likes?.filter(like => like.emoji === '⬇️').length || 0
+    if (showDiscussionVotes) {
+      upVoteCount = likes?.filter((like) => isDiscussionUpvoteEmoji(like.emoji)).length || 0
+      downVoteCount = likes?.filter((like) => isDiscussionDownvoteEmoji(like.emoji)).length || 0
     }
-    
+
     return { myLastEmoji: myLike?.emoji, likeCount: likes?.length, upVoteCount, downVoteCount }
-  }, [noteStats, pubkey, hideUntrustedInteractions, isDiscussion, isReplyToDiscussion])
+  }, [noteStats, pubkey, hideUntrustedInteractions, showDiscussionVotes])
 
   const like = async (emoji: string | TEmoji) => {
     checkLogin(async () => {
@@ -90,12 +84,16 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
           await noteStatsService.fetchNoteStats(event, pubkey)
         }
 
-        // Check if user is clicking the same emoji they already reacted with
         const emojiString = typeof emoji === 'string' ? emoji : emoji.shortcode
-        
-        // Normalize myLastEmoji for comparison
-        const myLastEmojiString = typeof myLastEmoji === 'string' ? myLastEmoji : typeof myLastEmoji === 'object' ? myLastEmoji.shortcode : undefined
-        const isTogglingOff = myLastEmojiString === emojiString
+        const myLastEmojiString =
+          typeof myLastEmoji === 'string'
+            ? myLastEmoji
+            : typeof myLastEmoji === 'object'
+              ? myLastEmoji.shortcode
+              : undefined
+        const isTogglingOff = showDiscussionVotes
+          ? discussionVoteMatches(myLastEmoji, emoji)
+          : myLastEmojiString === emojiString
 
         logger.debug('Like toggle check', {
           myLastEmoji,
@@ -109,6 +107,7 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
           // User wants to toggle off - find their previous reaction and delete it
           const myReaction = noteStats?.likes?.find((like) => {
             if (like.pubkey !== pubkey) return false
+            if (showDiscussionVotes) return discussionVoteMatches(like.emoji, emoji)
             const likeEmojiString = typeof like.emoji === 'string' ? like.emoji : like.emoji.shortcode
             return likeEmojiString === emojiString
           })
@@ -205,32 +204,38 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
     </button>
   )
 
-  // For discussions, show the two arrow emojis directly as buttons
-  if (isDiscussion || isReplyToDiscussion) {
+  // Discussions (kind 11) and kind 1111 under a discussion: only +/- vote reactions
+  if (showDiscussionVotes) {
     return (
       <div className="flex items-center gap-1">
-        {DISCUSSION_EMOJIS.map((emoji, index) => {
-          const isSelected = myLastEmoji === emoji
+        {DISCUSSION_VOTE_EMOJIS.map((emoji, index) => {
+          const isSelected =
+            index === 0 ? isDiscussionUpvoteEmoji(myLastEmoji) : isDiscussionDownvoteEmoji(myLastEmoji)
           const count = index === 0 ? upVoteCount : downVoteCount
+          const arrow = index === 0 ? DISCUSSION_UPVOTE_DISPLAY : DISCUSSION_DOWNVOTE_DISPLAY
           return (
             <button
-              key={index}
+              key={emoji}
               className={`flex items-center enabled:hover:text-primary gap-1 px-2 h-full text-muted-foreground rounded ${
                 isSelected ? 'text-primary bg-muted' : ''
               }`}
-              title={emoji === '⬆️' ? t('Upvote') : t('Downvote')}
+              title={emoji === '+' ? t('Upvote') : t('Downvote')}
               disabled={liking}
               onClick={() => {
                 like(emoji)
               }}
             >
-              {liking && index === 0 ? (
+              {liking ? (
                 <Skeleton className="size-4 shrink-0 rounded-full" aria-hidden />
               ) : (
                 <>
-                  <span className="text-base">{emoji}</span>
-                  {!hideCount && !!count && (
-                    <div className="text-sm">{formatCount(count)}</div>
+                  <span className="text-base leading-none" aria-hidden>
+                    {arrow}
+                  </span>
+                  {!hideCount && noteStats?.updatedAt != null && (
+                    <div className="text-sm tabular-nums">
+                      {count >= 100 ? '99+' : count}
+                    </div>
                   )}
                 </>
               )}

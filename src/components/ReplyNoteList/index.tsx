@@ -1,4 +1,5 @@
 import { E_TAG_FILTER_BLOCKED_RELAY_URLS, ExtendedKind } from '@/constants'
+import { isDiscussionDownvoteEmoji, isDiscussionUpvoteEmoji } from '@/lib/discussion-votes'
 import { getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import {
   eventReferencesEventId,
@@ -78,17 +79,23 @@ function ReplyNoteList({
     showQuotes ?? false
   )
 
+  const isDiscussionRoot = event.kind === ExtendedKind.DISCUSSION
+
   // Helper function to get vote score for a reply
   const getReplyVoteScore = (reply: NEvent) => {
     const stats = noteStatsService.getNoteStats(reply.id)
     if (!stats?.likes) {
       return 0
     }
-    
-    const upvoteReactions = stats.likes.filter(r => r.emoji === '⬆️')
-    const downvoteReactions = stats.likes.filter(r => r.emoji === '⬇️')
+
+    const upvoteReactions = stats.likes.filter((r) =>
+      isDiscussionRoot ? isDiscussionUpvoteEmoji(r.emoji) : r.emoji === '⬆️'
+    )
+    const downvoteReactions = stats.likes.filter((r) =>
+      isDiscussionRoot ? isDiscussionDownvoteEmoji(r.emoji) : r.emoji === '⬇️'
+    )
     const score = upvoteReactions.length - downvoteReactions.length
-    
+
     return score
   }
 
@@ -98,9 +105,13 @@ function ReplyNoteList({
     if (!stats?.likes) {
       return 0
     }
-    
-    const upvoteReactions = stats.likes.filter(r => r.emoji === '⬆️')
-    const downvoteReactions = stats.likes.filter(r => r.emoji === '⬇️')
+
+    const upvoteReactions = stats.likes.filter((r) =>
+      isDiscussionRoot ? isDiscussionUpvoteEmoji(r.emoji) : r.emoji === '⬆️'
+    )
+    const downvoteReactions = stats.likes.filter((r) =>
+      isDiscussionRoot ? isDiscussionDownvoteEmoji(r.emoji) : r.emoji === '⬇️'
+    )
     
     // Controversy = minimum of upvotes and downvotes (both need to be high)
     const controversy = Math.min(upvoteReactions.length, downvoteReactions.length)
@@ -141,6 +152,7 @@ function ReplyNoteList({
       
       events.forEach((evt) => {
         if (replyIdSet.has(evt.id)) return
+        if (evt.kind === kinds.Reaction) return
         if (mutePubkeySet.has(evt.pubkey)) {
           return
         }
@@ -154,6 +166,7 @@ function ReplyNoteList({
       
       // Prevent infinite loops by tracking processed event IDs
       const newParentEventKeys = events
+        .filter((evt) => evt.kind !== kinds.Reaction)
         .map((evt) => evt.id)
         .filter((id) => !processedEventIds.has(id))
       

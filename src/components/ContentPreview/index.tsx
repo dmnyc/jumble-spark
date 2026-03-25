@@ -1,5 +1,14 @@
+import { Skeleton } from '@/components/ui/skeleton'
 import { ExtendedKind } from '@/constants'
+import {
+  notificationReactionSummaryKey,
+  useNotificationReactionDisplay
+} from '@/hooks/useNotificationReactionDisplay'
 import { isMentioningMutedUsers } from '@/lib/event'
+import {
+  DISCUSSION_DOWNVOTE_DISPLAY,
+  DISCUSSION_UPVOTE_DISPLAY
+} from '@/lib/discussion-votes'
 import { cn } from '@/lib/utils'
 import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
 import { useMuteListOptional } from '@/contexts/mute-list-context'
@@ -20,6 +29,18 @@ import DiscussionNote from '../DiscussionNote'
 import ApplicationHandlerInfo from '../ApplicationHandlerInfo'
 import ApplicationHandlerRecommendation from '../ApplicationHandlerRecommendation'
 import FollowPackPreview from './FollowPackPreview'
+import ReactionEmojiDisplay from '../Note/ReactionEmojiDisplay'
+
+/** Inert event so hooks can run before `event` is defined. */
+const CONTENT_PREVIEW_HOOK_PLACEHOLDER = {
+  kind: kinds.ShortTextNote,
+  id: '',
+  pubkey: '',
+  content: '',
+  tags: [],
+  created_at: 0,
+  sig: ''
+} as Event
 
 export default function ContentPreview({
   event,
@@ -29,6 +50,7 @@ export default function ContentPreview({
   className?: string
 }) {
   const { t } = useTranslation()
+  const reactionDisplay = useNotificationReactionDisplay(event ?? CONTENT_PREVIEW_HOOK_PLACEHOLDER)
   const muteList = useMuteListOptional()
   const mutePubkeySet = muteList?.mutePubkeySet ?? new Set<string>()
   const contentPolicy = useContentPolicyOptional()
@@ -129,12 +151,22 @@ export default function ContentPreview({
   }
 
   if (event.kind === kinds.Reaction) {
-    const raw = event.content?.trim() ?? ''
-    const glyph = !raw ? '❤️' : raw.length > 24 ? `${raw.slice(0, 24)}…` : raw
     return (
-      <div className={cn('pointer-events-none text-sm text-muted-foreground', className)}>
-        <span className="mr-1.5">{glyph}</span>
-        {t('Notification reaction summary')}
+      <div className={cn('pointer-events-none flex items-center gap-1.5 text-sm text-muted-foreground', className)}>
+        {reactionDisplay.status === 'pending' ? (
+          <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
+        ) : reactionDisplay.status === 'vote_up' ? (
+          <span className="text-base leading-none" aria-hidden>
+            {DISCUSSION_UPVOTE_DISPLAY}
+          </span>
+        ) : reactionDisplay.status === 'vote_down' ? (
+          <span className="text-base leading-none" aria-hidden>
+            {DISCUSSION_DOWNVOTE_DISPLAY}
+          </span>
+        ) : (
+          <ReactionEmojiDisplay event={event} maxRawLength={24} variant="compact" />
+        )}
+        {t(notificationReactionSummaryKey(reactionDisplay))}
       </div>
     )
   }

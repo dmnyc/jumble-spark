@@ -1,17 +1,26 @@
 import { useSmartNoteNavigation } from '@/PageManager'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  notificationReactionSummaryKey,
+  useNotificationReactionDisplay
+} from '@/hooks/useNotificationReactionDisplay'
+import {
+  DISCUSSION_DOWNVOTE_DISPLAY,
+  DISCUSSION_UPVOTE_DISPLAY
+} from '@/lib/discussion-votes'
 import { isMentioningMutedUsers } from '@/lib/event'
 import { toNote } from '@/lib/link'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import { Event } from 'nostr-tools'
+import { Event, kinds } from 'nostr-tools'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ClientTag from '../ClientTag'
 import Collapsible from '../Collapsible'
 import MarkdownArticle from '../Note/MarkdownArticle/MarkdownArticle'
+import ReactionEmojiDisplay from '../Note/ReactionEmojiDisplay'
 import { FormattedTimestamp } from '../FormattedTimestamp'
 import Nip05 from '../Nip05'
 import NoteOptions from '../NoteOptions'
@@ -39,6 +48,7 @@ export default function ReplyNote({
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
   const [showMuted, setShowMuted] = useState(false)
+  const reactionDisplay = useNotificationReactionDisplay(event)
   const show = useMemo(() => {
     if (showMuted) {
       return true
@@ -107,7 +117,26 @@ export default function ReplyNote({
               />
             )}
             {show ? (
-              <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
+              event.kind === kinds.Reaction ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  {reactionDisplay.status === 'pending' ? (
+                    <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
+                  ) : reactionDisplay.status === 'vote_up' ? (
+                    <span className="text-base leading-none" aria-hidden>
+                      {DISCUSSION_UPVOTE_DISPLAY}
+                    </span>
+                  ) : reactionDisplay.status === 'vote_down' ? (
+                    <span className="text-base leading-none" aria-hidden>
+                      {DISCUSSION_DOWNVOTE_DISPLAY}
+                    </span>
+                  ) : (
+                    <ReactionEmojiDisplay event={event} variant="compact" maxRawLength={64} />
+                  )}
+                  <span>{t(notificationReactionSummaryKey(reactionDisplay))}</span>
+                </div>
+              ) : (
+                <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
+              )
             ) : (
               <Button
                 variant="outline"
@@ -123,7 +152,14 @@ export default function ReplyNote({
           </div>
         </div>
       </Collapsible>
-      {show && <NoteStats className="ml-14 pl-1 mr-4 mt-2" event={event} displayTopZapsAndLikes />}
+      {show && event.kind !== kinds.Reaction && (
+        <NoteStats
+          className="ml-14 pl-1 mr-4 mt-2"
+          event={event}
+          displayTopZapsAndLikes
+          fetchIfNotExisting
+        />
+      )}
     </div>
   )
 }

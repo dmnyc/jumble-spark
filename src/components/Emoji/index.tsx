@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 import { TEmoji } from '@/types'
-import { Heart } from 'lucide-react'
+import { Heart, ThumbsDown } from 'lucide-react'
 import { HTMLAttributes, useState } from 'react'
 
 export default function Emoji({
@@ -16,11 +16,15 @@ export default function Emoji({
   const [hasError, setHasError] = useState(false)
 
   if (typeof emoji === 'string') {
-    return emoji === '+' ? (
-      <Heart className={cn('size-5 text-red-400 fill-red-400', classNames?.img)} />
-    ) : (
-      <span className={cn('whitespace-nowrap', classNames?.text)}>{emoji}</span>
-    )
+    if (emoji === '+') {
+      return <Heart className={cn('size-5 text-red-400 fill-red-400', classNames?.img)} />
+    }
+    if (emoji === '-') {
+      return (
+        <ThumbsDown className={cn('size-5 text-muted-foreground', classNames?.img)} strokeWidth={2} aria-hidden />
+      )
+    }
+    return <span className={cn('whitespace-nowrap', classNames?.text)}>{emoji}</span>
   }
 
   if (hasError) {

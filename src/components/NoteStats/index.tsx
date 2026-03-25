@@ -4,11 +4,10 @@ import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import noteStatsService from '@/services/note-stats.service'
 import { ExtendedKind } from '@/constants'
-import { getRootEventHexId } from '@/lib/event'
+import { useReplyUnderDiscussionRoot } from '@/hooks/useReplyUnderDiscussionRoot'
 import { shouldHideInteractions } from '@/lib/event-filtering'
-import { eventService } from '@/services/client.service'
 import { Event } from 'nostr-tools'
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import BookmarkButton from '../BookmarkButton'
 import LikeButton from './LikeButton'
 import Likes from './Likes'
@@ -39,30 +38,16 @@ export default function NoteStats({
   
   // Hide boost button for discussion events and replies to discussions
   const isDiscussion = event.kind === ExtendedKind.DISCUSSION
-  const [isReplyToDiscussion, setIsReplyToDiscussion] = useState(false)
+  const isReplyToDiscussion = useReplyUnderDiscussionRoot(event)
   
   // Hide interaction counts if event is in quiet mode
   const hideInteractions = shouldHideInteractions(event)
 
   /** Synthetic RSS article root: only reply + reactions (no boost/quote/zap). */
   const isRssArticleRoot = event.kind === ExtendedKind.RSS_THREAD_ROOT
-  
-  useMemo(() => {
-    if (isDiscussion) return // Already a discussion event
-    
-    const rootEventId = getRootEventHexId(event)
-    if (rootEventId) {
-      // Fetch the root event to check if it's a discussion
-      eventService.fetchEvent(rootEventId).then(rootEvent => {
-        if (rootEvent && rootEvent.kind === ExtendedKind.DISCUSSION) {
-          setIsReplyToDiscussion(true)
-        }
-      }).catch(() => {
-        // If we can't fetch the root event, assume it's not a discussion reply
-        setIsReplyToDiscussion(false)
-      })
-    }
-  }, [event.id, isDiscussion])
+
+  /** Kind 11 / kind 1111 under kind 11: LikeButton already shows ⬆️/⬇️ counts — skip duplicate pill row. */
+  const showLikesPills = !isDiscussion && !isReplyToDiscussion && !isRssArticleRoot
 
   useEffect(() => {
     if (!fetchIfNotExisting) return
@@ -75,8 +60,7 @@ export default function NoteStats({
       <div className={cn('select-none', className)} data-note-stats onClick={(e) => e.stopPropagation()}>
         {displayTopZapsAndLikes && (
           <>
-            {/* Kind 11: LikeButton already shows ⬆️/⬇️; Likes row would duplicate those pills */}
-            {!isDiscussion && !isRssArticleRoot && <Likes event={event} />}
+            {showLikesPills && <Likes event={event} />}
           </>
         )}
         <div
@@ -103,7 +87,7 @@ export default function NoteStats({
     <div className={cn('select-none', className)} data-note-stats onClick={(e) => e.stopPropagation()}>
       {displayTopZapsAndLikes && (
         <>
-          {!isDiscussion && !isRssArticleRoot && <Likes event={event} />}
+          {showLikesPills && <Likes event={event} />}
         </>
       )}
       <div className="flex justify-between h-5 [&_svg]:size-4">

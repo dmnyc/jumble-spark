@@ -9,7 +9,7 @@ import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import type { TProfileZap } from '@/hooks/useProfileInteractions'
 import type { TProfileBadge } from '@/hooks/useProfileBadges'
 import type { TProfileFollowPack } from '@/hooks/useProfileFollowPacks'
-import { Zap, MessageCircle, ThumbsUp, Users } from 'lucide-react'
+import { Zap, MessageCircle, ThumbsDown, ThumbsUp, Users } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslation } from 'react-i18next'
 import { Event } from 'nostr-tools'
@@ -53,6 +53,7 @@ function ReactionBadge({ event }: { event: Event }) {
   const emojiInfos = getEmojiInfosFromEmojiTags(event.tags)
   const displayContent = event.content.trim() || (emojiInfos[0] ? emojiInfos[0].shortcode : '+')
   const isPlus = displayContent === '+'
+  const isMinus = displayContent === '-'
   return (
     <button
       type="button"
@@ -62,6 +63,8 @@ function ReactionBadge({ event }: { event: Event }) {
       <UserAvatar userId={event.pubkey} size="tiny" className="shrink-0" />
       {isPlus ? (
         <ThumbsUp className="size-3 shrink-0 text-primary" aria-hidden />
+      ) : isMinus ? (
+        <ThumbsDown className="size-3 shrink-0 text-muted-foreground" aria-hidden />
       ) : typeof displayContent === 'string' && !displayContent.startsWith(':') ? (
         <span className="text-xs shrink-0">{displayContent}</span>
       ) : (
