@@ -16,6 +16,11 @@ export const useCurrentRelays = () => {
   return context
 }
 
+/** Same URLs as {@link useCurrentRelays} but safe when no provider (e.g. tests, embedded previews). */
+export function useCurrentRelayUrlsOptional(): string[] {
+  return useContext(CurrentRelaysContext)?.relayUrls ?? []
+}
+
 export function CurrentRelaysProvider({ children }: { children: React.ReactNode }) {
   const [relayRefCount, setRelayRefCount] = useState<Record<string, number>>({})
   const relayUrls = useMemo(() => Object.keys(relayRefCount), [relayRefCount])

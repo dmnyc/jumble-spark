@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
+import { useNoteStatsRelayHints } from '@/hooks/useNoteStatsRelayHints'
 import noteStatsService from '@/services/note-stats.service'
 import { ExtendedKind } from '@/constants'
 import { useReplyUnderDiscussionRoot } from '@/hooks/useReplyUnderDiscussionRoot'
@@ -33,7 +33,7 @@ export default function NoteStats({
 }) {
   const { isSmallScreen } = useScreenSize()
   const { pubkey } = useNostr()
-  const { favoriteRelays } = useFavoriteRelays()
+  const { relays: statsRelays, key: statsRelaysKey } = useNoteStatsRelayHints()
   const [loading, setLoading] = useState(false)
   
   // Hide boost button for discussion events and replies to discussions
@@ -52,8 +52,10 @@ export default function NoteStats({
   useEffect(() => {
     if (!fetchIfNotExisting) return
     setLoading(true)
-    noteStatsService.fetchNoteStats(event, pubkey, favoriteRelays).finally(() => setLoading(false))
-  }, [event, fetchIfNotExisting])
+    noteStatsService.fetchNoteStats(event, pubkey, statsRelays).finally(() => setLoading(false))
+    // Intentionally omit `event` object: parent feeds often pass new references each render;
+    // id/sig/kind/created_at identify the note for refetch boundaries.
+  }, [event.id, event.kind, event.created_at, event.sig, fetchIfNotExisting, pubkey, statsRelaysKey])
 
   if (isSmallScreen) {
     return (

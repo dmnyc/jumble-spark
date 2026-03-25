@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { useNoteStatsRelayHints } from '@/hooks/useNoteStatsRelayHints'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import noteStatsService from '@/services/note-stats.service'
@@ -21,13 +22,14 @@ export default function DiscussionNoteStats({
 }) {
   const { isSmallScreen } = useScreenSize()
   const { pubkey } = useNostr()
+  const { relays: statsRelays, key: statsRelaysKey } = useNoteStatsRelayHints()
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (!fetchIfNotExisting) return
     setLoading(true)
-    noteStatsService.fetchNoteStats(event, pubkey).finally(() => setLoading(false))
-  }, [event, fetchIfNotExisting])
+    noteStatsService.fetchNoteStats(event, pubkey, statsRelays).finally(() => setLoading(false))
+  }, [event.id, event.kind, event.created_at, event.sig, fetchIfNotExisting, pubkey, statsRelaysKey])
 
   if (isSmallScreen) {
     return (

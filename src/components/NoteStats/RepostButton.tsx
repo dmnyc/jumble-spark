@@ -11,6 +11,7 @@ import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { createRepostDraftEvent } from '@/lib/draft-event'
 import { getNoteBech32Id } from '@/lib/event'
 import { cn } from '@/lib/utils'
+import { useNoteStatsRelayHints } from '@/hooks/useNoteStatsRelayHints'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
@@ -29,6 +30,7 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
   const { isSmallScreen } = useScreenSize()
   const { hideUntrustedInteractions, isUserTrusted } = useUserTrust()
   const { publish, checkLogin, pubkey } = useNostr()
+  const { relays: statsRelays } = useNoteStatsRelayHints()
   const noteStats = useNoteStatsById(event.id) as import('@/services/note-stats.service').TNoteStats | undefined
   const [reposting, setReposting] = useState(false)
   const [isPostDialogOpen, setIsPostDialogOpen] = useState(false)
@@ -54,7 +56,7 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
         const hasReposted = noteStats?.repostPubkeySet?.has(pubkey)
         if (hasReposted) return
         if (!noteStats?.updatedAt) {
-          await noteStatsService.fetchNoteStats(event, pubkey)
+          await noteStatsService.fetchNoteStats(event, pubkey, statsRelays)
           // Note: fetchNoteStats doesn't return the stats, it updates them asynchronously
           // The updated stats will be available through the useNoteStatsById hook
         }

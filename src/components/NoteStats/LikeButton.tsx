@@ -19,6 +19,7 @@ import {
   isDiscussionUpvoteEmoji,
   isDiscussionVoteEmoji
 } from '@/lib/discussion-votes'
+import { useNoteStatsRelayHints } from '@/hooks/useNoteStatsRelayHints'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
@@ -40,6 +41,7 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
   const { pubkey, publish, checkLogin } = useNostr()
+  const { relays: statsRelays } = useNoteStatsRelayHints()
   const { hideUntrustedInteractions, isUserTrusted } = useUserTrust()
   const [liking, setLiking] = useState(false)
   const [isEmojiReactionsOpen, setIsEmojiReactionsOpen] = useState(false)
@@ -81,7 +83,7 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
 
       try {
         if (!noteStats?.updatedAt) {
-          await noteStatsService.fetchNoteStats(event, pubkey)
+          await noteStatsService.fetchNoteStats(event, pubkey, statsRelays)
         }
 
         const emojiString = typeof emoji === 'string' ? emoji : emoji.shortcode

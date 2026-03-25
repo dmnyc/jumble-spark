@@ -6,6 +6,7 @@ import {
   isDiscussionUpvoteEmoji
 } from '@/lib/discussion-votes'
 import { createReactionDraftEvent } from '@/lib/draft-event'
+import { useNoteStatsRelayHints } from '@/hooks/useNoteStatsRelayHints'
 import { useNostr } from '@/providers/NostrProvider'
 import noteStatsService from '@/services/note-stats.service'
 import { Event } from 'nostr-tools'
@@ -19,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 export default function VoteButtons({ event }: { event: Event }) {
   const { t } = useTranslation()
   const { pubkey, publish, checkLogin } = useNostr()
+  const { relays: statsRelays } = useNoteStatsRelayHints()
   const [voting, setVoting] = useState<string | null>(null)
   const noteStats = useNoteStatsById(event.id)
 
@@ -59,7 +61,7 @@ export default function VoteButtons({ event }: { event: Event }) {
 
       try {
         if (!noteStats?.updatedAt) {
-          await noteStatsService.fetchNoteStats(event, pubkey)
+          await noteStatsService.fetchNoteStats(event, pubkey, statsRelays)
         }
 
         // Create the vote reaction
