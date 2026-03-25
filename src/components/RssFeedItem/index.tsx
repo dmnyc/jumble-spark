@@ -17,6 +17,8 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/u
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useSmartRssArticleNavigation } from '@/PageManager'
 import { getStandardRssFeedProfile } from '@/lib/standard-rss-feed-url'
+import { useRssFeedDisplayPrefs } from '@/components/RssFeedList/RssFeedDisplayPrefsContext'
+import { isClawstrDotComHttpHref } from '@/lib/rss-article'
 
 /**
  * Convert HTML to plain text by extracting text content and cleaning up whitespace
@@ -59,6 +61,7 @@ export default function RssFeedItem({
   sourceStrip?: 'rss' | 'web'
 }) {
   const { t } = useTranslation()
+  const { suppressClawstrLinks } = useRssFeedDisplayPrefs()
   const { pubkey, checkLogin } = useNostr()
   const { isSmallScreen } = useScreenSize()
   const { navigateToRssArticle } = useSmartRssArticleNavigation()
@@ -454,9 +457,19 @@ export default function RssFeedItem({
     html = html.replace(/javascript:/gi, '')
     // Remove data: URLs that might contain javascript (basic protection)
     html = html.replace(/data:\s*text\/html/gi, '')
-    
+
+    if (suppressClawstrLinks && html) {
+      const wrap = document.createElement('div')
+      wrap.innerHTML = html
+      wrap.querySelectorAll('a[href]').forEach((el) => {
+        const h = el.getAttribute('href') || ''
+        if (isClawstrDotComHttpHref(h)) el.remove()
+      })
+      html = wrap.innerHTML
+    }
+
     return html
-  }, [item.description])
+  }, [item.description, suppressClawstrLinks])
 
   // Format publication date
   const pubDateTimestamp = item.pubDate ? Math.floor(item.pubDate.getTime() / 1000) : null

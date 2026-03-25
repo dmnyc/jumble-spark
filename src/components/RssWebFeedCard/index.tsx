@@ -79,8 +79,7 @@ export default function RssWebFeedCard({
               <RssFeedItem
                 key={`${item.feedUrl}-${item.guid}`}
                 item={item}
-                layout="detail"
-                expandBodyFully
+                layout="list"
                 className="rounded-none border-0 shadow-none bg-transparent"
               />
             ))}

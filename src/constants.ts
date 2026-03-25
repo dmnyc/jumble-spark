@@ -313,7 +313,9 @@ export const ExtendedKind = {
   /** NIP-58 Badges: profile badges list (addressable, d=profile_badges) */
   PROFILE_BADGES: 30008,
   /** NIP-58 Badges: badge definition (addressable) */
-  BADGE_DEFINITION: 30009
+  BADGE_DEFINITION: 30009,
+  /** Web page bookmark (URL in i/I or r tags); used in RSS+Web relay discovery */
+  WEB_BOOKMARK: 39701
 }
 
 /** Event kinds that show “Read this note aloud” in note options (Web Speech API). */

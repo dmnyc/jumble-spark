@@ -81,15 +81,75 @@ export function getArticleUrlFromCommentITags(event: Event): string | undefined 
   return event.tags.find((t) => t[0] === 'i')?.[1]
 }
 
+/** HTTP(S) URL from kind 39701 web bookmarks (`i`/`I`/`r` tags). */
+export function getWebBookmarkArticleUrl(event: Pick<Event, 'kind' | 'tags'>): string | undefined {
+  if (event.kind !== ExtendedKind.WEB_BOOKMARK) return undefined
+  const fromII = getArticleUrlFromCommentITags(event as Event)
+  if (fromII && (fromII.startsWith('http://') || fromII.startsWith('https://'))) {
+    return canonicalizeRssArticleUrl(fromII)
+  }
+  const fromR = getHighlightSourceHttpUrl(event as Event)
+  if (fromR) return fromR
+  for (const t of event.tags) {
+    if (t[0] === 'r' && t[1]?.trim()) {
+      const u = t[1].trim()
+      if (u.startsWith('http://') || u.startsWith('https://')) return canonicalizeRssArticleUrl(u)
+    }
+  }
+  return undefined
+}
+
 /** HTTP(S) page URL from kind 9802 `r` tags (`source` marker or bare `r`). */
 export function getHighlightSourceHttpUrl(event: Pick<Event, 'tags'>): string | undefined {
   for (const t of event.tags) {
     if (t[0] !== 'r' || !t[1]) continue
     const u = t[1].trim()
     if (!u.startsWith('http://') && !u.startsWith('https://')) continue
-    if (t[2] === 'source' || !t[2]) return canonicalizeRssArticleUrl(u)
+    const marker = (t[2] ?? '').trim().toLowerCase()
+    // NIP-84: non-source URL refs use `mention`; only `source` (any casing) or legacy bare `r` is the page.
+    if (marker === 'mention') continue
+    if (marker === 'source' || marker === '') return canonicalizeRssArticleUrl(u)
   }
   return undefined
+}
+
+/**
+ * Values for a REQ `#r` filter on kind 9802 when the thread key is a canonical article URL.
+ * Relay matching is exact on the tag string, so we include common variants (slash, stripped query).
+ */
+export function computeRTagFilterValuesForArticleThread(canonicalUrl: string): string[] {
+  const s = canonicalUrl.trim()
+  if (!s.startsWith('http://') && !s.startsWith('https://')) return []
+  const out = new Set<string>([s])
+  try {
+    const u = new URL(s)
+    if (u.search) {
+      out.add(`${u.origin}${u.pathname}`)
+    }
+    const p = u.pathname
+    if (p.length > 1 && p.endsWith('/')) {
+      out.add(`${u.origin}${p.slice(0, -1)}${u.search}`)
+    } else if (p.length > 0 && !p.endsWith('/')) {
+      out.add(`${u.origin}${p}/${u.search}`)
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...out]
+}
+
+/** Strip anchors whose href targets https://clawstr.com/… (incl. subdomains, http(s), protocol-relative). */
+export function isClawstrDotComHttpHref(href: string): boolean {
+  const t = href.trim()
+  if (!t) return false
+  try {
+    const u = t.startsWith('//') ? new URL(`https:${t}`) : new URL(t)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+    const host = u.hostname.toLowerCase()
+    return host === 'clawstr.com' || host.endsWith('.clawstr.com')
+  } catch {
+    return false
+  }
 }
 
 /**

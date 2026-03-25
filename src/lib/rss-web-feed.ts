@@ -1,10 +1,14 @@
-import { ExtendedKind, FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { ExtendedKind, FAST_READ_RELAY_URLS } from '@/constants'
+import { buildAccountListRelayUrlsForMerge } from '@/lib/account-list-relay-urls'
+import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
 import {
   canonicalizeRssArticleUrl,
   getArticleUrlFromCommentITags,
   getHighlightSourceHttpUrl,
+  getWebBookmarkArticleUrl,
   getWebExternalReactionTargetUrl
 } from '@/lib/rss-article'
+import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
 import { queryService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
@@ -12,16 +16,26 @@ import type { RssFeedItem } from '@/services/rss-feed.service'
 import type { Event } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
 
-/** IndexedDB settings key: `'1'` = show only current user’s web comments/highlights in RSS+Web feed. */
-export const RSS_WEB_ONLY_MY_EVENTS_SETTING = 'rssWebOnlyMyEvents'
+/** IndexedDB: `'1'` (default) = strip &lt;a href&gt; to clawstr.com from RSS HTML in the feed list. */
+export const RSS_WEB_SUPPRESS_CLAWSTR_SETTING = 'rssWebSuppressClawstrLinks'
 
-/** IndexedDB: merged RSS+Web cards + Nostr vs flat RSS-only list. */
+/** IndexedDB: feed view — article URL cards, flat RSS timeline, or both interleaved. */
 export const RSS_WEB_FEED_SCOPE_SETTING = 'rssWebFeedScope'
 
 /** IndexedDB: JSON array of `{ url, addedAt }` for URLs added from “Add URL” (no RSS row yet). */
 export const RSS_WEB_MANUAL_URLS_SETTING = 'rssWebManualUrls'
 
-export type RssWebFeedScope = 'webOnly' | 'webAndRss' | 'rssOnly'
+/** `urls` = one card per article URL (Nostr + RSS merge). `rss` = classic chronological RSS list. `both` = mixed timeline with distinct row UIs. */
+export type RssWebFeedScope = 'urls' | 'rss' | 'both'
+
+/** Normalize stored scope (legacy `webOnly` / `rssOnly` / `webAndRss` included). */
+export function parseRssWebFeedScope(raw: string | null | undefined): RssWebFeedScope {
+  if (raw === 'urls' || raw === 'rss' || raw === 'both') return raw
+  if (raw === 'webOnly') return 'urls'
+  if (raw === 'rssOnly') return 'rss'
+  if (raw === 'webAndRss' || raw === 'all') return 'both'
+  return 'both'
+}
 
 export type ManualRssWebUrlEntry = { url: string; addedAt: number }
 
@@ -35,10 +49,11 @@ function trimManualRssWebUrlsToLimit(entries: ManualRssWebUrlEntry[]): ManualRss
     .slice(0, MAX_MANUAL_WEB_URLS)
 }
 
-/** Cap how many pubkeys we scan (self + follows) per discovery pass. */
-const MAX_WEB_DISCOVERY_AUTHORS = 400
-const WEB_DISCOVERY_AUTHORS_CHUNK = 10
-const WEB_DISCOVERY_EVENTS_LIMIT = 400
+/** Per-kind REQ limit for RSS+Web relay URL discovery (no `authors` filter). */
+export const RSS_WEB_NOSTR_PER_KIND_LIMIT = 100
+
+/** Relay discovery: only events in this window (some relays reject unbounded kind-only REQs). */
+const RSS_WEB_RELAY_DISCOVERY_SINCE_SEC = 365 * 24 * 60 * 60
 
 export async function loadManualRssWebUrls(): Promise<ManualRssWebUrlEntry[]> {
   const raw = await indexedDb.getSetting(RSS_WEB_MANUAL_URLS_SETTING)
@@ -102,9 +117,6 @@ export async function mergeDiscoveredRssWebUrls(discovered: ManualRssWebUrlEntry
   return true
 }
 
-/** Small chunks keep each Nostr filter JSON under relay limits ("filter item too large"). */
-const URL_CHUNK = 5
-
 /** Dispatched after publishing a kind 17 web URL reaction so RSS+Web can refetch. */
 export const WEB_EXTERNAL_REACTION_PUBLISHED_EVENT = 'jumble:webExternalReactionPublished'
 
@@ -159,24 +171,113 @@ export function partitionRssItemsForWebFeed(items: RssFeedItem[]): {
   return { groups, nonHttpItems }
 }
 
-function buildStatsRelayList(): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  const add = (u: string) => {
-    const n = normalizeUrl(u) || u
-    if (!n || seen.has(n)) return
-    seen.add(n)
-    out.push(n)
+/**
+ * One row per article URL for the “web” side of RSS+Web.
+ *
+ * **Sources (Nostr-first):** URLs from relay discovery (`relayDiscoveredEntries`) and persisted manual
+ * URLs (`manualEntries`) are merged in so each becomes a card even when RSS has no row for that URL
+ * — {@link RssWebFeedCard} then uses a faux RSS item / preview for empty `rssItems`.
+ *
+ * **RSS** only *enriches* rows: items from feeds are grouped by canonical link; Nostr-only URLs keep
+ * `rssItems: []`.
+ */
+export type ArticleUrlFeedWebRow = {
+  kind: 'web'
+  canonicalUrl: string
+  rssItems: RssFeedItem[]
+  latestPub: number
+}
+
+export function buildArticleUrlFeedRows(
+  filteredItems: RssFeedItem[],
+  manualEntries: ManualRssWebUrlEntry[],
+  relayDiscoveredEntries: ManualRssWebUrlEntry[]
+): { webRows: ArticleUrlFeedWebRow[]; nonHttpItems: RssFeedItem[] } {
+  const { groups, nonHttpItems } = partitionRssItemsForWebFeed(filteredItems)
+  const webByUrl = new Map<string, { rssItems: RssFeedItem[]; latestPub: number }>()
+
+  for (const g of groups) {
+    webByUrl.set(g.canonicalUrl, { rssItems: g.items, latestPub: g.latestPub })
   }
-  SEARCHABLE_RELAY_URLS.forEach(add)
-  FAST_READ_RELAY_URLS.forEach(add)
-  return out
+
+  const mergeNostrTimestamp = (url: string, ts: number) => {
+    const cur = webByUrl.get(url)
+    if (cur) {
+      webByUrl.set(url, {
+        ...cur,
+        latestPub: Math.max(cur.latestPub, ts)
+      })
+    } else {
+      webByUrl.set(url, { rssItems: [], latestPub: ts })
+    }
+  }
+
+  for (const { url, addedAt } of manualEntries) {
+    if (!isHttpArticleUrl(url)) continue
+    mergeNostrTimestamp(canonicalizeRssArticleUrl(url), addedAt)
+  }
+  for (const { url, addedAt } of relayDiscoveredEntries) {
+    if (!isHttpArticleUrl(url)) continue
+    mergeNostrTimestamp(canonicalizeRssArticleUrl(url), addedAt)
+  }
+
+  const webRows: ArticleUrlFeedWebRow[] = Array.from(webByUrl.entries()).map(
+    ([canonicalUrl, v]) => ({
+      kind: 'web' as const,
+      canonicalUrl,
+      rssItems: v.rssItems,
+      latestPub: v.latestPub
+    })
+  )
+  webRows.sort((a, b) => b.latestPub - a.latestPub)
+  return { webRows, nonHttpItems }
 }
 
 function highlightSourceUrl(evt: Event): string | undefined {
   const u = getHighlightSourceHttpUrl(evt)
   return u && isHttpArticleUrl(u) ? u : undefined
 }
+
+function dedupeRelayUrlsForRssWeb(urls: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const u of urls) {
+    const n = normalizeUrl(u) || u
+    if (!n || seen.has(n)) continue
+    seen.add(n)
+    out.push(n)
+  }
+  return out
+}
+
+/**
+ * Inbox + favorites + fast read: one normalized list for RSS+Web relay queries.
+ * Logged-out users get favorites tier + fast read only.
+ */
+export async function buildRssWebNostrQueryRelayUrls(options: {
+  accountPubkey: string | null
+  favoriteRelays: string[]
+  blockedRelays: string[]
+}): Promise<string[]> {
+  const { accountPubkey, favoriteRelays, blockedRelays } = options
+  const inboxAndFavorites: string[] = accountPubkey
+    ? await buildAccountListRelayUrlsForMerge({
+        accountPubkey,
+        favoriteRelays,
+        blockedRelays
+      })
+    : getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
+  return dedupeRelayUrlsForRssWeb([...inboxAndFavorites, ...FAST_READ_RELAY_URLS])
+}
+
+/** Kinds 1111, 17, 9802, 1244, 39701 — one REQ each in {@link fetchDiscoveredWebUrlsFromRelays}. */
+const RSS_WEB_RELAY_DISCOVERY_KINDS: number[] = [
+  ExtendedKind.COMMENT,
+  ExtendedKind.EXTERNAL_REACTION,
+  kinds.Highlights,
+  ExtendedKind.VOICE_COMMENT,
+  ExtendedKind.WEB_BOOKMARK
+]
 
 function extractArticleUrlFromWebActivityEvent(evt: Event): string | undefined {
   if (evt.kind === ExtendedKind.COMMENT || evt.kind === ExtendedKind.VOICE_COMMENT) {
@@ -191,205 +292,87 @@ function extractArticleUrlFromWebActivityEvent(evt: Event): string | undefined {
   if (evt.kind === kinds.Highlights) {
     return highlightSourceUrl(evt)
   }
+  if (evt.kind === ExtendedKind.WEB_BOOKMARK) {
+    const u = getWebBookmarkArticleUrl(evt)
+    return u ? canonicalizeRssArticleUrl(u) : undefined
+  }
   return undefined
 }
 
 /**
- * Recent kind 1111 / 1244 / 17 / 9802 from the given authors; returns canonical article URLs with latest event time.
- * Used to seed manual URL cards so the RSS+Web feed can load thread stats and Nostr activity for pages not in RSS.
+ * One REQ per kind, no `authors` filter: latest events from aggregated relays, grouped by canonical URL.
  */
-export async function fetchDiscoveredWebUrlsFromAuthorPubkeys(pubkeys: string[]): Promise<ManualRssWebUrlEntry[]> {
-  const unique = [...new Set(pubkeys.filter(Boolean))].slice(0, MAX_WEB_DISCOVERY_AUTHORS)
-  if (unique.length === 0) return []
+export async function fetchDiscoveredWebUrlsFromRelays(options: {
+  accountPubkey: string | null
+  favoriteRelays: string[]
+  blockedRelays: string[]
+}): Promise<ManualRssWebUrlEntry[]> {
+  const relayUrls = await buildRssWebNostrQueryRelayUrls(options)
+  if (relayUrls.length === 0) {
+    logger.info('[RssWebFeed] Relay URL discovery skipped (no relays)')
+    return []
+  }
 
-  const relayUrls = buildStatsRelayList()
-  if (relayUrls.length === 0) return []
+  logger.info('[RssWebFeed] Relay URL discovery starting', {
+    relayCount: relayUrls.length,
+    kinds: RSS_WEB_RELAY_DISCOVERY_KINDS,
+    perKindLimit: RSS_WEB_NOSTR_PER_KIND_LIMIT
+  })
 
   const latestByUrl = new Map<string, number>()
-  const webKinds = [
-    ExtendedKind.COMMENT,
-    ExtendedKind.VOICE_COMMENT,
-    ExtendedKind.EXTERNAL_REACTION,
-    kinds.Highlights
-  ] as number[]
-
-  for (let i = 0; i < unique.length; i += WEB_DISCOVERY_AUTHORS_CHUNK) {
-    const chunk = unique.slice(i, i + WEB_DISCOVERY_AUTHORS_CHUNK)
-    try {
-      await queryService.fetchEvents(
-        relayUrls,
-        [{ kinds: webKinds, authors: chunk, limit: WEB_DISCOVERY_EVENTS_LIMIT }],
-        {
-          onevent: (evt: Event) => {
-            const url = extractArticleUrlFromWebActivityEvent(evt)
-            if (!url) return
-            const prev = latestByUrl.get(url) ?? 0
-            if (evt.created_at > prev) latestByUrl.set(url, evt.created_at)
-          },
-          eoseTimeout: 5000,
-          globalTimeout: 15000
-        }
-      )
-    } catch {
-      /* ignore chunk */
-    }
+  const onEvent = (evt: Event) => {
+    const url = extractArticleUrlFromWebActivityEvent(evt)
+    if (!url) return
+    const key = canonicalizeRssArticleUrl(url)
+    const prev = latestByUrl.get(key) ?? 0
+    if (evt.created_at > prev) latestByUrl.set(key, evt.created_at)
   }
 
-  return [...latestByUrl.entries()].map(([url, addedAt]) => ({ url, addedAt }))
-}
-
-export type NostrWebActivityByUrl = Map<
-  string,
-  {
-    comments: Event[]
-    highlights: Event[]
-    externalReactions: Event[]
-  }
->
-
-/**
- * Pull kind 1111 (i-tag) comments, kind 17 (i-tag web) reactions, and kind 9802 (r-tag URL) highlights.
- */
-export async function fetchNostrWebActivityForUrls(urls: string[]): Promise<NostrWebActivityByUrl> {
-  const out: NostrWebActivityByUrl = new Map()
-  const httpUrls = [...new Set(urls.filter((u) => isHttpArticleUrl(u)).map((u) => canonicalizeRssArticleUrl(u)))]
-  if (httpUrls.length === 0) return out
-
-  const relayUrls = buildStatsRelayList()
-  if (relayUrls.length === 0) return out
-
-  const urlSet = new Set(httpUrls)
-  const commentById = new Map<string, Event>()
-  const highlightById = new Map<string, Event>()
-  const externalReactionById = new Map<string, Event>()
-
-  const webActivityOpts = {
-    onevent: (evt: Event) => {
-      if (evt.kind === ExtendedKind.COMMENT) {
-        commentById.set(evt.id, evt)
-      } else if (evt.kind === ExtendedKind.EXTERNAL_REACTION) {
-        externalReactionById.set(evt.id, evt)
-      } else if (evt.kind === kinds.Highlights) {
-        highlightById.set(evt.id, evt)
+  await Promise.all(
+    RSS_WEB_RELAY_DISCOVERY_KINDS.map(async (kind) => {
+      try {
+        await queryService.fetchEvents(
+          relayUrls,
+          [
+            {
+              kinds: [kind],
+              limit: RSS_WEB_NOSTR_PER_KIND_LIMIT,
+              since: Math.floor(Date.now() / 1000) - RSS_WEB_RELAY_DISCOVERY_SINCE_SEC
+            }
+          ],
+          {
+            onevent: onEvent,
+            eoseTimeout: 5000,
+            globalTimeout: 15000
+          }
+        )
+      } catch {
+        /* per-kind */
       }
-    },
-    eoseTimeout: 4000,
-    globalTimeout: 12000
-  }
+    })
+  )
 
-  for (let i = 0; i < httpUrls.length; i += URL_CHUNK) {
-    const chunk = httpUrls.slice(i, i + URL_CHUNK)
-    try {
-      // One filter per REQ — multiple large #i/#r arrays in one subscription hit relay size limits.
-      await queryService.fetchEvents(
-        relayUrls,
-        [{ kinds: [ExtendedKind.COMMENT], '#i': chunk, limit: 120 }],
-        webActivityOpts
-      )
-      await queryService.fetchEvents(
-        relayUrls,
-        [{ kinds: [ExtendedKind.EXTERNAL_REACTION], '#i': chunk, limit: 120 }],
-        webActivityOpts
-      )
-      await queryService.fetchEvents(
-        relayUrls,
-        [{ kinds: [kinds.Highlights], '#r': chunk, limit: 120 }],
-        webActivityOpts
-      )
-    } catch {
-      /* ignore chunk */
-    }
-  }
-
-  const addTo = (
-    urlKey: string,
-    type: 'comments' | 'highlights' | 'externalReactions',
-    evt: Event
-  ) => {
-    let bucket = out.get(urlKey)
-    if (!bucket) {
-      bucket = { comments: [], highlights: [], externalReactions: [] }
-      out.set(urlKey, bucket)
-    }
-    bucket[type].push(evt)
-  }
-
-  for (const evt of commentById.values()) {
-    const u = getArticleUrlFromCommentITags(evt)
-    if (!u || !isHttpArticleUrl(u)) continue
-    const key = canonicalizeRssArticleUrl(u)
-    if (!urlSet.has(key)) continue
-    addTo(key, 'comments', evt)
-  }
-
-  for (const evt of highlightById.values()) {
-    const u = highlightSourceUrl(evt)
-    if (!u) continue
-    const key = canonicalizeRssArticleUrl(u)
-    if (!urlSet.has(key)) continue
-    addTo(key, 'highlights', evt)
-  }
-
-  for (const evt of externalReactionById.values()) {
-    const u = getWebExternalReactionTargetUrl(evt)
-    if (!u) continue
-    const key = canonicalizeRssArticleUrl(u)
-    if (!urlSet.has(key)) continue
-    addTo(key, 'externalReactions', evt)
-  }
-
-  for (const [, bucket] of out) {
-    bucket.comments.sort((a, b) => b.created_at - a.created_at)
-    bucket.highlights.sort((a, b) => b.created_at - a.created_at)
-    bucket.externalReactions.sort((a, b) => b.created_at - a.created_at)
-  }
-
-  return out
+  const entries = [...latestByUrl.entries()].map(([url, addedAt]) => ({ url, addedAt }))
+  logger.info('[RssWebFeed] Relay URL discovery finished', {
+    uniqueUrls: entries.length
+  })
+  return entries
 }
 
-/**
- * Latest kind-17 web reaction time per canonical URL for this pubkey (for feed rows not in RSS).
- */
-export async function fetchPubkeyWebExternalReactionUrls(pubkey: string): Promise<Map<string, number>> {
-  const out = new Map<string, number>()
-  const relayUrls = buildStatsRelayList()
-  if (!pubkey || relayUrls.length === 0) return out
-  try {
-    await queryService.fetchEvents(
-      relayUrls,
-      [{ kinds: [ExtendedKind.EXTERNAL_REACTION], authors: [pubkey], limit: 500 }],
-      {
-        onevent: (evt: Event) => {
-          const url = getWebExternalReactionTargetUrl(evt)
-          if (!url) return
-          const key = canonicalizeRssArticleUrl(url)
-          const prev = out.get(key) ?? 0
-          if (evt.created_at > prev) out.set(key, evt.created_at)
-        },
-        eoseTimeout: 5000,
-        globalTimeout: 15000
-      }
-    )
-  } catch {
-    /* ignore */
-  }
-  return out
+export async function loadRssWebSuppressClawstrPreference(): Promise<boolean> {
+  const v = await indexedDb.getSetting(RSS_WEB_SUPPRESS_CLAWSTR_SETTING)
+  if (v === '0' || v === 'false') return false
+  if (v === '1' || v === 'true') return true
+  return true
 }
 
-export async function loadRssWebOnlyMyEventsPreference(): Promise<boolean> {
-  const v = await indexedDb.getSetting(RSS_WEB_ONLY_MY_EVENTS_SETTING)
-  return v === '1' || v === 'true'
-}
-
-export async function saveRssWebOnlyMyEventsPreference(onlyMine: boolean): Promise<void> {
-  await indexedDb.setSetting(RSS_WEB_ONLY_MY_EVENTS_SETTING, onlyMine ? '1' : '0')
+export async function saveRssWebSuppressClawstrPreference(suppress: boolean): Promise<void> {
+  await indexedDb.setSetting(RSS_WEB_SUPPRESS_CLAWSTR_SETTING, suppress ? '1' : '0')
 }
 
 export async function loadRssWebFeedScopePreference(): Promise<RssWebFeedScope> {
   const v = await indexedDb.getSetting(RSS_WEB_FEED_SCOPE_SETTING)
-  if (v === 'webOnly' || v === 'webAndRss' || v === 'rssOnly') return v
-  if (v === 'all') return 'webAndRss'
-  return 'webAndRss'
+  return parseRssWebFeedScope(v)
 }
 
 export async function saveRssWebFeedScopePreference(scope: RssWebFeedScope): Promise<void> {

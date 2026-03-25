@@ -10,6 +10,7 @@ import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import {
   canonicalizeRssArticleUrl,
+  computeRTagFilterValuesForArticleThread,
   getArticleUrlFromCommentITags,
   getHighlightSourceHttpUrl,
   getWebExternalReactionTargetUrl,
@@ -308,7 +309,7 @@ class NoteStatsService {
             limit: interactionLimit
           },
           {
-            '#r': [canonical],
+            '#r': computeRTagFilterValuesForArticleThread(canonical),
             kinds: [kinds.Highlights],
             limit: interactionLimit
           },
