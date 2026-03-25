@@ -173,6 +173,11 @@ export default {
     'Copy call invite link': 'Copy call invite link',
     'Start call about this': 'Start call about this',
     'Send call invite': 'Send call invite',
+    'Read this note aloud': 'Read this note aloud',
+    'Read-aloud is not supported in this browser':
+      'Read-aloud is not supported in this browser',
+    'Nothing to read aloud': 'Nothing to read aloud',
+    'Read-aloud failed': 'Read-aloud failed',
     'Join the video call': 'Join the video call',
     'Schedule video call': 'Schedule video call',
     "You're invited to a scheduled video call.": "You're invited to a scheduled video call.",

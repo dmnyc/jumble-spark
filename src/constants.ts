@@ -4,6 +4,14 @@ import { kinds } from 'nostr-tools'
 export const JUMBLE_API_BASE_URL =
   (import.meta.env.VITE_JUMBLE_API_BASE_URL as string | undefined) ?? 'https://api.jumble.imwald.eu'
 
+/**
+ * Piper TTS proxy (same contract as aitherboard `POST /api/piper-tts`: JSON `{ text, voice?, speed? }`, body `audio/wav`).
+ * Set `VITE_READ_ALOUD_TTS_URL` to your deployed aitherboard URL, e.g. `https://aitherboard.example.com/api/piper-tts`.
+ * If empty, read-aloud uses the Web Speech API only.
+ */
+export const READ_ALOUD_TTS_URL =
+  (import.meta.env.VITE_READ_ALOUD_TTS_URL as string | undefined)?.trim() || ''
+
 /** HiveTalk (WebRTC video call) base URL; override with VITE_HIVETALK_BASE_URL for self-hosted instances. */
 export const HIVETALK_BASE_URL =
   (import.meta.env.VITE_HIVETALK_BASE_URL as string | undefined) ?? 'https://vanilla.hivetalk.org'
@@ -305,6 +313,18 @@ export const ExtendedKind = {
   /** NIP-58 Badges: badge definition (addressable) */
   BADGE_DEFINITION: 30009
 }
+
+/** Event kinds that show “Read this note aloud” in note options (Web Speech API). */
+export const READ_ALOUD_KINDS: readonly number[] = [
+  kinds.ShortTextNote,
+  ExtendedKind.DISCUSSION,
+  ExtendedKind.COMMENT,
+  kinds.LongFormArticle,
+  ExtendedKind.PUBLICATION,
+  ExtendedKind.PUBLICATION_CONTENT,
+  ExtendedKind.WIKI_ARTICLE_MARKDOWN,
+  ExtendedKind.WIKI_ARTICLE
+]
 
 /** NIP-52 calendar event kinds (addressable by d-tag); use in isReplaceableEvent. */
 export const CALENDAR_EVENT_KINDS = [

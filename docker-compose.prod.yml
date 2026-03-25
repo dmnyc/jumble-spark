@@ -1,5 +1,11 @@
 # Minimal compose for running the published image (e.g. on remote server).
-# Usage: docker compose -f docker-compose.prod.yml up -d
+# Usage: docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+#
+# Apache (unchanged on your host) should keep:
+#   ProxyPass /sites/ http://127.0.0.1:8090/sites/
+#   ProxyPass / http://127.0.0.1:8089/
+# so the browser hits https://<host>/sites/?url=… on Apache → OG proxy (8090); static SPA is 8089 only.
+# VITE_PROXY_SERVER / VITE_READ_ALOUD_TTS_URL are baked at image build — see scripts/build-and-push-prod.sh
 #
 # NIP-66 monitor: set NIP66_MONITOR_NSEC (and optionally NIP66_MONITOR_NPUB) in the host env or .env.
 # - Cron (jumble-nip66-monitor) uses NIP66_MONITOR_NSEC to publish 30166/10166; nsec never goes to the client.

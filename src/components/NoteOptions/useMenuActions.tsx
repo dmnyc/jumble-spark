@@ -1,4 +1,4 @@
-import { ExtendedKind } from '@/constants'
+import { ExtendedKind, READ_ALOUD_KINDS } from '@/constants'
 import { getNoteBech32Id, isProtectedEvent, getRootEventHexId } from '@/lib/event'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
 import { buildHiveTalkJoinUrl } from '@/lib/hivetalk'
@@ -6,6 +6,7 @@ import { toAlexandria } from '@/lib/link'
 import logger from '@/lib/logger'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
+import { speakNoteReadAloud } from '@/lib/read-aloud'
 import { buildPinListTagsAfterToggle, fetchLatestReplaceableListEvent } from '@/lib/replaceable-list-latest'
 import { generateBech32IdFromATag } from '@/lib/tag'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
@@ -33,7 +34,8 @@ import {
   Send,
   Trash2,
   TriangleAlert,
-  Video
+  Video,
+  Volume2
 } from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
@@ -595,6 +597,26 @@ export function useMenuActions({
           closeDrawer()
         }
       },
+      ...(READ_ALOUD_KINDS.includes(event.kind)
+        ? [
+            {
+              icon: Volume2,
+              label: t('Read this note aloud'),
+              onClick: () => {
+                closeDrawer()
+                void speakNoteReadAloud(event).then((result) => {
+                  if (result === 'unsupported') {
+                    toast.error(t('Read-aloud is not supported in this browser'))
+                  } else if (result === 'empty') {
+                    toast.error(t('Nothing to read aloud'))
+                  } else if (result === 'error') {
+                    toast.error(t('Read-aloud failed'))
+                  }
+                })
+              }
+            } as MenuAction
+          ]
+        : []),
       ...(pubkey && event.pubkey !== pubkey && onOpenPublicMessage
         ? [
             {

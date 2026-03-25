@@ -176,6 +176,11 @@ export default {
     'Copy call invite link': 'Anruf-Einladungslink kopieren',
     'Start call about this': 'Anruf zu diesem Beitrag starten',
     'Send call invite': 'Anruf-Einladung senden',
+    'Read this note aloud': 'Diese Notiz vorlesen',
+    'Read-aloud is not supported in this browser':
+      'Vorlesen wird in diesem Browser nicht unterstützt',
+    'Nothing to read aloud': 'Kein Text zum Vorlesen',
+    'Read-aloud failed': 'Vorlesen fehlgeschlagen',
     'Join the video call': 'Am Videoanruf teilnehmen',
     'Schedule video call': 'Videoanruf planen',
     "You're invited to a scheduled video call.":
