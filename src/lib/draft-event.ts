@@ -24,7 +24,7 @@ import {
   isProtectedEvent,
   isReplaceableEvent
 } from './event'
-import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
+import { canonicalizeRssArticleUrl, NIP22_URL_SCOPE_KIND } from '@/lib/rss-article'
 import { cleanUrl } from '@/lib/url'
 import { randomString } from './random'
 import { generateBech32IdFromETag, tagNameEquals } from './tag'
@@ -247,7 +247,9 @@ export async function createCommentDraftEvent(
   if (isRssArticleThreadRoot) {
     if (rssArticleUrl) {
       const u = canonicalizeHttpUrlForITags(rssArticleUrl)
-      tags.push(buildITag(u, false), buildITag(u, true))
+      tags.push(buildITag(u, true), buildITag(u, false))
+      const scopeKind = rootKind ?? NIP22_URL_SCOPE_KIND
+      tags.push(buildKTag(scopeKind, true), buildKTag(scopeKind))
     }
   } else {
     if (rootCoordinateTag) {
@@ -263,7 +265,7 @@ export async function createCommentDraftEvent(
     }
     if (rootUrl) {
       const u = canonicalizeHttpUrlForITags(rootUrl)
-      tags.push(buildITag(u, false), buildITag(u, true))
+      tags.push(buildITag(u, true), buildITag(u, false))
     }
     tags.push(
       ...[
@@ -1106,7 +1108,7 @@ async function extractCommentMentions(content: string, parentEvent: Event) {
       quoteReplaceableCoordinates,
       rootEventId: undefined,
       rootCoordinateTag: undefined,
-      rootKind: undefined,
+      rootKind: url ? NIP22_URL_SCOPE_KIND : undefined,
       rootPubkey: undefined,
       rootUrl: url
     }
@@ -1119,11 +1121,20 @@ async function extractCommentMentions(content: string, parentEvent: Event) {
       ? buildATag(parentEvent, true)
       : undefined
   const rootEventId = isComment ? parentEvent.tags.find(tagNameEquals('E'))?.[1] : parentEvent.id
-  const rootKind = isComment ? parentEvent.tags.find(tagNameEquals('K'))?.[1] : parentEvent.kind
+  let rootKind = isComment ? parentEvent.tags.find(tagNameEquals('K'))?.[1] : parentEvent.kind
   const rootPubkey = isComment ? parentEvent.tags.find(tagNameEquals('P'))?.[1] : parentEvent.pubkey
   const rootUrl = isComment
     ? parentEvent.tags.find((t) => t[0] === 'I' || t[0] === 'i')?.[1]
     : undefined
+
+  if (
+    isComment &&
+    rootUrl &&
+    (rootKind === undefined || rootKind === '') &&
+    (rootUrl.startsWith('http://') || rootUrl.startsWith('https://'))
+  ) {
+    rootKind = NIP22_URL_SCOPE_KIND
+  }
 
   return {
     quoteEventHexIds,
@@ -1556,7 +1567,9 @@ export async function createVoiceCommentDraftEvent(
   if (isRssArticleThreadRootVoice) {
     if (rssArticleUrlVoice) {
       const u = canonicalizeHttpUrlForITags(rssArticleUrlVoice)
-      tags.push(buildITag(u, false), buildITag(u, true))
+      tags.push(buildITag(u, true), buildITag(u, false))
+      const scopeKind = rootKind ?? NIP22_URL_SCOPE_KIND
+      tags.push(buildKTag(scopeKind, true), buildKTag(scopeKind))
     }
   } else {
     if (rootCoordinateTag) {
@@ -1572,7 +1585,7 @@ export async function createVoiceCommentDraftEvent(
     }
     if (rootUrl) {
       const u = canonicalizeHttpUrlForITags(rootUrl)
-      tags.push(buildITag(u, false), buildITag(u, true))
+      tags.push(buildITag(u, true), buildITag(u, false))
     }
     tags.push(
       ...[

@@ -1,5 +1,8 @@
 import { ExtendedKind } from '@/constants'
 import { cleanUrl } from '@/lib/url'
+
+/** NIP-22: `K` / `k` value for http(s) URL comment scopes (web pages, articles). */
+export const NIP22_URL_SCOPE_KIND = 'web'
 import { bytesToHex } from '@noble/hashes/utils'
 import { sha256 } from '@noble/hashes/sha256'
 import type { Event } from 'nostr-tools'
@@ -62,8 +65,10 @@ export function createRssThreadRootEvent(articleUrl: string): Event {
     created_at: 0,
     kind: ExtendedKind.RSS_THREAD_ROOT,
     tags: [
+      ['I', canonical],
       ['i', canonical],
-      ['I', canonical]
+      ['K', NIP22_URL_SCOPE_KIND],
+      ['k', NIP22_URL_SCOPE_KIND]
     ],
     content: '',
     sig: ''
