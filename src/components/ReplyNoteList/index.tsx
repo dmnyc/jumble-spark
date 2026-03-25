@@ -1,6 +1,6 @@
 import { E_TAG_FILTER_BLOCKED_RELAY_URLS, ExtendedKind } from '@/constants'
 import { isDiscussionDownvoteEmoji, isDiscussionUpvoteEmoji } from '@/lib/discussion-votes'
-import { getArticleUrlFromCommentITags } from '@/lib/rss-article'
+import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import {
   eventReferencesEventId,
   getParentETag,
@@ -141,6 +141,16 @@ function ReplyNoteList({
     if (isReplaceableEvent(event.kind) && currentEventKey !== eventIdKey) {
       parentEventKeys.push(eventIdKey)
     }
+    // Web article threads: kind 1111 replies use #i (URL) only — ReplyProvider keys them by canonical URL, not synthetic root id.
+    if (event.kind === ExtendedKind.RSS_THREAD_ROOT) {
+      const u = getArticleUrlFromCommentITags(event)
+      if (u) {
+        const canon = canonicalizeRssArticleUrl(u)
+        if (!parentEventKeys.includes(canon)) {
+          parentEventKeys = [canon, ...parentEventKeys]
+        }
+      }
+    }
 
     
     const processedEventIds = new Set<string>() // Prevent infinite loops
@@ -220,7 +230,14 @@ function ReplyNoteList({
       default:
         return replyEvents.sort((a, b) => b.created_at - a.created_at)
     }
-  }, [event.id, repliesMap, mutePubkeySet, hideContentMentioningMutedUsers, sort])
+  }, [
+    event.id,
+    event.kind,
+    repliesMap,
+    mutePubkeySet,
+    hideContentMentioningMutedUsers,
+    sort
+  ])
 
   const replyIdSet = useMemo(() => new Set(replies.map((r) => r.id)), [replies])
   /** Events that quote the note (from useQuoteEvents) — render with quote styling and without embedded quote. */
@@ -261,9 +278,9 @@ function ReplyNoteList({
   useEffect(() => {
     const fetchRootEvent = async () => {
       if (event.kind === ExtendedKind.RSS_THREAD_ROOT) {
-        const url = event.tags.find((t) => t[0] === 'i' || t[0] === 'I')?.[1]
+        const url = getArticleUrlFromCommentITags(event)
         if (url) {
-          setRootInfo({ type: 'I', id: url })
+          setRootInfo({ type: 'I', id: canonicalizeRssArticleUrl(url) })
         }
         return
       }
@@ -320,7 +337,7 @@ function ReplyNoteList({
         }
         const rootArticleUrl = getArticleUrlFromCommentITags(event)
         if (rootArticleUrl) {
-          root = { type: 'I', id: rootArticleUrl }
+          root = { type: 'I', id: canonicalizeRssArticleUrl(rootArticleUrl) }
         }
       }
       setRootInfo(root)
@@ -653,10 +670,14 @@ function ReplyNoteList({
           const parentEventId = parentETag ? generateBech32IdFromETag(parentETag) : undefined
           
           const replyRootId = getRootEventHexId(reply)
+          const replyUrlForIThread =
+            rootInfo?.type === 'I' ? getArticleUrlFromCommentITags(reply) : undefined
           const belongsToSameThread = rootInfo && (
             (rootInfo.type === 'E' && replyRootId === rootInfo.id) ||
             (rootInfo.type === 'A' && getRootATag(reply)?.[1] === rootInfo.id) ||
-            (rootInfo.type === 'I' && getArticleUrlFromCommentITags(reply) === rootInfo.id)
+            (rootInfo.type === 'I' &&
+              !!replyUrlForIThread &&
+              canonicalizeRssArticleUrl(replyUrlForIThread) === canonicalizeRssArticleUrl(rootInfo.id))
           )
           
           return (

@@ -1,4 +1,5 @@
 import { DEFAULT_RSS_FEEDS } from '@/constants'
+import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
 import { cleanUrl } from '@/lib/url'
 import logger from '@/lib/logger'
 import indexedDb from '@/services/indexed-db.service'
@@ -53,6 +54,26 @@ export interface RssFeed {
   lastBuildDate?: Date
 }
 
+/** Synthetic row for URL-only threads (Nostr activity on a link without an RSS cache hit). */
+export const WEB_ONLY_FAUX_FEED_URL = 'nostr:jumble/web-faux-rss-item'
+
+export function isWebOnlyFauxRssItem(item: Pick<RssFeedItem, 'feedUrl' | 'guid'>): boolean {
+  return item.feedUrl === WEB_ONLY_FAUX_FEED_URL || item.guid.startsWith('web-only:')
+}
+
+export function createWebOnlyRssFeedItem(articleUrl: string): RssFeedItem {
+  const canonical = canonicalizeRssArticleUrl(articleUrl.trim())
+  return {
+    title: canonical,
+    link: canonical,
+    description: '',
+    pubDate: null,
+    guid: `web-only:${canonical}`,
+    feedUrl: WEB_ONLY_FAUX_FEED_URL,
+    feedTitle: undefined
+  }
+}
+
 class RssFeedService {
   static instance: RssFeedService
   private feedCache: Map<string, { feed: RssFeed; timestamp: number }> = new Map()
@@ -60,12 +81,71 @@ class RssFeedService {
   private backgroundRefreshController: AbortController | null = null
   private monthMapCache: Record<string, string> | null = null
   private activeFetchPromises: Map<string, Promise<RssFeed>> = new Map() // Track active fetches by URL
+  /** Global RSS item cap in IndexedDB; oldest by pubDate are removed when exceeded. */
+  private readonly MAX_CACHED_RSS_ITEMS = 5000
 
   constructor() {
     if (!RssFeedService.instance) {
       RssFeedService.instance = this
     }
     return RssFeedService.instance
+  }
+
+  private normalizeRssFeedKeyUrl(url: string): string {
+    return url.trim().replace(/\/$/, '')
+  }
+
+  private parseItemPubDate(item: RssFeedItem): Date | null {
+    if (!item.pubDate) return null
+    if (item.pubDate instanceof Date) return item.pubDate
+    if (typeof item.pubDate === 'number') return new Date(item.pubDate)
+    if (typeof item.pubDate === 'string') return new Date(item.pubDate)
+    return null
+  }
+
+  /**
+   * Merge refreshed feeds into the full IndexedDB cache, trim oldest items when over the cap,
+   * and rewrite the store so pruned rows are removed (put-only would leave stale keys).
+   */
+  private async persistGlobalRssCacheAfterMerge(
+    mergedFromRefresh: RssFeedItem[],
+    refreshedFeedUrls: string[]
+  ): Promise<void> {
+    const refreshedSet = new Set(refreshedFeedUrls.map((u) => this.normalizeRssFeedKeyUrl(u)))
+    let all: RssFeedItem[] = []
+    try {
+      all = await indexedDb.getRssFeedItems()
+    } catch (e) {
+      logger.warn('[RssFeedService] persistGlobalRssCacheAfterMerge: read cache failed', { error: e })
+    }
+    const map = new Map<string, RssFeedItem>()
+    for (const item of all) {
+      const key = `${item.feedUrl}:${item.guid}`
+      if (!refreshedSet.has(this.normalizeRssFeedKeyUrl(item.feedUrl))) {
+        map.set(key, {
+          ...item,
+          pubDate: this.parseItemPubDate(item)
+        })
+      }
+    }
+    for (const item of mergedFromRefresh) {
+      map.set(`${item.feedUrl}:${item.guid}`, item)
+    }
+    let combined = Array.from(map.values())
+    combined.sort((a, b) => {
+      const dateA = a.pubDate?.getTime() || 0
+      const dateB = b.pubDate?.getTime() || 0
+      return dateB - dateA
+    })
+    if (combined.length > this.MAX_CACHED_RSS_ITEMS) {
+      combined = combined.slice(0, this.MAX_CACHED_RSS_ITEMS)
+    }
+    try {
+      await indexedDb.clearRssFeedItems()
+      await indexedDb.putRssFeedItems(combined)
+    } catch (error) {
+      logger.error('[RssFeedService] persistGlobalRssCacheAfterMerge failed', { error })
+    }
   }
 
   /**
@@ -1326,19 +1406,18 @@ class RssFeedService {
           })
           
           const mergedItems = Array.from(itemMap.values())
-          
-          // Sort by publication date (newest first)
+
+          // Sort by publication date (newest first) before global merge + trim
           mergedItems.sort((a, b) => {
             const dateA = a.pubDate?.getTime() || 0
             const dateB = b.pubDate?.getTime() || 0
             return dateB - dateA
           })
-          
-          // Write merged items back to IndexedDB
+
           try {
-            await indexedDb.putRssFeedItems(mergedItems)
-            logger.info('[RssFeedService] Updated IndexedDB cache with merged items', { 
-              totalItems: mergedItems.length,
+            await this.persistGlobalRssCacheAfterMerge(mergedItems, feedUrls)
+            logger.info('[RssFeedService] Updated IndexedDB cache with merged items', {
+              mergedFromThisRefresh: mergedItems.length,
               newItems: newItems.length,
               cachedItems: cachedItems.length
             })
@@ -1526,19 +1605,17 @@ class RssFeedService {
         })
         
         const mergedItems = Array.from(itemMap.values())
-        
-        // Sort by publication date (newest first)
+
         mergedItems.sort((a, b) => {
           const dateA = a.pubDate?.getTime() || 0
           const dateB = b.pubDate?.getTime() || 0
           return dateB - dateA
         })
-        
-        // Write merged items back to IndexedDB
+
         try {
-          await indexedDb.putRssFeedItems(mergedItems)
-          logger.info('[RssFeedService] Background refresh: updated IndexedDB cache', { 
-            totalItems: mergedItems.length,
+          await this.persistGlobalRssCacheAfterMerge(mergedItems, feedUrls)
+          logger.info('[RssFeedService] Background refresh: updated IndexedDB cache', {
+            mergedFromThisRefresh: mergedItems.length,
             newItems: newItems.length,
             cachedItems: cachedItems.length
           })

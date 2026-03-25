@@ -1,6 +1,10 @@
-import { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
+import {
+  RssFeedItem as TRssFeedItem,
+  isWebOnlyFauxRssItem
+} from '@/services/rss-feed.service'
+import WebPreview from '../WebPreview'
 import { FormattedTimestamp } from '../FormattedTimestamp'
-import { ExternalLink, Highlighter } from 'lucide-react'
+import { ExternalLink, Globe, Highlighter, Rss } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -40,17 +44,24 @@ function htmlToPlainText(html: string): string {
 export default function RssFeedItem({
   item,
   className,
-  layout = 'detail'
+  layout = 'detail',
+  expandBodyFully = false,
+  sourceStrip
 }: {
   item: TRssFeedItem
   className?: string
   /** `list`: title row + actions (open full article in side panel). `detail`: full body (secondary panel). */
   layout?: 'list' | 'detail'
+  /** When `layout` is `detail`, show full article HTML without height cap or “Show more”. */
+  expandBodyFully?: boolean
+  /** Optional RSS vs Web URL hint for feed rows (combined cards use their own strip). */
+  sourceStrip?: 'rss' | 'web'
 }) {
   const { t } = useTranslation()
   const { pubkey, checkLogin } = useNostr()
   const { isSmallScreen } = useScreenSize()
   const { navigateToRssArticle } = useSmartRssArticleNavigation()
+  const isWebFaux = isWebOnlyFauxRssItem(item)
   const isListLayout = layout === 'list'
   const showFullBody = layout === 'detail'
   const [selectedText, setSelectedText] = useState('')
@@ -392,13 +403,14 @@ export default function RssFeedItem({
 
   // Format feed source name from URL
   const feedSourceName = useMemo(() => {
+    if (isWebFaux) return ''
     try {
       const url = new URL(item.feedUrl)
       return url.hostname.replace(/^www\./, '')
     } catch {
       return item.feedTitle || 'RSS Feed'
     }
-  }, [item.feedUrl, item.feedTitle])
+  }, [item.feedUrl, item.feedTitle, isWebFaux])
 
   // Clean and parse HTML description safely
   // Decode HTML entities and remove any XML artifacts that might have leaked through
@@ -440,9 +452,23 @@ export default function RssFeedItem({
 
   // Check if content exceeds 400px height (detail layout only)
   const [needsCollapse, setNeedsCollapse] = useState(false)
-  const [longBodyExpanded, setLongBodyExpanded] = useState(false)
+  const [longBodyExpanded, setLongBodyExpanded] = useState(() => expandBodyFully && layout === 'detail')
 
   useEffect(() => {
+    if (expandBodyFully && layout === 'detail') {
+      setLongBodyExpanded(true)
+    }
+  }, [expandBodyFully, layout])
+
+  useEffect(() => {
+    if (isWebFaux) {
+      setNeedsCollapse(false)
+      return
+    }
+    if (expandBodyFully && showFullBody) {
+      setNeedsCollapse(false)
+      return
+    }
     if (isListLayout || !contentRef.current || !descriptionHtml) {
       setNeedsCollapse(false)
       return
@@ -480,7 +506,7 @@ export default function RssFeedItem({
 
     // Use ResizeObserver to detect when content changes
     const resizeObserver = new ResizeObserver(() => {
-      if (!longBodyExpanded) {
+      if (!longBodyExpanded && !expandBodyFully) {
         checkHeight()
       }
     })
@@ -494,7 +520,7 @@ export default function RssFeedItem({
       clearTimeout(timeoutId2)
       resizeObserver.disconnect()
     }
-  }, [descriptionHtml, longBodyExpanded, isListLayout])
+  }, [descriptionHtml, longBodyExpanded, isListLayout, expandBodyFully, showFullBody, isWebFaux])
 
   return (
     <div
@@ -519,10 +545,29 @@ export default function RssFeedItem({
           : undefined
       }
     >
+      {sourceStrip ? (
+        <div
+          className="flex items-center gap-1.5 pb-2 mb-2 border-b border-border/40 text-[11px] sm:text-xs text-muted-foreground"
+          aria-label={
+            sourceStrip === 'rss' ? t('RSS feed item label') : t('Web URL item label')
+          }
+        >
+          {sourceStrip === 'rss' ? (
+            <Rss className="size-3.5 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+          ) : (
+            <Globe className="size-3.5 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+          )}
+          <span>
+            {sourceStrip === 'rss'
+              ? t('RSS feed item label')
+              : t('Web URL item label')}
+          </span>
+        </div>
+      ) : null}
       {/* Feed Header with Metadata */}
       <div className="flex items-start gap-3 pb-3 border-b">
         {/* Feed Image/Logo */}
-        {item.feedImage && (
+        {item.feedImage && !isWebFaux && (
           <img
             src={item.feedImage}
             alt={item.feedTitle || feedSourceName}
@@ -539,7 +584,7 @@ export default function RssFeedItem({
           <div className="flex items-center justify-between gap-2">
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-sm truncate">
-                {item.feedTitle || feedSourceName}
+                {isWebFaux ? t('Web page') : item.feedTitle || feedSourceName}
               </h3>
               {item.feedDescription && (
                 <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
@@ -588,7 +633,7 @@ export default function RssFeedItem({
       {showFullBody ? (
         <>
           {/* Media (Images) */}
-          {item.media && item.media.length > 0 && (
+          {!isWebFaux && item.media && item.media.length > 0 && (
             <div className="space-y-2 overflow-hidden">
               {item.media
                 .filter(m => m.type?.startsWith('image/') || !m.type || m.type === 'image')
@@ -623,7 +668,9 @@ export default function RssFeedItem({
           )}
 
           {/* Audio/Video Enclosure */}
-          {item.enclosure && (item.enclosure.type.startsWith('audio/') || item.enclosure.type.startsWith('video/')) && (
+          {!isWebFaux &&
+            item.enclosure &&
+            (item.enclosure.type.startsWith('audio/') || item.enclosure.type.startsWith('video/')) && (
             <div className="space-y-2">
               <div className="rounded-lg border bg-muted/50 p-4">
                 <div className="flex items-center gap-3 mb-3">
@@ -643,35 +690,50 @@ export default function RssFeedItem({
             </div>
           )}
 
-          {/* Description with text selection support and collapse/expand */}
+          {/* RSS HTML body or OpenGraph web preview for URL-only faux items */}
           <div className="relative overflow-hidden">
-            <div
-              ref={contentRef}
-              className={cn(
-                'prose prose-sm dark:prose-invert max-w-none break-words rss-feed-content transition-all duration-200 overflow-wrap-anywhere',
-                needsCollapse && !longBodyExpanded && 'max-h-[400px] overflow-hidden',
-                '[&_img]:max-w-full [&_img]:md:max-w-[400px] [&_img]:h-auto [&_img]:rounded-lg',
-                '[&_*]:max-w-full'
-              )}
-              style={{
-                userSelect: 'text',
-                WebkitUserSelect: 'text',
-                MozUserSelect: 'text',
-                msUserSelect: 'text'
-              }}
-              dangerouslySetInnerHTML={{ __html: descriptionHtml }}
-              onMouseUp={(e) => {
-                // Allow text selection
-                e.stopPropagation()
-              }}
-            />
+            {isWebFaux ? (
+              <div
+                ref={contentRef}
+                className="not-prose max-w-full rss-feed-content"
+                style={{
+                  userSelect: 'text',
+                  WebkitUserSelect: 'text',
+                  MozUserSelect: 'text',
+                  msUserSelect: 'text'
+                }}
+                onMouseUp={(e) => e.stopPropagation()}
+              >
+                <WebPreview url={item.link} className="w-full" />
+              </div>
+            ) : (
+              <div
+                ref={contentRef}
+                className={cn(
+                  'prose prose-sm dark:prose-invert max-w-none break-words rss-feed-content transition-all duration-200 overflow-wrap-anywhere',
+                  needsCollapse && !longBodyExpanded && !expandBodyFully && 'max-h-[400px] overflow-hidden',
+                  '[&_img]:max-w-full [&_img]:md:max-w-[400px] [&_img]:h-auto [&_img]:rounded-lg',
+                  '[&_*]:max-w-full'
+                )}
+                style={{
+                  userSelect: 'text',
+                  WebkitUserSelect: 'text',
+                  MozUserSelect: 'text',
+                  msUserSelect: 'text'
+                }}
+                dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+                onMouseUp={(e) => {
+                  e.stopPropagation()
+                }}
+              />
+            )}
             
             {/* Gradient overlay when collapsed */}
-            {needsCollapse && !longBodyExpanded && (
+            {!isWebFaux && needsCollapse && !longBodyExpanded && !expandBodyFully && (
               <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-b from-transparent via-background/60 to-background pointer-events-none" />
             )}
             
-            {showFullBody && needsCollapse && (
+            {!isWebFaux && showFullBody && needsCollapse && !expandBodyFully && (
               <div className="flex justify-center mt-2 relative z-10">
                 <Button
                   variant="ghost"

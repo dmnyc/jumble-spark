@@ -1,18 +1,33 @@
 import NoteInteractions from '@/components/NoteInteractions'
 import NoteStats from '@/components/NoteStats'
 import RssFeedItem from '@/components/RssFeedItem'
-import WebPreview from '@/components/WebPreview'
 import { RefreshButton } from '@/components/RefreshButton'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import indexedDb from '@/services/indexed-db.service'
 import type { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
+import {
+  createWebOnlyRssFeedItem,
+  isWebOnlyFauxRssItem
+} from '@/services/rss-feed.service'
+import { isHttpArticleUrl } from '@/lib/rss-web-feed'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
-import { decodeRssArticlePathSegment, createRssThreadRootEvent } from '@/lib/rss-article'
+import { useNostr } from '@/providers/NostrProvider'
+import { decodeRssArticlePathSegment, createRssThreadRootEvent, canonicalizeRssArticleUrl } from '@/lib/rss-article'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ExternalLink } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+
+function normalizeFeedUrl(url: string): string {
+  return url.trim().replace(/\/$/, '')
+}
 
 const RssArticlePage = forwardRef(
   (
@@ -30,10 +45,12 @@ const RssArticlePage = forwardRef(
     ref
   ) => {
     const { t } = useTranslation()
+    const { rssFeedListEvent } = useNostr()
     const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
     const [contentKey, setContentKey] = useState(0)
-    const [item, setItem] = useState<TRssFeedItem | null>(initialItem ?? null)
-    const [loading, setLoading] = useState(!initialItem)
+    const [allCachedItems, setAllCachedItems] = useState<TRssFeedItem[]>([])
+    const [loading, setLoading] = useState(true)
+    const [selectedSource, setSelectedSource] = useState<'all' | string>('all')
 
     const articleUrl = useMemo(() => {
       try {
@@ -43,18 +60,81 @@ const RssArticlePage = forwardRef(
       }
     }, [articleKey])
 
+    const subscribedFeedUrls = useMemo(() => {
+      if (!rssFeedListEvent?.tags?.length) return new Set<string>()
+      const s = new Set<string>()
+      for (const t of rssFeedListEvent.tags) {
+        if (t[0] === 'u' && t[1]) s.add(normalizeFeedUrl(String(t[1])))
+      }
+      return s
+    }, [rssFeedListEvent])
+
+    const matchingItems = useMemo(() => {
+      if (!articleUrl) return []
+      const canon = canonicalizeRssArticleUrl(articleUrl)
+      const fromDb = allCachedItems.filter((i) => canonicalizeRssArticleUrl(i.link) === canon)
+      let result =
+        subscribedFeedUrls.size === 0
+          ? fromDb
+          : fromDb.filter((i) => subscribedFeedUrls.has(normalizeFeedUrl(i.feedUrl)))
+      if (initialItem && canonicalizeRssArticleUrl(initialItem.link) === canon) {
+        const norm = normalizeFeedUrl(initialItem.feedUrl)
+        const has = result.some(
+          (i) => normalizeFeedUrl(i.feedUrl) === norm && i.guid === initialItem.guid
+        )
+        if (!has) result = [initialItem, ...result]
+      }
+      if (!loading && result.length === 0 && isHttpArticleUrl(articleUrl)) {
+        return [createWebOnlyRssFeedItem(articleUrl)]
+      }
+      return result
+    }, [allCachedItems, articleUrl, subscribedFeedUrls, initialItem, loading])
+
+    const sourceOptions = useMemo(() => {
+      const m = new Map<string, string>()
+      for (const i of matchingItems) {
+        const u = normalizeFeedUrl(i.feedUrl)
+        if (!m.has(u)) {
+          m.set(
+            u,
+            isWebOnlyFauxRssItem(i) ? t('Web page') : (i.feedTitle?.trim() || u)
+          )
+        }
+      }
+      return [...m.entries()].map(([url, title]) => ({ url, title }))
+    }, [matchingItems, t])
+
+    const itemsToRender = useMemo(() => {
+      if (matchingItems.length === 0) return []
+      if (matchingItems.length === 1 || selectedSource === 'all') return matchingItems
+      return matchingItems.filter((i) => normalizeFeedUrl(i.feedUrl) === selectedSource)
+    }, [matchingItems, selectedSource])
+
     useEffect(() => {
-      if (initialItem || !articleUrl) {
+      if (sourceOptions.length <= 1) {
+        if (selectedSource !== 'all') setSelectedSource('all')
+        return
+      }
+      if (
+        selectedSource !== 'all' &&
+        !sourceOptions.some((o) => o.url === selectedSource)
+      ) {
+        setSelectedSource('all')
+      }
+    }, [sourceOptions, selectedSource])
+
+    useEffect(() => {
+      if (!articleUrl) {
         setLoading(false)
         return
       }
       let cancelled = false
       ;(async () => {
+        setLoading(true)
         try {
           const items = await indexedDb.getRssFeedItems()
           if (cancelled) return
-          const found = items.find((i) => i.link === articleUrl) ?? null
-          setItem(found)
+          setAllCachedItems(items)
         } finally {
           if (!cancelled) setLoading(false)
         }
@@ -62,41 +142,37 @@ const RssArticlePage = forwardRef(
       return () => {
         cancelled = true
       }
-    }, [articleUrl, initialItem])
+    }, [articleUrl])
 
     const syntheticRoot = useMemo(
       () => (articleUrl ? createRssThreadRootEvent(articleUrl) : null),
       [articleUrl]
     )
 
+    const primaryRssItem = itemsToRender[0] ?? null
+
     useEffect(() => {
       if (hideTitlebar) {
-        sessionStorage.setItem('notePageTitle', item ? t('RSS article') : t('Web page'))
+        sessionStorage.setItem('notePageTitle', primaryRssItem ? t('RSS article') : t('Web page'))
       }
       return () => {
         if (hideTitlebar) {
           sessionStorage.removeItem('notePageTitle')
         }
       }
-    }, [hideTitlebar, t, item])
+    }, [hideTitlebar, t, primaryRssItem])
 
     const refreshArticle = useCallback(async () => {
       setContentKey((k) => k + 1)
       if (!articleUrl) return
-      if (initialItem) {
-        setItem(initialItem)
-        setLoading(false)
-        return
-      }
       setLoading(true)
       try {
         const items = await indexedDb.getRssFeedItems()
-        const found = items.find((i) => i.link === articleUrl) ?? null
-        setItem(found)
+        setAllCachedItems(items)
       } finally {
         setLoading(false)
       }
-    }, [articleUrl, initialItem])
+    }, [articleUrl])
 
     useEffect(() => {
       if (!hideTitlebar) {
@@ -126,7 +202,7 @@ const RssArticlePage = forwardRef(
       )
     }
 
-    if (loading) {
+    if (loading && matchingItems.length === 0) {
       return (
         <SecondaryPageLayout
           ref={ref}
@@ -141,7 +217,7 @@ const RssArticlePage = forwardRef(
       )
     }
 
-    if (!item) {
+    if (matchingItems.length === 0) {
       return (
         <SecondaryPageLayout
           ref={ref}
@@ -154,18 +230,9 @@ const RssArticlePage = forwardRef(
             <p className="text-xs text-muted-foreground">
               {t('Opened by URL — not from your RSS list. Nostr thread is still tied to this link.')}
             </p>
-            <div className="not-prose max-w-full">
-              <WebPreview url={articleUrl} className="w-full" />
-            </div>
-            <Button variant="outline" size="sm" asChild>
-              <a href={articleUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2">
-                {t('Open in browser')}
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            </Button>
             {syntheticRoot && (
               <div className="px-0 w-full">
-                <NoteStats className="mt-2" event={syntheticRoot} fetchIfNotExisting={false} displayTopZapsAndLikes={false} />
+                <NoteStats className="mt-2" event={syntheticRoot} fetchIfNotExisting displayTopZapsAndLikes={false} />
               </div>
             )}
             <Separator />
@@ -193,12 +260,48 @@ const RssArticlePage = forwardRef(
         displayScrollToTopButton
       >
         <div key={contentKey} className="min-w-0">
-          <div className="px-4 pt-3 w-full">
-            <RssFeedItem item={item} layout="detail" />
+          <div className="px-4 pt-3 w-full space-y-3">
+            {sourceOptions.length > 1 ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="rss-thread-feed-source" className="text-xs text-muted-foreground">
+                  {t('RSS feed source')}
+                </Label>
+                <Select
+                  value={selectedSource}
+                  onValueChange={(v) => setSelectedSource(v === 'all' ? 'all' : v)}
+                >
+                  <SelectTrigger id="rss-thread-feed-source" className="h-9 w-full max-w-md text-sm">
+                    <SelectValue placeholder={t('RSS feed source')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('All feed sources')}</SelectItem>
+                    {sourceOptions.map(({ url, title }) => (
+                      <SelectItem key={url} value={url}>
+                        {title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            <div
+              className={
+                itemsToRender.length > 1 ? 'divide-y divide-border rounded-lg border border-border overflow-hidden' : ''
+              }
+            >
+              {itemsToRender.map((it) => (
+                <RssFeedItem
+                  key={`${it.feedUrl}-${it.guid}`}
+                  item={it}
+                  layout="detail"
+                  className={itemsToRender.length > 1 ? 'rounded-none border-0' : ''}
+                />
+              ))}
+            </div>
           </div>
           {syntheticRoot && (
             <div className="px-4 w-full">
-              <NoteStats className="mt-3" event={syntheticRoot} fetchIfNotExisting={false} displayTopZapsAndLikes={false} />
+              <NoteStats className="mt-3" event={syntheticRoot} fetchIfNotExisting displayTopZapsAndLikes={false} />
             </div>
           )}
           <Separator className="mt-4" />

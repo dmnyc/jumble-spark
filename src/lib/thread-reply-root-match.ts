@@ -1,5 +1,5 @@
 import { getRootATag, getRootEventHexId } from '@/lib/event'
-import { getArticleUrlFromCommentITags } from '@/lib/rss-article'
+import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import type { Event } from 'nostr-tools'
 
 /** Matches `ReplyNoteList` / discussion thread root shapes. */
@@ -11,7 +11,9 @@ export type TThreadRootRef =
 /** Whether a newly published/fetched reply belongs to the thread rooted at `root`. */
 export function eventReplyMatchesThreadRoot(evt: Event, root: TThreadRootRef): boolean {
   if (root.type === 'I') {
-    return getArticleUrlFromCommentITags(evt) === root.id
+    const u = getArticleUrlFromCommentITags(evt)
+    if (!u) return false
+    return canonicalizeRssArticleUrl(u) === canonicalizeRssArticleUrl(root.id)
   }
   if (root.type === 'A') {
     const coord = getRootATag(evt)?.[1]

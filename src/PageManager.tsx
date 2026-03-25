@@ -226,6 +226,30 @@ function buildRssArticleUrl(articleUrl: string, currentPage: TPrimaryPageName | 
   return `/rss-item/${key}`
 }
 
+/** True for secondary routes that show an RSS / web article in the panel (contextual or bare). */
+function secondaryUrlIsRssArticle(url: string): boolean {
+  let path = url.split('?')[0].split('#')[0]
+  try {
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      path = new URL(path).pathname
+    }
+  } catch {
+    /* keep path */
+  }
+  return (
+    /^\/(discussions|search|profile|home|feed|spells|explore|rss)\/rss-item\/[^/?#]+/.test(path) ||
+    /^\/rss-item\/[^/?#]+/.test(path)
+  )
+}
+
+function replaceHistoryWithPrimaryPageUrl(
+  page: TPrimaryPageName,
+  props?: { spell?: string } | Record<string, unknown> | null
+) {
+  const pageUrl = buildPrimaryPageUrl(page, props as { spell?: string } | undefined)
+  window.history.replaceState(null, '', pageUrl)
+}
+
 /** Open an RSS article in the secondary panel (same routing pattern as contextual note URLs). */
 export function useSmartRssArticleNavigation() {
   const { push: pushSecondaryPage } = useSecondaryPage()
@@ -1600,12 +1624,17 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     // In double-pane mode, never open drawer - just pop from stack
     if (panelMode === 'double' && !isSmallScreen) {
       if (secondaryStack.length === 1) {
-        // Just close the panel - DO NOT change the main page or URL
-        // Closing panel should NEVER affect the main page
+        const closingUrl = secondaryStack[secondaryStack.length - 1]?.url ?? ''
         setSecondaryStack([])
-        
+        if (secondaryUrlIsRssArticle(closingUrl)) {
+          replaceHistoryWithPrimaryPageUrl(
+            currentPrimaryPage,
+            primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
+          )
+        }
+
         const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
-        
+
         // Restore tab state first
         if (savedFeedState?.tab) {
           logger.info('PageManager: Desktop - Restoring tab state', { page: currentPrimaryPage, tab: savedFeedState.tab })
@@ -1646,18 +1675,22 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     
     // On mobile or single-pane: if stack has 1 item and drawer is open, close drawer and clear stack
     if ((isSmallScreen || panelMode === 'single') && secondaryStack.length === 1 && drawerOpen) {
-      // Close drawer (this will restore the URL to the correct primary page)
+      const closingUrl = secondaryStack[secondaryStack.length - 1]?.url ?? ''
       setDrawerOpen(false)
       setTimeout(() => {
         setDrawerNoteId(null)
         setDrawerInitialEvent(null)
+        if (secondaryUrlIsRssArticle(closingUrl)) {
+          replaceHistoryWithPrimaryPageUrl(
+            currentPrimaryPage,
+            primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
+          )
+        }
       }, 350)
-      // Clear stack
       setSecondaryStack([])
-      
+
       const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
-      
-      // Restore tab state first
+
       if (savedFeedState?.tab) {
         logger.info('PageManager: Mobile/Single-pane - Restoring tab state', { page: currentPrimaryPage, tab: savedFeedState.tab })
         window.dispatchEvent(new CustomEvent('restorePageTab', { 
@@ -1669,13 +1702,17 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     }
     
     if (secondaryStack.length === 1) {
-      // Just close the panel - DO NOT change the main page or URL
-      // Closing panel should NEVER affect the main page
+      const closingUrl = secondaryStack[secondaryStack.length - 1]?.url ?? ''
       setSecondaryStack([])
-      
+      if (secondaryUrlIsRssArticle(closingUrl)) {
+        replaceHistoryWithPrimaryPageUrl(
+          currentPrimaryPage,
+          primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
+        )
+      }
+
       const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
-      
-      // Restore tab state first
+
       if (savedFeedState?.tab) {
         logger.info('PageManager: Desktop - Restoring tab state', { page: currentPrimaryPage, tab: savedFeedState.tab })
         window.dispatchEvent(new CustomEvent('restorePageTab', { 

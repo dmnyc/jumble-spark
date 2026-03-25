@@ -1,4 +1,4 @@
-import { getArticleUrlFromCommentITags } from '@/lib/rss-article'
+import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import {
   getParentATag,
   getParentETag,
@@ -7,7 +7,7 @@ import {
   getRootETag,
   isNip25ReactionKind
 } from '@/lib/event'
-import { Event, kinds } from 'nostr-tools'
+import { Event } from 'nostr-tools'
 import { createContext, useCallback, useContext, useState } from 'react'
 
 type TReplyContext = {
@@ -49,7 +49,7 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
         } else {
           const articleUrl = getArticleUrlFromCommentITags(reply)
           if (articleUrl) {
-            rootId = articleUrl
+            rootId = canonicalizeRssArticleUrl(articleUrl)
           }
         }
       }

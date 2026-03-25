@@ -81,6 +81,17 @@ export function getArticleUrlFromCommentITags(event: Event): string | undefined 
   return event.tags.find((t) => t[0] === 'i')?.[1]
 }
 
+/** HTTP(S) page URL from kind 9802 `r` tags (`source` marker or bare `r`). */
+export function getHighlightSourceHttpUrl(event: Pick<Event, 'tags'>): string | undefined {
+  for (const t of event.tags) {
+    if (t[0] !== 'r' || !t[1]) continue
+    const u = t[1].trim()
+    if (!u.startsWith('http://') && !u.startsWith('https://')) continue
+    if (t[2] === 'source' || !t[2]) return canonicalizeRssArticleUrl(u)
+  }
+  return undefined
+}
+
 /**
  * NIP-25 kind 17 + NIP-73: resolve http(s) target URL for a `k: web` external reaction.
  * Stops at the next `k` tag so podcast-style multi-scope reactions are not mis-parsed as web.

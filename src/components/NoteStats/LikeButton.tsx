@@ -36,6 +36,7 @@ import EmojiPicker from '../EmojiPicker'
 import SuggestedEmojis from '../SuggestedEmojis'
 import { formatCount } from './utils'
 import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
+import { WEB_EXTERNAL_REACTION_PUBLISHED_EVENT } from '@/lib/rss-web-feed'
 
 export default function LikeButton({ event, hideCount = false }: { event: Event; hideCount?: boolean }) {
   const { t } = useTranslation()
@@ -139,6 +140,12 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
               } else {
                 showSimplePublishSuccess(t('Reaction removed'))
               }
+              if (
+                event.kind === ExtendedKind.RSS_THREAD_ROOT &&
+                reactionEvent?.kind === ExtendedKind.EXTERNAL_REACTION
+              ) {
+                window.dispatchEvent(new CustomEvent(WEB_EXTERNAL_REACTION_PUBLISHED_EVENT))
+              }
             }
           }
         } else {
@@ -164,6 +171,9 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
           noteStatsService.updateNoteStatsByEvents([evt], undefined, {
             interactionTargetNoteId: event.id
           })
+          if (event.kind === ExtendedKind.RSS_THREAD_ROOT && evt.kind === ExtendedKind.EXTERNAL_REACTION) {
+            window.dispatchEvent(new CustomEvent(WEB_EXTERNAL_REACTION_PUBLISHED_EVENT))
+          }
         }
       } catch (error) {
         logger.error('Like failed', { error, eventId: event.id })

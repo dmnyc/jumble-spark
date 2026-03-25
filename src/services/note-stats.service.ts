@@ -11,6 +11,7 @@ import logger from '@/lib/logger'
 import {
   canonicalizeRssArticleUrl,
   getArticleUrlFromCommentITags,
+  getHighlightSourceHttpUrl,
   getWebExternalReactionTargetUrl,
   rssArticleStableEventId
 } from '@/lib/rss-article'
@@ -34,6 +35,8 @@ export type TNoteStats = {
   quotes: { id: string; pubkey: string; created_at: number }[]
   highlightIdSet: Set<string>
   highlights: { id: string; pubkey: string; created_at: number }[]
+  /** Pubkeys whose NIP-51 bookmark list includes this note id (`e` tag). */
+  bookmarkPubkeySet?: Set<string>
   updatedAt?: number
 }
 
@@ -54,6 +57,8 @@ class NoteStatsService {
   private processBatchRunning = false
   private readonly BATCH_DELAY = 200
   private readonly MAX_BATCH_SIZE = 24
+  /** Client-only RSS/Web thread roots are not on relays; use the event passed into {@link fetchNoteStats}. */
+  private pendingSyntheticRootById = new Map<string, Event>()
 
   constructor() {
     if (!NoteStatsService.instance) {
@@ -102,6 +107,9 @@ class NoteStatsService {
 
     this.pendingFetchFavoriteRelays.set(eventId, favoriteRelays ?? null)
     this.pendingEvents.add(eventId)
+    if (event.kind === ExtendedKind.RSS_THREAD_ROOT) {
+      this.pendingSyntheticRootById.set(eventId, event)
+    }
 
     this.armStatsBatchTimer()
     if (this.pendingEvents.size >= this.MAX_BATCH_SIZE && !this.processBatchRunning) {
@@ -155,8 +163,10 @@ class NoteStatsService {
     this.pendingFetchFavoriteRelays.delete(eventId)
 
     try {
-      // Get the event from cache or fetch it
-      const event = await eventService.fetchEvent(eventId)
+      // Synthetic RSS/Web thread parents are not published; use the instance from fetchNoteStats.
+      const synthetic = this.pendingSyntheticRootById.get(eventId)
+      this.pendingSyntheticRootById.delete(eventId)
+      const event = synthetic ?? (await eventService.fetchEvent(eventId))
       if (!event) {
         logger.debug('[NoteStats] Event not found:', eventId.substring(0, 8))
         return
@@ -284,13 +294,30 @@ class NoteStatsService {
 
     if (event.kind === ExtendedKind.RSS_THREAD_ROOT) {
       const url = getArticleUrlFromCommentITags(event)
-      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+      if (url) {
         const canonical = canonicalizeRssArticleUrl(url)
-        filters.push({
-          '#i': [canonical],
-          kinds: [ExtendedKind.EXTERNAL_REACTION],
-          limit: reactionLimit
-        })
+        filters.push(
+          {
+            '#i': [canonical],
+            kinds: [ExtendedKind.EXTERNAL_REACTION],
+            limit: reactionLimit
+          },
+          {
+            '#i': [canonical],
+            kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
+            limit: interactionLimit
+          },
+          {
+            '#r': [canonical],
+            kinds: [kinds.Highlights],
+            limit: interactionLimit
+          },
+          {
+            kinds: [kinds.BookmarkList],
+            '#e': [event.id],
+            limit: 200
+          }
+        )
       }
     }
 
@@ -431,6 +458,8 @@ class NoteStatsService {
       }
     } else if (evt.kind === kinds.Highlights) {
       updatedEventId = this.addHighlightByEvent(evt, originalEventAuthor)
+    } else if (evt.kind === kinds.BookmarkList) {
+      this.addBookmarkListRefsByEvent(evt)
     }
     
     return updatedEventId
@@ -578,6 +607,12 @@ class NoteStatsService {
       if (evt.kind === ExtendedKind.COMMENT || evt.kind === ExtendedKind.VOICE_COMMENT) {
         const eTag = evt.tags.find(tagNameEquals('e')) ?? evt.tags.find(tagNameEquals('E'))
         originalEventId = eTag?.[1]
+        if (!originalEventId) {
+          const scopeUrl = getArticleUrlFromCommentITags(evt)
+          if (scopeUrl) {
+            originalEventId = rssArticleStableEventId(canonicalizeRssArticleUrl(scopeUrl))
+          }
+        }
       } else if (evt.kind === kinds.ShortTextNote) {
         const parentETag = evt.tags.find(([tagName, , , marker]) => {
           return tagName === 'e' && (marker === 'reply' || marker === 'root')
@@ -648,7 +683,13 @@ class NoteStatsService {
   }
 
   private addHighlightByEvent(evt: Event, originalEventAuthor?: string) {
-    const highlightedEventId = evt.tags.find(tag => tag[0] === 'e')?.[1]
+    let highlightedEventId = evt.tags.find((tag) => tag[0] === 'e')?.[1]
+    if (!highlightedEventId) {
+      const pageUrl = getHighlightSourceHttpUrl(evt)
+      if (pageUrl) {
+        highlightedEventId = rssArticleStableEventId(canonicalizeRssArticleUrl(pageUrl))
+      }
+    }
     if (!highlightedEventId) return
 
     const old = this.noteStatsMap.get(highlightedEventId) || {}
@@ -665,6 +706,20 @@ class NoteStatsService {
     highlights.push({ id: evt.id, pubkey: evt.pubkey, created_at: evt.created_at })
     this.noteStatsMap.set(highlightedEventId, { ...old, highlightIdSet, highlights })
     return highlightedEventId
+  }
+
+  /** Each bookmark list author counts once per target `e` id in that list. */
+  private addBookmarkListRefsByEvent(evt: Event) {
+    for (const tag of evt.tags) {
+      if (tag[0] !== 'e' || !tag[1]) continue
+      const targetId = tag[1]
+      const old = this.noteStatsMap.get(targetId) || {}
+      const bookmarkPubkeySet = old.bookmarkPubkeySet ?? new Set<string>()
+      if (bookmarkPubkeySet.has(evt.pubkey)) continue
+      bookmarkPubkeySet.add(evt.pubkey)
+      this.noteStatsMap.set(targetId, { ...old, bookmarkPubkeySet })
+      this.notifyNoteStats(targetId)
+    }
   }
 }
 

@@ -37,7 +37,7 @@ import { isTouchDevice } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFeed } from '@/providers/FeedProvider'
 import { useReply } from '@/providers/ReplyProvider'
-import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
+import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import { normalizeUrl, cleanUrl } from '@/lib/url'
 import logger from '@/lib/logger'
 import postEditorCache from '@/services/post-editor-cache.service'
@@ -122,15 +122,27 @@ export default function PostContent({
         undefined,
         isQuotePost ? undefined : { replyParentNoteId: parentEvent.id }
       )
-      const rootInfo = !isReplaceableEvent(parentEvent.kind)
-        ? { type: 'E' as const, id: parentEvent.id, pubkey: parentEvent.pubkey }
-        : {
-            type: 'A' as const,
-            id: getReplaceableCoordinateFromEvent(parentEvent),
-            eventId: parentEvent.id,
-            pubkey: parentEvent.pubkey,
-            relay: client.getEventHint(parentEvent.id)
-          }
+      const rootInfo =
+        parentEvent.kind === ExtendedKind.RSS_THREAD_ROOT
+          ? (() => {
+              const articleUrl = getArticleUrlFromCommentITags(parentEvent)
+              if (articleUrl) {
+                return {
+                  type: 'I' as const,
+                  id: canonicalizeRssArticleUrl(articleUrl)
+                }
+              }
+              return { type: 'E' as const, id: parentEvent.id, pubkey: parentEvent.pubkey }
+            })()
+          : !isReplaceableEvent(parentEvent.kind)
+            ? { type: 'E' as const, id: parentEvent.id, pubkey: parentEvent.pubkey }
+            : {
+                type: 'A' as const,
+                id: getReplaceableCoordinateFromEvent(parentEvent),
+                eventId: parentEvent.id,
+                pubkey: parentEvent.pubkey,
+                relay: client.getEventHint(parentEvent.id)
+              }
       const cached = discussionFeedCache.getCachedReplies(rootInfo) ?? []
       const next = cached.filter((r) => r.id !== clean.id).concat([clean])
       discussionFeedCache.setCachedReplies(rootInfo, next)
