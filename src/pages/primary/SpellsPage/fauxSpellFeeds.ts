@@ -57,6 +57,7 @@ export const NOTIFICATION_SPELL_KINDS = [
   kinds.ShortTextNote,
   kinds.Repost,
   kinds.Reaction,
+  ExtendedKind.EXTERNAL_REACTION,
   kinds.Zap,
   ExtendedKind.COMMENT,
   ExtendedKind.POLL_RESPONSE,

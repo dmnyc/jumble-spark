@@ -1,11 +1,11 @@
+import { bytesToHex } from '@noble/hashes/utils'
+import { sha256 } from '@noble/hashes/sha256'
 import { ExtendedKind } from '@/constants'
 import { cleanUrl } from '@/lib/url'
+import type { Event } from 'nostr-tools'
 
 /** NIP-22: `K` / `k` value for http(s) URL comment scopes (web pages, articles). */
 export const NIP22_URL_SCOPE_KIND = 'web'
-import { bytesToHex } from '@noble/hashes/utils'
-import { sha256 } from '@noble/hashes/sha256'
-import type { Event } from 'nostr-tools'
 
 /** Encode article URL for a single path segment (UTF-8 → base64url, no padding). */
 export function encodeRssArticlePathSegment(articleUrl: string): string {
@@ -79,6 +79,30 @@ export function getArticleUrlFromCommentITags(event: Event): string | undefined 
   const upper = event.tags.find((t) => t[0] === 'I')?.[1]
   if (upper) return upper
   return event.tags.find((t) => t[0] === 'i')?.[1]
+}
+
+/**
+ * NIP-25 kind 17 + NIP-73: resolve http(s) target URL for a `k: web` external reaction.
+ * Stops at the next `k` tag so podcast-style multi-scope reactions are not mis-parsed as web.
+ */
+export function getWebExternalReactionTargetUrl(event: Pick<Event, 'kind' | 'tags'>): string | undefined {
+  if (event.kind !== ExtendedKind.EXTERNAL_REACTION) return undefined
+  const tags = event.tags
+  for (let i = 0; i < tags.length; i++) {
+    const row = tags[i]
+    if (row[0] !== 'k' || row[1] !== NIP22_URL_SCOPE_KIND) continue
+    for (let j = i + 1; j < tags.length; j++) {
+      const t = tags[j]
+      if (t[0] === 'k') break
+      if (t[0] === 'i' && t[1]) {
+        const url = t[1]
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+          return canonicalizeRssArticleUrl(url)
+        }
+      }
+    }
+  }
+  return undefined
 }
 
 /** Client-only RSS thread parent (non-standard kind); not a real relay event. */

@@ -5,6 +5,7 @@ import { kinds } from 'nostr-tools'
 const RENDERABLE_NOTE_KINDS = new Set<number>([
   ...SUPPORTED_KINDS,
   kinds.Reaction,
+  ExtendedKind.EXTERNAL_REACTION,
   ExtendedKind.POLL_RESPONSE,
   kinds.CommunityDefinition,
   kinds.LiveEvent,

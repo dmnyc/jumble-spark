@@ -4,7 +4,8 @@ import {
   getParentETag,
   getQuotedEventHexIdFromQTags,
   getRootATag,
-  getRootETag
+  getRootETag,
+  isNip25ReactionKind
 } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import { createContext, useCallback, useContext, useState } from 'react'
@@ -34,7 +35,7 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
     const newReplyEventMap = new Map<string, Event[]>()
     replies.forEach((reply) => {
       if (newReplyIdSet.has(reply.id)) return
-      if (reply.kind === kinds.Reaction) return
+      if (isNip25ReactionKind(reply.kind)) return
       newReplyIdSet.add(reply.id)
 
       let rootId: string | undefined

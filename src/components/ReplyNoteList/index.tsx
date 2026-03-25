@@ -9,6 +9,7 @@ import {
   getRootETag,
   getRootEventHexId,
   isMentioningMutedUsers,
+  isNip25ReactionKind,
   isReplaceableEvent,
   isReplyNoteEvent
 } from '@/lib/event'
@@ -152,7 +153,7 @@ function ReplyNoteList({
       
       events.forEach((evt) => {
         if (replyIdSet.has(evt.id)) return
-        if (evt.kind === kinds.Reaction) return
+        if (isNip25ReactionKind(evt.kind)) return
         if (mutePubkeySet.has(evt.pubkey)) {
           return
         }
@@ -166,7 +167,7 @@ function ReplyNoteList({
       
       // Prevent infinite loops by tracking processed event IDs
       const newParentEventKeys = events
-        .filter((evt) => evt.kind !== kinds.Reaction)
+        .filter((evt) => !isNip25ReactionKind(evt.kind))
         .map((evt) => evt.id)
         .filter((id) => !processedEventIds.has(id))
       

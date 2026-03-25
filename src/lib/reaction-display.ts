@@ -1,7 +1,8 @@
 import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
+import { isNip25ReactionKind } from '@/lib/event'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { TEmoji } from '@/types'
-import { Event, kinds } from 'nostr-tools'
+import { Event } from 'nostr-tools'
 
 /** Whole-string :shortcode: (NIP-style); matches content-patterns rules. */
 const WHOLE_SHORTCODE = /^:([a-zA-Z0-9_\-][^:]{0,19}):$/
@@ -15,7 +16,7 @@ export type TReactionEmojiSync =
  * or defer to profile (reactor kind 0) for custom shortcodes.
  */
 export function resolveReactionEmojiSync(event: Event, maxRawLength: number): TReactionEmojiSync {
-  if (event.kind !== kinds.Reaction) {
+  if (!isNip25ReactionKind(event.kind)) {
     return { mode: 'display', value: '' }
   }
 

@@ -15,6 +15,11 @@ import {
   tagNameEquals
 } from './tag'
 
+/** NIP-25: kind 7 (nostr target) or kind 17 (external / NIP-73 `k`+`i`). */
+export function isNip25ReactionKind(kind: number): boolean {
+  return kind === kinds.Reaction || kind === ExtendedKind.EXTERNAL_REACTION
+}
+
 const EVENT_EMBEDDED_NOTES_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_EMBEDDED_PUBKEYS_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_IS_REPLY_NOTE_CACHE = new LRUCache<string, boolean>({ max: 10000 })

@@ -4,7 +4,7 @@ import {
   notificationReactionSummaryKey,
   useNotificationReactionDisplay
 } from '@/hooks/useNotificationReactionDisplay'
-import { isMentioningMutedUsers } from '@/lib/event'
+import { isMentioningMutedUsers, isNip25ReactionKind } from '@/lib/event'
 import {
   DISCUSSION_DOWNVOTE_DISPLAY,
   DISCUSSION_UPVOTE_DISPLAY
@@ -150,7 +150,7 @@ export default function ContentPreview({
     return <FollowPackPreview event={event} className={className} />
   }
 
-  if (event.kind === kinds.Reaction) {
+  if (isNip25ReactionKind(event.kind)) {
     return (
       <div className={cn('pointer-events-none flex items-center gap-1.5 text-sm text-muted-foreground', className)}>
         {reactionDisplay.status === 'pending' ? (

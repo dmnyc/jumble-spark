@@ -1,7 +1,7 @@
 import { useSmartNoteNavigationOptional } from '@/PageManager'
 import { ExtendedKind } from '@/constants'
 import { isRenderableNoteKind } from '@/lib/note-renderable-kinds'
-import { getHttpUrlFromITags, getParentBech32Id, isNsfwEvent } from '@/lib/event'
+import { getHttpUrlFromITags, getParentBech32Id, isNip25ReactionKind, isNsfwEvent } from '@/lib/event'
 import { toNote } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import {
@@ -21,7 +21,7 @@ import type { HighlightData } from '@/components/PostEditor/HighlightEditor'
 import { Event, kinds } from 'nostr-tools'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { isRssThreadSyntheticParentEvent } from '@/lib/rss-article'
+import { getWebExternalReactionTargetUrl, isRssThreadSyntheticParentEvent } from '@/lib/rss-article'
 import { CreateHighlightContext } from './CreateHighlightContext'
 import SelectionHighlightTrigger from './SelectionHighlightTrigger'
 import AudioPlayer from '../AudioPlayer'
@@ -101,6 +101,11 @@ export default function Note({
   const [publicMessageTo, setPublicMessageTo] = useState<string | null>(null)
   const [callInviteContent, setCallInviteContent] = useState<string | null>(null)
   const reactionDisplay = useNotificationReactionDisplay(event)
+  const webReactionParentUrl = useMemo(
+    () =>
+      event.kind === ExtendedKind.EXTERNAL_REACTION ? getWebExternalReactionTargetUrl(event) : undefined,
+    [event]
+  )
 
   const openHighlight = useCallback((data: HighlightData, eventContent?: string) => {
     setHighlightData(data)
@@ -145,7 +150,7 @@ export default function Note({
     content = <MutedNote show={() => setShowMuted(true)} />
   } else if (!defaultShowNsfw && isNsfwEvent(event) && !showNsfw) {
     content = <NsfwNote show={() => setShowNsfw(true)} />
-  } else if (event.kind === kinds.Reaction) {
+  } else if (isNip25ReactionKind(event.kind)) {
     content = null
   } else if (event.kind === kinds.Repost || event.kind === ExtendedKind.POLL_RESPONSE) {
     content = <NotificationEventCard className="mt-2" event={event} />
@@ -289,7 +294,7 @@ export default function Note({
       >
         <div className="flex justify-between items-start gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            {event.kind === kinds.Reaction ? (
+            {isNip25ReactionKind(event.kind) ? (
               <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2">
                 {reactionDisplay.status === 'pending' ? (
                   <Skeleton
@@ -424,7 +429,11 @@ export default function Note({
             )}
           </div>
         </div>
-        {parentEventId && (
+        {webReactionParentUrl ? (
+          <div className="mt-2 not-prose max-w-full" data-parent-note-preview>
+            <WebPreview url={webReactionParentUrl} className="w-full" />
+          </div>
+        ) : parentEventId ? (
           <ParentNotePreview
             eventId={parentEventId}
             className="mt-2"
@@ -433,7 +442,7 @@ export default function Note({
               navigateToNote(toNote(parentEventId))
             }}
           />
-        )}
+        ) : null}
         <IValue event={event} className="mt-2" />
         {wrappedContent}
       </div>

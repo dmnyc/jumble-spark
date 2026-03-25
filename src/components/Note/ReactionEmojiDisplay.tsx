@@ -1,4 +1,5 @@
 import Emoji from '@/components/Emoji'
+import { ExtendedKind } from '@/constants'
 import { resolveReactionEmojiSync } from '@/lib/reaction-display'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { cn } from '@/lib/utils'
@@ -38,7 +39,8 @@ export default function ReactionEmojiDisplay({
   }, [initial, event.id])
 
   useEffect(() => {
-    if (sync.mode !== 'profile' || event.kind !== kinds.Reaction) return
+    if (sync.mode !== 'profile' || (event.kind !== kinds.Reaction && event.kind !== ExtendedKind.EXTERNAL_REACTION))
+      return
     let cancelled = false
     replaceableEventService.fetchReplaceableEvent(event.pubkey, kinds.Metadata).then((pe) => {
       if (cancelled || !pe) return
@@ -51,7 +53,10 @@ export default function ReactionEmojiDisplay({
     }
   }, [event.pubkey, event.kind, sync])
 
-  if (event.kind !== kinds.Reaction || (sync.mode === 'display' && sync.value === '')) {
+  if (
+    (event.kind !== kinds.Reaction && event.kind !== ExtendedKind.EXTERNAL_REACTION) ||
+    (sync.mode === 'display' && sync.value === '')
+  ) {
     return null
   }
 

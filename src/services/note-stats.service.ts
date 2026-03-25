@@ -8,6 +8,12 @@ import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
+import {
+  canonicalizeRssArticleUrl,
+  getArticleUrlFromCommentITags,
+  getWebExternalReactionTargetUrl,
+  rssArticleStableEventId
+} from '@/lib/rss-article'
 import { getEmojiInfosFromEmojiTags, getFirstHexEventIdFromETags, tagNameEquals } from '@/lib/tag'
 import { normalizeUrl } from '@/lib/url'
 import client, { eventService } from '@/services/client.service'
@@ -276,6 +282,18 @@ class NoteStatsService {
       }
     ]
 
+    if (event.kind === ExtendedKind.RSS_THREAD_ROOT) {
+      const url = getArticleUrlFromCommentITags(event)
+      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+        const canonical = canonicalizeRssArticleUrl(url)
+        filters.push({
+          '#i': [canonical],
+          kinds: [ExtendedKind.EXTERNAL_REACTION],
+          limit: reactionLimit
+        })
+      }
+    }
+
     if (replaceableCoordinate) {
       filters.push(
         {
@@ -392,6 +410,12 @@ class NoteStatsService {
     
     if (evt.kind === kinds.Reaction) {
       updatedEventId = this.addLikeByEvent(evt, originalEventAuthor, mergeOpts?.interactionTargetNoteId)
+    } else if (evt.kind === ExtendedKind.EXTERNAL_REACTION) {
+      updatedEventId = this.addLikeByExternalWebReactionEvent(
+        evt,
+        originalEventAuthor,
+        mergeOpts?.interactionTargetNoteId
+      )
     } else if (evt.kind === kinds.Repost) {
       updatedEventId = this.addRepostByEvent(evt, originalEventAuthor, mergeOpts?.interactionTargetNoteId)
     } else if (evt.kind === kinds.Zap) {
@@ -412,19 +436,7 @@ class NoteStatsService {
     return updatedEventId
   }
 
-  private addLikeByEvent(evt: Event, originalEventAuthor?: string, forcedTargetEventId?: string) {
-    const targetEventId = forcedTargetEventId ?? getFirstHexEventIdFromETags(evt.tags)
-    if (!targetEventId) return
-
-    const old = this.noteStatsMap.get(targetEventId) || {}
-    const likeIdSet = old.likeIdSet || new Set()
-    const likes = old.likes || []
-    if (likeIdSet.has(evt.id)) return
-
-    if (originalEventAuthor && originalEventAuthor === evt.pubkey) {
-      return
-    }
-
+  private reactionEmojiFromEvent(evt: Event): TEmoji | string {
     let emoji: TEmoji | string = evt.content.trim()
     if (!emoji) {
       const fromTags = getEmojiInfosFromEmojiTags(evt.tags)
@@ -450,6 +462,53 @@ class NoteStatsService {
         // else keep `:custom:` string; UI resolves via reactor profile (ReactionEmojiDisplay)
       }
     }
+
+    return emoji
+  }
+
+  private addLikeByEvent(evt: Event, originalEventAuthor?: string, forcedTargetEventId?: string) {
+    const targetEventId = forcedTargetEventId ?? getFirstHexEventIdFromETags(evt.tags)
+    if (!targetEventId) return
+
+    const old = this.noteStatsMap.get(targetEventId) || {}
+    const likeIdSet = old.likeIdSet || new Set()
+    const likes = old.likes || []
+    if (likeIdSet.has(evt.id)) return
+
+    if (originalEventAuthor && originalEventAuthor === evt.pubkey) {
+      return
+    }
+
+    const emoji = this.reactionEmojiFromEvent(evt)
+
+    likeIdSet.add(evt.id)
+    likes.push({ id: evt.id, pubkey: evt.pubkey, created_at: evt.created_at, emoji })
+    this.noteStatsMap.set(targetEventId, { ...old, likeIdSet, likes })
+    return targetEventId
+  }
+
+  /** NIP-25 kind 17 reactions to http(s) URLs; stats key matches synthetic RSS thread root id. */
+  private addLikeByExternalWebReactionEvent(
+    evt: Event,
+    originalEventAuthor?: string,
+    forcedTargetEventId?: string
+  ) {
+    const url = getWebExternalReactionTargetUrl(evt)
+    if (!url) return
+
+    const targetEventId =
+      forcedTargetEventId ?? rssArticleStableEventId(canonicalizeRssArticleUrl(url))
+
+    const old = this.noteStatsMap.get(targetEventId) || {}
+    const likeIdSet = old.likeIdSet || new Set()
+    const likes = old.likes || []
+    if (likeIdSet.has(evt.id)) return
+
+    if (originalEventAuthor && originalEventAuthor === evt.pubkey) {
+      return
+    }
+
+    const emoji = this.reactionEmojiFromEvent(evt)
 
     likeIdSet.add(evt.id)
     likes.push({ id: evt.id, pubkey: evt.pubkey, created_at: evt.created_at, emoji })

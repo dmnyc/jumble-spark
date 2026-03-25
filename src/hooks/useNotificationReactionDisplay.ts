@@ -31,6 +31,10 @@ export function useNotificationReactionDisplay(event: Event): NotificationReacti
   )
 
   useEffect(() => {
+    if (event.kind === ExtendedKind.EXTERNAL_REACTION) {
+      setState({ status: 'default' })
+      return
+    }
     if (event.kind !== kinds.Reaction) {
       setState({ status: 'default' })
       return

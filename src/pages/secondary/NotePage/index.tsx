@@ -188,6 +188,8 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
         return 'Note: Boost'
       case 7: // kinds.Reaction
         return 'Note: Reaction'
+      case 17: // ExtendedKind.EXTERNAL_REACTION (NIP-25 external)
+        return 'Note: Reaction'
       case 1111: // ExtendedKind.COMMENT
         return 'Note: Comment'
       case 1222: // ExtendedKind.VOICE

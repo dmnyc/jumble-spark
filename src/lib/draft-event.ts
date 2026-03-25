@@ -24,7 +24,11 @@ import {
   isProtectedEvent,
   isReplaceableEvent
 } from './event'
-import { canonicalizeRssArticleUrl, NIP22_URL_SCOPE_KIND } from '@/lib/rss-article'
+import {
+  canonicalizeRssArticleUrl,
+  getArticleUrlFromCommentITags,
+  NIP22_URL_SCOPE_KIND
+} from '@/lib/rss-article'
 import { cleanUrl } from '@/lib/url'
 import { randomString } from './random'
 import { generateBech32IdFromETag, tagNameEquals } from './tag'
@@ -69,7 +73,30 @@ function generateDraftEventCacheKey(draft: Omit<TDraftEvent, 'created_at'>) {
 
 // https://github.com/nostr-protocol/nips/blob/master/25.md
 export function createReactionDraftEvent(event: Event, emoji: TEmoji | string = '+'): TDraftEvent {
+  let content: string
   const tags: string[][] = []
+
+  if (event.kind === ExtendedKind.RSS_THREAD_ROOT) {
+    const rawUrl = getArticleUrlFromCommentITags(event)
+    if (!rawUrl || (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://'))) {
+      throw new Error('RSS thread root is missing a valid http(s) article URL for reactions')
+    }
+    const canonical = canonicalizeRssArticleUrl(rawUrl)
+    tags.push(['k', NIP22_URL_SCOPE_KIND], ['i', canonical])
+    if (typeof emoji === 'string') {
+      content = emoji
+    } else {
+      content = `:${emoji.shortcode}:`
+      tags.push(buildEmojiTag(emoji))
+    }
+    return {
+      kind: ExtendedKind.EXTERNAL_REACTION,
+      content,
+      tags,
+      created_at: dayjs().unix()
+    }
+  }
+
   tags.push(buildETag(event.id, event.pubkey))
   tags.push(buildPTag(event.pubkey))
   if (event.kind !== kinds.ShortTextNote) {
@@ -80,7 +107,6 @@ export function createReactionDraftEvent(event: Event, emoji: TEmoji | string = 
     tags.push(buildATag(event))
   }
 
-  let content: string
   if (typeof emoji === 'string') {
     content = emoji
   } else {

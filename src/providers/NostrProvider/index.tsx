@@ -731,7 +731,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       const events = await queryService.fetchEvents(relayList.write.slice(0, 4), [
         {
           authors: [pubkey],
-          kinds: [kinds.Reaction, kinds.Repost],
+          kinds: [kinds.Reaction, ExtendedKind.EXTERNAL_REACTION, kinds.Repost],
           limit: 100
         },
         {

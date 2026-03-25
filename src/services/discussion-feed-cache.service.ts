@@ -1,4 +1,5 @@
-import { Event as NEvent, kinds } from 'nostr-tools'
+import { isNip25ReactionKind } from '@/lib/event'
+import { Event as NEvent } from 'nostr-tools'
 import logger from '@/lib/logger'
 
 interface CachedThreadData {
@@ -94,7 +95,7 @@ class DiscussionFeedCacheService {
       logger.debug('[DiscussionFeedCache] Cache hit (fresh) for thread:', cacheKey, 'replies:', cachedData.replies.length)
     }
     
-    return cachedData.replies.filter((r) => r.kind !== kinds.Reaction)
+    return cachedData.replies.filter((r) => !isNip25ReactionKind(r.kind))
   }
 
   /**
@@ -135,12 +136,12 @@ class DiscussionFeedCacheService {
       const existingReplyIds = new Set(existingData.replies.map(r => r.id))
       const newReplies = replies.filter(r => !existingReplyIds.has(r.id))
       mergedReplies = [...existingData.replies, ...newReplies].filter(
-        (r) => r.kind !== kinds.Reaction
+        (r) => !isNip25ReactionKind(r.kind)
       )
       logger.debug('[DiscussionFeedCache] Merged replies for thread:', cacheKey, 'existing:', existingData.replies.length, 'new:', newReplies.length, 'total:', mergedReplies.length)
     } else {
       // No existing cache or rootInfo mismatch, use new replies
-      mergedReplies = replies.filter((r) => r.kind !== kinds.Reaction)
+      mergedReplies = replies.filter((r) => !isNip25ReactionKind(r.kind))
       logger.debug('[DiscussionFeedCache] Cached new replies for thread:', cacheKey, 'replies:', replies.length)
     }
     

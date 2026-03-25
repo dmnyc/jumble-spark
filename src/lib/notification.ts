@@ -28,7 +28,7 @@ export function notificationFilter(
     return false
   }
 
-  if (pubkey && event.kind === kinds.Reaction) {
+  if (pubkey && (event.kind === kinds.Reaction || event.kind === ExtendedKind.EXTERNAL_REACTION)) {
     const targetPubkey = event.tags.findLast(tagNameEquals('p'))?.[1]
     if (!targetPubkey || !hexPubkeysEqual(targetPubkey, pubkey)) return false
   }

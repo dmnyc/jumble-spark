@@ -1,4 +1,5 @@
 import { useSmartNoteNavigation } from '@/PageManager'
+import { ExtendedKind } from '@/constants'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -9,12 +10,13 @@ import {
   DISCUSSION_DOWNVOTE_DISPLAY,
   DISCUSSION_UPVOTE_DISPLAY
 } from '@/lib/discussion-votes'
-import { isMentioningMutedUsers } from '@/lib/event'
+import { isMentioningMutedUsers, isNip25ReactionKind } from '@/lib/event'
+import { getWebExternalReactionTargetUrl } from '@/lib/rss-article'
 import { toNote } from '@/lib/link'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import { Event, kinds } from 'nostr-tools'
+import { Event } from 'nostr-tools'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ClientTag from '../ClientTag'
@@ -26,6 +28,7 @@ import Nip05 from '../Nip05'
 import NoteOptions from '../NoteOptions'
 import NoteStats from '../NoteStats'
 import ParentNotePreview from '../ParentNotePreview'
+import WebPreview from '../WebPreview'
 import UserAvatar from '../UserAvatar'
 import Username from '../Username'
 
@@ -49,6 +52,11 @@ export default function ReplyNote({
   const { hideContentMentioningMutedUsers } = useContentPolicy()
   const [showMuted, setShowMuted] = useState(false)
   const reactionDisplay = useNotificationReactionDisplay(event)
+  const webReactionParentUrl = useMemo(
+    () =>
+      event.kind === ExtendedKind.EXTERNAL_REACTION ? getWebExternalReactionTargetUrl(event) : undefined,
+    [event]
+  )
   const show = useMemo(() => {
     if (showMuted) {
       return true
@@ -106,7 +114,11 @@ export default function ReplyNote({
                 <NoteOptions event={event} className="shrink-0 [&_svg]:size-5" />
               </div>
             </div>
-            {parentEventId && (
+            {webReactionParentUrl ? (
+              <div className="mt-2 not-prose max-w-full" data-parent-note-preview>
+                <WebPreview url={webReactionParentUrl} className="w-full" />
+              </div>
+            ) : parentEventId ? (
               <ParentNotePreview
                 className="mt-2"
                 eventId={parentEventId}
@@ -115,9 +127,9 @@ export default function ReplyNote({
                   onClickParent()
                 }}
               />
-            )}
+            ) : null}
             {show ? (
-              event.kind === kinds.Reaction ? (
+              isNip25ReactionKind(event.kind) ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   {reactionDisplay.status === 'pending' ? (
                     <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
@@ -152,7 +164,7 @@ export default function ReplyNote({
           </div>
         </div>
       </Collapsible>
-      {show && event.kind !== kinds.Reaction && (
+      {show && !isNip25ReactionKind(event.kind) && (
         <NoteStats
           className="ml-14 pl-1 mr-4 mt-2"
           event={event}

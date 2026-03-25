@@ -289,6 +289,8 @@ export const ExtendedKind = {
   RSS_FEED_LIST: 10895,
   /** Client-only synthetic "parent" for RSS article threads; never published to relays */
   RSS_THREAD_ROOT: 99999,
+  /** NIP-25: reaction to external content (NIP-73 `k` + `i`), e.g. http(s) URLs */
+  EXTERNAL_REACTION: 17,
   // NIP-89 Application Handlers
   APPLICATION_HANDLER_RECOMMENDATION: 31989,
   APPLICATION_HANDLER_INFO: 31990,
