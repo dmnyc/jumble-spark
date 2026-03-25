@@ -43,6 +43,11 @@ import {
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { Check, ChevronDown } from 'lucide-react'
 import { normalizeHttpArticleUrl } from '@/lib/rss-article'
+import {
+  getRssFeedUrlHostname,
+  getStandardRssFeedProfile
+} from '@/lib/standard-rss-feed-url'
+import { StandardRssFeedUrlInline } from '@/components/StandardRssFeedUrlRow'
 
 function ManualRssUrlAddRow({
   className,
@@ -436,15 +441,22 @@ export default function RssFeedList() {
   // Normalize URLs to prevent duplicates (e.g., with/without trailing slash)
   const availableFeeds = useMemo(() => {
     const feedMap = new Map<string, { url: string; title: string }>()
-    
-    items.forEach(item => {
+
+    items.forEach((item) => {
       const normalizedUrl = normalizeFeedUrl(item.feedUrl)
       if (!feedMap.has(normalizedUrl)) {
-        feedMap.set(normalizedUrl, { url: normalizedUrl, title: item.feedTitle || item.feedUrl })
+        const profile = getStandardRssFeedProfile(normalizedUrl)
+        const fallback = profile
+          ? t(profile.labelKey, { defaultValue: profile.defaultLabel })
+          : getRssFeedUrlHostname(normalizedUrl)
+        feedMap.set(normalizedUrl, {
+          url: normalizedUrl,
+          title: item.feedTitle?.trim() || fallback
+        })
       }
     })
     return Array.from(feedMap.values())
-  }, [items])
+  }, [items, t])
 
   // Helper function to truncate text
   const truncateText = (text: string, maxLength: number): string => {
@@ -882,8 +894,12 @@ export default function RssFeedList() {
                           <div className="flex items-center justify-center w-4 h-4 border border-border rounded">
                             {isChecked && <Check className="w-3 h-3" />}
                           </div>
-                          <label className="text-sm cursor-pointer flex-1 truncate" title={feed.title}>
-                            {truncateText(feed.title, 50)}
+                          <label className="text-sm cursor-pointer flex-1 min-w-0" title={feed.title}>
+                            <StandardRssFeedUrlInline
+                              feedUrl={feed.url}
+                              title={feed.title}
+                              maxLength={50}
+                            />
                           </label>
                         </div>
                       )

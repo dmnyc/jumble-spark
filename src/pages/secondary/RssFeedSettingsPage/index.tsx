@@ -22,6 +22,7 @@ import rssFeedService from '@/services/rss-feed.service'
 import { parseOpml, generateOpml, downloadFile } from '@/lib/opml'
 import { toast } from 'sonner'
 import { normalizeHttpUrl } from '@/lib/url'
+import StandardRssFeedUrlRow from '@/components/StandardRssFeedUrlRow'
 
 // Helper function to normalize and deduplicate feed URLs
 const normalizeAndDeduplicateUrls = (urls: string[]): string[] => {
@@ -617,17 +618,20 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
               </div>
             ) : (
               feedUrls.map((url) => (
-                <div key={url} className="flex items-center justify-between p-3 border rounded-lg">
-                  <span className="text-sm break-all flex-1 mr-2">{url}</span>
-                  <Button
-                    onClick={() => handleRemoveFeed(url)}
-                    size="icon"
-                    variant="ghost"
-                    className="flex-shrink-0"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
+                <StandardRssFeedUrlRow
+                  key={url}
+                  feedUrl={url}
+                  actions={
+                    <Button
+                      onClick={() => handleRemoveFeed(url)}
+                      size="icon"
+                      variant="ghost"
+                      aria-label={t('Remove feed')}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  }
+                />
               ))
             )}
           </div>

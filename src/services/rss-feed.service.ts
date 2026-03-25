@@ -2,6 +2,7 @@ import { DEFAULT_RSS_FEEDS } from '@/constants'
 import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
 import { cleanUrl } from '@/lib/url'
 import logger from '@/lib/logger'
+import { buildViteProxySitesFetchUrl, urlLooksLikeViteProxyRequest } from '@/lib/vite-proxy-url'
 import indexedDb from '@/services/indexed-db.service'
 
 export interface RssFeedItemMedia {
@@ -74,6 +75,8 @@ export function createWebOnlyRssFeedItem(articleUrl: string): RssFeedItem {
   }
 }
 
+const RSS_FEED_FETCH_ATTEMPTED_KEYS_SETTING = 'rssFeedFetchAttemptedKeys'
+
 class RssFeedService {
   static instance: RssFeedService
   private feedCache: Map<string, { feed: RssFeed; timestamp: number }> = new Map()
@@ -83,6 +86,19 @@ class RssFeedService {
   private activeFetchPromises: Map<string, Promise<RssFeed>> = new Map() // Track active fetches by URL
   /** Global RSS item cap in IndexedDB; oldest by pubDate are removed when exceeded. */
   private readonly MAX_CACHED_RSS_ITEMS = 5000
+  /**
+   * Feed URLs we already tried to hydrate (success or hard failure). Without this, a feed that never
+   * yields items (CORS, dead host) stays "missing" forever and blocks every load / retriggers refresh.
+   * Persisted so a full reload does not repeat a 30s wait for the same dead URL.
+   */
+  private rssFeedAttemptedKeys = new Set<string>()
+  private rssFeedAttemptedKeysLoaded = false
+  /** Same feed list + overlapping time: one network refresh (Strict Mode / remount / HMR). */
+  private rssMultiFeedRefreshInFlight = new Map<string, Promise<void>>()
+
+  private rssMultiFeedRefreshKey(feedUrls: string[]): string {
+    return [...feedUrls].map((u) => this.normalizeRssFeedKeyUrl(u)).sort().join('\u0001')
+  }
 
   constructor() {
     if (!RssFeedService.instance) {
@@ -93,6 +109,41 @@ class RssFeedService {
 
   private normalizeRssFeedKeyUrl(url: string): string {
     return url.trim().replace(/\/$/, '')
+  }
+
+  private async ensureRssFeedAttemptedKeysLoaded(): Promise<void> {
+    if (this.rssFeedAttemptedKeysLoaded) return
+    this.rssFeedAttemptedKeysLoaded = true
+    try {
+      const raw = await indexedDb.getSetting(RSS_FEED_FETCH_ATTEMPTED_KEYS_SETTING)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as unknown
+      if (!Array.isArray(parsed)) return
+      for (const x of parsed) {
+        if (typeof x === 'string' && x.trim()) {
+          this.rssFeedAttemptedKeys.add(this.normalizeRssFeedKeyUrl(x))
+        }
+      }
+    } catch (e) {
+      logger.warn('[RssFeedService] Failed to load attempted feed URL keys', { error: e })
+    }
+  }
+
+  private async persistRssFeedAttemptedKeys(): Promise<void> {
+    try {
+      await indexedDb.setSetting(
+        RSS_FEED_FETCH_ATTEMPTED_KEYS_SETTING,
+        JSON.stringify([...this.rssFeedAttemptedKeys])
+      )
+    } catch (e) {
+      logger.warn('[RssFeedService] Failed to persist attempted feed URL keys', { error: e })
+    }
+  }
+
+  private markFeedKeysAttempted(urls: string[]): void {
+    for (const u of urls) {
+      this.rssFeedAttemptedKeys.add(this.normalizeRssFeedKeyUrl(u))
+    }
   }
 
   private parseItemPubDate(item: RssFeedItem): Date | null {
@@ -231,12 +282,12 @@ class RssFeedService {
   private getFetchStrategies(url: string): Array<{ name: string; getUrl: (url: string) => string }> {
     const strategies: Array<{ name: string; getUrl: (url: string) => string }> = []
     
-    // Strategy 1: Use configured proxy server (if available)
-    const proxyServer = import.meta.env.VITE_PROXY_SERVER
-    if (proxyServer && !url.includes('/sites/')) {
+    // Strategy 1: Same `VITE_PROXY_SERVER` contract as OG/link preview (`sites/?url=…`), not path-encoded `/sites/{url}`.
+    const proxyServer = import.meta.env.VITE_PROXY_SERVER?.trim()
+    if (proxyServer && !urlLooksLikeViteProxyRequest(url)) {
       strategies.push({
         name: 'configured-proxy',
-        getUrl: (url) => `${proxyServer}/sites/${encodeURIComponent(url)}`
+        getUrl: (u) => buildViteProxySitesFetchUrl(u, proxyServer)
       })
     }
 
@@ -1074,13 +1125,20 @@ class RssFeedService {
           
           // Add both the full foreign month name and its lowercase version
           if (foreignMonth && englishMonth) {
+            const trimmed = foreignMonth.trim()
+            // Locales may emit numeric or odd tokens; never map those (would match "12:01:00" as \b12\b).
+            if (/^\d+$/.test(trimmed)) {
+              continue
+            }
             monthMap[foreignMonth] = englishMonth
             monthMap[foreignMonth.toLowerCase()] = englishMonth
             // Also handle common variations (first 3 letters)
             if (foreignMonth.length >= 3) {
-              const abbrev = foreignMonth.substring(0, 3)
-              monthMap[abbrev] = englishMonth
-              monthMap[abbrev.toLowerCase()] = englishMonth
+              const abbrev = foreignMonth.substring(0, 3).trim()
+              if (abbrev.length >= 2 && !/^\d/.test(abbrev)) {
+                monthMap[abbrev] = englishMonth
+                monthMap[abbrev.toLowerCase()] = englishMonth
+              }
             }
           }
         }
@@ -1128,10 +1186,14 @@ class RssFeedService {
       })
     }
     
-    // Replace foreign month names with English equivalents
+    // Replace foreign month names with English equivalents (longest key first so "September" beats "Sep";
+    // skip pure-numeric keys so "12:01:00" is never touched by a spurious "12" → "Dec" map entry).
     let monthReplaced = false
-    for (const [foreign, english] of Object.entries(this.monthMapCache)) {
-      // Match month name (case-insensitive, word boundary)
+    const monthEntries = Object.entries(this.monthMapCache)
+      .filter(([foreign]) => !/^\d+$/.test(foreign.trim()))
+      .sort((a, b) => b[0].length - a[0].length)
+
+    for (const [foreign, english] of monthEntries) {
       const regex = new RegExp(`\\b${this.escapeRegex(foreign)}\\b`, 'i')
       if (regex.test(dateToParse)) {
         dateToParse = dateToParse.replace(regex, english)
@@ -1212,6 +1274,8 @@ class RssFeedService {
       throw new DOMException('The operation was aborted.', 'AbortError')
     }
 
+    await this.ensureRssFeedAttemptedKeysLoaded()
+
     // Step 1: Read from IndexedDB cache first (cache-first strategy)
     let cachedItems: RssFeedItem[] = []
     try {
@@ -1221,12 +1285,10 @@ class RssFeedService {
       })
       
       // Filter to only items from the requested feeds
-      // Normalize URLs for comparison (remove trailing slashes, ensure consistent format)
-      const normalizeUrl = (url: string) => url.trim().replace(/\/$/, '')
-      const normalizedRequestedUrls = new Set(feedUrls.map(normalizeUrl))
+      const normalizedRequestedUrls = new Set(feedUrls.map((u) => this.normalizeRssFeedKeyUrl(u)))
       
       cachedItems = allCachedItems.filter(item => {
-        const normalizedItemUrl = normalizeUrl(item.feedUrl)
+        const normalizedItemUrl = this.normalizeRssFeedKeyUrl(item.feedUrl)
         const matches = normalizedRequestedUrls.has(normalizedItemUrl)
         if (!matches && allCachedItems.length > 0 && allCachedItems.length < 10) {
           // Only log for small sets to avoid spam
@@ -1279,10 +1341,13 @@ class RssFeedService {
 
     const cacheWasEmpty = cachedItems.length === 0
     
-    // Check which feeds are missing from cache
-    const normalizeUrl = (url: string) => url.trim().replace(/\/$/, '')
-    const cachedFeedUrls = new Set(cachedItems.map(item => normalizeUrl(item.feedUrl)))
-    const missingFeeds = feedUrls.filter(url => !cachedFeedUrls.has(normalizeUrl(url)))
+    // Missing = no cached rows for this feed URL and we have not yet completed a fetch pass for it
+    const cachedFeedUrls = new Set(cachedItems.map((item) => this.normalizeRssFeedKeyUrl(item.feedUrl)))
+    const missingFeeds = feedUrls.filter(
+      (url) =>
+        !cachedFeedUrls.has(this.normalizeRssFeedKeyUrl(url)) &&
+        !this.rssFeedAttemptedKeys.has(this.normalizeRssFeedKeyUrl(url))
+    )
     
     if (missingFeeds.length > 0) {
       logger.info('[RssFeedService] Some feeds are missing from cache, will fetch them', {
@@ -1292,148 +1357,165 @@ class RssFeedService {
       })
     }
 
-    // Step 2: Background refresh to merge new items
-    // If cache is empty, we'll wait a bit for the refresh to complete
-    const backgroundRefresh = async (refreshSignal?: AbortSignal) => {
-      // Use the provided signal, or fall back to the original signal
-      const activeSignal = refreshSignal || signal
-      
-      if (activeSignal?.aborted) {
+    // Step 2: Background refresh — never tied to React's AbortSignal (Strict Mode / HMR / remount would cancel network).
+    const refreshAc = new AbortController()
+    const refreshSignal = refreshAc.signal
+
+    const backgroundRefresh = async (): Promise<void> => {
+      const dedupeKey = this.rssMultiFeedRefreshKey(feedUrls)
+      const inflight = this.rssMultiFeedRefreshInFlight.get(dedupeKey)
+      if (inflight) {
+        await inflight
         return
       }
 
-      logger.info('[RssFeedService] Starting background refresh', { 
-        feedCount: feedUrls.length,
-        feedUrls,
-        cacheWasEmpty,
-        cachedItemCount: cachedItems.length
-      })
+      const run = async (): Promise<void> => {
+        if (refreshSignal.aborted) {
+          return
+        }
 
-      // Check if already aborted before starting
-      if (activeSignal?.aborted) {
-        logger.warn('[RssFeedService] Background refresh aborted before starting', { 
-          feedCount: feedUrls.length 
-        })
-        return
-      }
-
-      try {
-        logger.info('[RssFeedService] Starting to fetch feeds', { 
+        logger.info('[RssFeedService] Starting background refresh', {
           feedCount: feedUrls.length,
           feedUrls,
-          signalAborted: activeSignal?.aborted 
+          cacheWasEmpty,
+          cachedItemCount: cachedItems.length
         })
-        
-        const results = await Promise.allSettled(
-          feedUrls.map(url => {
-            if (activeSignal?.aborted) {
-              logger.warn('[RssFeedService] Signal aborted before fetching feed', { url })
-              return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'))
-            }
-            logger.debug('[RssFeedService] Fetching feed', { url, signalAborted: activeSignal?.aborted })
-            return this.fetchFeed(url, activeSignal)
-          })
-        )
 
-        if (activeSignal?.aborted) {
-          logger.warn('[RssFeedService] Signal aborted after fetching feeds', { 
-            feedCount: feedUrls.length 
+        if (refreshSignal.aborted) {
+          logger.warn('[RssFeedService] Background refresh aborted before starting', {
+            feedCount: feedUrls.length
           })
           return
         }
 
-        const newItems: RssFeedItem[] = []
-        let successCount = 0
-        let failureCount = 0
-        let abortCount = 0
+        try {
+          logger.info('[RssFeedService] Starting to fetch feeds', {
+            feedCount: feedUrls.length,
+            feedUrls,
+            signalAborted: refreshSignal.aborted
+          })
 
-        results.forEach((result, index) => {
-          if (result.status === 'fulfilled') {
-            newItems.push(...result.value.items)
-            successCount++
-            logger.info('[RssFeedService] Successfully fetched feed', { 
-              url: feedUrls[index], 
-              itemCount: result.value.items.length,
-              feedTitle: result.value.title
+          const results = await Promise.allSettled(
+            feedUrls.map((url) => {
+              if (refreshSignal.aborted) {
+                logger.warn('[RssFeedService] Signal aborted before fetching feed', { url })
+                return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'))
+              }
+              logger.debug('[RssFeedService] Fetching feed', { url, signalAborted: refreshSignal.aborted })
+              return this.fetchFeed(url, refreshSignal)
             })
-          } else {
-            failureCount++
-            const error = result.reason
-            if (error instanceof DOMException && error.name === 'AbortError') {
-              abortCount++
-              logger.warn('[RssFeedService] Feed fetch was aborted', { 
-                url: feedUrls[index],
-                reason: error.message || 'AbortError'
-              })
-              return
-            }
-            const errorMessage = error instanceof Error ? error.message : String(error)
-            logger.warn('[RssFeedService] Failed to fetch feed after trying all strategies', { 
-              url: feedUrls[index], 
-              error: errorMessage,
-              errorStack: error instanceof Error ? error.stack : undefined,
-              errorType: error?.constructor?.name
+          )
+
+          if (refreshSignal.aborted) {
+            logger.warn('[RssFeedService] Signal aborted after fetching feeds', {
+              feedCount: feedUrls.length
             })
+            return
           }
-        })
-        
-        logger.info('[RssFeedService] Background refresh completed', {
-          successCount,
-          failureCount,
-          abortCount,
-          newItemCount: newItems.length,
-          totalFeeds: feedUrls.length
-        })
 
-        if (!activeSignal?.aborted && successCount > 0) {
-          // Merge new items with cached items (deduplicate by feedUrl:guid)
-          const itemMap = new Map<string, RssFeedItem>()
-          
-          // Add cached items first
-          cachedItems.forEach(item => {
-            const key = `${item.feedUrl}:${item.guid}`
-            itemMap.set(key, item)
-          })
-          
-          // Add/update with new items (newer items replace older ones)
-          newItems.forEach(item => {
-            const key = `${item.feedUrl}:${item.guid}`
-            const existing = itemMap.get(key)
-            // Keep the newer item, or add if it doesn't exist
-            if (!existing || (item.pubDate && existing.pubDate && item.pubDate > existing.pubDate)) {
-              itemMap.set(key, item)
+          const newItems: RssFeedItem[] = []
+          let successCount = 0
+          let failureCount = 0
+          let abortCount = 0
+
+          results.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+              newItems.push(...result.value.items)
+              successCount++
+              logger.info('[RssFeedService] Successfully fetched feed', {
+                url: feedUrls[index],
+                itemCount: result.value.items.length,
+                feedTitle: result.value.title
+              })
+            } else {
+              failureCount++
+              const error = result.reason
+              if (error instanceof DOMException && error.name === 'AbortError') {
+                abortCount++
+                logger.warn('[RssFeedService] Feed fetch was aborted', {
+                  url: feedUrls[index],
+                  reason: error.message || 'AbortError'
+                })
+                return
+              }
+              const errorMessage = error instanceof Error ? error.message : String(error)
+              logger.warn('[RssFeedService] Failed to fetch feed after trying all strategies', {
+                url: feedUrls[index],
+                error: errorMessage,
+                errorStack: error instanceof Error ? error.stack : undefined,
+                errorType: error?.constructor?.name
+              })
             }
           })
-          
-          const mergedItems = Array.from(itemMap.values())
 
-          // Sort by publication date (newest first) before global merge + trim
-          mergedItems.sort((a, b) => {
-            const dateA = a.pubDate?.getTime() || 0
-            const dateB = b.pubDate?.getTime() || 0
-            return dateB - dateA
+          logger.info('[RssFeedService] Background refresh completed', {
+            successCount,
+            failureCount,
+            abortCount,
+            newItemCount: newItems.length,
+            totalFeeds: feedUrls.length
           })
 
-          try {
-            await this.persistGlobalRssCacheAfterMerge(mergedItems, feedUrls)
-            logger.info('[RssFeedService] Updated IndexedDB cache with merged items', {
-              mergedFromThisRefresh: mergedItems.length,
-              newItems: newItems.length,
-              cachedItems: cachedItems.length
+          if (!refreshSignal.aborted) {
+            this.markFeedKeysAttempted(feedUrls)
+            await this.persistRssFeedAttemptedKeys()
+          }
+
+          if (!refreshSignal.aborted && successCount > 0) {
+            const itemMap = new Map<string, RssFeedItem>()
+
+            cachedItems.forEach((item) => {
+              const key = `${item.feedUrl}:${item.guid}`
+              itemMap.set(key, item)
             })
-          } catch (error) {
-            logger.error('[RssFeedService] Failed to update IndexedDB cache', { error })
+
+            newItems.forEach((item) => {
+              const key = `${item.feedUrl}:${item.guid}`
+              const existing = itemMap.get(key)
+              if (!existing || (item.pubDate && existing.pubDate && item.pubDate > existing.pubDate)) {
+                itemMap.set(key, item)
+              }
+            })
+
+            const mergedItems = Array.from(itemMap.values())
+
+            mergedItems.sort((a, b) => {
+              const dateA = a.pubDate?.getTime() || 0
+              const dateB = b.pubDate?.getTime() || 0
+              return dateB - dateA
+            })
+
+            try {
+              await this.persistGlobalRssCacheAfterMerge(mergedItems, feedUrls)
+              logger.info('[RssFeedService] Updated IndexedDB cache with merged items', {
+                mergedFromThisRefresh: mergedItems.length,
+                newItems: newItems.length,
+                cachedItems: cachedItems.length
+              })
+            } catch (error) {
+              logger.error('[RssFeedService] Failed to update IndexedDB cache', { error })
+            }
+          }
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === 'AbortError')) {
+            logger.error('[RssFeedService] Background refresh failed', { error })
           }
         }
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          logger.error('[RssFeedService] Background refresh failed', { error })
+      }
+
+      const p = run()
+      this.rssMultiFeedRefreshInFlight.set(dedupeKey, p)
+      try {
+        await p
+      } finally {
+        if (this.rssMultiFeedRefreshInFlight.get(dedupeKey) === p) {
+          this.rssMultiFeedRefreshInFlight.delete(dedupeKey)
         }
       }
     }
 
-    // If cache is empty OR some feeds are missing, wait a bit for background refresh
-    const shouldWaitForRefresh = cacheWasEmpty || missingFeeds.length > 0
+    // Wait only while some requested feeds are still unknown (no cache rows and no completed fetch pass)
+    const shouldWaitForRefresh = missingFeeds.length > 0
     
     if (shouldWaitForRefresh) {
       logger.info('[RssFeedService] Waiting for background refresh to complete', { 
@@ -1443,30 +1525,28 @@ class RssFeedService {
         missingFeeds
       })
       try {
-        // For missing feeds, create a separate abort controller that won't be aborted by component cleanup
-        // This allows the fetch to complete even if the component re-renders
-        const backgroundAbortController = new AbortController()
-        const backgroundSignal = signal ? (() => {
-          // Combine signals: abort if either the external signal OR our background controller aborts
-          const combined = new AbortController()
-          const abort = () => combined.abort()
-          signal.addEventListener('abort', abort, { once: true })
-          backgroundAbortController.signal.addEventListener('abort', abort, { once: true })
-          return combined.signal
-        })() : backgroundAbortController.signal
-        
-        // Wait up to 30 seconds for background refresh to complete (longer for missing feeds)
+        const callerGone = signal
+          ? new Promise<void>((resolve) => {
+              if (signal.aborted) resolve()
+              else signal.addEventListener('abort', () => resolve(), { once: true })
+            })
+          : new Promise<void>(() => {
+              /* never */
+            })
+
+        // Caller abort ends the wait early; refresh keeps running on refreshAc.signal
         await Promise.race([
-          backgroundRefresh(backgroundSignal),
-          new Promise(resolve => setTimeout(resolve, 30000))
+          backgroundRefresh(),
+          new Promise<void>((resolve) => setTimeout(() => resolve(), 30000)),
+          callerGone
         ])
         
         // Re-read from cache after background refresh
         try {
           const refreshedItems = await indexedDb.getRssFeedItems()
-          const feedUrlSet = new Set(feedUrls.map(normalizeUrl))
+          const feedUrlSet = new Set(feedUrls.map((u) => this.normalizeRssFeedKeyUrl(u)))
           cachedItems = refreshedItems
-            .filter(item => feedUrlSet.has(normalizeUrl(item.feedUrl)))
+            .filter((item) => feedUrlSet.has(this.normalizeRssFeedKeyUrl(item.feedUrl)))
             .map(item => ({
               ...item,
               pubDate: item.pubDate ? new Date(item.pubDate) : null
@@ -1487,7 +1567,7 @@ class RssFeedService {
     } else {
       // Cache has all requested feeds, start background refresh in background (don't wait)
       logger.debug('[RssFeedService] All feeds in cache, starting background refresh without waiting')
-      backgroundRefresh().catch(err => {
+      void backgroundRefresh().catch((err) => {
         if (!(err instanceof DOMException && err.name === 'AbortError')) {
           logger.error('[RssFeedService] Background refresh error', { error: err })
         }
@@ -1515,12 +1595,19 @@ class RssFeedService {
       return
     }
 
+    await this.ensureRssFeedAttemptedKeysLoaded()
+    for (const u of feedUrls) {
+      this.rssFeedAttemptedKeys.delete(this.normalizeRssFeedKeyUrl(u))
+    }
+    await this.persistRssFeedAttemptedKeys()
+
     // Abort any existing background refresh
     if (this.backgroundRefreshController) {
       logger.info('[RssFeedService] Aborting existing background refresh before starting new one')
       this.backgroundRefreshController.abort()
       this.backgroundRefreshController = null
     }
+    this.rssMultiFeedRefreshInFlight.clear()
 
     // Create a new AbortController for this refresh
     const controller = new AbortController()
@@ -1570,6 +1657,11 @@ class RssFeedService {
           })
         }
       })
+
+      if (!combinedSignal.aborted && !controller.signal.aborted) {
+        this.markFeedKeysAttempted(feedUrls)
+        await this.persistRssFeedAttemptedKeys()
+      }
 
       if (!combinedSignal.aborted && !controller.signal.aborted && successCount > 0) {
         // Get existing cached items
@@ -1641,6 +1733,8 @@ class RssFeedService {
   clearCache(url?: string) {
     if (url) {
       this.feedCache.delete(url)
+      this.rssFeedAttemptedKeys.delete(this.normalizeRssFeedKeyUrl(url))
+      void this.persistRssFeedAttemptedKeys()
       // Also clear from IndexedDB (filter by feedUrl)
       indexedDb.getRssFeedItems().then(items => {
         const filtered = items.filter(item => item.feedUrl !== url)
@@ -1652,6 +1746,8 @@ class RssFeedService {
       })
     } else {
       this.feedCache.clear()
+      this.rssFeedAttemptedKeys.clear()
+      void this.persistRssFeedAttemptedKeys()
       // Clear all from IndexedDB
       indexedDb.clearRssFeedItems().catch(err => {
         logger.error('[RssFeedService] Failed to clear IndexedDB cache', { error: err })

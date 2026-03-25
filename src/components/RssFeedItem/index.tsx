@@ -16,6 +16,7 @@ import MediaPlayer from '@/components/MediaPlayer'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useSmartRssArticleNavigation } from '@/PageManager'
+import { getStandardRssFeedProfile } from '@/lib/standard-rss-feed-url'
 
 /**
  * Convert HTML to plain text by extracting text content and cleaning up whitespace
@@ -401,16 +402,26 @@ export default function RssFeedItem({
     setSelectedText('')
   }
 
-  // Format feed source name from URL
+  const standardFeedProfile = useMemo(
+    () => (isWebFaux ? null : getStandardRssFeedProfile(item.feedUrl)),
+    [item.feedUrl, isWebFaux]
+  )
+
+  // Format feed source name from URL (known shapes get a translated label)
   const feedSourceName = useMemo(() => {
     if (isWebFaux) return ''
+    if (standardFeedProfile) {
+      return t(standardFeedProfile.labelKey, {
+        defaultValue: standardFeedProfile.defaultLabel
+      })
+    }
     try {
       const url = new URL(item.feedUrl)
       return url.hostname.replace(/^www\./, '')
     } catch {
       return item.feedTitle || 'RSS Feed'
     }
-  }, [item.feedUrl, item.feedTitle, isWebFaux])
+  }, [item.feedUrl, item.feedTitle, isWebFaux, standardFeedProfile, t])
 
   // Clean and parse HTML description safely
   // Decode HTML entities and remove any XML artifacts that might have leaked through
@@ -586,6 +597,12 @@ export default function RssFeedItem({
               <h3 className="font-semibold text-sm truncate">
                 {isWebFaux ? t('Web page') : item.feedTitle || feedSourceName}
               </h3>
+              {!isWebFaux && standardFeedProfile && item.feedTitle ? (
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                  {feedSourceName}
+                  {standardFeedProfile.detail ? ` · ${standardFeedProfile.detail}` : ''}
+                </p>
+              ) : null}
               {item.feedDescription && (
                 <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
                   {item.feedDescription}

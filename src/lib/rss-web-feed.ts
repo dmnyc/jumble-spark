@@ -37,7 +37,7 @@ function trimManualRssWebUrlsToLimit(entries: ManualRssWebUrlEntry[]): ManualRss
 
 /** Cap how many pubkeys we scan (self + follows) per discovery pass. */
 const MAX_WEB_DISCOVERY_AUTHORS = 400
-const WEB_DISCOVERY_AUTHORS_CHUNK = 20
+const WEB_DISCOVERY_AUTHORS_CHUNK = 10
 const WEB_DISCOVERY_EVENTS_LIMIT = 400
 
 export async function loadManualRssWebUrls(): Promise<ManualRssWebUrlEntry[]> {
@@ -102,7 +102,8 @@ export async function mergeDiscoveredRssWebUrls(discovered: ManualRssWebUrlEntry
   return true
 }
 
-const URL_CHUNK = 14
+/** Small chunks keep each Nostr filter JSON under relay limits ("filter item too large"). */
+const URL_CHUNK = 5
 
 /** Dispatched after publishing a kind 17 web URL reaction so RSS+Web can refetch. */
 export const WEB_EXTERNAL_REACTION_PUBLISHED_EVENT = 'jumble:webExternalReactionPublished'
@@ -262,29 +263,38 @@ export async function fetchNostrWebActivityForUrls(urls: string[]): Promise<Nost
   const highlightById = new Map<string, Event>()
   const externalReactionById = new Map<string, Event>()
 
+  const webActivityOpts = {
+    onevent: (evt: Event) => {
+      if (evt.kind === ExtendedKind.COMMENT) {
+        commentById.set(evt.id, evt)
+      } else if (evt.kind === ExtendedKind.EXTERNAL_REACTION) {
+        externalReactionById.set(evt.id, evt)
+      } else if (evt.kind === kinds.Highlights) {
+        highlightById.set(evt.id, evt)
+      }
+    },
+    eoseTimeout: 4000,
+    globalTimeout: 12000
+  }
+
   for (let i = 0; i < httpUrls.length; i += URL_CHUNK) {
     const chunk = httpUrls.slice(i, i + URL_CHUNK)
     try {
+      // One filter per REQ — multiple large #i/#r arrays in one subscription hit relay size limits.
       await queryService.fetchEvents(
         relayUrls,
-        [
-          { kinds: [ExtendedKind.COMMENT], '#i': chunk, limit: 120 },
-          { kinds: [ExtendedKind.EXTERNAL_REACTION], '#i': chunk, limit: 120 },
-          { kinds: [kinds.Highlights], '#r': chunk, limit: 120 }
-        ],
-        {
-          onevent: (evt: Event) => {
-            if (evt.kind === ExtendedKind.COMMENT) {
-              commentById.set(evt.id, evt)
-            } else if (evt.kind === ExtendedKind.EXTERNAL_REACTION) {
-              externalReactionById.set(evt.id, evt)
-            } else if (evt.kind === kinds.Highlights) {
-              highlightById.set(evt.id, evt)
-            }
-          },
-          eoseTimeout: 4000,
-          globalTimeout: 12000
-        }
+        [{ kinds: [ExtendedKind.COMMENT], '#i': chunk, limit: 120 }],
+        webActivityOpts
+      )
+      await queryService.fetchEvents(
+        relayUrls,
+        [{ kinds: [ExtendedKind.EXTERNAL_REACTION], '#i': chunk, limit: 120 }],
+        webActivityOpts
+      )
+      await queryService.fetchEvents(
+        relayUrls,
+        [{ kinds: [kinds.Highlights], '#r': chunk, limit: 120 }],
+        webActivityOpts
       )
     } catch {
       /* ignore chunk */

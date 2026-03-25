@@ -1,3 +1,4 @@
+import { buildViteProxySitesFetchUrl, urlLooksLikeViteProxyRequest } from '@/lib/vite-proxy-url'
 import { TWebMetadata } from '@/types'
 import DataLoader from 'dataloader'
 import logger from '@/lib/logger'
@@ -40,21 +41,11 @@ async function tryFetchHtml(fetchUrl: string, timeoutMs: number): Promise<string
   }
 }
 
-function buildOgProxyFetchUrl(originalUrl: string, proxyServer: string): string {
-  if (proxyServer.startsWith('http://') || proxyServer.startsWith('https://')) {
-    const base = proxyServer.endsWith('/') ? proxyServer : `${proxyServer}/`
-    return `${base}sites/?url=${encodeURIComponent(originalUrl)}`
-  }
-  const basePath = proxyServer.endsWith('/') ? proxyServer : `${proxyServer}/`
-  return `${basePath}?url=${encodeURIComponent(originalUrl)}`
-}
-
 /**
  * OG HTML: always use `VITE_PROXY_SERVER` first when set; if that fails or is unset, fetch the page directly.
  */
 async function fetchHtmlForOpenGraph(originalUrl: string): Promise<{ html: string; via: string } | null> {
-  const isAlreadyProxyRequest =
-    originalUrl.includes('/sites/') || originalUrl.includes('/sites/?url=')
+  const isAlreadyProxyRequest = urlLooksLikeViteProxyRequest(originalUrl)
 
   if (isAlreadyProxyRequest) {
     const html = await tryFetchHtml(originalUrl, 35_000)
@@ -64,7 +55,7 @@ async function fetchHtmlForOpenGraph(originalUrl: string): Promise<{ html: strin
   const proxyServer = import.meta.env.VITE_PROXY_SERVER?.trim()
 
   if (proxyServer) {
-    const proxyFetchUrl = buildOgProxyFetchUrl(originalUrl, proxyServer)
+    const proxyFetchUrl = buildViteProxySitesFetchUrl(originalUrl, proxyServer)
     logger.debug('[WebService] OG fetch via VITE_PROXY_SERVER', { originalUrl, proxyFetchUrl })
     let html = await tryFetchHtml(proxyFetchUrl, 35_000)
     if (html) {
