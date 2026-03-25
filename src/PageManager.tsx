@@ -861,6 +861,14 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     return entry?.props as object | undefined
   }, [primaryPages, currentPrimaryPage])
 
+  /** Keeps spell query (?spell=) and other primary props for URL restore after drawer/popstate — refs were never written before. */
+  useEffect(() => {
+    const m = primaryPagePropsRef.current
+    for (const p of primaryPages) {
+      m.set(p.name, p.props)
+    }
+  }, [primaryPages])
+
   const setPrimaryNoteView = (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => {
     if (view && !primaryNoteView) {
       // Saving current primary page before showing overlay
