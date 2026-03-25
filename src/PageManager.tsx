@@ -322,7 +322,7 @@ function restoredPrimaryBrowserUrl(pathname: string, fullUrlForQuery: string): s
 function parseNoteUrl(url: string): { noteId: string; context?: string } {
   // Match patterns like /discussions/notes/{noteId} or /notes/{noteId}
   const contextualMatch = url.match(
-    /\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/
+    /\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\/(.+)$/
   )
   if (contextualMatch) {
     return { noteId: contextualMatch[2], context: contextualMatch[1] }
@@ -1012,7 +1012,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       const pathname = window.location.pathname
       
       // Check if this is a note URL - handle both /notes/{id} and /{context}/notes/{id}
-      const contextualNoteMatch = pathname.match(/\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/)
+      const contextualNoteMatch = pathname.match(/\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\/(.+)$/)
       const standardNoteMatch = pathname.match(/\/notes\/(.+)$/)
       const noteUrlMatch = contextualNoteMatch || standardNoteMatch
       
@@ -1216,7 +1216,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         // Check if pathname matches a primary page name
         // First, check if it's a contextual note URL (e.g., /discussions/notes/...)
         const contextualNoteMatch = pathname.match(
-          /^\/(discussions|search|profile|home|feed|spells|explore)\/notes\//
+          /^\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\//
         )
         if (contextualNoteMatch) {
           const pageContext = contextualNoteMatch[1]
@@ -1281,7 +1281,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       const urlToCheck = state?.url || window.location.pathname
       
       // Check if it's a note URL (we'll update drawer after stack is synced)
-      const noteUrlMatch = urlToCheck.match(/\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/) || 
+      const noteUrlMatch = urlToCheck.match(/\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\/(.+)$/) || 
                           urlToCheck.match(/\/notes\/(.+)$/)
       const noteIdToShow = noteUrlMatch ? noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0] : null
 
@@ -1394,7 +1394,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           }
           
           // Check if navigating to a note URL (supports both /notes/{id} and /{context}/notes/{id})
-          const noteUrlMatch = state.url.match(/\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/) || 
+          const noteUrlMatch = state.url.match(/\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\/(.+)$/) || 
                               state.url.match(/\/notes\/(.+)$/)
           if (noteUrlMatch) {
             const noteId = noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0]
@@ -1445,7 +1445,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             // Extract noteId from top item's URL or from state.url
             const topItemUrl = newStack[newStack.length - 1]?.url || state?.url
             if (topItemUrl) {
-              const topNoteUrlMatch = topItemUrl.match(/\/(discussions|search|profile|home|feed|spells|explore)\/notes\/(.+)$/) || 
+              const topNoteUrlMatch = topItemUrl.match(/\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\/(.+)$/) || 
                                      topItemUrl.match(/\/notes\/(.+)$/)
               if (topNoteUrlMatch) {
                 const topNoteId = topNoteUrlMatch[topNoteUrlMatch.length - 1].split('?')[0].split('#')[0]

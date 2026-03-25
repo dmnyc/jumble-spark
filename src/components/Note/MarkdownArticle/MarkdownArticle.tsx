@@ -10,6 +10,7 @@ import { toNoteList } from '@/lib/link'
 import { useMediaExtraction } from '@/hooks'
 import { cleanUrl, isImage, isMedia, isVideo, isAudio, isWebsocketUrl } from '@/lib/url'
 import { getHttpUrlFromITags, getImetaInfosFromEvent } from '@/lib/event'
+import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
 import { Event, kinds } from 'nostr-tools'
 import Emoji from '@/components/Emoji'
 import { ExtendedKind, WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
@@ -428,8 +429,8 @@ function parseMarkdownContent(
     emojiInfos?: TEmoji[]
     /** When viewing a kind-24 invite, render full calendar card with RSVP instead of EmbeddedNote for this naddr */
     fullCalendarInvite?: { naddr: string; event: Event }
-    /** If set, a standalone markdown link to this cleaned URL renders as inline link (OG shown separately). */
-    suppressStandaloneWebPreviewForCleanedUrl?: string
+    /** Cleaned URL variants: standalone markdown links matching any render as inline (OG elsewhere). */
+    suppressStandaloneWebPreviewCleanedUrls?: ReadonlySet<string>
   }
 ): { nodes: React.ReactNode[]; hashtagsInContent: Set<string>; footnotes: Map<string, string>; citations: Array<{ id: string; type: string; citationId: string }> } {
   const {
@@ -443,7 +444,7 @@ function parseMarkdownContent(
     getImageIdentifier,
     emojiInfos = [],
     fullCalendarInvite,
-    suppressStandaloneWebPreviewForCleanedUrl
+    suppressStandaloneWebPreviewCleanedUrls
   } = options
   const parts: React.ReactNode[] = []
   const hashtagsInContent = new Set<string>()
@@ -1833,8 +1834,8 @@ function parseMarkdownContent(
       const { url } = pattern.data
       const cleanedStandalone = cleanUrl(url) || url
       if (
-        suppressStandaloneWebPreviewForCleanedUrl &&
-        cleanedStandalone === suppressStandaloneWebPreviewForCleanedUrl
+        suppressStandaloneWebPreviewCleanedUrls &&
+        suppressStandaloneWebPreviewCleanedUrls.has(cleanedStandalone)
       ) {
         parts.push(
           <a
@@ -3216,7 +3217,8 @@ export default function MarkdownArticle({
   className,
   hideMetadata = false,
   parentImageUrl,
-  fullCalendarInvite
+  fullCalendarInvite,
+  duplicateWebPreviewCleanedUrlHints
 }: {
   event: Event
   className?: string
@@ -3224,6 +3226,8 @@ export default function MarkdownArticle({
   parentImageUrl?: string
   /** When viewing a kind-24 invite, render full calendar card with RSVP in place of the naddr embed */
   fullCalendarInvite?: { naddr: string; event: Event }
+  /** e.g. RSS/article URL-thread root: suppress duplicate WebPreview for the same page already shown as OP */
+  duplicateWebPreviewCleanedUrlHints?: string[]
 }) {
   const secondaryPage = useSecondaryPageOptional()
   const push = secondaryPage?.push ?? ((url: string) => { window.location.href = url })
@@ -3231,10 +3235,33 @@ export default function MarkdownArticle({
   const { navigateToRelay } = useSmartRelayNavigationOptional()
   const metadata = useMemo(() => getLongFormArticleMetadataFromEvent(event), [event])
   const iArticleUrl = useMemo(() => getHttpUrlFromITags(event), [event])
-  const iArticleCleaned = useMemo(
-    () => (iArticleUrl ? cleanUrl(iArticleUrl) || iArticleUrl : ''),
-    [iArticleUrl]
-  )
+
+  const webPreviewSuppressCleanedSet = useMemo(() => {
+    const s = new Set<string>()
+    const addHint = (raw: string) => {
+      const t = raw.trim()
+      if (!t) return
+      const c = cleanUrl(t)
+      if (c) s.add(c)
+      else s.add(t)
+      if (t.startsWith('http://') || t.startsWith('https://')) {
+        const canon = canonicalizeRssArticleUrl(t)
+        if (canon) s.add(canon)
+      }
+    }
+    if (iArticleUrl) addHint(iArticleUrl)
+    for (const h of duplicateWebPreviewCleanedUrlHints ?? []) addHint(h)
+    return s
+  }, [iArticleUrl, duplicateWebPreviewCleanedUrlHints])
+
+  /** URL-thread OP already shows this link; hide the embedded i-tag card on kind 1111 / scoped replies */
+  const suppressITagArticleWebPreview = useMemo(() => {
+    if (!iArticleUrl || !duplicateWebPreviewCleanedUrlHints?.length) return false
+    const canon = canonicalizeRssArticleUrl(iArticleUrl)
+    return duplicateWebPreviewCleanedUrlHints.some(
+      (h) => canonicalizeRssArticleUrl(h) === canon
+    )
+  }, [iArticleUrl, duplicateWebPreviewCleanedUrlHints])
 
   // Extract all media from event
   const extractedMedia = useMediaExtraction(event, event.content)
@@ -3511,10 +3538,16 @@ export default function MarkdownArticle({
     return tagLinks.filter((link) => {
       const cleaned = cleanUrl(link)
       if (!cleaned) return false
-      if (iArticleCleaned && cleaned === iArticleCleaned) return false
+      if (webPreviewSuppressCleanedSet.has(cleaned)) return false
+      if (
+        (link.startsWith('http://') || link.startsWith('https://')) &&
+        webPreviewSuppressCleanedSet.has(canonicalizeRssArticleUrl(link))
+      ) {
+        return false
+      }
       return !contentLinksSet.has(cleaned)
     })
-  }, [tagLinks, contentLinks, iArticleCleaned])
+  }, [tagLinks, contentLinks, webPreviewSuppressCleanedSet])
   
   // Preprocess content to convert URLs to markdown syntax
   const preprocessedContent = useMemo(() => {
@@ -3586,7 +3619,8 @@ export default function MarkdownArticle({
       getImageIdentifier,
       emojiInfos,
       fullCalendarInvite,
-      suppressStandaloneWebPreviewForCleanedUrl: iArticleCleaned || undefined
+      suppressStandaloneWebPreviewCleanedUrls:
+        webPreviewSuppressCleanedSet.size > 0 ? webPreviewSuppressCleanedSet : undefined
     })
     // Return nodes and hashtags (footnotes are already included in nodes)
     return { nodes: result.nodes, hashtagsInContent: result.hashtagsInContent }
@@ -3602,7 +3636,7 @@ export default function MarkdownArticle({
     getImageIdentifier,
     emojiInfos,
     fullCalendarInvite,
-    iArticleCleaned
+    webPreviewSuppressCleanedSet
   ])
   
   // Filter metadata tags to only show what's not already in content
@@ -3698,7 +3732,7 @@ export default function MarkdownArticle({
         }
       `}</style>
       <div className={`prose prose-zinc max-w-none dark:prose-invert break-words overflow-wrap-anywhere ${className || ''}`}>
-        {iArticleUrl && (
+        {iArticleUrl && !suppressITagArticleWebPreview && (
           <div className="not-prose mb-4 max-w-full">
             <WebPreview url={iArticleUrl} className="w-full" />
           </div>

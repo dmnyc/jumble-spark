@@ -1,4 +1,8 @@
-import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
+import {
+  canonicalizeRssArticleUrl,
+  getArticleUrlFromCommentITags,
+  getHighlightSourceHttpUrl
+} from '@/lib/rss-article'
 import {
   getParentATag,
   getParentETag,
@@ -7,7 +11,7 @@ import {
   getRootETag,
   isNip25ReactionKind
 } from '@/lib/event'
-import { Event } from 'nostr-tools'
+import { Event, kinds } from 'nostr-tools'
 import { createContext, useCallback, useContext, useState } from 'react'
 
 type TReplyContext = {
@@ -50,6 +54,9 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
           const articleUrl = getArticleUrlFromCommentITags(reply)
           if (articleUrl) {
             rootId = canonicalizeRssArticleUrl(articleUrl)
+          } else if (reply.kind === kinds.Highlights) {
+            const hu = getHighlightSourceHttpUrl(reply)
+            if (hu) rootId = canonicalizeRssArticleUrl(hu)
           }
         }
       }

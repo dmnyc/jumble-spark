@@ -304,7 +304,17 @@ class NoteStatsService {
             limit: reactionLimit
           },
           {
+            '#I': [canonical],
+            kinds: [ExtendedKind.EXTERNAL_REACTION],
+            limit: reactionLimit
+          },
+          {
             '#i': [canonical],
+            kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
+            limit: interactionLimit
+          },
+          {
+            '#I': [canonical],
             kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
             limit: interactionLimit
           },

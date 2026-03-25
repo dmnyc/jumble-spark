@@ -43,11 +43,11 @@ export default function NoteStats({
   // Hide interaction counts if event is in quiet mode
   const hideInteractions = shouldHideInteractions(event)
 
-  /** Synthetic RSS article root: only reply + reactions (no boost/quote/zap). */
+  /** Synthetic RSS article root: no boost/quote/zap; still show reaction breakdown (NIP-25 + kind-17 web). */
   const isRssArticleRoot = event.kind === ExtendedKind.RSS_THREAD_ROOT
 
-  /** Kind 11 / kind 1111 under kind 11: LikeButton already shows ⬆️/⬇️ counts — skip duplicate pill row. */
-  const showLikesPills = !isDiscussion && !isReplyToDiscussion && !isRssArticleRoot
+  /** Emoji reaction pills (aggregated likes). Shown for RSS/Web URL threads so the side panel matches feed rows. */
+  const showLikesPills = !isDiscussion && !isReplyToDiscussion
 
   useEffect(() => {
     if (!fetchIfNotExisting) return

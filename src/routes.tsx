@@ -51,6 +51,7 @@ const ROUTES = [
   { path: '/home/notes/:id', element: SR(NotePageLazy) },
   { path: '/feed/notes/:id', element: SR(NotePageLazy) },
   { path: '/spells/notes/:id', element: SR(NotePageLazy) },
+  { path: '/rss/notes/:id', element: SR(NotePageLazy) },
   { path: '/rss-item/:articleKey', element: SR(RssArticlePageLazy) },
   { path: '/rss/rss-item/:articleKey', element: SR(RssArticlePageLazy) },
   { path: '/feed/rss-item/:articleKey', element: SR(RssArticlePageLazy) },

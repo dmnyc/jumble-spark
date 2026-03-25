@@ -232,7 +232,7 @@ const RssArticlePage = forwardRef(
             </p>
             {syntheticRoot && (
               <div className="px-0 w-full">
-                <NoteStats className="mt-2" event={syntheticRoot} fetchIfNotExisting displayTopZapsAndLikes={false} />
+                <NoteStats className="mt-2" event={syntheticRoot} fetchIfNotExisting displayTopZapsAndLikes />
               </div>
             )}
             <Separator />
@@ -301,7 +301,7 @@ const RssArticlePage = forwardRef(
           </div>
           {syntheticRoot && (
             <div className="px-4 w-full">
-              <NoteStats className="mt-3" event={syntheticRoot} fetchIfNotExisting displayTopZapsAndLikes={false} />
+              <NoteStats className="mt-3" event={syntheticRoot} fetchIfNotExisting displayTopZapsAndLikes />
             </div>
           )}
           <Separator className="mt-4" />

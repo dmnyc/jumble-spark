@@ -1268,7 +1268,9 @@ export default {
     'Web URL item label': 'Web URL',
     'URL thread activity': 'URL thread activity',
     'Suppress Clawstr links in RSS previews':
-      'Hide links to clawstr.com in RSS previews',
+      'Hide clawstr.com in RSS and URL feed',
+    'Hide local, media & feed URLs from URL cards':
+      'Hide local, media, feed, document & XML links from the feed',
     'RSS articles': 'RSS articles',
     'Web comments': 'Web comments',
     'Web highlights': 'Web highlights',

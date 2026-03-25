@@ -1,4 +1,5 @@
 import RssFeedItem from '@/components/RssFeedItem'
+import RssUrlThreadEventsPreview from '@/components/RssUrlThreadEventsPreview'
 import RssUrlThreadStatsBar from '@/components/RssUrlThreadStatsBar'
 import WebPreview from '@/components/WebPreview'
 import { cn } from '@/lib/utils'
@@ -98,6 +99,10 @@ export default function RssWebFeedCard({
         <p className="pointer-events-none border-b border-border/60 px-3 py-1.5 text-xs text-muted-foreground">
           {t('{{count}} RSS entries for this URL', { count: rssItems.length })}
         </p>
+      ) : null}
+
+      {isHttpArticleUrl(canonicalUrl) ? (
+        <RssUrlThreadEventsPreview canonicalUrl={canonicalUrl} />
       ) : null}
 
       <RssUrlThreadStatsBar event={syntheticRoot} />

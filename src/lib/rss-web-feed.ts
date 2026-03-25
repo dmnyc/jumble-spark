@@ -1,23 +1,27 @@
 import { ExtendedKind, FAST_READ_RELAY_URLS } from '@/constants'
 import { buildAccountListRelayUrlsForMerge } from '@/lib/account-list-relay-urls'
 import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
+import { isReplyNoteEvent } from '@/lib/event'
 import {
   canonicalizeRssArticleUrl,
+  computeRTagFilterValuesForArticleThread,
   getArticleUrlFromCommentITags,
   getHighlightSourceHttpUrl,
   getWebBookmarkArticleUrl,
   getWebExternalReactionTargetUrl
 } from '@/lib/rss-article'
 import logger from '@/lib/logger'
-import { normalizeUrl } from '@/lib/url'
+import { isImage, isLocalNetworkUrl, isMedia, isVideo, normalizeUrl } from '@/lib/url'
 import { queryService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import type { RssFeedItem } from '@/services/rss-feed.service'
-import type { Event } from 'nostr-tools'
-import { kinds } from 'nostr-tools'
+import { kinds, type Event, type Filter } from 'nostr-tools'
 
-/** IndexedDB: `'1'` (default) = strip &lt;a href&gt; to clawstr.com from RSS HTML in the feed list. */
+/** IndexedDB: `'1'` (default) = hide clawstr.com (strip preview links + drop URL/RSS rows for that host). */
 export const RSS_WEB_SUPPRESS_CLAWSTR_SETTING = 'rssWebSuppressClawstrLinks'
+
+/** IndexedDB: `'1'` (default) = keep local/media/feed XML links as plain RSS rows, not URL cards. */
+export const RSS_WEB_HIDE_UNIFIED_CLUTTER_SETTING = 'rssWebHideUnifiedClutter'
 
 /** IndexedDB: feed view — article URL cards, flat RSS timeline, or both interleaved. */
 export const RSS_WEB_FEED_SCOPE_SETTING = 'rssWebFeedScope'
@@ -133,23 +137,97 @@ export function isHttpArticleUrl(url: string): boolean {
 }
 
 /**
+ * URLs that make poor “article URL” cards: localhost/LAN, direct media files, and common RSS/Atom document paths.
+ * When filtering is on, these stay as normal RSS timeline rows instead of Web URL cards.
+ */
+export function isRssWebUnifiedClutterUrl(url: string): boolean {
+  const t = url.trim()
+  if (!isHttpArticleUrl(t)) return false
+  let parsed: URL
+  try {
+    parsed = new URL(t)
+  } catch {
+    return false
+  }
+  const host = parsed.hostname.toLowerCase()
+  if (host.endsWith('.local')) return true
+  if (isLocalNetworkUrl(t)) return true
+  const ipv4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+  if (ipv4 && Number(ipv4[1]) === 127) return true
+
+  if (isMedia(t) || isVideo(t) || isImage(t)) return true
+
+  const path = parsed.pathname.toLowerCase()
+  const segments = path.split('/').filter(Boolean)
+  const last = segments[segments.length - 1] || ''
+  // Documents — not article pages
+  if (
+    /\.(pdf|epub|mobi|azw3|doc|docx|xls|xlsx|ppt|pptx|ods|odt|rtf)(\?.*)?$/i.test(path)
+  ) {
+    return true
+  }
+  if (/\.(rss|atom)$/i.test(last)) return true
+  if (last === 'feed.xml' || last === 'rss.xml' || last === 'atom.xml') return true
+  if (last.endsWith('.xml')) return true
+  if (last === 'feed' || last === 'rss' || last === 'atom') return true
+  return false
+}
+
+/** REQ filters for Nostr comments, voice comments, and highlights on one article URL (synthetic RSS thread). */
+export function buildRssArticleUrlThreadInteractionFilters(
+  canonicalArticleUrl: string,
+  limit: number
+): Filter[] {
+  const canonical = canonicalizeRssArticleUrl(canonicalArticleUrl)
+  const rVals = computeRTagFilterValuesForArticleThread(canonical)
+  const filters: Filter[] = [
+    { '#i': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit },
+    { '#I': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit }
+  ]
+  if (rVals.length > 0) {
+    filters.push({ '#r': rVals, kinds: [kinds.Highlights], limit })
+  }
+  return filters
+}
+
+/** Whether `evt` belongs to the URL-scoped article thread (comments / voice / highlight of this page). */
+export function isRssArticleUrlThreadInteraction(evt: Event, canonicalArticleUrl: string): boolean {
+  const key = canonicalizeRssArticleUrl(canonicalArticleUrl)
+  if (evt.kind === kinds.Highlights) {
+    const hu = getHighlightSourceHttpUrl(evt)
+    return !!hu && canonicalizeRssArticleUrl(hu) === key
+  }
+  if (!isReplyNoteEvent(evt)) return false
+  const u = getArticleUrlFromCommentITags(evt)
+  return !!u && canonicalizeRssArticleUrl(u) === key
+}
+
+/**
  * Group RSS entries by canonical article URL (NIP-22 / web thread key).
  */
 export function groupRssItemsByCanonicalUrl(items: RssFeedItem[]): RssUrlGroup[] {
-  const { groups } = partitionRssItemsForWebFeed(items)
+  const { groups } = partitionRssItemsForWebFeed(items, { excludeClutterLinks: true })
   return groups
 }
 
 /** HTTP(S) article groups for combined cards; everything else stays as plain RSS rows. */
-export function partitionRssItemsForWebFeed(items: RssFeedItem[]): {
+export function partitionRssItemsForWebFeed(
+  items: RssFeedItem[],
+  options?: { excludeClutterLinks?: boolean }
+): {
   groups: RssUrlGroup[]
   nonHttpItems: RssFeedItem[]
 } {
+  const excludeClutter = options?.excludeClutterLinks !== false
   const map = new Map<string, RssFeedItem[]>()
   const nonHttpItems: RssFeedItem[] = []
   for (const item of items) {
     const link = item.link?.trim()
     if (!link || !isHttpArticleUrl(link)) {
+      nonHttpItems.push(item)
+      continue
+    }
+    if (excludeClutter && isRssWebUnifiedClutterUrl(link)) {
       nonHttpItems.push(item)
       continue
     }
@@ -191,9 +269,11 @@ export type ArticleUrlFeedWebRow = {
 export function buildArticleUrlFeedRows(
   filteredItems: RssFeedItem[],
   manualEntries: ManualRssWebUrlEntry[],
-  relayDiscoveredEntries: ManualRssWebUrlEntry[]
+  relayDiscoveredEntries: ManualRssWebUrlEntry[],
+  options?: { excludeClutterLinks?: boolean }
 ): { webRows: ArticleUrlFeedWebRow[]; nonHttpItems: RssFeedItem[] } {
-  const { groups, nonHttpItems } = partitionRssItemsForWebFeed(filteredItems)
+  const { groups, nonHttpItems } = partitionRssItemsForWebFeed(filteredItems, options)
+  const excludeClutter = options?.excludeClutterLinks !== false
   const webByUrl = new Map<string, { rssItems: RssFeedItem[]; latestPub: number }>()
 
   for (const g of groups) {
@@ -214,10 +294,12 @@ export function buildArticleUrlFeedRows(
 
   for (const { url, addedAt } of manualEntries) {
     if (!isHttpArticleUrl(url)) continue
+    if (excludeClutter && isRssWebUnifiedClutterUrl(url)) continue
     mergeNostrTimestamp(canonicalizeRssArticleUrl(url), addedAt)
   }
   for (const { url, addedAt } of relayDiscoveredEntries) {
     if (!isHttpArticleUrl(url)) continue
+    if (excludeClutter && isRssWebUnifiedClutterUrl(url)) continue
     mergeNostrTimestamp(canonicalizeRssArticleUrl(url), addedAt)
   }
 
@@ -306,7 +388,10 @@ export async function fetchDiscoveredWebUrlsFromRelays(options: {
   accountPubkey: string | null
   favoriteRelays: string[]
   blockedRelays: string[]
+  /** When true (default), omit localhost, media files, and feed-document URLs from discovery. */
+  excludeClutterUrls?: boolean
 }): Promise<ManualRssWebUrlEntry[]> {
+  const excludeClutter = options.excludeClutterUrls !== false
   const relayUrls = await buildRssWebNostrQueryRelayUrls(options)
   if (relayUrls.length === 0) {
     logger.info('[RssWebFeed] Relay URL discovery skipped (no relays)')
@@ -323,6 +408,7 @@ export async function fetchDiscoveredWebUrlsFromRelays(options: {
   const onEvent = (evt: Event) => {
     const url = extractArticleUrlFromWebActivityEvent(evt)
     if (!url) return
+    if (excludeClutter && isRssWebUnifiedClutterUrl(url)) return
     const key = canonicalizeRssArticleUrl(url)
     const prev = latestByUrl.get(key) ?? 0
     if (evt.created_at > prev) latestByUrl.set(key, evt.created_at)
@@ -368,6 +454,17 @@ export async function loadRssWebSuppressClawstrPreference(): Promise<boolean> {
 
 export async function saveRssWebSuppressClawstrPreference(suppress: boolean): Promise<void> {
   await indexedDb.setSetting(RSS_WEB_SUPPRESS_CLAWSTR_SETTING, suppress ? '1' : '0')
+}
+
+export async function loadRssWebHideUnifiedClutterPreference(): Promise<boolean> {
+  const v = await indexedDb.getSetting(RSS_WEB_HIDE_UNIFIED_CLUTTER_SETTING)
+  if (v === '0' || v === 'false') return false
+  if (v === '1' || v === 'true') return true
+  return true
+}
+
+export async function saveRssWebHideUnifiedClutterPreference(hide: boolean): Promise<void> {
+  await indexedDb.setSetting(RSS_WEB_HIDE_UNIFIED_CLUTTER_SETTING, hide ? '1' : '0')
 }
 
 export async function loadRssWebFeedScopePreference(): Promise<RssWebFeedScope> {

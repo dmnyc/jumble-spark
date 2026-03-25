@@ -10,6 +10,15 @@ import { toNote } from '@/lib/link'
 import { useFetchEvent } from '@/hooks'
 import { useEffect, useState, useMemo } from 'react'
 import { ExtendedKind } from '@/constants'
+import { resolveNip84HighlightDisplay } from '@/lib/nip84-highlight-display'
+
+function stripOuterQuotes(s: string): string {
+  let t = s.trim()
+  if (t.startsWith('"') && t.endsWith('"')) {
+    t = t.slice(1, -1).trim()
+  }
+  return t
+}
 
 /**
  * Check if a string is a URL or Nostr address
@@ -295,58 +304,52 @@ export default function Highlight({
       }
     }, [sourceTag, referencedEventAuthor, hasSpecialCard])
 
-    // Extract the context (the main quote/full text being highlighted from)
-    const contextTag = event.tags.find(tag => tag[0] === 'context')
-    const context = contextTag?.[1] || event.content // Default to content if no context
-    
-    // The event.content is the highlighted portion
-    const highlightedText = event.content
+    const { fullText, markedSpan } = useMemo(
+      () => resolveNip84HighlightDisplay(event),
+      [event.id, event.content, event.tags]
+    )
+
+    const markClassName =
+      'bg-green-200 dark:bg-green-600 dark:text-white px-1 rounded font-medium'
+
+    const quotedBody = useMemo(() => {
+      const cleanFull = stripOuterQuotes(fullText)
+      const cleanMark = stripOuterQuotes(markedSpan)
+      if (!cleanFull) return null
+      if (!cleanMark || cleanFull === cleanMark) {
+        return (
+          <mark className={markClassName} data-nip84-highlight="span">
+            {cleanFull}
+          </mark>
+        )
+      }
+      const pieces = cleanFull.split(cleanMark)
+      if (pieces.length === 1) {
+        return (
+          <mark className={markClassName} data-nip84-highlight="span">
+            {cleanFull}
+          </mark>
+        )
+      }
+      return pieces.map((part, index) => (
+        <span key={index}>
+          {part}
+          {index < pieces.length - 1 && (
+            <mark className={markClassName} data-nip84-highlight="span">
+              {cleanMark}
+            </mark>
+          )}
+        </span>
+      ))
+    }, [fullText, markedSpan])
 
     return (
       <div className={`bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 ${className || ''}`}>
         <div className="flex-1 min-w-0">
-            {/* Full quoted text with highlighted portion */}
-            {context && (
+            {/* Full quoted text with highlighted portion (context, textquoteselector, or textpositionselector) */}
+            {quotedBody && (
               <div className="note-content text-base font-normal mb-4 whitespace-pre-wrap break-words border-l-4 border-green-500 pl-5 py-4 leading-relaxed bg-green-50/30 dark:bg-green-950/20 rounded-r-lg">
-                {contextTag && highlightedText ? (
-                  // If we have both context and highlighted text, show the highlight within the context
-                  <div>
-                    {(() => {
-                      // Strip outer quotation marks if present
-                      let cleanContext = context.trim()
-                      if (cleanContext.startsWith('"') && cleanContext.endsWith('"')) {
-                        cleanContext = cleanContext.slice(1, -1).trim()
-                      }
-                      // Strip outer quotation marks from highlighted text if present
-                      let cleanHighlightedText = highlightedText.trim()
-                      if (cleanHighlightedText.startsWith('"') && cleanHighlightedText.endsWith('"')) {
-                        cleanHighlightedText = cleanHighlightedText.slice(1, -1).trim()
-                      }
-                      return cleanContext.split(cleanHighlightedText).map((part, index) => (
-                        <span key={index}>
-                          {part}
-                          {index < cleanContext.split(cleanHighlightedText).length - 1 && (
-                            <mark className="bg-green-200 dark:bg-green-600 dark:text-white px-1 rounded font-medium">
-                              {cleanHighlightedText}
-                            </mark>
-                          )}
-                        </span>
-                      ))
-                    })()}
-                  </div>
-                ) : (
-                  // If no context tag, just show the content as a regular quote
-                  <div>
-                    {(() => {
-                      // Strip outer quotation marks if present
-                      let cleanContext = context.trim()
-                      if (cleanContext.startsWith('"') && cleanContext.endsWith('"')) {
-                        cleanContext = cleanContext.slice(1, -1).trim()
-                      }
-                      return cleanContext
-                    })()}
-                  </div>
-                )}
+                <div>{quotedBody}</div>
               </div>
             )}
 

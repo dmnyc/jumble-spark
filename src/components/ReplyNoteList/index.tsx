@@ -1,6 +1,10 @@
 import { E_TAG_FILTER_BLOCKED_RELAY_URLS, ExtendedKind } from '@/constants'
 import { isDiscussionDownvoteEmoji, isDiscussionUpvoteEmoji } from '@/lib/discussion-votes'
-import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
+import {
+  canonicalizeRssArticleUrl,
+  getArticleUrlFromCommentITags,
+  getHighlightSourceHttpUrl
+} from '@/lib/rss-article'
 import {
   eventReferencesEventId,
   getParentETag,
@@ -32,6 +36,10 @@ import noteStatsService from '@/services/note-stats.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
 import { buildReplyReadRelayList, relayHintsFromEventTags } from '@/lib/relay-list-builder'
 import { eventReplyMatchesThreadRoot } from '@/lib/thread-reply-root-match'
+import {
+  buildRssArticleUrlThreadInteractionFilters,
+  isRssArticleUrlThreadInteraction
+} from '@/lib/rss-web-feed'
 import { Filter, Event as NEvent, kinds } from 'nostr-tools'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -55,13 +63,16 @@ function ReplyNoteList({
   index,
   event,
   sort = 'oldest',
-  showQuotes = true
+  showQuotes = true,
+  duplicateWebPreviewCleanedUrlHints
 }: {
   index?: number
   event: NEvent
   sort?: 'newest' | 'oldest' | 'top' | 'controversial' | 'most-zapped'
   /** When false, omit the quotes section (e.g. discussion threads). */
   showQuotes?: boolean
+  /** Suppress WebPreview for these URLs in replies (e.g. article URL already shown as OP). */
+  duplicateWebPreviewCleanedUrlHints?: string[]
 }) {
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigation()
@@ -81,6 +92,12 @@ function ReplyNoteList({
   )
 
   const isDiscussionRoot = event.kind === ExtendedKind.DISCUSSION
+
+  const replyDuplicateWebPreviewHints = useMemo(() => {
+    const out: string[] = [...(duplicateWebPreviewCleanedUrlHints ?? [])]
+    if (rootInfo?.type === 'I') out.push(rootInfo.id)
+    return out.length ? out : undefined
+  }, [duplicateWebPreviewCleanedUrlHints, rootInfo])
 
   // Helper function to get vote score for a reply
   const getReplyVoteScore = (reply: NEvent) => {
@@ -345,6 +362,59 @@ function ReplyNoteList({
     fetchRootEvent()
   }, [event])
 
+  /** When stats saw a URL-thread reply on relays we didn't REQ in the reply list, fetch by id so count matches list. */
+  const rssStatsHydratedReplyIdsRef = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    rssStatsHydratedReplyIdsRef.current.clear()
+  }, [event.id])
+
+  useEffect(() => {
+    if (event.kind !== ExtendedKind.RSS_THREAD_ROOT || rootInfo?.type !== 'I') return
+    const fromStats = noteStats?.replies
+    if (!fromStats?.length) return
+
+    const urlKey = canonicalizeRssArticleUrl(rootInfo.id)
+    const inBucket = new Set((repliesMap.get(urlKey)?.events ?? []).map((e) => e.id))
+
+    const candidates = fromStats.filter(
+      (r) => !inBucket.has(r.id) && !rssStatsHydratedReplyIdsRef.current.has(r.id)
+    )
+    if (candidates.length === 0) return
+
+    let cancelled = false
+    ;(async () => {
+      const batch: NEvent[] = []
+      for (const { id } of candidates) {
+        rssStatsHydratedReplyIdsRef.current.add(id)
+        try {
+          const ev = await eventService.fetchEvent(id)
+          if (cancelled) return
+          if (ev && isRssArticleUrlThreadInteraction(ev, rootInfo.id)) {
+            batch.push(ev)
+          } else {
+            rssStatsHydratedReplyIdsRef.current.delete(id)
+          }
+        } catch {
+          rssStatsHydratedReplyIdsRef.current.delete(id)
+        }
+      }
+      if (!cancelled && batch.length > 0) addReplies(batch)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    event.kind,
+    event.id,
+    rootInfo,
+    noteStats?.replies,
+    noteStats?.updatedAt,
+    repliesMap,
+    addReplies
+  ])
+
   const onNewReply = useCallback((evt: NEvent) => {
     addReplies([evt])
     if (rootInfo) {
@@ -374,7 +444,10 @@ function ReplyNoteList({
   const replyFetchGenRef = useRef(0)
 
   useEffect(() => {
-    if (!rootInfo || currentIndex !== index) return
+    if (!rootInfo) return
+    // Hidden stack pages pass a numeric index that differs from the top panel's currentIndex.
+    // When index is omitted (edge routes), still fetch so replies are not stuck empty.
+    if (index !== undefined && currentIndex !== index) return
 
     const fetchGeneration = ++replyFetchGenRef.current
 
@@ -474,16 +547,7 @@ function ReplyNoteList({
               finalRelayUrls.push(rootInfo.relay)
             }
           } else if (rootInfo.type === 'I') {
-            filters.push({
-              '#i': [rootInfo.id],
-              kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
-              limit: LIMIT
-            })
-            filters.push({
-              '#I': [rootInfo.id],
-              kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
-              limit: LIMIT
-            })
+            filters.push(...buildRssArticleUrlThreadInteractionFilters(rootInfo.id, LIMIT))
           }
 
           // Use fetchEvents instead of subscribeTimeline for one-time fetching
@@ -491,8 +555,12 @@ function ReplyNoteList({
 
           if (fetchGeneration !== replyFetchGenRef.current) return
 
-          // Filter and add replies
-          const regularReplies = allReplies.filter((evt) => isReplyNoteEvent(evt))
+          // Filter and add replies (URL threads include kind 9802 highlights of this page)
+          const regularReplies = allReplies.filter((evt) =>
+            rootInfo.type === 'I'
+              ? isRssArticleUrlThreadInteraction(evt, rootInfo.id)
+              : isReplyNoteEvent(evt)
+          )
           
           // Store in cache (this merges with existing cached replies)
           // After this call, the cache contains ALL replies we've ever seen for this thread
@@ -622,12 +690,17 @@ function ReplyNoteList({
           // vanishing when wotSet is still empty (all non-self appear untrusted)
           if (isTrustLoaded && hideUntrustedInteractions && !isUserTrusted(item.pubkey)) {
             if (isQuote) return null
-            const repliesForThisReply = repliesMap.get(item.id)
-            if (
-              !repliesForThisReply ||
-              repliesForThisReply.events.every((evt) => !isUserTrusted(evt.pubkey))
-            ) {
-              return null
+            // URL-scoped comments (NIP-22 / kind 1111) are keyed under the article URL in ReplyProvider,
+            // not under each note id — repliesMap.get(item.id) is usually empty. Skipping the "trusted
+            // children" rule avoids hiding every untrusted URL-thread note.
+            if (rootInfo?.type !== 'I') {
+              const repliesForThisReply = repliesMap.get(item.id)
+              if (
+                !repliesForThisReply ||
+                repliesForThisReply.events.every((evt) => !isUserTrusted(evt.pubkey))
+              ) {
+                return null
+              }
             }
           }
 
@@ -671,7 +744,11 @@ function ReplyNoteList({
           
           const replyRootId = getRootEventHexId(reply)
           const replyUrlForIThread =
-            rootInfo?.type === 'I' ? getArticleUrlFromCommentITags(reply) : undefined
+            rootInfo?.type === 'I'
+              ? reply.kind === kinds.Highlights
+                ? getHighlightSourceHttpUrl(reply)
+                : getArticleUrlFromCommentITags(reply)
+              : undefined
           const belongsToSameThread = rootInfo && (
             (rootInfo.type === 'E' && replyRootId === rootInfo.id) ||
             (rootInfo.type === 'A' && getRootATag(reply)?.[1] === rootInfo.id) ||
@@ -689,6 +766,7 @@ function ReplyNoteList({
               <ReplyNote
                 event={reply}
                 parentEventId={event.id !== parentEventHexId ? parentEventId : undefined}
+                duplicateWebPreviewCleanedUrlHints={replyDuplicateWebPreviewHints}
                 onClickParent={() => {
                   if (!parentEventHexId) return
                   if (replies.every((r) => r.id !== parentEventHexId)) {

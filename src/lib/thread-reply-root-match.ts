@@ -1,6 +1,11 @@
 import { getRootATag, getRootEventHexId } from '@/lib/event'
-import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
+import {
+  canonicalizeRssArticleUrl,
+  getArticleUrlFromCommentITags,
+  getHighlightSourceHttpUrl
+} from '@/lib/rss-article'
 import type { Event } from 'nostr-tools'
+import { kinds } from 'nostr-tools'
 
 /** Matches `ReplyNoteList` / discussion thread root shapes. */
 export type TThreadRootRef =
@@ -12,8 +17,12 @@ export type TThreadRootRef =
 export function eventReplyMatchesThreadRoot(evt: Event, root: TThreadRootRef): boolean {
   if (root.type === 'I') {
     const u = getArticleUrlFromCommentITags(evt)
-    if (!u) return false
-    return canonicalizeRssArticleUrl(u) === canonicalizeRssArticleUrl(root.id)
+    if (u && canonicalizeRssArticleUrl(u) === canonicalizeRssArticleUrl(root.id)) return true
+    if (evt.kind === kinds.Highlights) {
+      const hu = getHighlightSourceHttpUrl(evt)
+      return !!hu && canonicalizeRssArticleUrl(hu) === canonicalizeRssArticleUrl(root.id)
+    }
+    return false
   }
   if (root.type === 'A') {
     const coord = getRootATag(evt)?.[1]

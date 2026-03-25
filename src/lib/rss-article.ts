@@ -99,16 +99,16 @@ export function getWebBookmarkArticleUrl(event: Pick<Event, 'kind' | 'tags'>): s
   return undefined
 }
 
-/** HTTP(S) page URL from kind 9802 `r` tags (`source` marker or bare `r`). */
+/** HTTP(S) page URL from kind 9802 `r` tags. */
 export function getHighlightSourceHttpUrl(event: Pick<Event, 'tags'>): string | undefined {
   for (const t of event.tags) {
-    if (t[0] !== 'r' || !t[1]) continue
+    if (!t[0] || String(t[0]).toLowerCase() !== 'r' || !t[1]) continue
     const u = t[1].trim()
     if (!u.startsWith('http://') && !u.startsWith('https://')) continue
     const marker = (t[2] ?? '').trim().toLowerCase()
-    // NIP-84: non-source URL refs use `mention`; only `source` (any casing) or legacy bare `r` is the page.
+    // NIP-84: only `mention` marks a non-source URL; everything else (bare `r`, `source`, `-`, unknown) is the page.
     if (marker === 'mention') continue
-    if (marker === 'source' || marker === '') return canonicalizeRssArticleUrl(u)
+    return canonicalizeRssArticleUrl(u)
   }
   return undefined
 }
@@ -138,9 +138,9 @@ export function computeRTagFilterValuesForArticleThread(canonicalUrl: string): s
   return [...out]
 }
 
-/** Strip anchors whose href targets https://clawstr.com/… (incl. subdomains, http(s), protocol-relative). */
-export function isClawstrDotComHttpHref(href: string): boolean {
-  const t = href.trim()
+/** True for http(s) URLs whose host is clawstr.com (incl. subdomains; supports protocol-relative `//…`). */
+export function isClawstrDotComHttpUrl(url: string): boolean {
+  const t = url.trim()
   if (!t) return false
   try {
     const u = t.startsWith('//') ? new URL(`https:${t}`) : new URL(t)
@@ -150,6 +150,11 @@ export function isClawstrDotComHttpHref(href: string): boolean {
   } catch {
     return false
   }
+}
+
+/** Same as {@link isClawstrDotComHttpUrl} — use for `href` attributes in HTML. */
+export function isClawstrDotComHttpHref(href: string): boolean {
+  return isClawstrDotComHttpUrl(href)
 }
 
 /**

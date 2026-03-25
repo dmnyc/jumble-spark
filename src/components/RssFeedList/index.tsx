@@ -8,15 +8,20 @@ import RssFeedItem from '../RssFeedItem'
 import RssWebFeedCard from '../RssWebFeedCard'
 import { ArticleUrlsSection } from './ArticleUrlsSection'
 import { RssEntriesSection } from './RssEntriesSection'
+import { canonicalizeRssArticleUrl, isClawstrDotComHttpUrl } from '@/lib/rss-article'
 import {
   addManualRssWebUrl,
   fetchDiscoveredWebUrlsFromRelays,
   loadManualRssWebUrls,
   loadRssWebFeedScopePreference,
+  loadRssWebHideUnifiedClutterPreference,
   loadRssWebSuppressClawstrPreference,
   buildArticleUrlFeedRows,
+  isHttpArticleUrl,
+  isRssWebUnifiedClutterUrl,
   mergeDiscoveredRssWebUrls,
   saveRssWebFeedScopePreference,
+  saveRssWebHideUnifiedClutterPreference,
   saveRssWebSuppressClawstrPreference,
   WEB_EXTERNAL_REACTION_PUBLISHED_EVENT,
   type ManualRssWebUrlEntry,
@@ -131,6 +136,12 @@ function ManualRssUrlAddRow({
   )
 }
 
+function rssFeedItemArticleIsClawstrHost(item: TRssFeedItem): boolean {
+  const l = item.link?.trim()
+  if (!l || (!l.startsWith('http://') && !l.startsWith('https://'))) return false
+  return isClawstrDotComHttpUrl(l) || isClawstrDotComHttpUrl(canonicalizeRssArticleUrl(l))
+}
+
 export default function RssFeedList() {
   const { t } = useTranslation()
   const { pubkey, rssFeedListEvent } = useNostr()
@@ -156,6 +167,8 @@ export default function RssFeedList() {
   const [manualWebEntries, setManualWebEntries] = useState<ManualRssWebUrlEntry[]>([])
   /** Latest relay discovery (in-memory); URLs appear as faux cards even before IndexedDB merge. */
   const [relayDiscoveredUrls, setRelayDiscoveredUrls] = useState<ManualRssWebUrlEntry[]>([])
+  const [suppressClawstrLinks, setSuppressClawstrLinks] = useState(true)
+  const [hideUnifiedClutter, setHideUnifiedClutter] = useState(true)
 
   const refreshManualWebUrls = useCallback(() => {
     void loadManualRssWebUrls().then(setManualWebEntries)
@@ -515,6 +528,16 @@ export default function RssFeedList() {
     return filtered
   }, [items, selectedFeeds, timeFilter])
 
+  /** When “hide clutter” is on, drop those entries from the feed (not only from URL cards). */
+  const rssWebItemsRespectingClutterPref = useMemo(() => {
+    if (!hideUnifiedClutter) return baseFilteredItems
+    return baseFilteredItems.filter((item) => {
+      const link = item.link?.trim()
+      if (!link || !isHttpArticleUrl(link)) return true
+      return !isRssWebUnifiedClutterUrl(link)
+    })
+  }, [baseFilteredItems, hideUnifiedClutter])
+
   const rssItemMatchesSearch = useCallback((item: TRssFeedItem, q: string) => {
     const query = q.toLowerCase().trim()
     if (!query) return true
@@ -530,14 +553,17 @@ export default function RssFeedList() {
   /** RSS-only view: flat timeline with full-text search. */
   const rssScopeItems = useMemo(() => {
     const q = searchQuery.trim()
-    let list = baseFilteredItems
+    let list = rssWebItemsRespectingClutterPref
     if (q) {
       list = list.filter((item) => rssItemMatchesSearch(item, q))
+    }
+    if (suppressClawstrLinks) {
+      list = list.filter((item) => !rssFeedItemArticleIsClawstrHost(item))
     }
     return [...list].sort(
       (a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0)
     )
-  }, [baseFilteredItems, searchQuery, rssItemMatchesSearch])
+  }, [rssWebItemsRespectingClutterPref, searchQuery, rssItemMatchesSearch, suppressClawstrLinks])
 
   type CombinedFeedRow =
     | { kind: 'web'; canonicalUrl: string; rssItems: TRssFeedItem[]; latestPub: number }
@@ -563,7 +589,8 @@ export default function RssFeedList() {
         const discovered = await fetchDiscoveredWebUrlsFromRelays({
           accountPubkey: pubkey,
           favoriteRelays: favoriteRelays ?? [],
-          blockedRelays: blockedRelays ?? []
+          blockedRelays: blockedRelays ?? [],
+          excludeClutterUrls: hideUnifiedClutter
         })
         if (cancelled) return
         setRelayDiscoveredUrls(discovered)
@@ -576,24 +603,44 @@ export default function RssFeedList() {
     return () => {
       cancelled = true
     }
-  }, [feedScope, pubkey, favoriteRelays, blockedRelays, refreshManualWebUrls, relayDiscoveryTick])
+  }, [
+    feedScope,
+    pubkey,
+    favoriteRelays,
+    blockedRelays,
+    refreshManualWebUrls,
+    relayDiscoveryTick,
+    hideUnifiedClutter
+  ])
 
   const combinedFeedRows = useMemo((): CombinedFeedRow[] => {
     const { webRows, nonHttpItems } = buildArticleUrlFeedRows(
-      baseFilteredItems,
+      rssWebItemsRespectingClutterPref,
       manualWebEntries,
-      relayDiscoveredUrls
+      relayDiscoveredUrls,
+      { excludeClutterLinks: hideUnifiedClutter }
     )
     const rest: CombinedFeedRow[] = nonHttpItems.map((item) => ({
       kind: 'rss' as const,
       item
     }))
-    return [...webRows, ...rest].sort((a, b) => {
+    const merged = [...webRows, ...rest].sort((a, b) => {
       const ta = a.kind === 'web' ? a.latestPub : (a.item.pubDate?.getTime() ?? 0)
       const tb = b.kind === 'web' ? b.latestPub : (b.item.pubDate?.getTime() ?? 0)
       return tb - ta
     })
-  }, [baseFilteredItems, manualWebEntries, relayDiscoveredUrls])
+    if (!suppressClawstrLinks) return merged
+    return merged.filter((row) => {
+      if (row.kind === 'web') return !isClawstrDotComHttpUrl(row.canonicalUrl)
+      return !rssFeedItemArticleIsClawstrHost(row.item)
+    })
+  }, [
+    rssWebItemsRespectingClutterPref,
+    manualWebEntries,
+    relayDiscoveredUrls,
+    suppressClawstrLinks,
+    hideUnifiedClutter
+  ])
 
   const combinedFeedRowsForSearch = useMemo((): CombinedFeedRow[] => {
     const q = searchQuery.trim()
@@ -652,12 +699,16 @@ export default function RssFeedList() {
     return { view: 'unified', rows }
   }, [feedScope, rssScopeItems, combinedFeedRowsForSearch, urlKeysWithNostrFootprint])
 
-  const [suppressClawstrLinks, setSuppressClawstrLinks] = useState(true)
-
   const persistSuppressClawstr = useCallback((checked: boolean) => {
     rssWebPrefsUserTouchedRef.current = true
     setSuppressClawstrLinks(checked)
     void saveRssWebSuppressClawstrPreference(checked)
+  }, [])
+
+  const persistHideUnifiedClutter = useCallback((checked: boolean) => {
+    rssWebPrefsUserTouchedRef.current = true
+    setHideUnifiedClutter(checked)
+    void saveRssWebHideUnifiedClutterPreference(checked)
   }, [])
 
   const persistFeedScope = useCallback((scope: RssWebFeedScope) => {
@@ -669,12 +720,14 @@ export default function RssFeedList() {
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const [suppressClawstr, scope] = await Promise.all([
+      const [suppressClawstr, hideClutter, scope] = await Promise.all([
         loadRssWebSuppressClawstrPreference(),
+        loadRssWebHideUnifiedClutterPreference(),
         loadRssWebFeedScopePreference()
       ])
       if (cancelled || rssWebPrefsUserTouchedRef.current) return
       setSuppressClawstrLinks(suppressClawstr)
+      setHideUnifiedClutter(hideClutter)
       setFeedScope(scope)
     })()
     return () => {
@@ -690,7 +743,7 @@ export default function RssFeedList() {
   // Reset pagination when filters change
   useEffect(() => {
     setShowRowCount(20)
-  }, [selectedFeeds, timeFilter, searchQuery, feedScope, suppressClawstrLinks])
+  }, [selectedFeeds, timeFilter, searchQuery, feedScope, suppressClawstrLinks, hideUnifiedClutter])
 
   const displayedFeed = useMemo(():
     | { view: 'rss'; items: TRssFeedItem[] }
@@ -811,18 +864,33 @@ export default function RssFeedList() {
                 {t('RSS')}
               </Button>
             </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="suppress-clawstr-links"
-                checked={suppressClawstrLinks}
-                onCheckedChange={(c) => persistSuppressClawstr(c === true)}
-              />
-              <Label
-                htmlFor="suppress-clawstr-links"
-                className="cursor-pointer text-xs text-muted-foreground"
-              >
-                {t('Suppress Clawstr links in RSS previews')}
-              </Label>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="suppress-clawstr-links"
+                  checked={suppressClawstrLinks}
+                  onCheckedChange={(c) => persistSuppressClawstr(c === true)}
+                />
+                <Label
+                  htmlFor="suppress-clawstr-links"
+                  className="cursor-pointer text-xs text-muted-foreground"
+                >
+                  {t('Suppress Clawstr links in RSS previews')}
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="hide-unified-clutter"
+                  checked={hideUnifiedClutter}
+                  onCheckedChange={(c) => persistHideUnifiedClutter(c === true)}
+                />
+                <Label
+                  htmlFor="hide-unified-clutter"
+                  className="cursor-pointer text-xs text-muted-foreground"
+                >
+                  {t('Hide local, media & feed URLs from URL cards')}
+                </Label>
+              </div>
             </div>
           </div>
           <p className="text-xs text-muted-foreground sm:text-right">

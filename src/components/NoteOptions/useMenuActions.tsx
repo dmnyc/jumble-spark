@@ -637,8 +637,10 @@ export function useMenuActions({
           // Contextual URL when on Spells (e.g. discussions faux-spell); plain /notes/{id} otherwise
           const path =
             currentPrimaryPage === 'spells'
-            ? `/spells/notes/${noteId}`
-            : `/notes/${noteId}`
+              ? `/spells/notes/${noteId}`
+              : currentPrimaryPage === 'rss'
+                ? `/rss/notes/${noteId}`
+                : `/notes/${noteId}`
           const jumbleUrl = `https://jumble.imwald.eu${path}`
           navigator.clipboard.writeText(jumbleUrl)
           closeDrawer()

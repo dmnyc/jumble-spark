@@ -37,13 +37,15 @@ export default function ReplyNote({
   parentEventId,
   onClickParent = () => {},
   onClickReply,
-  highlight = false
+  highlight = false,
+  duplicateWebPreviewCleanedUrlHints
 }: {
   event: Event
   parentEventId?: string
   onClickParent?: () => void
   onClickReply?: (event: Event) => void
   highlight?: boolean
+  duplicateWebPreviewCleanedUrlHints?: string[]
 }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
@@ -147,7 +149,12 @@ export default function ReplyNote({
                   <span>{t(notificationReactionSummaryKey(reactionDisplay))}</span>
                 </div>
               ) : (
-                <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
+                <MarkdownArticle
+                  className="mt-2"
+                  event={event}
+                  hideMetadata={true}
+                  duplicateWebPreviewCleanedUrlHints={duplicateWebPreviewCleanedUrlHints}
+                />
               )
             ) : (
               <Button
