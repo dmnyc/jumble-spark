@@ -474,6 +474,11 @@ export default {
     'no more relays': 'keine weiteren Relays',
     'Favorited by': 'Favorisiert von',
     'Post settings': 'Beitragseinstellungen',
+    'Publishing feedback': 'Rückmeldungen beim Veröffentlichen',
+    'Publish success toasts': 'Erfolgs-Benachrichtigungen beim Veröffentlichen',
+    'Show green notifications when posts, replies, reactions, and other publishes succeed. When off, a small checkmark appears briefly at the bottom-right instead. Errors and failures still use a toast.':
+      'Grüne Hinweise anzeigen, wenn Beiträge, Antworten, Reaktionen und andere Veröffentlichungen gelingen. Wenn aus, erscheint kurz ein kleines Häkchen unten rechts. Fehler weiterhin als Hinweis.',
+    'Publish successful': 'Veröffentlichung erfolgreich',
     'Media upload service': 'Medien-Upload-Service',
     'Choose a relay': 'Wähle ein Relay',
     'no relays found': 'Keine Relays gefunden',

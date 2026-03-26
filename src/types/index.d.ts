@@ -181,6 +181,13 @@ export type TPublishOptions = {
   addClientTag?: boolean
 }
 
+/** Options for {@link ClientService.publishEvent} (second argument bundle in code: favorites + internal retry pass). */
+export type TPublishEventExtras = {
+  favoriteRelayUrls?: string[]
+  /** When true (internal): only publish to the given URLs; do not merge outboxes or schedule outbox retry. */
+  skipOutboxRetry?: boolean
+}
+
 export type TNoteListMode = 'posts' | 'postsAndReplies' | 'you' | 'bookmarksAndHashtags'
 
 export type TNotificationType = 'all' | 'mentions' | 'reactions' | 'zaps'

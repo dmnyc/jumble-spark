@@ -5,6 +5,7 @@ import {
   FIRST_RELAY_RESULT_GRACE_MS,
   KIND_1_BLOCKED_RELAY_URLS,
   MAX_PUBLISH_RELAYS,
+  OUTBOX_PUBLISH_RETRY_DELAY_MS,
   NIP66_DISCOVERY_RELAY_URLS,
   PROFILE_FETCH_RELAY_URLS,
   READ_ONLY_RELAY_URLS,
@@ -35,6 +36,7 @@ import { isSafari } from '@/lib/utils'
 import {
   ISigner,
   TProfile,
+  TPublishEventExtras,
   TPublishOptions,
   TRelayList,
   TMailboxRelay,
@@ -58,6 +60,8 @@ import {
 import { AbstractRelay } from 'nostr-tools/abstract-relay'
 import indexedDb from './indexed-db.service'
 import nip66Service from './nip66.service'
+import { patchRelayNoticeForFetchFailures } from '@/services/relay-notice-strike'
+import { compactFilterForRelayLog, RelayPublishOpBatch, RelaySubscribeOpBatch } from '@/services/relay-operation-log.service'
 import { QueryService } from './client-query.service'
 
 /** Live timeline REQ: dead relays fail fast; EOSE caps “connected but silent” relays. */
@@ -149,7 +153,9 @@ class ClientService extends EventTarget {
       shouldSkipRelayForSession: (normalizedUrl) =>
         (this.publishStrikeCount.get(normalizedUrl) ?? 0) >=
         ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD,
-      onRelayConnectionFailure: (normalizedUrl) => this.recordSessionRelayFailure(normalizedUrl)
+      onRelayConnectionFailure: (normalizedUrl) => this.recordSessionRelayFailure(normalizedUrl),
+      onRelayNoticeStrike: (normalizedUrl, noticeMessage) =>
+        this.recordRelayNoticeFetchFailure(normalizedUrl, noticeMessage)
     })
     this.eventService = new EventService(this.queryService)
     this.replaceableEventService = new ReplaceableEventService(
@@ -311,6 +317,41 @@ class ClientService extends EventTarget {
         return true
       })
     )
+  }
+
+  /** NIP-65 `write` URLs for `event.pubkey`, filtered for publish (no read-only / kind-1 blocks). */
+  private async getUserOutboxRelayUrlsForPublish(event: NEvent): Promise<string[]> {
+    try {
+      const relayList = await this.fetchRelayList(event.pubkey)
+      const raw = dedupeNormalizeRelayUrlsOrdered(
+        (relayList?.write ?? []).map((u) => normalizeUrl(u) || u).filter((u): u is string => !!u)
+      )
+      return this.filterPublishingRelays(raw, event)
+    } catch {
+      return []
+    }
+  }
+
+  private async retryFailedOutboxPublishesOnce(
+    event: NEvent,
+    userOutboxUrls: string[],
+    relayStatuses: { url: string; success: boolean; error?: string }[]
+  ): Promise<void> {
+    const norm = (u: string) => normalizeUrl(u) || u
+    const hadSuccess = new Set<string>()
+    for (const r of relayStatuses) {
+      if (r.success) hadSuccess.add(norm(r.url))
+    }
+    const failedOutboxes = userOutboxUrls.filter((u) => !hadSuccess.has(norm(u)))
+    if (failedOutboxes.length === 0) return
+    logger.info('[PublishEvent] Outbox relay(s) failed; retrying once after delay', {
+      eventId: event.id?.slice(0, 8),
+      kind: event.kind,
+      failedCount: failedOutboxes.length,
+      delayMs: OUTBOX_PUBLISH_RETRY_DELAY_MS
+    })
+    await new Promise<void>((r) => setTimeout(r, OUTBOX_PUBLISH_RETRY_DELAY_MS))
+    await this.publishEvent(failedOutboxes, event, { skipOutboxRetry: true })
   }
 
   private async prioritizePublishUrlList(
@@ -674,6 +715,15 @@ class ClientService extends EventTarget {
   }
 
   /** One failed publish or subscribe connection per normalized URL (accumulates until {@link SESSION_RELAY_FAILURE_STRIKE_THRESHOLD}). */
+  /** NOTICE "failed to fetch events" (relay DB/backend) — same session strike as a failed connection. */
+  private recordRelayNoticeFetchFailure(url: string, noticeMessage: string) {
+    logger.info('[Relay] NOTICE failed-fetch → session strike', {
+      url,
+      noticeSnippet: noticeMessage.slice(0, 220)
+    })
+    this.recordSessionRelayFailure(url)
+  }
+
   private recordSessionRelayFailure(url: string) {
     const n = normalizeUrl(url) || url
     if (!n) return
@@ -810,14 +860,21 @@ class ClientService extends EventTarget {
     return result.slice(0, count)
   }
 
-  async publishEvent(
-    relayUrls: string[],
-    event: NEvent,
-    publishExtras?: { favoriteRelayUrls?: string[] }
-  ) {
+  async publishEvent(relayUrls: string[], event: NEvent, publishExtras?: TPublishEventExtras) {
+    const skipOutboxRetry = publishExtras?.skipOutboxRetry === true
+    let userOutboxUrls: string[] = []
+    let mergedRelayUrls = relayUrls
+    if (!skipOutboxRetry) {
+      userOutboxUrls = await this.getUserOutboxRelayUrlsForPublish(event)
+      mergedRelayUrls =
+        userOutboxUrls.length > 0
+          ? dedupeNormalizeRelayUrlsOrdered([...userOutboxUrls, ...relayUrls])
+          : relayUrls
+    }
+
     const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
     const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-    let filtered = relayUrls.filter((url) => {
+    let filtered = mergedRelayUrls.filter((url) => {
       const n = normalizeUrl(url) || url
       if (readOnlySet.has(n)) return false
       if (event.kind === kinds.ShortTextNote && kind1BlockedSet.has(n)) return false
@@ -836,10 +893,21 @@ class ClientService extends EventTarget {
       eventId: event.id?.substring(0, 8),
       kind: event.kind,
       relayCount: filtered.length,
-      skippedStrikes: relayUrls.length - filtered.length
+      skippedStrikes: mergedRelayUrls.length - filtered.length
     })
 
     const uniqueRelayUrls = filtered
+    if (uniqueRelayUrls.length === 0) {
+      const emptyBatch = new RelayPublishOpBatch('ClientService.publishEvent', event.id, [])
+      emptyBatch.logBegin()
+      emptyBatch.logEnd('no_targets')
+      return Promise.resolve({
+        success: false,
+        relayStatuses: [],
+        successCount: 0,
+        totalCount: 0
+      })
+    }
     if (
       event.kind === kinds.RelayList ||
       event.kind === ExtendedKind.FAVORITE_RELAYS ||
@@ -856,17 +924,29 @@ class ClientService extends EventTarget {
     }
     
     const relayStatuses: { url: string; success: boolean; error?: string }[] = []
-    
+    const publishOpBatch = new RelayPublishOpBatch('ClientService.publishEvent', event.id, uniqueRelayUrls)
+    publishOpBatch.logBegin()
+
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const client = this
     return new Promise<{ success: boolean; relayStatuses: typeof relayStatuses; successCount: number; totalCount: number }>((resolve) => {
       let successCount = 0
       let finishedCount = 0
       const errors: { url: string; error: any }[] = []
-      
+      let publishOpBatchFlushed = false
+      const flushPublishOpBatch = (status: string) => {
+        if (publishOpBatchFlushed) return
+        publishOpBatchFlushed = true
+        uniqueRelayUrls.forEach((url, idx) => {
+          const rs = [...relayStatuses].reverse().find((r) => r.url === url)
+          publishOpBatch.record(idx, url, rs?.success === true, rs?.error)
+        })
+        publishOpBatch.logEnd(status)
+      }
+
       logger.debug('[PublishEvent] Setting up global timeout (30 seconds)')
       let hasResolved = false
-      
+
       // Add a global timeout to prevent hanging - use 30 seconds for faster feedback
       const globalTimeout = setTimeout(() => {
         if (hasResolved) {
@@ -901,6 +981,7 @@ class ClientService extends EventTarget {
             totalCount: uniqueRelayUrls.length,
             relayStatuses: relayStatuses.length
           })
+          flushPublishOpBatch('global_timeout')
           resolve({
             success: successCount >= uniqueRelayUrls.length / 3,
             relayStatuses,
@@ -909,9 +990,9 @@ class ClientService extends EventTarget {
           })
         }
       }, 30_000) // 30 seconds global timeout (reduced from 2 minutes)
-      
+
       logger.debug('[PublishEvent] Starting Promise.allSettled for all relays')
-      Promise.allSettled(
+      const relayPublishAllSettled = Promise.allSettled(
         uniqueRelayUrls.map(async (url, index) => {
           const startMs = Date.now()
           logger.debug(`[PublishEvent] Starting relay ${index + 1}/${uniqueRelayUrls.length}`, { url })
@@ -948,7 +1029,11 @@ class ClientService extends EventTarget {
             
             relay = await connectionPromise
             logger.debug(`[PublishEvent] Relay connected`, { url })
-            
+            const relayKeyPub = normalizeUrl(url) || url
+            patchRelayNoticeForFetchFailures(relay as unknown as AbstractRelay, relayKeyPub, (u, m) =>
+              that.recordRelayNoticeFetchFailure(u, m)
+            )
+
             relay.publishTimeout = publishTimeout
             
             logger.debug(`[PublishEvent] Publishing to relay`, { url })
@@ -1038,6 +1123,7 @@ class ClientService extends EventTarget {
                 relayStatusesCount: relayStatuses.length
               })
               clearTimeout(globalTimeout)
+              flushPublishOpBatch('all_relays_finished')
               resolve({
                 success: successCount >= uniqueRelayUrls.length / 3,
                 relayStatuses,
@@ -1061,6 +1147,7 @@ class ClientService extends EventTarget {
                     relayStatusesCount: relayStatuses.length
                   })
                   clearTimeout(globalTimeout)
+                  flushPublishOpBatch('early_success_threshold')
                   resolve({
                     success: true,
                     relayStatuses,
@@ -1073,6 +1160,18 @@ class ClientService extends EventTarget {
           }
         })
       )
+
+      if (!skipOutboxRetry && userOutboxUrls.length > 0) {
+        void relayPublishAllSettled.then(() => {
+          void client
+            .retryFailedOutboxPublishesOnce(event, userOutboxUrls, relayStatuses)
+            .catch((err) =>
+              logger.warn('[PublishEvent] Outbox retry pass failed', {
+                error: err instanceof Error ? err.message : String(err)
+              })
+            )
+        })
+      }
     })
   }
 
@@ -1152,6 +1251,17 @@ class ClientService extends EventTarget {
   ) {
     const timelineBatchId = `tl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
     const timelineT0 = performance.now()
+    logger.info('[RelayOp] timeline_wave_begin', {
+      timelineBatchId,
+      shardCount: subRequests.length,
+      relayCountsPerShard: subRequests.map((r) => r.urls.length),
+      shards: subRequests.map((s, shardIndex) => ({
+        shardIndex,
+        relayCount: s.urls.length,
+        relaysSample: [...new Set(s.urls.map((u) => normalizeUrl(u) || u))].slice(0, 40),
+        filter: compactFilterForRelayLog(s.filter as Filter)
+      }))
+    })
     logger.debug('[relay-req] timeline_batch_start', {
       timelineBatchId,
       subRequestCount: subRequests.length,
@@ -1377,6 +1487,8 @@ class ClientService extends EventTarget {
     const reqGroupId =
       relayReqLog?.groupId ??
       `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    const opBatch = new RelaySubscribeOpBatch(reqGroupId, groupedRequests)
+    opBatch.logBegin()
     const reqT0 = performance.now()
     let firstRelayResponseLogged = false
     /** When the first `first_response` was `eose` (no row yet), log once when the first EVENT arrives. */
@@ -1405,18 +1517,12 @@ class ClientService extends EventTarget {
       })
     }
 
-    logger.debug('[relay-req] batch_start', {
-      reqGroupId,
-      relayCount: groupedRequests.length,
-      relays: groupedRequests.map((r) => r.url),
-      filterSummary: summarizeFiltersForRelayLog(filters)
-    })
-
     const eosesReceived: boolean[] = []
     const closesReceived: (string | undefined)[] = []
     const handleEose = (i: number) => {
       if (eosesReceived[i]) return
       eosesReceived[i] = true
+      opBatch.setTerminal(i, 'eose')
       logFirstRelayResponse('eose', groupedRequests[i]!.url)
       if (eosesReceived.filter(Boolean).length === groupedRequests.length) {
         oneose?.(true)
@@ -1426,6 +1532,7 @@ class ClientService extends EventTarget {
       if (closesReceived[i] !== undefined) return
       handleEose(i)
       closesReceived[i] = reason
+      opBatch.setTerminal(i, 'closed', reason)
       const { url } = groupedRequests[i]!
       onclose?.(url, reason)
       if (closesReceived.every((r) => r !== undefined)) {
@@ -1457,6 +1564,9 @@ class ClientService extends EventTarget {
           let relay: AbstractRelay
           try {
             relay = await that.pool.ensureRelay(url, { connectionTimeout: SUBSCRIBE_RELAY_CONNECTION_TIMEOUT_MS })
+            patchRelayNoticeForFetchFailures(relay, relayKey, (u, m) =>
+              that.recordRelayNoticeFetchFailure(u, m)
+            )
           } catch (err) {
             that.recordSessionRelayFailure(url)
             that.queryService.releaseSubSlot(relayKey)
@@ -1500,6 +1610,9 @@ class ClientService extends EventTarget {
                         liveRelay = await that.pool.ensureRelay(url, {
                           connectionTimeout: SUBSCRIBE_RELAY_CONNECTION_TIMEOUT_MS
                         })
+                        patchRelayNoticeForFetchFailures(liveRelay, relayKey, (u, m) =>
+                          that.recordRelayNoticeFetchFailure(u, m)
+                        )
                       } catch (err) {
                         that.recordSessionRelayFailure(url)
                         that.queryService.releaseSubSlot(relayKey)
@@ -1599,6 +1712,7 @@ class ClientService extends EventTarget {
 
     return {
       close: () => {
+        opBatch.finalize('closed', 'subscription_closed')
         this.removeEventListener('newEvent', handleNewEventFromInternal)
         allOpened.then(() => {
           subs.forEach(({ close: subClose }) => subClose())

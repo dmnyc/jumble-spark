@@ -3,11 +3,14 @@ import {
   FIRST_RELAY_RESULT_GRACE_MS,
   KIND_1_BLOCKED_RELAY_URLS,
   MAX_CONCURRENT_RELAY_CONNECTIONS,
+  MAX_CONCURRENT_SUBS_PER_RELAY,
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
+import { RelaySubscribeOpBatch } from '@/services/relay-operation-log.service'
+import { patchRelayNoticeForFetchFailures } from '@/services/relay-notice-strike'
 import type { Filter, Event as NEvent } from 'nostr-tools'
 import { SimplePool, EventTemplate, VerifiedEvent } from 'nostr-tools'
 import type { AbstractRelay } from 'nostr-tools/abstract-relay'
@@ -37,6 +40,8 @@ export interface QueryOptions {
    * {@link FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT} (and not replaceableRace / immediateReturn / single-event fetch).
    */
   firstRelayResultGraceMs?: number | false
+  /** Label for {@link RelaySubscribeOpBatch} when this query opens REQs. */
+  relayOpSource?: string
 }
 
 export interface SubscribeCallbacks {
@@ -52,6 +57,8 @@ export type QueryServiceRelaySessionOptions = {
   shouldSkipRelayForSession?: (normalizedUrl: string) => boolean
   /** After failed `ensureRelay` (timeout / connection error), increment client session strike counter. */
   onRelayConnectionFailure?: (normalizedUrl: string) => void
+  /** NOTICE "failed to fetch events" (and similar) → same strike treatment as connection failure. */
+  onRelayNoticeStrike?: (normalizedUrl: string, noticeMessage: string) => void
 }
 
 export class QueryService {
@@ -62,9 +69,10 @@ export class QueryService {
   private onRelayConnectionFailure?: (normalizedUrl: string) => void
   /** Optional: ingest every resolved `query()` result (e.g. session event LRU). */
   private onQueryResultIngest?: (events: NEvent[]) => void
+  private onRelayNoticeStrike?: (normalizedUrl: string, noticeMessage: string) => void
 
-  /** Max concurrent REQ subscriptions per relay URL */
-  private static readonly MAX_CONCURRENT_SUBS_PER_RELAY = MAX_CONCURRENT_RELAY_CONNECTIONS
+  /** Max concurrent REQ subscriptions per relay URL (see {@link MAX_CONCURRENT_SUBS_PER_RELAY}). */
+  private static readonly SUB_SLOT_CAP_PER_RELAY = MAX_CONCURRENT_SUBS_PER_RELAY
   private activeSubCountByRelay = new Map<string, number>()
   private subSlotWaitQueueByRelay = new Map<string, Array<() => void>>()
   private eventSeenOnRelays = new Map<string, Set<string>>()
@@ -96,6 +104,7 @@ export class QueryService {
     this.pool = pool
     this.shouldSkipRelayForSession = relaySession?.shouldSkipRelayForSession
     this.onRelayConnectionFailure = relaySession?.onRelayConnectionFailure
+    this.onRelayNoticeStrike = relaySession?.onRelayNoticeStrike
   }
 
   /** Wire after {@link EventService} exists so all `query()` / `fetchEvents` results populate the session cache. */
@@ -116,7 +125,7 @@ export class QueryService {
 
   async acquireSubSlot(relayKey: string): Promise<void> {
     const count = this.activeSubCountByRelay.get(relayKey) ?? 0
-    if (count < QueryService.MAX_CONCURRENT_SUBS_PER_RELAY) {
+    if (count < QueryService.SUB_SLOT_CAP_PER_RELAY) {
       this.activeSubCountByRelay.set(relayKey, count + 1)
       return Promise.resolve()
     }
@@ -258,7 +267,10 @@ export class QueryService {
         resolve(resolvedList)
       }
 
-      const sub = this.subscribe(urls, filter, {
+      const sub = this.subscribe(
+        urls,
+        filter,
+        {
         onevent(evt) {
           eventCount++
           onevent?.(evt)
@@ -342,7 +354,9 @@ export class QueryService {
             resolveTimeout = setTimeout(() => resolveWithEvents(), 1000)
           }
         }
-      })
+      },
+        { source: options?.relayOpSource ?? 'QueryService.query', logLevel: 'debug' }
+      )
       
       globalTimeoutId = setTimeout(() => resolveWithEvents(), globalTimeout)
     })
@@ -354,7 +368,8 @@ export class QueryService {
   subscribe(
     urls: string[],
     filter: Filter | Filter[],
-    callbacks: SubscribeCallbacks
+    callbacks: SubscribeCallbacks,
+    relayOpMeta?: { source: string; logLevel?: 'info' | 'debug' }
   ): { close: () => void } {
     let relays = Array.from(new Set(urls))
     const filters = Array.isArray(filter) ? filter : [filter]
@@ -395,11 +410,19 @@ export class QueryService {
       return { url, filters: filtersForRelay }
     })
 
+    const opSource = relayOpMeta?.source ?? 'QueryService.subscribe'
+    const opBatch =
+      groupedRequests.length > 0
+        ? new RelaySubscribeOpBatch(opSource, groupedRequests, { logLevel: relayOpMeta?.logLevel })
+        : null
+    opBatch?.logBegin()
+
     const eosesReceived: boolean[] = []
     const closesReceived: (string | undefined)[] = []
     const handleEose = (i: number) => {
       if (eosesReceived[i]) return
       eosesReceived[i] = true
+      opBatch?.setTerminal(i, 'eose')
       if (eosesReceived.filter(Boolean).length === groupedRequests.length) {
         callbacks.oneose?.(true)
       }
@@ -408,6 +431,7 @@ export class QueryService {
       if (closesReceived[i] !== undefined) return
       handleEose(i)
       closesReceived[i] = reason
+      opBatch?.setTerminal(i, 'closed', reason)
       const { url } = groupedRequests[i]!
       callbacks.onclose?.(url, reason)
       if (closesReceived.every((r) => r !== undefined)) {
@@ -439,6 +463,7 @@ export class QueryService {
           let relay: AbstractRelay
           try {
             relay = await this.pool.ensureRelay(url, { connectionTimeout: 5000 })
+            patchRelayNoticeForFetchFailures(relay, relayKey, this.onRelayNoticeStrike)
           } catch (err) {
             this.onRelayConnectionFailure?.(relayKey)
             this.releaseSubSlot(relayKey)
@@ -474,6 +499,7 @@ export class QueryService {
                       let liveRelay: AbstractRelay
                       try {
                         liveRelay = await this.pool.ensureRelay(url, { connectionTimeout: 5000 })
+                        patchRelayNoticeForFetchFailures(liveRelay, relayKey, this.onRelayNoticeStrike)
                       } catch (err) {
                         this.onRelayConnectionFailure?.(relayKey)
                         this.releaseSubSlot(relayKey)
@@ -542,6 +568,7 @@ export class QueryService {
 
     return {
       close: () => {
+        opBatch?.finalize('closed', 'subscribe_close')
         allOpened.then(() => {
           subs.forEach(({ close: subClose }) => subClose())
         })

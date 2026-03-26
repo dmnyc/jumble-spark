@@ -44,7 +44,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import RelayIcon from '../RelayIcon'
 import { PrimaryPageContext } from '@/contexts/primary-page-context'
-import { showPublishingFeedback } from '@/lib/publishing-feedback'
+import { showPublishingFeedback, toastPublishPromise } from '@/lib/publishing-feedback'
 import type { TEditOrCloneMode } from './EditOrCloneEventDialog'
 
 export interface SubMenuAction {
@@ -283,7 +283,7 @@ export function useMenuActions({
             }
             return result
           })
-          toast.promise(promise, {
+          toastPublishPromise(promise, {
             loading: t('Republishing...'),
             success: () => t('Successfully republish to all available relays'),
             error: (err) => t('Failed to republish to all available relays: {{error}}', { error: err.message })
@@ -326,7 +326,7 @@ export function useMenuActions({
           }
           return result
         })()
-        toast.promise(promise, {
+        toastPublishPromise(promise, {
           loading: t('Republishing...'),
           success: () => t('Successfully republish to all active relays'),
           error: (err) => t('Failed to republish to all active relays: {{error}}', { error: err.message })
@@ -352,7 +352,7 @@ export function useMenuActions({
             }
             return result
           })()
-          toast.promise(promise, {
+          toastPublishPromise(promise, {
             loading: t('Republishing...'),
             success: () => t('Successfully republish to your write relays'),
             error: (err) => t('Failed to republish to your write relays: {{error}}', { error: err.message })
@@ -375,7 +375,7 @@ export function useMenuActions({
                 }
                 return result
               })
-              toast.promise(promise, {
+              toastPublishPromise(promise, {
                 loading: t('Republishing...'),
                 success: () => t('Successfully republish to relay set: {{name}}', { name: set.name }),
                 error: (err) => t('Failed to republish to relay set: {{name}}. Error: {{error}}', {
@@ -406,7 +406,7 @@ export function useMenuActions({
               }
               return result
             })
-            toast.promise(promise, {
+            toastPublishPromise(promise, {
               loading: t('Republishing...'),
               success: () => t('Successfully republish to relay: {{url}}', { url: simplifyUrl(relay) }),
               error: (err) => t('Failed to republish to relay: {{url}}. Error: {{error}}', {

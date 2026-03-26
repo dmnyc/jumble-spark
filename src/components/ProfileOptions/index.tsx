@@ -22,7 +22,7 @@ import { Bell, BellOff, Copy, Ellipsis, ThumbsUp, MessageCircle, Send, Video, Sa
 import { useMemo, useState, useEffect } from 'react'
 import { createReactionDraftEvent } from '@/lib/draft-event'
 import PostEditor from '@/components/PostEditor'
-import { showSimplePublishSuccess } from '@/lib/publishing-feedback'
+import { showSimplePublishSuccess, toastPublishPromise } from '@/lib/publishing-feedback'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Event } from 'nostr-tools'
@@ -111,7 +111,7 @@ export default function ProfileOptions({
       }
       return result
     })
-    toast.promise(promise, {
+    toastPublishPromise(promise, {
       loading: t('Republishing...'),
       success: () => t('Successfully republish to all available relays'),
       error: (err) => t('Failed to republish to all available relays: {{error}}', { error: err.message })
@@ -144,7 +144,7 @@ export default function ProfileOptions({
       }
       return result
     })()
-    toast.promise(promise, {
+    toastPublishPromise(promise, {
       loading: t('Republishing...'),
       success: () => t('Successfully republish to all active relays'),
       error: (err) => t('Failed to republish to all active relays: {{error}}', { error: err.message })

@@ -11,6 +11,8 @@ import KindFilter from '../KindFilter'
 const NormalFeed = forwardRef<TNoteListRef, {
   subRequests: TFeedSubRequest[]
   areAlgoRelays?: boolean
+  /** When false, NoteList waits before opening timeline REQs (relay algo probe). */
+  relayCapabilityReady?: boolean
   isMainFeed?: boolean
   /** When set (e.g. on Home), tabs are rendered in layout subHeader instead of in-feed; avoids overlap */
   setSubHeader?: (node: React.ReactNode) => void
@@ -20,6 +22,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
   {
     subRequests,
     areAlgoRelays = false,
+    relayCapabilityReady = true,
     isMainFeed = false,
     setSubHeader,
     onSubHeaderRefresh
@@ -105,6 +108,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
           hideReplies={listMode === 'posts'}
           hideUntrustedNotes={hideUntrustedNotes}
           areAlgoRelays={areAlgoRelays}
+          relayCapabilityReady={relayCapabilityReady}
         />
       </div>
     </>

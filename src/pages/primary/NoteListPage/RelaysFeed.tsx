@@ -20,6 +20,7 @@ const RelaysFeed = forwardRef<
   const { feedInfo, relayUrls } = useFeed()
   const { showKinds } = useKindFilter()
   const [areAlgoRelays, setAreAlgoRelays] = useState(false)
+  const [relayAlgoReady, setRelayAlgoReady] = useState(false)
 
   const relayUrlsKey = useMemo(
     () =>
@@ -32,8 +33,12 @@ const RelaysFeed = forwardRef<
   )
 
   useEffect(() => {
-    if (relayUrls.length === 0) return
+    if (relayUrls.length === 0) {
+      setRelayAlgoReady(false)
+      return
+    }
     let cancelled = false
+    setRelayAlgoReady(false)
 
     const init = async () => {
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -52,6 +57,8 @@ const RelaysFeed = forwardRef<
         setAreAlgoRelays(areAlgo)
       } catch (_error) {
         if (!cancelled) setAreAlgoRelays(false)
+      } finally {
+        if (!cancelled) setRelayAlgoReady(true)
       }
     }
 
@@ -96,6 +103,7 @@ const RelaysFeed = forwardRef<
       ref={ref}
       subRequests={subRequests}
       areAlgoRelays={areAlgoRelays}
+      relayCapabilityReady={relayAlgoReady}
       isMainFeed
       setSubHeader={setSubHeader}
       onSubHeaderRefresh={onSubHeaderRefresh}

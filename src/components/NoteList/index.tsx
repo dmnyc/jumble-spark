@@ -24,6 +24,10 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { useZap } from '@/providers/ZapProvider'
 import client from '@/services/client.service'
+import {
+  getSessionFeedSnapshot,
+  setSessionFeedSnapshot
+} from '@/services/session-feed-snapshot.service'
 import type { TFeedSubRequest, TSubRequestFilter } from '@/types'
 import dayjs from 'dayjs'
 import { type Event, type Filter, kinds } from 'nostr-tools'
@@ -88,6 +92,7 @@ const NoteList = forwardRef(
       hideReplies = false,
       hideUntrustedNotes = false,
       areAlgoRelays = false,
+      relayCapabilityReady = true,
       pinnedEventIds = [],
       useFilterAsIs = false,
       extraShouldHideEvent,
@@ -154,6 +159,11 @@ const NoteList = forwardRef(
       hideReplies?: boolean
       hideUntrustedNotes?: boolean
       areAlgoRelays?: boolean
+      /**
+       * When false (e.g. home relay feed waiting on `getRelayInfos`), skip timeline subscribe so
+       * `areAlgoRelays` does not flip after the first REQ and tear the subscription down.
+       */
+      relayCapabilityReady?: boolean
       pinnedEventIds?: string[]
       /** When true, use filter from subRequests as-is (kinds, limit) instead of showKinds. For spell feeds. */
       useFilterAsIs?: boolean
@@ -202,6 +212,12 @@ const NoteList = forwardRef(
     /** Batched profile + embed prefetch after timeline updates (avoids N×9s profile storms while relays stream). */
     const timelinePrefetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const lastEventsForTimelinePrefetchRef = useRef<Event[]>([])
+    /**
+     * {@link client.subscribeTimeline} resolves asynchronously; cleanup used to only close via
+     * `promise.then(closer)`, so the next effect could open a new REQ before the prior closer ran.
+     * That stacks subscriptions on strict relays (e.g. ≤10 subs) and triggers rejections / rate limits.
+     */
+    const timelineEstablishedCloserRef = useRef<(() => void) | null>(null)
 
     const [feedProfileBatch, setFeedProfileBatch] = useState<{
       profiles: Map<string, TProfile>
@@ -281,6 +297,20 @@ const NoteList = forwardRef(
       if (!showKinds || showKinds.length === 0) return ''
       return JSON.stringify([...showKinds].sort((a, b) => a - b))
     }, [showKinds])
+
+    /** Session snapshot identity: same feed + kind / reply UI toggles so restore matches filtering. */
+    const sessionSnapshotIdentityKey = useMemo(
+      () =>
+        JSON.stringify({
+          feed: timelineSubscriptionKey,
+          kinds: showKindsKey,
+          op: showKind1OPs,
+          rep: showKind1Replies,
+          c1111: showKind1111,
+          hr: hideReplies
+        }),
+      [timelineSubscriptionKey, showKindsKey, showKind1OPs, showKind1Replies, showKind1111, hideReplies]
+    )
 
     const showKindsRef = useRef(showKinds)
     showKindsRef.current = showKinds
@@ -507,6 +537,9 @@ const NoteList = forwardRef(
     useImperativeHandle(ref, () => ({ scrollToTop, refresh }), [scrollToTop, refresh])
 
     useEffect(() => {
+      timelineEstablishedCloserRef.current?.()
+      timelineEstablishedCloserRef.current = null
+
       const currentSubRequests = subRequestsRef.current
       if (!currentSubRequests.length) {
         if (oneShotDebugLabel) {
@@ -517,6 +550,11 @@ const NoteList = forwardRef(
         setLoading(false)
         setEvents([])
         // Return a no-op closer function to satisfy the cleanup function
+        return () => {}
+      }
+
+      if (!relayCapabilityReady && !oneShotFetch) {
+        setLoading(true)
         return () => {}
       }
 
@@ -543,13 +581,26 @@ const NoteList = forwardRef(
           preserveTimelineOnSubRequestsChange &&
           keepExistingTimelineEvents &&
           eventsRef.current.length > 0
-        if (!keepRowsVisible) {
-          setLoading(true)
-        }
+
+        const sessionSnap =
+          !userPulledRefresh ? getSessionFeedSnapshot(sessionSnapshotIdentityKey) : undefined
+        const restoredFromSession = !keepExistingTimelineEvents && !!(sessionSnap?.length)
+
         if (!keepExistingTimelineEvents) {
-          setEvents([])
-          setNewEvents([])
-          setShowCount(revealBatchSize ?? SHOW_COUNT)
+          if (restoredFromSession && sessionSnap) {
+            setEvents(sessionSnap)
+            lastEventsForTimelinePrefetchRef.current = sessionSnap
+            setNewEvents([])
+            setShowCount(revealBatchSize ?? SHOW_COUNT)
+            setLoading(!!oneShotFetch)
+          } else {
+            if (!keepRowsVisible) setLoading(true)
+            setEvents([])
+            setNewEvents([])
+            setShowCount(revealBatchSize ?? SHOW_COUNT)
+          }
+        } else if (!keepRowsVisible) {
+          setLoading(true)
         }
         setHasMore(true)
         consecutiveEmptyRef.current = 0 // Reset counter on refresh
@@ -598,7 +649,7 @@ const NoteList = forwardRef(
           }
           setLoading(false)
           setEvents([])
-          return () => {}
+          return undefined
         }
 
         const narrowLiveBatch = (evs: Event[]) => {
@@ -607,10 +658,6 @@ const NoteList = forwardRef(
         }
 
         if (oneShotFetch) {
-          if (!keepExistingTimelineEvents) {
-            setEvents([])
-            setNewEvents([])
-          }
           setHasMore(false)
           try {
             const firstRelayGraceResolved =
@@ -641,6 +688,9 @@ const NoteList = forwardRef(
               .slice(0, cap)
             if (useFilterAsIs && clientSideKindFilter) {
               merged = merged.filter((e) => showKinds.includes(e.kind))
+            }
+            if (sessionSnap?.length && !userPulledRefresh) {
+              merged = mergeEventBatchesById(sessionSnap, merged, oneShotMergedCap ?? ONE_SHOT_MERGED_CAP)
             }
             if (oneShotDebugLabel) {
               const f0 = mappedSubRequests[0]?.filter
@@ -720,8 +770,11 @@ const NoteList = forwardRef(
                         return next
                       })
                     } else {
-                      setEvents(narrowed)
-                      lastEventsForTimelinePrefetchRef.current = narrowed
+                      setEvents((prev) => {
+                        const next = mergeEventBatchesById(prev, narrowed, eventCap)
+                        lastEventsForTimelinePrefetchRef.current = next
+                        return next
+                      })
                     }
                     // Do not wait for full EOSE across many relays — otherwise loading/skeleton stays up for 10–30s+
                     setLoading(false)
@@ -756,15 +809,9 @@ const NoteList = forwardRef(
                       }
                     }, 450)
                   } else if (eosed) {
-                    if (!preserveTimelineOnSubRequestsChange) {
-                      setEvents([])
-                    }
                     setLoading(false)
                   }
                 } else if (eosed) {
-                  if (!preserveTimelineOnSubRequestsChange) {
-                    setEvents([])
-                  }
                   setLoading(false)
                 }
 
@@ -821,12 +868,13 @@ const NoteList = forwardRef(
           const result = await Promise.race([timelineSubscribePromise, timeoutPromise])
           if (!effectActive) {
             result.closer()
-            return () => {}
+            return undefined
           }
           closer = result.closer
+          timelineEstablishedCloserRef.current = closer
           timelineKey = result.timelineKey
-        setTimelineKey(timelineKey)
-        return closer
+          setTimelineKey(timelineKey)
+          return closer
       } catch (_error) {
         setLoading(false)
         // Race timeout or subscribe failure: if the timeline promise later resolves, close or subs leak (relay slots + stale setEvents).
@@ -837,21 +885,31 @@ const NoteList = forwardRef(
             })
             .catch(() => {})
         }
-        return () => {}
+        return undefined
       }
       }
 
       const promise = init()
+      const snapshotKeyForCleanup = sessionSnapshotIdentityKey
       return () => {
         effectActive = false
+        setSessionFeedSnapshot(snapshotKeyForCleanup, eventsRef.current)
         if (timelinePrefetchDebounceRef.current) {
           clearTimeout(timelinePrefetchDebounceRef.current)
           timelinePrefetchDebounceRef.current = null
         }
-        promise.then((closer) => closer?.())
+        const syncClose = timelineEstablishedCloserRef.current
+        timelineEstablishedCloserRef.current = null
+        syncClose?.()
+        void promise.then((fallbackClose) => {
+          if (fallbackClose && fallbackClose !== syncClose) {
+            fallbackClose()
+          }
+        })
       }
     }, [
       timelineSubscriptionKey,
+      sessionSnapshotIdentityKey,
       subRequestsKey,
       preserveTimelineOnSubRequestsChange,
       mergeTimelineWhenSubRequestFiltersMatch,
@@ -862,6 +920,7 @@ const NoteList = forwardRef(
       showKind1111,
       useFilterAsIs,
       areAlgoRelays,
+      relayCapabilityReady,
       oneShotFetch,
       oneShotMergedCap,
       revealBatchSize,

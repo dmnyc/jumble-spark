@@ -45,7 +45,10 @@ import {
   augmentSubRequestsWithFavoritesFastReadAndInbox,
   getRelayUrlsWithFavoritesFastReadAndInbox
 } from '@/lib/favorites-feed-relays'
-import { computeSpellSubRequestsIdentityKey } from '@/lib/spell-feed-request-identity'
+import {
+  computeKind777SpellFeedSubscriptionKey,
+  computeSpellSubRequestsIdentityKey
+} from '@/lib/spell-feed-request-identity'
 import { normalizeUrl } from '@/lib/url'
 import {
   buildSpellCatalogAuthors,
@@ -746,10 +749,11 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     return spellSubRequests
   }, [selectedFauxSpell, fauxSubRequests, spellSubRequests])
 
-  const spellFeedSubscriptionKey = useMemo(
-    () => computeSpellSubRequestsIdentityKey(subRequests),
-    [subRequests]
-  )
+  const spellFeedSubscriptionKey = useMemo(() => {
+    if (selectedFauxSpell) return computeSpellSubRequestsIdentityKey(subRequests)
+    if (selectedSpell) return computeKind777SpellFeedSubscriptionKey(selectedSpell, subRequests)
+    return ''
+  }, [selectedFauxSpell, selectedSpell, subRequests])
 
   const spellBrowseRelayUrls = useMemo(() => {
     const set = new Set<string>()

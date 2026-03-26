@@ -15,7 +15,7 @@ import { useFetchProfile } from '@/hooks'
 import { kinds, type NostrEvent } from 'nostr-tools'
 import { createReactionDraftEvent } from '@/lib/draft-event'
 import { getPaymentInfoFromEvent } from '@/lib/event-metadata'
-import { showSimplePublishSuccess } from '@/lib/publishing-feedback'
+import { showSimplePublishSuccess, toastPublishPromise } from '@/lib/publishing-feedback'
 import { toProfileEditor } from '@/lib/link'
 import { generateImageByPubkey } from '@/lib/pubkey'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
@@ -308,7 +308,7 @@ export default function Profile({
       }
       return result
     })
-    toast.promise(promise, {
+    toastPublishPromise(promise, {
       loading: t('Republishing...'),
       success: () => t('Successfully republish to all available relays'),
       error: (err) => t('Failed to republish to all available relays: {{error}}', { error: err.message })
@@ -337,7 +337,7 @@ export default function Profile({
       }
       return result
     })()
-    toast.promise(promise, {
+    toastPublishPromise(promise, {
       loading: t('Republishing...'),
       success: () => t('Successfully republish to all active relays'),
       error: (err) => t('Failed to republish to all active relays: {{error}}', { error: err.message })

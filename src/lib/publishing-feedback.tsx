@@ -1,6 +1,36 @@
 import RelayStatusDisplay from '@/components/RelayStatusDisplay'
 import { CheckCircle2 } from 'lucide-react'
+import type { ReactNode } from 'react'
+import storage from '@/services/local-storage.service'
 import { toast } from 'sonner'
+
+export type PublishSuccessSubtleDetail = { message?: string }
+
+export const PUBLISH_SUCCESS_SUBTLE_EVENT = 'jumble:publishSuccessSubtle'
+
+export function emitPublishSuccessSubtle(message?: string): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(
+    new CustomEvent<PublishSuccessSubtleDetail>(PUBLISH_SUCCESS_SUBTLE_EVENT, {
+      detail: { message }
+    })
+  )
+}
+
+function publishSuccessToastsEnabled(): boolean {
+  return storage.getShowPublishSuccessToasts()
+}
+
+function resolvePromiseSuccessLabel(success: string | (() => ReactNode)): string | undefined {
+  if (typeof success === 'string') return success
+  try {
+    const v = success()
+    if (typeof v === 'string') return v
+  } catch {
+    /* ignore */
+  }
+  return undefined
+}
 
 export type RelayStatus = {
   url: string
@@ -32,15 +62,23 @@ export function showPublishingFeedback(
   const { message = 'Published successfully', duration = 6000 } = options
   
   const { relayStatuses, successCount, totalCount } = result
-  
+
   if (relayStatuses.length === 0) {
     // Fallback for events without relay status tracking
-    toast.success(message, { duration: 2000 })
+    if (publishSuccessToastsEnabled()) {
+      toast.success(message, { duration: 2000 })
+    } else {
+      emitPublishSuccessSubtle(message)
+    }
     return
   }
 
-  // Show toast with custom relay status display
   const isSuccess = successCount > 0
+  if (isSuccess && !publishSuccessToastsEnabled()) {
+    emitPublishSuccessSubtle(message)
+    return
+  }
+
   const toastFunction = isSuccess ? toast.success : toast.error
   
   toastFunction(
@@ -69,6 +107,7 @@ export function showPublishingFeedback(
  * Simple success toast without relay details
  */
 export function showSimplePublishSuccess(message = 'Published successfully') {
+  if (!publishSuccessToastsEnabled()) return
   toast.success(message, { duration: 2000 })
 }
 
@@ -78,5 +117,34 @@ export function showSimplePublishSuccess(message = 'Published successfully') {
 export function showPublishingError(error: Error | string) {
   const message = error instanceof Error ? error.message : error
   toast.error(message, { duration: 4000 })
+}
+
+type PublishPromiseToastOptions = {
+  loading: string
+  success: string | (() => ReactNode)
+  error: (err: Error) => string
+}
+
+/**
+ * Like `toast.promise` for publish/republish flows: respects {@link storage.getShowPublishSuccessToasts}
+ * (no green success toast when disabled). Loading and error toasts still appear.
+ */
+export function toastPublishPromise<T>(promise: Promise<T>, opts: PublishPromiseToastOptions): void {
+  if (!publishSuccessToastsEnabled()) {
+    const id = toast.loading(opts.loading)
+    promise
+      .then(() => {
+        toast.dismiss(id)
+        const label = resolvePromiseSuccessLabel(opts.success)
+        emitPublishSuccessSubtle(label)
+      })
+      .catch((err: unknown) => {
+        toast.dismiss(id)
+        const e = err instanceof Error ? err : new Error(String(err))
+        toast.error(opts.error(e))
+      })
+    return
+  }
+  toast.promise(promise, opts)
 }
 

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import MediaUploadServiceSetting from './MediaUploadServiceSetting'
 import ExpirationSettings from './ExpirationSettings'
 import QuietSettings from './QuietSettings'
+import PublishSuccessToastSetting from './PublishSuccessToastSetting'
 
 const PostSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
@@ -31,6 +32,10 @@ const PostSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: 
     >
       <div key={contentKey} className="px-4 pt-3 space-y-6">
         <MediaUploadServiceSetting />
+        <div className="space-y-4">
+          <h3 className="text-lg font-medium">{t('Publishing feedback')}</h3>
+          <PublishSuccessToastSetting />
+        </div>
         <div className="space-y-4">
           <h3 className="text-lg font-medium">{t('Expiration Tags')}</h3>
           <ExpirationSettings />

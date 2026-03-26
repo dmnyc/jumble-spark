@@ -57,6 +57,7 @@ const SETTINGS_KEYS = [
   StorageKey.SHOWN_CREATE_WALLET_GUIDE_TOAST_PUBKEYS,
   StorageKey.SHOW_RECOMMENDED_RELAYS_PANEL,
   StorageKey.ADD_RANDOM_RELAYS_TO_PUBLISH,
+  StorageKey.SHOW_PUBLISH_SUCCESS_TOASTS,
   StorageKey.DEFAULT_EXPIRATION_ENABLED,
   StorageKey.DEFAULT_EXPIRATION_MONTHS,
   StorageKey.DEFAULT_QUIET_ENABLED,
@@ -109,6 +110,7 @@ class LocalStorageService {
   private showRssFeed: boolean = true
   private panelMode: 'single' | 'double' = 'single'
   private addRandomRelaysToPublish: boolean = false
+  private showPublishSuccessToasts: boolean = true
 
   constructor() {
     if (!LocalStorageService.instance) {
@@ -384,6 +386,9 @@ class LocalStorageService {
     const addRandomRelaysStr = window.localStorage.getItem(StorageKey.ADD_RANDOM_RELAYS_TO_PUBLISH)
     this.addRandomRelaysToPublish = addRandomRelaysStr === null ? false : addRandomRelaysStr === 'true'
 
+    const showPublishSuccessStr = window.localStorage.getItem(StorageKey.SHOW_PUBLISH_SUCCESS_TOASTS)
+    this.showPublishSuccessToasts = showPublishSuccessStr !== 'false'
+
     // Clean up deprecated data
     window.localStorage.removeItem(StorageKey.ACCOUNT_PROFILE_EVENT_MAP)
     window.localStorage.removeItem(StorageKey.ACCOUNT_FOLLOW_LIST_EVENT_MAP)
@@ -489,6 +494,8 @@ class LocalStorageService {
     this.dismissedTooManyRelaysAlert = get(StorageKey.DISMISSED_TOO_MANY_RELAYS_ALERT) === 'true'
     this.showRecommendedRelaysPanel = get(StorageKey.SHOW_RECOMMENDED_RELAYS_PANEL) === 'true'
     this.addRandomRelaysToPublish = get(StorageKey.ADD_RANDOM_RELAYS_TO_PUBLISH) === 'true'
+    const showPublishSuccessStr = get(StorageKey.SHOW_PUBLISH_SUCCESS_TOASTS)
+    if (showPublishSuccessStr != null) this.showPublishSuccessToasts = showPublishSuccessStr !== 'false'
     const showKindsStr = get(StorageKey.SHOW_KINDS)
     if (showKindsStr != null) this.showKinds = JSON.parse(showKindsStr) as number[]
     const showKind1OPsStr = get(StorageKey.SHOW_KIND_1_OPs)
@@ -925,6 +932,15 @@ class LocalStorageService {
   setShowRssFeed(show: boolean) {
     this.showRssFeed = show
     this.persistSetting(StorageKey.SHOW_RSS_FEED, show.toString())
+  }
+
+  getShowPublishSuccessToasts(): boolean {
+    return this.showPublishSuccessToasts
+  }
+
+  setShowPublishSuccessToasts(show: boolean) {
+    this.showPublishSuccessToasts = show
+    this.persistSetting(StorageKey.SHOW_PUBLISH_SUCCESS_TOASTS, show.toString())
   }
 
   getPanelMode(): 'single' | 'double' {

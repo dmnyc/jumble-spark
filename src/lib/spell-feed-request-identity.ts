@@ -1,6 +1,7 @@
 import type { TFeedSubRequest } from '@/types'
 import { normalizeUrl } from '@/lib/url'
-import type { Filter } from 'nostr-tools'
+import type { Event, Filter } from 'nostr-tools'
+import { tagNameEquals } from '@/lib/tag'
 
 /** Canonical JSON for a REQ filter so subscription identity ignores object identity / key order. */
 export function stableSpellFeedFilterKey(filter: Filter): string {
@@ -23,6 +24,24 @@ export function computeSpellSubRequestsIdentityKey(subRequests: TFeedSubRequest[
       filter: stableSpellFeedFilterKey(req.filter)
     }))
   )
+}
+
+/**
+ * Kind-777 spell feed key: use raw `since` / `until` tag strings plus filters **without** resolved unix
+ * timestamps. Resolved times change on every memo recompute (`resolveRelativeTime` uses `Date.now()`),
+ * which was restarting NoteList subscriptions every tick → endless loading.
+ */
+export function computeKind777SpellFeedSubscriptionKey(spell: Event, subRequests: TFeedSubRequest[]): string {
+  const sinceRaw = spell.tags.find(tagNameEquals('since'))?.[1] ?? ''
+  const untilRaw = spell.tags.find(tagNameEquals('until'))?.[1] ?? ''
+  const sansTime = subRequests.map((req) => {
+    const { since: _s, until: _u, ...rest } = req.filter as Filter & { since?: number; until?: number }
+    return {
+      urls: [...req.urls].map((u) => normalizeUrl(u) || u).filter(Boolean).sort(),
+      filter: stableSpellFeedFilterKey(rest as Filter)
+    }
+  })
+  return `${spell.id}|sinceRaw:${sinceRaw}|untilRaw:${untilRaw}|${JSON.stringify(sansTime)}`
 }
 
 /**

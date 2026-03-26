@@ -35,8 +35,17 @@ export const DEFAULT_FAVORITE_RELAYS = [
  */
 export const MAX_CONCURRENT_RELAY_CONNECTIONS = 10
 
+/**
+ * Max concurrent live REQ subscriptions on a single relay. Some relays enforce ≤10 SUBs; stay under
+ * the advertised cap to avoid "too many subscriptions" NOTICEs when other clients or shards overlap.
+ */
+export const MAX_CONCURRENT_SUBS_PER_RELAY = 9
+
 /** Max relays to publish each event to (outboxes first, then targets' inboxes, then extras). */
 export const MAX_PUBLISH_RELAYS = MAX_CONCURRENT_RELAY_CONNECTIONS
+
+/** After a publish wave, failed NIP-65 write (outbox) relays are retried once after this delay. */
+export const OUTBOX_PUBLISH_RETRY_DELAY_MS = 5000
 
 /** Max merged URLs per REQ / timeline relay list (see `relay-url-priority`). */
 export const MAX_REQ_RELAY_URLS = MAX_CONCURRENT_RELAY_CONNECTIONS
@@ -130,6 +139,8 @@ export const StorageKey = {
   SHOW_RSS_FEED: 'showRssFeed',
   PANE_MODE: 'paneMode',
   ADD_RANDOM_RELAYS_TO_PUBLISH: 'addRandomRelaysToPublish',
+  /** When not `'false'`, show green Sonner toasts after successful publishes (default on). */
+  SHOW_PUBLISH_SUCCESS_TOASTS: 'showPublishSuccessToasts',
   /** Temporary draft cache: new notes and replies. Persisted after 30s idle; restored on refresh; cleared on logout/switch. */
   POST_EDITOR_DRAFT: 'postEditorDraft',
   MEDIA_UPLOAD_SERVICE: 'mediaUploadService', // deprecated
