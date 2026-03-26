@@ -9,16 +9,31 @@ type TVerifyNip05Result = {
   relays?: string[]
 }
 
+function asNip05LookupString(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value == null) return ''
+  if (Array.isArray(value)) {
+    for (const x of value) {
+      if (typeof x === 'string' && x.trim()) return x
+    }
+    return ''
+  }
+  return String(value)
+}
+
 const verifyNip05ResultCache = new LRUCache<string, TVerifyNip05Result>({
   max: 1000,
   fetchMethod: (key) => {
-    const { nip05, pubkey } = JSON.parse(key)
-    return _verifyNip05(nip05, pubkey)
+    const { nip05, pubkey } = JSON.parse(key) as { nip05?: unknown; pubkey?: unknown }
+    return _verifyNip05(asNip05LookupString(nip05), typeof pubkey === 'string' ? pubkey : '')
   }
 })
 
 async function _verifyNip05(nip05: string, pubkey: string): Promise<TVerifyNip05Result> {
-  const [nip05Name, nip05Domain] = nip05?.split('@') || [undefined, undefined]
+  const nip05Str = asNip05LookupString(nip05)
+  const parts = nip05Str ? nip05Str.split('@') : []
+  const nip05Name = parts[0]
+  const nip05Domain = parts[1]
   const result: TVerifyNip05Result = { isVerified: false, nip05Name, nip05Domain }
   if (!nip05Name || !nip05Domain || !pubkey) return result
 
@@ -37,12 +52,14 @@ async function _verifyNip05(nip05: string, pubkey: string): Promise<TVerifyNip05
 }
 
 export async function verifyNip05(nip05: string, pubkey: string): Promise<TVerifyNip05Result> {
-  const result = await verifyNip05ResultCache.fetch(JSON.stringify({ nip05, pubkey }))
+  const nip05Str = asNip05LookupString(nip05)
+  const pubkeyStr = typeof pubkey === 'string' ? pubkey : ''
+  const result = await verifyNip05ResultCache.fetch(JSON.stringify({ nip05: nip05Str, pubkey: pubkeyStr }))
   if (result) {
     return result
   }
-  const [nip05Name, nip05Domain] = nip05?.split('@') || [undefined, undefined]
-  return { isVerified: false, nip05Name, nip05Domain }
+  const parts = nip05Str ? nip05Str.split('@') : []
+  return { isVerified: false, nip05Name: parts[0], nip05Domain: parts[1] }
 }
 
 export function getWellKnownNip05Url(domain: string, name?: string): string {

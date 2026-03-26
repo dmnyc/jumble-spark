@@ -57,6 +57,41 @@ export function getRelayListFromEvent(event?: Event | null, blockedRelays?: stri
   }
 }
 
+/** Kind 0 JSON `nip05` may be a string or string[]; tags are always strings. */
+function firstNip05StringFromJson(raw: unknown): string | undefined {
+  if (typeof raw === 'string') {
+    const t = raw.trim()
+    return t || undefined
+  }
+  if (Array.isArray(raw)) {
+    for (const x of raw) {
+      if (typeof x === 'string') {
+        const t = x.trim()
+        if (t) return t
+      }
+    }
+  }
+  return undefined
+}
+
+function nip05ListFromJson(raw: unknown): string[] | undefined {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const add = (s: string) => {
+    const t = s.trim()
+    if (!t || seen.has(t)) return
+    seen.add(t)
+    out.push(t)
+  }
+  if (typeof raw === 'string') add(raw)
+  else if (Array.isArray(raw)) {
+    for (const x of raw) {
+      if (typeof x === 'string') add(x)
+    }
+  }
+  return out.length > 0 ? out : undefined
+}
+
 export function getProfileFromEvent(event: Event) {
   // Parse JSON content as fallback
   let profileObj: any = {}
@@ -73,8 +108,10 @@ export function getProfileFromEvent(event: Event) {
   const lud16Tags = event.tags.filter(tag => tag[0] === 'lud16' && tag[1]).map(tag => tag[1])
   
   // Use first tag entry for single values, or fallback to JSON
-  const nip05 = nip05Tags.length > 0 ? nip05Tags[0] : profileObj.nip05
-  const nip05List = nip05Tags.length > 0 ? nip05Tags : (profileObj.nip05 ? [profileObj.nip05] : undefined)
+  const nip05 =
+    nip05Tags.length > 0 ? nip05Tags[0] : firstNip05StringFromJson(profileObj.nip05)
+  const nip05List =
+    nip05Tags.length > 0 ? nip05Tags : nip05ListFromJson(profileObj.nip05)
   
   const website = websiteTags.length > 0 
     ? normalizeHttpUrl(websiteTags[0]) 
