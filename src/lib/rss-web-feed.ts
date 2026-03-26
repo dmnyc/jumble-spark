@@ -3,8 +3,9 @@ import { buildAccountListRelayUrlsForMerge } from '@/lib/account-list-relay-urls
 import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
 import { isReplyNoteEvent } from '@/lib/event'
 import {
+  articleUrlMatchesThreadScope,
   canonicalizeRssArticleUrl,
-  computeRTagFilterValuesForArticleThread,
+  expandArticleUrlThreadQueryValues,
   getArticleUrlFromCommentITags,
   getHighlightSourceHttpUrl,
   getReactionPageUrlFromRTags,
@@ -183,19 +184,20 @@ export function buildRssArticleUrlThreadInteractionFilterGroups(
   limit: number
 ): { nonSocial: Filter[]; social: Filter[] } {
   const canonical = canonicalizeRssArticleUrl(canonicalArticleUrl)
-  const rVals = computeRTagFilterValuesForArticleThread(canonical)
+  const tagVals = expandArticleUrlThreadQueryValues(canonical)
+  const iFilterVals = tagVals.length > 0 ? tagVals : [canonical]
   const social: Filter[] = [
-    { '#i': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit },
-    { '#I': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit }
+    { '#i': iFilterVals, kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit },
+    { '#I': iFilterVals, kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit }
   ]
   const nonSocial: Filter[] = [
-    { '#i': [canonical], kinds: [ExtendedKind.EXTERNAL_REACTION], limit },
-    { '#I': [canonical], kinds: [ExtendedKind.EXTERNAL_REACTION], limit }
+    { '#i': iFilterVals, kinds: [ExtendedKind.EXTERNAL_REACTION], limit },
+    { '#I': iFilterVals, kinds: [ExtendedKind.EXTERNAL_REACTION], limit }
   ]
-  if (rVals.length > 0) {
+  if (tagVals.length > 0) {
     nonSocial.push(
-      { '#r': rVals, kinds: [kinds.Highlights], limit },
-      { '#r': rVals, kinds: [kinds.Reaction], limit }
+      { '#r': tagVals, kinds: [kinds.Highlights], limit },
+      { '#r': tagVals, kinds: [kinds.Reaction], limit }
     )
   }
   return { nonSocial, social }
@@ -218,19 +220,19 @@ export function isRssArticleUrlThreadInteraction(evt: Event, canonicalArticleUrl
   const key = canonicalizeRssArticleUrl(canonicalArticleUrl)
   if (evt.kind === kinds.Highlights) {
     const hu = getHighlightSourceHttpUrl(evt)
-    return !!hu && canonicalizeRssArticleUrl(hu) === key
+    return !!hu && articleUrlMatchesThreadScope(hu, key)
   }
   if (evt.kind === ExtendedKind.EXTERNAL_REACTION) {
     const u = getWebExternalReactionTargetUrl(evt)
-    return !!u && canonicalizeRssArticleUrl(u) === key
+    return !!u && articleUrlMatchesThreadScope(u, key)
   }
   if (evt.kind === kinds.Reaction) {
     const u = getReactionPageUrlFromRTags(evt)
-    return !!u && canonicalizeRssArticleUrl(u) === key
+    return !!u && articleUrlMatchesThreadScope(u, key)
   }
   if (!isReplyNoteEvent(evt)) return false
   const u = getArticleUrlFromCommentITags(evt)
-  return !!u && canonicalizeRssArticleUrl(u) === key
+  return !!u && articleUrlMatchesThreadScope(u, key)
 }
 
 /**

@@ -10,10 +10,11 @@ import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import {
   canonicalizeRssArticleUrl,
-  computeRTagFilterValuesForArticleThread,
+  expandArticleUrlThreadQueryValues,
   getArticleUrlFromCommentITags,
   getHighlightSourceHttpUrl,
   getReactionPageUrlFromRTags,
+  getWebBookmarkArticleUrl,
   getWebExternalReactionTargetUrl,
   rssArticleStableEventId
 } from '@/lib/rss-article'
@@ -288,6 +289,34 @@ class NoteStatsService {
     const reactionLimit = 300
     const interactionLimit = 80
 
+    /** Synthetic RSS/Web parents are not on relays; `#e` on the fake id returns nothing. Use only URL-scoped filters. */
+    if (event.kind === ExtendedKind.RSS_THREAD_ROOT) {
+      const url = getArticleUrlFromCommentITags(event)
+      if (!url) {
+        return { nonSocial: [], social: [] }
+      }
+      const canonical = canonicalizeRssArticleUrl(url)
+      const tagVals = expandArticleUrlThreadQueryValues(canonical)
+      const iVals = tagVals.length > 0 ? tagVals : [canonical]
+      const nonSocial: Filter[] = [
+        { '#i': iVals, kinds: [ExtendedKind.EXTERNAL_REACTION], limit: reactionLimit },
+        { '#I': iVals, kinds: [ExtendedKind.EXTERNAL_REACTION], limit: reactionLimit },
+        { '#i': iVals, kinds: [ExtendedKind.WEB_BOOKMARK], limit: 200 },
+        { '#I': iVals, kinds: [ExtendedKind.WEB_BOOKMARK], limit: 200 }
+      ]
+      if (tagVals.length > 0) {
+        nonSocial.push(
+          { '#r': tagVals, kinds: [kinds.Highlights], limit: interactionLimit },
+          { '#r': tagVals, kinds: [kinds.Reaction], limit: reactionLimit }
+        )
+      }
+      const social: Filter[] = [
+        { '#i': iVals, kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit: interactionLimit },
+        { '#I': iVals, kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit: interactionLimit }
+      ]
+      return { nonSocial, social }
+    }
+
     const nonSocial: Filter[] = [
       { '#e': [event.id], kinds: [kinds.Reaction], limit: reactionLimit },
       { '#e': [event.id], kinds: [kinds.Zap], limit: 100 }
@@ -311,29 +340,6 @@ class NoteStatsService {
         limit: 50
       }
     ]
-
-    if (event.kind === ExtendedKind.RSS_THREAD_ROOT) {
-      const url = getArticleUrlFromCommentITags(event)
-      if (url) {
-        const canonical = canonicalizeRssArticleUrl(url)
-        const rVals = computeRTagFilterValuesForArticleThread(canonical)
-        nonSocial.push(
-          { '#i': [canonical], kinds: [ExtendedKind.EXTERNAL_REACTION], limit: reactionLimit },
-          { '#I': [canonical], kinds: [ExtendedKind.EXTERNAL_REACTION], limit: reactionLimit },
-          { kinds: [kinds.BookmarkList], '#e': [event.id], limit: 200 }
-        )
-        if (rVals.length > 0) {
-          nonSocial.push(
-            { '#r': rVals, kinds: [kinds.Highlights], limit: interactionLimit },
-            { '#r': rVals, kinds: [kinds.Reaction], limit: reactionLimit }
-          )
-        }
-        social.push(
-          { '#i': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit: interactionLimit },
-          { '#I': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit: interactionLimit }
-        )
-      }
-    }
 
     if (replaceableCoordinate) {
       nonSocial.push(
@@ -472,6 +478,8 @@ class NoteStatsService {
       }
     } else if (evt.kind === kinds.Highlights) {
       updatedEventId = this.addHighlightByEvent(evt, originalEventAuthor)
+    } else if (evt.kind === ExtendedKind.WEB_BOOKMARK) {
+      updatedEventId = this.addWebBookmarkByArticleUrlEvent(evt)
     } else if (evt.kind === kinds.BookmarkList) {
       this.addBookmarkListRefsByEvent(evt)
     }
@@ -726,6 +734,20 @@ class NoteStatsService {
     highlights.push({ id: evt.id, pubkey: evt.pubkey, created_at: evt.created_at })
     this.noteStatsMap.set(highlightedEventId, { ...old, highlightIdSet, highlights })
     return highlightedEventId
+  }
+
+  /** Kind 39701: count one bookmark per pubkey for this article URL (synthetic thread id). */
+  private addWebBookmarkByArticleUrlEvent(evt: Event): string | undefined {
+    const url = getWebBookmarkArticleUrl(evt)
+    if (!url) return
+    const targetId = rssArticleStableEventId(canonicalizeRssArticleUrl(url))
+    const old = this.noteStatsMap.get(targetId) || {}
+    const bookmarkPubkeySet = old.bookmarkPubkeySet ?? new Set<string>()
+    if (bookmarkPubkeySet.has(evt.pubkey)) return targetId
+    bookmarkPubkeySet.add(evt.pubkey)
+    this.noteStatsMap.set(targetId, { ...old, bookmarkPubkeySet })
+    this.notifyNoteStats(targetId)
+    return targetId
   }
 
   /** Each bookmark list author counts once per target `e` id in that list. */

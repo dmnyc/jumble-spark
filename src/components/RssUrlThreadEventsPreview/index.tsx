@@ -1,14 +1,13 @@
 import NoteCard from '@/components/NoteCard'
 import { Skeleton } from '@/components/ui/skeleton'
-import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
-import { useNoteStatsRelayHints } from '@/hooks/useNoteStatsRelayHints'
+import { useRssUrlThreadQueryRelays } from '@/hooks/useRssUrlThreadQueryRelays'
 import {
   buildRssArticleUrlThreadInteractionFilterGroups,
   isRssArticleUrlThreadInteraction
 } from '@/lib/rss-web-feed'
 import { queryService } from '@/services/client.service'
 import type { Event } from 'nostr-tools'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 const PREVIEW_LIMIT = 5
 const FETCH_LIMIT = 24
@@ -17,11 +16,7 @@ const FETCH_LIMIT = 24
  * Compact Nostr thread rows (comments + highlights) for an article URL card in the RSS+Web feed.
  */
 export default function RssUrlThreadEventsPreview({ canonicalUrl }: { canonicalUrl: string }) {
-  const { relays, key: relayHintsKey } = useNoteStatsRelayHints()
-  const relayUrls = useMemo(
-    () => [...new Set([...SEARCHABLE_RELAY_URLS, ...FAST_READ_RELAY_URLS, ...relays])],
-    [relays]
-  )
+  const { relayUrls, key: relayKey } = useRssUrlThreadQueryRelays()
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -36,6 +31,11 @@ export default function RssUrlThreadEventsPreview({ canonicalUrl }: { canonicalU
       eoseTimeout: 12_000,
       globalTimeout: 26_000,
       firstRelayResultGraceMs: false as const
+    }
+    if (relayUrls.length === 0) {
+      return () => {
+        cancelled = true
+      }
     }
     void Promise.all([
       nonSocial.length > 0 ? queryService.fetchEvents(relayUrls, nonSocial, fetchOpts) : Promise.resolve([]),
@@ -63,7 +63,7 @@ export default function RssUrlThreadEventsPreview({ canonicalUrl }: { canonicalU
     return () => {
       cancelled = true
     }
-  }, [canonicalUrl, relayHintsKey, relayUrls])
+  }, [canonicalUrl, relayKey, relayUrls])
 
   if (loading) {
     return (

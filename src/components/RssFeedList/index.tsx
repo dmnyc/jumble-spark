@@ -654,15 +654,10 @@ export default function RssFeedList() {
     })
   }, [combinedFeedRows, searchQuery, rssItemMatchesSearch])
 
-  /** Canonical URLs we know from Nostr (relay discovery or user-added), not RSS-only grouping. */
-  const urlKeysWithNostrFootprint = useMemo(() => {
-    const s = new Set<string>()
-    for (const e of manualWebEntries) s.add(e.url)
-    for (const e of relayDiscoveredUrls) s.add(e.url)
-    return s
-  }, [manualWebEntries, relayDiscoveredUrls])
-
-  /** What to show before “only my web events” (used for Nostr URL list). */
+  /**
+   * URLs-only view: one card per grouped article URL (same rows as “Both”), including RSS-sourced URLs
+   * and full `rssItems` for titles/snippets — previously RSS-only rows were hidden and `rssItems` was cleared.
+   */
   const feedDisplayBase = useMemo(():
     | { view: 'rss'; items: TRssFeedItem[] }
     | { view: 'unified'; rows: UnifiedFeedRow[] } => {
@@ -673,16 +668,10 @@ export default function RssFeedList() {
     if (feedScope === 'urls') {
       const rows: UnifiedFeedRow[] = combinedFeedRowsForSearch
         .filter((r): r is Extract<CombinedFeedRow, { kind: 'web' }> => r.kind === 'web')
-        .filter((r) => {
-          const hasRss = r.rssItems.length > 0
-          const hasNostr = urlKeysWithNostrFootprint.has(r.canonicalUrl)
-          if (hasRss && !hasNostr) return false
-          return true
-        })
         .map((r) => ({
           kind: 'url' as const,
           canonicalUrl: r.canonicalUrl,
-          rssItems: []
+          rssItems: r.rssItems
         }))
       return { view: 'unified', rows }
     }
@@ -697,7 +686,7 @@ export default function RssFeedList() {
         : { kind: 'rssEntry' as const, item: r.item }
     )
     return { view: 'unified', rows }
-  }, [feedScope, rssScopeItems, combinedFeedRowsForSearch, urlKeysWithNostrFootprint])
+  }, [feedScope, rssScopeItems, combinedFeedRowsForSearch])
 
   const persistSuppressClawstr = useCallback((checked: boolean) => {
     rssWebPrefsUserTouchedRef.current = true

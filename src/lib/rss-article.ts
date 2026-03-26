@@ -120,10 +120,10 @@ export function getReactionPageUrlFromRTags(event: Pick<Event, 'kind' | 'tags'>)
 }
 
 /**
- * Values for a REQ `#r` filter on kind 9802 when the thread key is a canonical article URL.
- * Relay matching is exact on the tag string, so we include common variants (slash, stripped query).
+ * Canonical article URL plus common string variants for REQ filters (`i` / `I` / `r`).
+ * Relay matching is exact on tag values, so trailing slashes, query stripping, etc. are included.
  */
-export function computeRTagFilterValuesForArticleThread(canonicalUrl: string): string[] {
+export function expandArticleUrlThreadQueryValues(canonicalUrl: string): string[] {
   const s = canonicalUrl.trim()
   if (!s.startsWith('http://') && !s.startsWith('https://')) return []
   const out = new Set<string>([s])
@@ -142,6 +142,27 @@ export function computeRTagFilterValuesForArticleThread(canonicalUrl: string): s
     /* ignore */
   }
   return [...out]
+}
+
+/**
+ * Values for a REQ `#r` filter on kind 9802 / kind 7 when the thread key is a canonical article URL.
+ * @deprecated Prefer {@link expandArticleUrlThreadQueryValues} — same values.
+ */
+export function computeRTagFilterValuesForArticleThread(canonicalUrl: string): string[] {
+  return expandArticleUrlThreadQueryValues(canonicalUrl)
+}
+
+/** True if `urlFromEvent` refers to the same article as `canonicalThreadKey` (after normalization + variant match). */
+export function articleUrlMatchesThreadScope(urlFromEvent: string, canonicalThreadKey: string): boolean {
+  const key = canonicalizeRssArticleUrl(canonicalThreadKey)
+  const cand = canonicalizeRssArticleUrl(urlFromEvent)
+  if (key === cand) return true
+  const keyVariants = new Set(expandArticleUrlThreadQueryValues(key))
+  if (keyVariants.has(cand)) return true
+  for (const v of expandArticleUrlThreadQueryValues(cand)) {
+    if (keyVariants.has(v)) return true
+  }
+  return false
 }
 
 /** True for http(s) URLs whose host is clawstr.com (incl. subdomains; supports protocol-relative `//…`). */

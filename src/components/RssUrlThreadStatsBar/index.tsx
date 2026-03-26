@@ -2,7 +2,7 @@ import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { cn } from '@/lib/utils'
 import noteStatsService from '@/services/note-stats.service'
-import { useNoteStatsRelayHints } from '@/hooks/useNoteStatsRelayHints'
+import { useRssUrlThreadQueryRelays } from '@/hooks/useRssUrlThreadQueryRelays'
 import { useNostr } from '@/providers/NostrProvider'
 import { Bookmark, Highlighter, MessageCircle, ThumbsUp } from 'lucide-react'
 import type { Event } from 'nostr-tools'
@@ -18,7 +18,7 @@ export default function RssUrlThreadStatsBar({
 }) {
   const { t } = useTranslation()
   const { pubkey } = useNostr()
-  const { relays: statsRelays, key: statsRelaysKey } = useNoteStatsRelayHints()
+  const { relayUrls: statsRelays, key: statsRelaysKey } = useRssUrlThreadQueryRelays()
   const { hideUntrustedInteractions, isUserTrusted } = useUserTrust()
   const noteStats = useNoteStatsById(event.id)
   const [loading, setLoading] = useState(false)
