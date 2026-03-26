@@ -642,6 +642,7 @@ export default {
     'Relay URLs (optional, comma-separated)': 'Relay URLs (optional, comma-separated)',
     'Remove poll': 'Remove poll',
     'Refresh results': 'Refresh results',
+    '{{votes}} · {{pct}}%': '{{votes}} · {{pct}}%',
     'See results': 'See results',
     'Zap poll (paid votes)': 'Zap poll (paid votes)',
     'Invalid zap poll': 'Invalid zap poll',

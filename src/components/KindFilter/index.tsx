@@ -64,7 +64,7 @@ export default function KindFilter({
   const [temporaryShowKind1OPs, setTemporaryShowKind1OPs] = useState(savedShowKind1OPs)
   const [temporaryShowKind1Replies, setTemporaryShowKind1Replies] = useState(savedShowKind1Replies)
   const [temporaryShowKind1111, setTemporaryShowKind1111] = useState(savedShowKind1111)
-  const [isPersistent, setIsPersistent] = useState(false)
+  const [isPersistent, setIsPersistent] = useState(true)
   const isDifferentFromSaved = useMemo(
     () => !isSameKindFilter(showKinds, savedShowKinds),
     [showKinds, savedShowKinds]
@@ -93,7 +93,7 @@ export default function KindFilter({
       setTemporaryShowKind1OPs(savedShowKind1OPs)
       setTemporaryShowKind1Replies(savedShowKind1Replies)
       setTemporaryShowKind1111(savedShowKind1111)
-      setIsPersistent(false)
+      setIsPersistent(true)
     }
   }, [open, showKinds, savedShowKind1OPs, savedShowKind1Replies, savedShowKind1111])
 
@@ -119,9 +119,9 @@ export default function KindFilter({
     updateShowKinds(newShowKinds, {
       showKind1OPs: temporaryShowKind1OPs,
       showKind1Replies: temporaryShowKind1Replies,
-      showKind1111: temporaryShowKind1111
+      showKind1111: temporaryShowKind1111,
+      persist: isPersistent
     })
-    setIsPersistent(false)
     setOpen(false)
   }
 

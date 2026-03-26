@@ -9,7 +9,10 @@ export type TPollResults = {
   totalVotes: number
   results: Record<string, Set<string>>
   voters: Set<string>
+  /** Wall-clock time of last successful merge (legacy / diagnostics). */
   updatedAt: number
+  /** Latest `created_at` among merged poll responses; used for open-poll incremental `since`. */
+  maxResponseCreatedAt?: number
 }
 
 type TFetchPollResultsParams = {
@@ -88,6 +91,9 @@ class PollResultsService {
     isMultipleChoice: boolean,
     endsAt?: number
   ) {
+    const nowSec = dayjs().unix()
+    const pollIsClosed = endsAt != null && nowSec > endsAt
+
     const filter: Filter = {
       kinds: [ExtendedKind.POLL_RESPONSE],
       '#e': [pollEventId],
@@ -99,12 +105,7 @@ class PollResultsService {
     }
 
     let results = this.pollResultsMap.get(pollEventId)
-    if (results) {
-      if (endsAt && results.updatedAt >= endsAt) {
-        return results
-      }
-      filter.since = results.updatedAt
-    } else {
+    if (!results) {
       results = {
         totalVotes: 0,
         results: validPollOptionIds.reduce(
@@ -117,15 +118,21 @@ class PollResultsService {
         voters: new Set<string>(),
         updatedAt: 0
       }
+    } else if (!pollIsClosed && (results.maxResponseCreatedAt ?? 0) > 0) {
+      // Open poll: incremental fetch only by latest merged vote timestamp (not wall clock).
+      filter.since = results.maxResponseCreatedAt
     }
+    // Closed poll: never set `since` so we always re-query the full [0, endsAt] window.
+    // (Using `updatedAt` as `since` or short-circuiting on `updatedAt >= endsAt` was wrong:
+    // `updatedAt` was wall time, which hid all historical votes and froze empty caches.)
 
     const responseEvents = await queryService.fetchEvents(relays, filter)
-
-    results.updatedAt = dayjs().unix()
 
     const responses = responseEvents
       .map((evt) => getPollResponseFromEvent(evt, validPollOptionIds, isMultipleChoice))
       .filter((response): response is NonNullable<typeof response> => response !== null)
+
+    let maxSeen = results.maxResponseCreatedAt ?? 0
 
     responses
       .sort((a, b) => b.created_at - a.created_at)
@@ -139,7 +146,11 @@ class PollResultsService {
             results.results[optionId].add(response.pubkey)
           }
         })
+        maxSeen = Math.max(maxSeen, response.created_at)
       })
+
+    results.updatedAt = nowSec
+    results.maxResponseCreatedAt = maxSeen
 
     this.pollResultsMap.set(pollEventId, { ...results })
     this.notifyPollResults(pollEventId)

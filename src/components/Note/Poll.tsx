@@ -3,7 +3,9 @@ import { FAST_READ_RELAY_URLS, POLL_TYPE } from '@/constants'
 import { useFetchPollResults } from '@/hooks/useFetchPollResults'
 import { createPollResponseDraftEvent } from '@/lib/draft-event'
 import { getPollMetadataFromEvent } from '@/lib/event-metadata'
+import { buildPollResultsReadRelayUrls } from '@/lib/relay-list-builder'
 import { cn, isPartiallyInViewport } from '@/lib/utils'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostrOptional } from '@/providers/nostr-context'
 import pollResultsService from '@/services/poll-results.service'
 import dayjs from 'dayjs'
@@ -16,16 +18,29 @@ import { toast } from 'sonner'
 import logger from '@/lib/logger'
 import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 
+/**
+ * Persists "See results" across remounts (React Strict Mode dev double-mount, list recycle).
+ * Scoped to this tab session only.
+ */
+const pollSessionRevealResultIds = new Set<string>()
+
 export default function Poll({ event, className }: { event: Event; className?: string }) {
   const { t } = useTranslation()
   const nostr = useNostrOptional()
   const pubkey = nostr?.pubkey ?? null
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const publish = nostr?.publish ?? (async () => { throw new Error('Not logged in') })
   const startLogin = nostr?.startLogin ?? (() => {})
   const [isVoting, setIsVoting] = useState(false)
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([])
   /** User chose to view vote breakdown without voting first (card UX). */
-  const [resultsRevealed, setResultsRevealed] = useState(false)
+  const [resultsRevealed, setResultsRevealed] = useState(
+    () => pollSessionRevealResultIds.has(event.id)
+  )
+
+  useEffect(() => {
+    setResultsRevealed(pollSessionRevealResultIds.has(event.id))
+  }, [event.id])
   const pollResults = useFetchPollResults(event.id)
   const [isLoadingResults, setIsLoadingResults] = useState(false)
   const poll = useMemo(() => getPollMetadataFromEvent(event), [event])
@@ -54,7 +69,13 @@ export default function Poll({ event, className }: { event: Event; className?: s
     if (!meta) return undefined
     setIsLoadingResults(true)
     try {
-      const relays = await ensurePollRelays(event.pubkey, meta)
+      const relays = await buildPollResultsReadRelayUrls({
+        pollEvent: event,
+        pollRelayUrls: meta.relayUrls,
+        viewerPubkey: pubkey,
+        viewerFavoriteRelayUrls: favoriteRelays,
+        blockedRelays
+      })
       const optionIds = meta.options.map((o) => o.id)
       const multi = meta.pollType === POLL_TYPE.MULTIPLE_CHOICE
       return await pollResultsService.fetchResults(
@@ -71,7 +92,7 @@ export default function Poll({ event, className }: { event: Event; className?: s
       pollResultsViewportFetchDoneRef.current = true
       setIsLoadingResults(false)
     }
-  }, [event])
+  }, [event, pubkey, favoriteRelays, blockedRelays])
 
   useEffect(() => {
     if (
@@ -106,9 +127,10 @@ export default function Poll({ event, className }: { event: Event; className?: s
 
   useEffect(() => {
     if (!poll || !isExpired) return
+    pollSessionRevealResultIds.add(event.id)
     setResultsRevealed(true)
     void fetchResults()
-  }, [poll, isExpired, fetchResults])
+  }, [poll, isExpired, fetchResults, event.id])
 
   if (!poll) {
     return null
@@ -226,11 +248,18 @@ export default function Poll({ event, className }: { event: Event; className?: s
                 {showResults && (
                   <div
                     className={cn(
-                      'text-muted-foreground shrink-0 z-10 tabular-nums',
+                      'text-muted-foreground shrink-0 z-10 tabular-nums text-right',
                       isMax ? 'font-semibold text-foreground' : ''
                     )}
                   >
-                    {totalVotes > 0 ? `${percentage.toFixed(1)}%` : '0%'}
+                    {isExpired
+                      ? t('{{votes}} · {{pct}}%', {
+                          votes,
+                          pct: totalVotes > 0 ? percentage.toFixed(1) : '0'
+                        })
+                      : totalVotes > 0
+                        ? `${percentage.toFixed(1)}%`
+                        : '0%'}
                   </div>
                 )}
                 {showResults && (
@@ -267,19 +296,22 @@ export default function Poll({ event, className }: { event: Event; className?: s
         </div>
 
         {canVote && !resultsRevealed && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={(e) => {
-              e.stopPropagation()
-              setResultsRevealed(true)
-              void fetchResults()
-            }}
-          >
-            {t('See results')}
-          </Button>
+          <div className="flex justify-start pt-1">
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto min-h-0 w-fit max-w-full px-0 py-1 text-xs font-normal text-muted-foreground no-underline hover:text-foreground hover:underline"
+              onClick={(e) => {
+                e.stopPropagation()
+                pollSessionRevealResultIds.add(event.id)
+                setResultsRevealed(true)
+                void fetchResults()
+              }}
+            >
+              {t('See results')}
+            </Button>
+          </div>
         )}
 
         {/* Results Summary */}

@@ -25,7 +25,16 @@ type TKindFilterContext = {
   showKind1OPs: boolean
   showKind1Replies: boolean
   showKind1111: boolean
-  updateShowKinds: (kinds: number[], options?: { showKind1OPs?: boolean; showKind1Replies?: boolean; showKind1111?: boolean }) => void
+  updateShowKinds: (
+    kinds: number[],
+    options?: {
+      showKind1OPs?: boolean
+      showKind1Replies?: boolean
+      showKind1111?: boolean
+      /** When false, update the live feed only; do not write settings (IndexedDB). Default true. */
+      persist?: boolean
+    }
+  ) => void
   updateShowKind1OPs: (value: boolean) => void
   updateShowKind1Replies: (value: boolean) => void
   updateShowKind1111: (value: boolean) => void
@@ -56,17 +65,28 @@ export function KindFilterProvider({ children }: { children: React.ReactNode }) 
   const [showKind1111, setShowKind1111State] = useState(storedShowKind1111)
 
   const updateShowKinds = useCallback(
-    (newKinds: number[], options?: { showKind1OPs?: boolean; showKind1Replies?: boolean; showKind1111?: boolean }) => {
+    (
+      newKinds: number[],
+      options?: {
+        showKind1OPs?: boolean
+        showKind1Replies?: boolean
+        showKind1111?: boolean
+        persist?: boolean
+      }
+    ) => {
       const op = options?.showKind1OPs ?? newKinds.includes(KIND_1)
       const kind1Replies = options?.showKind1Replies ?? newKinds.includes(KIND_1)
       const kind1111 = options?.showKind1111 ?? newKinds.includes(KIND_1111)
-      storage.setShowKind1OPs(op)
-      storage.setShowKind1Replies(kind1Replies)
-      storage.setShowKind1111(kind1111)
+      const persist = options?.persist !== false
+      if (persist) {
+        storage.setShowKind1OPs(op)
+        storage.setShowKind1Replies(kind1Replies)
+        storage.setShowKind1111(kind1111)
+        storage.setShowKinds(newKinds)
+      }
       setShowKind1OPsState(op)
       setShowKind1RepliesState(kind1Replies)
       setShowKind1111State(kind1111)
-      storage.setShowKinds(newKinds)
       setShowKindsState(newKinds)
     },
     []

@@ -14,6 +14,7 @@ import { normalizeUrl } from '@/lib/url'
 import { getCacheRelayUrls } from './private-relays'
 import client from '@/services/client.service'
 import logger from '@/lib/logger'
+import type { Event } from 'nostr-tools'
 
 function dedupeNormalizedRelayUrls(urls: string[]): string[] {
   const seen = new Set<string>()
@@ -289,6 +290,98 @@ export function relayHintsFromEventTags(event: { tags: string[][] }): string[] {
     }
   }
   return [...out]
+}
+
+const POLL_RESULTS_RELAY_TIMEOUT_MS = 2000
+const POLL_RESULTS_MAX_RELAYS = 40
+const POLL_RESULTS_NIP65_READ_SLICE = 16
+
+/**
+ * Relays to REQ poll responses (kind 1068 replies), in priority order:
+ * seen relays, NIP-10 `e`/`E` hints, poll `relay` tags, viewer NIP-65 **read** (inbox),
+ * favorite relays (kind 10012 from props), viewer cache relays (10432), {@link FAST_READ_RELAY_URLS},
+ * poll author NIP-65 **read** (inbox).
+ */
+export async function buildPollResultsReadRelayUrls(options: {
+  pollEvent: Event
+  pollRelayUrls: string[]
+  viewerPubkey: string | null | undefined
+  /** From {@link useFavoriteRelays} — avoids a second kind 10012 fetch. */
+  viewerFavoriteRelayUrls?: string[]
+  blockedRelays?: string[]
+}): Promise<string[]> {
+  const {
+    pollEvent,
+    pollRelayUrls,
+    viewerPubkey,
+    viewerFavoriteRelayUrls = [],
+    blockedRelays = []
+  } = options
+
+  const normalizedBlocked = new Set(
+    blockedRelays
+      .map((url) => (normalizeUrl(url) || url).toLowerCase())
+      .filter(Boolean)
+  )
+
+  const ordered: string[] = []
+  const seenNorm = new Set<string>()
+
+  const pushLayer = (urls: string[]) => {
+    for (const raw of urls) {
+      const normalized = normalizeUrl(raw) || raw?.trim()
+      if (!normalized || normalizedBlocked.has(normalized.toLowerCase())) continue
+      if (seenNorm.has(normalized)) continue
+      seenNorm.add(normalized)
+      ordered.push(normalized)
+    }
+  }
+
+  pushLayer(client.getSeenEventRelayUrls(pollEvent.id))
+  pushLayer(relayHintsFromEventTags(pollEvent))
+  pushLayer(pollRelayUrls)
+
+  const raceRelayList = (pubkey: string) => {
+    const p = client.fetchRelayList(pubkey)
+    const t = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), POLL_RESULTS_RELAY_TIMEOUT_MS)
+    )
+    return Promise.race([p, t])
+  }
+
+  let authorReadSlice: string[] = []
+  let viewerReadSlice: string[] = []
+  try {
+    const [authorRl, viewerRl] = await Promise.all([
+      pollEvent.pubkey ? raceRelayList(pollEvent.pubkey) : Promise.resolve(null),
+      viewerPubkey ? raceRelayList(viewerPubkey) : Promise.resolve(null)
+    ])
+    if (authorRl?.read?.length) {
+      authorReadSlice = authorRl.read.slice(0, POLL_RESULTS_NIP65_READ_SLICE)
+    }
+    if (viewerRl?.read?.length) {
+      viewerReadSlice = viewerRl.read.slice(0, POLL_RESULTS_NIP65_READ_SLICE)
+    }
+  } catch {
+    logger.debug('[RelayListBuilder] poll results: NIP-65 relay list race failed')
+  }
+
+  pushLayer(viewerReadSlice)
+
+  if (viewerPubkey) {
+    pushLayer(viewerFavoriteRelayUrls)
+    try {
+      const localRelays = await getCacheRelayUrls(viewerPubkey)
+      pushLayer(localRelays)
+    } catch {
+      logger.debug('[RelayListBuilder] poll results: cache relays failed')
+    }
+  }
+
+  pushLayer([...FAST_READ_RELAY_URLS])
+  pushLayer(authorReadSlice)
+
+  return ordered.slice(0, POLL_RESULTS_MAX_RELAYS)
 }
 
 /**

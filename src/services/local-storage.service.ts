@@ -300,9 +300,12 @@ class LocalStorageService {
       }
       // v9: boosts are optional in the same filter list as other kinds; do not auto-enable (leave absent).
       this.showKinds = showKinds
+      // Only persist when we read from localStorage. If SHOW_KINDS is missing here (migrated to IDB and
+      // keys cleared), persisting would write DEFAULT_FEED_SHOW_KINDS to IndexedDB and wipe the user's
+      // saved filter before initAsync/applySettings runs.
+      this.persistSetting(StorageKey.SHOW_KINDS, JSON.stringify(this.showKinds))
+      this.persistSetting(StorageKey.SHOW_KINDS_VERSION, '10')
     }
-    this.persistSetting(StorageKey.SHOW_KINDS, JSON.stringify(this.showKinds))
-    this.persistSetting(StorageKey.SHOW_KINDS_VERSION, '10')
 
     // Feed filter: kind 1 OPs, kind 1 replies, kind 1111 (migrate from legacy showRepliesAndComments if set)
     const showKind1OPsStr = window.localStorage.getItem(StorageKey.SHOW_KIND_1_OPs)

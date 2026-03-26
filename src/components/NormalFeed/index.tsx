@@ -39,7 +39,6 @@ const NormalFeed = forwardRef<TNoteListRef, {
 ) {
   const { hideUntrustedNotes } = useUserTrust()
   const { showKinds, showKind1OPs, showKind1Replies, showKind1111 } = useKindFilter()
-  const [temporaryShowKinds, setTemporaryShowKinds] = useState(showKinds)
   const [listMode, setListMode] = useState<TNoteListMode>(() => {
     const storedMode = storage.getNoteListMode()
     if (isMainFeed) {
@@ -73,12 +72,13 @@ const NormalFeed = forwardRef<TNoteListRef, {
     }
   }
 
-  const handleShowKindsChange = (newShowKinds: number[]) => {
-    setTemporaryShowKinds(newShowKinds)
+  const handleShowKindsChange = (_newShowKinds: number[]) => {
     if (noteListRef && typeof noteListRef !== 'function') {
       noteListRef.current?.scrollToTop()
     }
   }
+
+  const showKindsKey = useMemo(() => JSON.stringify(showKinds), [showKinds])
 
   const tabsElement = (
     <Tabs
@@ -88,7 +88,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
       options={
         <div className="flex items-center gap-1">
           {onSubHeaderRefresh != null && <RefreshButton onClick={onSubHeaderRefresh} />}
-          <KindFilter showKinds={temporaryShowKinds} onShowKindsChange={handleShowKindsChange} />
+          <KindFilter showKinds={showKinds} onShowKindsChange={handleShowKindsChange} />
         </div>
       }
     />
@@ -98,7 +98,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
     if (!isMainFeed || !setSubHeader) return
     setSubHeader(tabsElement)
     return () => setSubHeader(null)
-  }, [isMainFeed, setSubHeader, listMode, temporaryShowKinds, onSubHeaderRefresh])
+  }, [isMainFeed, setSubHeader, listMode, showKindsKey, onSubHeaderRefresh])
 
   const renderTabsInFeed = !(isMainFeed && setSubHeader)
 
@@ -108,7 +108,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
       <div className="min-w-0 pt-2">
         <NoteList
           ref={noteListRef}
-          showKinds={temporaryShowKinds}
+          showKinds={showKinds}
           showKind1OPs={showKind1OPs}
           showKind1Replies={showKind1Replies}
           showKind1111={showKind1111}

@@ -638,6 +638,7 @@ export default {
     'Relay URLs (optional, comma-separated)': 'Relay-URLs (optional, durch Kommas getrennt)',
     'Remove poll': 'Umfrage entfernen',
     'Refresh results': 'Ergebnisse aktualisieren',
+    '{{votes}} · {{pct}}%': '{{votes}} · {{pct}}%',
     Poll: 'Umfrage',
     Media: 'Medien',
     Interests: 'Interessen',
