@@ -60,6 +60,8 @@ export class QueryService {
   private signerType?: TSignerType
   private shouldSkipRelayForSession?: (normalizedUrl: string) => boolean
   private onRelayConnectionFailure?: (normalizedUrl: string) => void
+  /** Optional: ingest every resolved `query()` result (e.g. session event LRU). */
+  private onQueryResultIngest?: (events: NEvent[]) => void
 
   /** Max concurrent REQ subscriptions per relay URL */
   private static readonly MAX_CONCURRENT_SUBS_PER_RELAY = MAX_CONCURRENT_RELAY_CONNECTIONS
@@ -94,6 +96,11 @@ export class QueryService {
     this.pool = pool
     this.shouldSkipRelayForSession = relaySession?.shouldSkipRelayForSession
     this.onRelayConnectionFailure = relaySession?.onRelayConnectionFailure
+  }
+
+  /** Wire after {@link EventService} exists so all `query()` / `fetchEvents` results populate the session cache. */
+  setQueryResultIngest(handler: ((events: NEvent[]) => void) | undefined): void {
+    this.onQueryResultIngest = handler
   }
 
   setSigner(signer: ISigner | undefined, signerType: TSignerType | undefined) {
@@ -245,11 +252,10 @@ export class QueryService {
         
         sub.close()
         
-        if (replaceableRace && events.length > 0) {
-          resolve(resolveReplaceableRaceEvents())
-        } else {
-          resolve(events)
-        }
+        const resolvedList =
+          replaceableRace && events.length > 0 ? resolveReplaceableRaceEvents() : events
+        this.onQueryResultIngest?.(resolvedList)
+        resolve(resolvedList)
       }
 
       const sub = this.subscribe(urls, filter, {

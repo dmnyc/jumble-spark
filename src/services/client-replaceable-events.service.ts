@@ -22,6 +22,7 @@ import type { QueryService } from './client-query.service'
 import logger from '@/lib/logger'
 import client from './client.service'
 import { buildComprehensiveRelayList, buildExploreProfileAndUserRelayList } from '@/lib/relay-list-builder'
+import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 
 export class ReplaceableEventService {
   /** Limits parallel Step 2/3 profile network work (relay list + wide metadata REQ). */
@@ -430,23 +431,37 @@ export class ReplaceableEventService {
       })
       return results
     }
-    
+
+    const networkMissing: { pubkey: string; kind: number; index: number }[] = []
+    for (const m of missingParams) {
+      if (m.kind === kinds.Metadata) {
+        const ev = client.eventService.getSessionMetadataForPubkey(m.pubkey)
+        if (ev && !shouldDropEventOnIngest(ev)) {
+          results[m.index] = ev
+          eventsMap.set(`${m.pubkey}:${m.kind}`, ev)
+          continue
+        }
+      }
+      networkMissing.push(m)
+    }
+
+    if (networkMissing.length > 0) {
     // Only log at info level for large batches
-    if (missingParams.length > 50) {
+    if (networkMissing.length > 50) {
       logger.debug('[ReplaceableEventService] Fetching missing events from network', {
-        missingCount: missingParams.length,
+        missingCount: networkMissing.length,
         totalCount: params.length
       })
     } else {
       logger.debug('[ReplaceableEventService] Fetching missing events from network', {
-        missingCount: missingParams.length,
+        missingCount: networkMissing.length,
         totalCount: params.length
       })
     }
     
     // Group missing params by kind for network fetch
     const missingGroups = new Map<number, { pubkey: string; index: number }[]>()
-    missingParams.forEach(({ pubkey, kind, index }) => {
+    networkMissing.forEach(({ pubkey, kind, index }) => {
       if (!missingGroups.has(kind)) {
         missingGroups.set(kind, [])
       }
@@ -621,6 +636,11 @@ export class ReplaceableEventService {
 
       })
     )
+    } else {
+      logger.debug('[ReplaceableEventService] All missing events resolved from session, skipping network fetch', {
+        totalCount: params.length
+      })
+    }
     
     // Step 3: Persist hits only. Do not write negative cache rows (`value: null`) — optional kinds
     // (e.g. 10432 cache relays, 10001 pins) are missing for most pubkeys and would flood IndexedDB.

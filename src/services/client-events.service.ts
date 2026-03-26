@@ -1,6 +1,6 @@
 import logger from '@/lib/logger'
 import type { Event as NEvent, Filter } from 'nostr-tools'
-import { nip19 } from 'nostr-tools'
+import { kinds, nip19 } from 'nostr-tools'
 import DataLoader from 'dataloader'
 import { LRUCache } from 'lru-cache'
 import indexedDb from './indexed-db.service'
@@ -37,7 +37,13 @@ const PREFETCH_HEX_IDS_CHUNK = 48
 export class EventService {
   private queryService: QueryService
   private eventCacheMap = new Map<string, Promise<NEvent | undefined>>()
-  private sessionEventCache = new LRUCache<string, NEvent>({ max: 500, ttl: 1000 * 60 * 30 })
+  /**
+   * In-memory session cache: events seen this tab session (timelines, queries, fetches).
+   * Larger cap + no TTL so navigation and repeat fetches reuse data until reload.
+   */
+  private sessionEventCache = new LRUCache<string, NEvent>({ max: 15000 })
+  /** Latest kind-0 per pubkey from {@link sessionEventCache} for batch profile short-circuit. */
+  private sessionMetadataByPubkey = new Map<string, NEvent>()
   /** Callbacks waiting for an event id to appear in {@link sessionEventCache} (e.g. embed loads before timeline caches the note). */
   private sessionEventWaiters = new Map<string, Set<() => void>>()
   private eventDataLoader: DataLoader<string, NEvent | undefined>
@@ -329,7 +335,26 @@ export class EventService {
       ;(cleanEvent as NEvent).id = id
     }
     this.sessionEventCache.set(id, cleanEvent as NEvent)
+    if (cleanEvent.kind === kinds.Metadata) {
+      const pk = cleanEvent.pubkey.toLowerCase()
+      const prev = this.sessionMetadataByPubkey.get(pk)
+      if (!prev || cleanEvent.created_at >= prev.created_at) {
+        this.sessionMetadataByPubkey.set(pk, cleanEvent as NEvent)
+      }
+    }
     this.notifySessionEventWaiters(id)
+  }
+
+  /** Kind 0 already ingested this session (e.g. from a timeline REQ). */
+  getSessionMetadataForPubkey(hexPubkey: string): NEvent | undefined {
+    const pk = hexPubkey.toLowerCase()
+    const e = this.sessionMetadataByPubkey.get(pk)
+    if (!e) return undefined
+    if (shouldDropEventOnIngest(e)) {
+      this.sessionMetadataByPubkey.delete(pk)
+      return undefined
+    }
+    return e
   }
 
   /**
@@ -392,6 +417,7 @@ export class EventService {
   clearCaches(): void {
     this.eventDataLoader.clearAll()
     this.sessionEventCache.clear()
+    this.sessionMetadataByPubkey.clear()
     this.eventCacheMap.clear()
     this.sessionEventWaiters.clear()
     this.fetchEventFromBigRelaysDataloader.clearAll()
@@ -543,34 +569,46 @@ export class EventService {
    * Uses same comprehensive list as single-event fetch (inboxes, fast read, searchable, cache).
    */
   private async fetchEventsFromBigRelays(ids: readonly string[]): Promise<(NEvent | undefined)[]> {
+    const normalized = ids.map((id) => (/^[0-9a-f]{64}$/i.test(id) ? id.toLowerCase() : id))
+    const fromSession = normalized.map((k) => this.getSessionEventIfAllowed(k))
+    const missingIndices: number[] = []
+    for (let i = 0; i < normalized.length; i++) {
+      if (!fromSession[i]) missingIndices.push(i)
+    }
+    if (missingIndices.length === 0) {
+      return fromSession as NEvent[]
+    }
+
     // Build comprehensive relay list (user's inboxes + defaults)
     // Note: For batch fetches, we don't have author info, so we use user's inboxes + defaults
     const relayUrls = await buildComprehensiveRelayListForEvents(undefined, [], [], [])
 
-    const isSingleEventFetch = ids.length === 1
+    const missingIds = missingIndices.map((i) => normalized[i]!)
+    const isSingleEventFetch = missingIds.length === 1
     // For single-event fetches, always use immediateReturn to return ASAP
     // This is especially important for non-replaceable events (not in 10000-19999 or 30000-39999 ranges)
-    const events = await this.queryService.query(relayUrls, {
-      ids: Array.from(new Set(ids)),
-      limit: ids.length
-    }, undefined, {
-      immediateReturn: isSingleEventFetch, // Return immediately when found
-      eoseTimeout: isSingleEventFetch ? 1500 : 500,
-      globalTimeout: isSingleEventFetch ? 12000 : 10000
-    })
-    
-    const eventsMap = new Map<string, NEvent>()
+    const events = await this.queryService.query(
+      relayUrls,
+      {
+        ids: Array.from(new Set(missingIds)),
+        limit: missingIds.length
+      },
+      undefined,
+      {
+        immediateReturn: isSingleEventFetch,
+        eoseTimeout: isSingleEventFetch ? 1500 : 500,
+        globalTimeout: isSingleEventFetch ? 12000 : 10000
+      }
+    )
+
+    const fetchedById = new Map<string, NEvent>()
     for (const event of events) {
       if (shouldDropEventOnIngest(event)) continue
       const key = /^[0-9a-f]{64}$/i.test(event.id) ? event.id.toLowerCase() : event.id
-      eventsMap.set(key, event)
-      // Note: We can't track which relay returned which event in batch queries,
-      // but events are still cached and will be found in future queries
+      fetchedById.set(key, event)
+      this.addEventToCache(event)
     }
 
-    return ids.map((id) => {
-      const k = /^[0-9a-f]{64}$/i.test(id) ? id.toLowerCase() : id
-      return eventsMap.get(k)
-    })
+    return normalized.map((k, i) => fromSession[i] ?? fetchedById.get(k))
   }
 }

@@ -3,6 +3,15 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExtendedKind } from '@/constants'
 import { buildFollowOutboxAggregateReadUrls } from '@/lib/follow-outbox-aggregate-relays'
+import {
+  buildSearchFollowsFeedScopeKey,
+  fingerprintRelaySet,
+  fingerprintSortedPubkeys,
+  postsMapToRecord,
+  postsRecordToMap,
+  readSearchFollowsFeedCache,
+  writeSearchFollowsFeedCache
+} from '@/lib/search-follows-feed-cache'
 import { shouldFilterEvent } from '@/lib/event-filtering'
 import { toProfile } from '@/lib/link'
 import { getPubkeysFromPTags } from '@/lib/tag'
@@ -127,6 +136,25 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
   const [aggregateRelayUrls, setAggregateRelayUrls] = useState<string[]>([])
   const [aggregateRelaysReady, setAggregateRelaysReady] = useState(false)
 
+  const followListFingerprint = useMemo(
+    () => fingerprintSortedPubkeys(followPubkeys),
+    [followPubkeys]
+  )
+  const aggregateRelayFingerprint = useMemo(
+    () => fingerprintRelaySet(aggregateRelayUrls),
+    [aggregateRelayUrls]
+  )
+  const followsFeedScopeKey = useMemo(
+    () =>
+      buildSearchFollowsFeedScopeKey({
+        mode: followsLabel,
+        viewerPubkey: pubkey?.toLowerCase() ?? null,
+        followListFingerprint,
+        aggregateRelayFingerprint
+      }),
+    [followsLabel, pubkey, followListFingerprint, aggregateRelayFingerprint]
+  )
+
   const acceptEvent = useCallback(
     (e: Event) => {
       if (!feedKindSet.has(e.kind)) return false
@@ -241,7 +269,18 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
 
     const run = async () => {
       setBatchBusy(true)
-      setPostsByPubkey(new Map())
+      const seed = readSearchFollowsFeedCache(followsFeedScopeKey)
+      let working = seed ? postsRecordToMap(seed.posts) : new Map<string, NostrEvent[]>()
+      setPostsByPubkey(new Map(working))
+
+      const persist = () => {
+        writeSearchFollowsFeedCache({
+          v: 1,
+          scopeKey: followsFeedScopeKey,
+          posts: postsMapToRecord(working),
+          savedAtMs: Date.now()
+        })
+      }
 
       for (let i = 0; i < followPubkeys.length; i += AUTHORS_PER_BATCH) {
         if (cancelled || abortedRef.current) break
@@ -258,12 +297,17 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
           )
           if (cancelled || abortedRef.current) break
           const filtered = raw.filter((e) => acceptEvent(e))
-          setPostsByPubkey((prev) => mergeBatchPosts(prev, filtered, batch))
+          working = mergeBatchPosts(working, filtered, batch)
+          setPostsByPubkey(new Map(working))
+          persist()
         } catch (err) {
           logger.warn('[LatestFromFollows] Batch fetch failed', { err, batchSize: batch.length })
         }
       }
-      if (!cancelled) setBatchBusy(false)
+      if (!cancelled) {
+        persist()
+        setBatchBusy(false)
+      }
     }
 
     void run()
@@ -278,7 +322,8 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
     aggregateRelaysReady,
     loadingFollowList,
     isInitialized,
-    acceptEvent
+    acceptEvent,
+    followsFeedScopeKey
   ])
 
   const sortedRowPubkeys = useMemo(() => {

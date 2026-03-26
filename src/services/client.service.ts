@@ -156,6 +156,11 @@ class ClientService extends EventTarget {
       this.queryService,
       (profileEvent) => this.addUsernameToIndex(profileEvent)
     )
+    this.queryService.setQueryResultIngest((events) => {
+      for (const e of events) {
+        this.eventService.addEventToCache(e)
+      }
+    })
     this.bookstrService = createBookstrService(this.queryService)
   }
 
