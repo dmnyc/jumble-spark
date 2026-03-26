@@ -54,6 +54,7 @@ import ZapPoll from './ZapPoll'
 import NotificationEventCard from './NotificationEventCard'
 import ReactionEmojiDisplay from './ReactionEmojiDisplay'
 import UnknownNote from './UnknownNote'
+import NoteKindLabel from './NoteKindLabel'
 import { Skeleton } from '@/components/ui/skeleton'
 import VideoNote from './VideoNote'
 import RelayReview from './RelayReview'
@@ -149,7 +150,7 @@ export default function Note({
   
   if (!isRenderableNoteKind(event.kind)) {
     logger.debug('Note component - rendering UnknownNote for unsupported kind:', event.kind)
-    content = <UnknownNote className="mt-2" event={event} />
+    content = <UnknownNote className="mt-2" event={event} omitKindLabel />
   } else if (mutePubkeySet.has(event.pubkey) && !showMuted) {
     content = <MutedNote show={() => setShowMuted(true)} />
   } else if (!defaultShowNsfw && isNsfwEvent(event) && !showNsfw) {
@@ -422,10 +423,15 @@ export default function Note({
                 <MessageSquare className="w-4 h-4 text-blue-500" />
               </button>
             )}
-            {size === 'normal' && (
+            {(size === 'normal' ||
+              event.kind === ExtendedKind.ZAP_REQUEST ||
+              event.kind === ExtendedKind.ZAP_RECEIPT) && (
               <NoteOptions
                 event={event}
-                className="py-1 shrink-0 [&_svg]:size-5"
+                className={cn(
+                  'py-1 shrink-0',
+                  size === 'small' ? '[&_svg]:size-4' : '[&_svg]:size-5'
+                )}
                 initialHighlightData={highlightData}
                 highlightDefaultContent={highlightDefaultContent}
                 isPostEditorOpen={postEditorOpen}
@@ -444,6 +450,7 @@ export default function Note({
             )}
           </div>
         </div>
+        <NoteKindLabel kind={event.kind} size={size} className="mt-1" />
         {webReactionParentUrl ? (
           <div className="mt-2 not-prose max-w-full" data-parent-note-preview>
             <WebPreview url={webReactionParentUrl} className="w-full" />

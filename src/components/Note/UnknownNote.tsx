@@ -6,6 +6,7 @@ import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { ExtendedKind } from '@/constants'
 import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import { getKindDescription } from '@/lib/kind-description'
+import NoteKindLabel from './NoteKindLabel'
 import { useMemo, useState } from 'react'
 import EventViewer from './EventViewer'
 import { Button } from '@/components/ui/button'
@@ -130,12 +131,15 @@ function extractElevatedTags(tags: string[][]): ElevatedTags {
 export default function UnknownNote({
   event,
   className,
-  showAuthorSummary
+  showAuthorSummary,
+  omitKindLabel
 }: {
   event: Event
   className?: string
   /** When the parent does not render an author header (e.g. embedded unsupported notes). */
   showAuthorSummary?: boolean
+  /** When the parent `Note` already shows a kind line above this body. */
+  omitKindLabel?: boolean
 }) {
   const { t } = useTranslation()
   const [technicalOpen, setTechnicalOpen] = useState(false)
@@ -167,7 +171,6 @@ export default function UnknownNote({
   )
 
   const headline = elevated.title?.trim() || kindLabel.description
-  const showKindAsSubtitle = !!elevated.title?.trim()
 
   const contentNorm = contentRaw ? normText(contentRaw) : ''
   const elevatedBlocksNorm = [elevated.summary, elevated.description, elevated.tagContent]
@@ -223,13 +226,14 @@ export default function UnknownNote({
 
         <div>
           <h3 className="text-base font-semibold leading-tight text-foreground">{headline}</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {showKindAsSubtitle ? (
+          {!omitKindLabel ? <NoteKindLabel kind={event.kind} size="small" className="mt-1" /> : null}
+          {elevated.title?.trim() && !omitKindLabel ? (
+            <p className="mt-0.5 text-xs text-muted-foreground">
               <span className="text-foreground/80">{kindLabel.description}</span>
-            ) : null}
-            {showKindAsSubtitle ? <span className="mx-1.5 text-border">·</span> : null}
-            <span className="font-mono tabular-nums">{t('Event kind label', { kind: event.kind })}</span>
-          </p>
+              <span className="mx-1.5 text-border">·</span>
+              <span className="font-mono tabular-nums">{t('Event kind label', { kind: event.kind })}</span>
+            </p>
+          ) : null}
           {showDeclaredKindTag ? (
             <p className="mt-1 text-xs text-muted-foreground">{t('Unknown note declared kind tag', { value: declaredKindTrimmed })}</p>
           ) : null}

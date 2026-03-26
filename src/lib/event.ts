@@ -116,6 +116,18 @@ export function getParentETag(event?: Event) {
     return event.tags.find(tagNameEquals('e')) ?? event.tags.find(tagNameEquals('E'))
   }
 
+  // Kind 9735: zapped note id is on `e` / `E` (or addressable target on `a` / `A`)
+  if (event.kind === kinds.Zap) {
+    const firstHex = getFirstHexEventIdFromETags(event.tags)
+    if (firstHex) {
+      return (
+        event.tags.find((t) => t[0] === 'e' && t[1] === firstHex) ??
+        event.tags.find((t) => t[0] === 'E' && t[1] === firstHex)
+      )
+    }
+    return event.tags.find(tagNameEquals('e')) ?? event.tags.find(tagNameEquals('E'))
+  }
+
   if (event.kind !== kinds.ShortTextNote) return undefined
 
   let tag = event.tags.find(([tagName, , , marker]) => {
@@ -135,8 +147,11 @@ export function getParentETag(event?: Event) {
 }
 
 export function getParentATag(event?: Event) {
+  if (!event) return undefined
+  if (event.kind === kinds.Zap) {
+    return event.tags.find(tagNameEquals('a')) ?? event.tags.find(tagNameEquals('A'))
+  }
   if (
-    !event ||
     ![kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, ExtendedKind.DISCUSSION].includes(event.kind)
   ) {
     return undefined
@@ -174,6 +189,16 @@ export function getRootETag(event?: Event) {
     return event.tags.find(tagNameEquals('E'))
   }
 
+  // Kind 9735: thread root for note zaps is the zapped event id on `e` / `E`
+  if (event.kind === kinds.Zap) {
+    const firstHex = getFirstHexEventIdFromETags(event.tags)
+    if (!firstHex) return undefined
+    return (
+      event.tags.find((t) => t[0] === 'e' && t[1] === firstHex) ??
+      event.tags.find((t) => t[0] === 'E' && t[1] === firstHex)
+    )
+  }
+
   if (event.kind !== kinds.ShortTextNote) return undefined
 
   let tag = event.tags.find(([tagName, , , marker]) => {
@@ -189,8 +214,11 @@ export function getRootETag(event?: Event) {
 }
 
 export function getRootATag(event?: Event) {
+  if (!event) return undefined
+  if (event.kind === kinds.Zap) {
+    return event.tags.find(tagNameEquals('a')) ?? event.tags.find(tagNameEquals('A'))
+  }
   if (
-    !event ||
     ![kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, ExtendedKind.DISCUSSION].includes(event.kind)
   ) {
     return undefined

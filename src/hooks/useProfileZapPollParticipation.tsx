@@ -2,6 +2,7 @@ import { ExtendedKind, FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/con
 import {
   filterZapPollVoteReceiptsForVoter,
   getPollIdFromZapReceipt,
+  parseZapPollEvent,
   userZapPollVoteOption
 } from '@/lib/zap-poll'
 import { normalizeUrl } from '@/lib/url'
@@ -67,7 +68,9 @@ export function useProfileZapPollParticipation(profilePubkey: string | undefined
         if (!pid) continue
         const poll = pollById.get(pid)
         if (!poll) continue
-        const opt = userZapPollVoteOption(pid, profilePubkey, [vr])
+        const pollMeta = parseZapPollEvent(poll)
+        if (!pollMeta) continue
+        const opt = userZapPollVoteOption(poll, pollMeta, profilePubkey, [vr])
         if (opt === undefined) continue
         built.push({ poll, voteReceipt: vr, optionIndex: opt })
       }

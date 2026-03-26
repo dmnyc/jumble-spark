@@ -10,13 +10,14 @@ import {
   DISCUSSION_DOWNVOTE_DISPLAY,
   DISCUSSION_UPVOTE_DISPLAY
 } from '@/lib/discussion-votes'
+import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { isMentioningMutedUsers, isNip25ReactionKind } from '@/lib/event'
 import { getWebExternalReactionTargetUrl } from '@/lib/rss-article'
 import { toNote } from '@/lib/link'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import { Event } from 'nostr-tools'
+import { Event, kinds } from 'nostr-tools'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ClientTag from '../ClientTag'
@@ -31,6 +32,8 @@ import ParentNotePreview from '../ParentNotePreview'
 import WebPreview from '../WebPreview'
 import UserAvatar from '../UserAvatar'
 import Username from '../Username'
+import NoteKindLabel from '../Note/NoteKindLabel'
+import Zap from '../Note/Zap'
 
 export default function ReplyNote({
   event,
@@ -59,6 +62,12 @@ export default function ReplyNote({
       event.kind === ExtendedKind.EXTERNAL_REACTION ? getWebExternalReactionTargetUrl(event) : undefined,
     [event]
   )
+  const headerUserId = useMemo(() => {
+    if (event.kind !== kinds.Zap) return event.pubkey
+    const info = getZapInfoFromEvent(event)
+    return info?.senderPubkey ?? event.pubkey
+  }, [event])
+
   const show = useMemo(() => {
     if (showMuted) {
       return true
@@ -91,20 +100,20 @@ export default function ReplyNote({
     >
       <Collapsible>
         <div className="flex space-x-2 items-start px-4 pt-3">
-          <UserAvatar userId={event.pubkey} size="medium" className="shrink-0 mt-0.5" />
+          <UserAvatar userId={headerUserId} size="medium" className="shrink-0 mt-0.5" />
           <div className="w-full overflow-hidden">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 w-0">
                 <div className="flex gap-1 items-center">
                   <Username
-                    userId={event.pubkey}
+                    userId={headerUserId}
                     className="text-sm font-semibold text-muted-foreground hover:text-foreground truncate"
                     skeletonClassName="h-3"
                   />
                   <ClientTag event={event} />
                 </div>
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                  <Nip05 pubkey={event.pubkey} append="·" />
+                  <Nip05 pubkey={headerUserId} append="·" />
                   <FormattedTimestamp
                     timestamp={event.created_at}
                     className="shrink-0"
@@ -116,6 +125,7 @@ export default function ReplyNote({
                 <NoteOptions event={event} className="shrink-0 [&_svg]:size-5" />
               </div>
             </div>
+            <NoteKindLabel kind={event.kind} size="small" className="mt-0.5" />
             {webReactionParentUrl ? (
               <div className="mt-2 not-prose max-w-full" data-parent-note-preview>
                 <WebPreview url={webReactionParentUrl} className="w-full" />
@@ -148,6 +158,8 @@ export default function ReplyNote({
                   )}
                   <span>{t(notificationReactionSummaryKey(reactionDisplay))}</span>
                 </div>
+              ) : event.kind === kinds.Zap ? (
+                <Zap className="mt-2" event={event} omitSenderHeading variant="compact" />
               ) : (
                 <MarkdownArticle
                   className="mt-2"
@@ -175,7 +187,7 @@ export default function ReplyNote({
         <NoteStats
           className="ml-14 pl-1 mr-4 mt-2"
           event={event}
-          displayTopZapsAndLikes
+          displayTopZapsAndLikes={event.kind !== kinds.Zap}
           fetchIfNotExisting
         />
       )}

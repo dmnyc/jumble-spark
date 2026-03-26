@@ -1,5 +1,6 @@
 import { ExtendedKind } from '@/constants'
 import { getAmountFromInvoice } from '@/lib/lightning'
+import { userIdToPubkey } from '@/lib/pubkey'
 import { tagNameEquals } from '@/lib/tag'
 import { normalizeUrl } from '@/lib/url'
 import type { Event, EventTemplate } from 'nostr-tools'
@@ -22,14 +23,31 @@ export function parseZapPollEvent(event: Event): TZapPollMeta | null {
   if (event.kind !== ExtendedKind.ZAP_POLL) return null
   const pTags = event.tags.filter(tagNameEquals('p'))
   const recipients: { pubkey: string; relay: string }[] = []
+  const withRelay: { pubkey: string; relay: string }[] = []
+  const pubkeyNoRelay: string[] = []
   for (const t of pTags) {
     const pk = t[1]?.trim().toLowerCase()
     const relay = t[2]?.trim()
-    if (!pk || !/^[0-9a-f]{64}$/.test(pk) || !relay) continue
-    const n = normalizeUrl(relay) || relay
-    recipients.push({ pubkey: pk, relay: n })
+    if (!pk || !/^[0-9a-f]{64}$/.test(pk)) continue
+    if (relay) {
+      const n = normalizeUrl(relay) || relay
+      withRelay.push({ pubkey: pk, relay: n })
+    } else {
+      pubkeyNoRelay.push(pk)
+    }
   }
-  if (recipients.length === 0) return null
+  if (withRelay.length === 0 && pubkeyNoRelay.length === 0) return null
+  if (withRelay.length > 0) {
+    recipients.push(...withRelay)
+    const fallbackRelay = withRelay[0]!.relay
+    for (const pk of pubkeyNoRelay) {
+      if (!recipients.some((r) => r.pubkey === pk)) {
+        recipients.push({ pubkey: pk, relay: fallbackRelay })
+      }
+    }
+  } else {
+    return null
+  }
 
   const options: TZapPollOption[] = []
   for (const t of event.tags) {
@@ -130,14 +148,76 @@ function getPollOptionFromZapRequestTags(tags: unknown): number | undefined {
   if (!Array.isArray(tags)) return undefined
   const po = (tags as string[][]).find((t) => t[0] === 'poll_option' && t[1] != null)
   if (!po) return undefined
-  const n = parseInt(po[1], 10)
+  const n = parseInt(String(po[1]), 10)
   return Number.isNaN(n) ? undefined : n
 }
 
 function getKindFromZapRequestTags(tags: unknown): string | undefined {
   if (!Array.isArray(tags)) return undefined
-  const k = (tags as string[][]).find((t) => t[0] === 'k' && t[1] != null)
-  return k?.[1]
+  const k = (tags as string[][]).find((t) => t[0] === 'k' && t[1] != null && String(t[1]).length > 0)
+  if (!k) return undefined
+  return String(k[1])
+}
+
+/**
+ * NIP-57 `k` is often missing; some clients wrongly send `1` when zapping a poll.
+ * We only reject kinds that clearly point at another event class (not exhaustive).
+ */
+function zapTargetKindAllowsPollTally(tags: string[][] | undefined): boolean {
+  const k = getKindFromZapRequestTags(tags)
+  if (k == null || k === '') return true
+  if (k === '6969' || k === String(ExtendedKind.ZAP_POLL)) return true
+  if (k === '1' || k === String(kinds.ShortTextNote)) return true
+  return false
+}
+
+function normalizeZapRequestPTagPubkey(raw: string | undefined): string | undefined {
+  if (!raw) return undefined
+  const pk = userIdToPubkey(raw).trim().toLowerCase()
+  return /^[0-9a-f]{64}$/.test(pk) ? pk : undefined
+}
+
+/** Every `p` on the embedded zap request (some clients put author first, LN recipient second). */
+function zapRequestPayeePubkeys(tags: string[][] | undefined): string[] {
+  if (!tags) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const t of tags) {
+    if (t[0] !== 'p' || !t[1]) continue
+    const pk = normalizeZapRequestPTagPubkey(t[1])
+    if (!pk || seen.has(pk)) continue
+    seen.add(pk)
+    out.push(pk)
+  }
+  return out
+}
+
+/**
+ * Resolve vote option: explicit `poll_option` tag, or infer from which poll candidate (`p`) was paid.
+ * Matches clients (e.g. Primal) that omit `poll_option` but pay the option’s pubkey.
+ */
+export function extractVoteOptionFromZapRequest(
+  poll: Event,
+  meta: TZapPollMeta,
+  tags: string[][] | undefined
+): number | undefined {
+  const payees = zapRequestPayeePubkeys(tags)
+  if (payees.length === 0) return undefined
+  const payeeSet = new Set(payees)
+  const pollAuthor = poll.pubkey.trim().toLowerCase()
+  const paidAuthor = payeeSet.has(pollAuthor)
+  const hasCandidatePayee = meta.recipients.some((r) => payeeSet.has(r.pubkey))
+
+  const explicit = getPollOptionFromZapRequestTags(tags)
+  const explicitOk =
+    explicit !== undefined && meta.options.some((o) => o.index === explicit) ? explicit : undefined
+  if (explicitOk !== undefined && (paidAuthor || hasCandidatePayee)) {
+    return explicitOk
+  }
+
+  const j = meta.recipients.findIndex((r) => payeeSet.has(r.pubkey))
+  if (j < 0 || j >= meta.options.length) return undefined
+  return meta.options[j]!.index
 }
 
 /**
@@ -146,7 +226,6 @@ function getKindFromZapRequestTags(tags: unknown): string | undefined {
 export function tallyZapPollFromReceipts(poll: Event, meta: TZapPollMeta, receipts: Event[]): TZapPollTally {
   const satsByOption = new Map<number, number>()
   const receiptCountByOption = new Map<number, number>()
-  const recipientSet = new Set(meta.recipients.map((r) => r.pubkey))
   const equalMinMax =
     meta.valueMinimum != null &&
     meta.valueMaximum != null &&
@@ -171,14 +250,12 @@ export function tallyZapPollFromReceipts(poll: Event, meta: TZapPollMeta, receip
     } catch {
       continue
     }
-    if (getKindFromZapRequestTags(zapReq.tags) !== '6969') continue
+    if (!zapTargetKindAllowsPollTally(zapReq.tags)) continue
     const eTag = zapReq.tags?.find((t) => t[0] === 'e' && t[1])
     if (!eTag || eTag[1] !== poll.id) continue
     const voterPk = (zapReq.pubkey ?? '').trim().toLowerCase()
     if (!voterPk || voterPk === poll.pubkey) continue
-    const pTag = zapReq.tags?.find((t) => t[0] === 'p' && t[1])
-    if (!pTag || !recipientSet.has(pTag[1].trim().toLowerCase())) continue
-    const optIdx = getPollOptionFromZapRequestTags(zapReq.tags)
+    const optIdx = extractVoteOptionFromZapRequest(poll, meta, zapReq.tags)
     if (optIdx === undefined || !satsByOption.has(optIdx)) continue
 
     const bolt11 = r.tags.find(tagNameEquals('bolt11'))?.[1]
@@ -237,7 +314,8 @@ export function userHasZappedPoll(
 }
 
 export function userZapPollVoteOption(
-  pollId: string,
+  poll: Event,
+  meta: TZapPollMeta,
   userPubkey: string,
   receipts: Event[]
 ): number | undefined {
@@ -248,11 +326,11 @@ export function userZapPollVoteOption(
     if (!desc) continue
     try {
       const zapReq = JSON.parse(desc) as { pubkey?: string; tags?: string[][] }
-      if (getKindFromZapRequestTags(zapReq.tags) !== '6969') continue
+      if (!zapTargetKindAllowsPollTally(zapReq.tags)) continue
       const eTag = zapReq.tags?.find((t) => t[0] === 'e' && t[1])
-      if (eTag?.[1] !== pollId) continue
+      if (eTag?.[1] !== poll.id) continue
       if ((zapReq.pubkey ?? '').trim().toLowerCase() !== pk) continue
-      return getPollOptionFromZapRequestTags(zapReq.tags)
+      return extractVoteOptionFromZapRequest(poll, meta, zapReq.tags)
     } catch {
       continue
     }
@@ -260,7 +338,7 @@ export function userZapPollVoteOption(
   return undefined
 }
 
-/** Receipts where user is the zapper and vote targets a zap poll (for profile). */
+/** Receipts where user is the zapper and zap request looks like a vote on some event (kind 6969 or unspecified `k`). */
 export function filterZapPollVoteReceiptsForVoter(receipts: Event[], profilePubkey: string): Event[] {
   const pk = profilePubkey.trim().toLowerCase()
   return receipts.filter((r) => {
@@ -271,7 +349,8 @@ export function filterZapPollVoteReceiptsForVoter(receipts: Event[], profilePubk
     if (!desc) return false
     try {
       const zapReq = JSON.parse(desc) as { tags?: string[][] }
-      return getKindFromZapRequestTags(zapReq.tags) === '6969'
+      if (!zapReq.tags?.some((t) => t[0] === 'e' && t[1])) return false
+      return zapTargetKindAllowsPollTally(zapReq.tags)
     } catch {
       return false
     }

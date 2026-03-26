@@ -1,4 +1,16 @@
+import { ExtendedKind } from '@/constants'
 import logger from '@/lib/logger'
+import {
+  getParentATag,
+  getParentETag,
+  getQuotedEventHexIdFromQTags,
+  getRootATag,
+  getRootETag,
+  isNip25ReactionKind,
+  isReplyNoteEvent,
+  isReplaceableEvent
+} from '@/lib/event'
+import { getFirstHexEventIdFromETags } from '@/lib/tag'
 import type { Event as NEvent, Filter } from 'nostr-tools'
 import { kinds, nip19 } from 'nostr-tools'
 import DataLoader from 'dataloader'
@@ -6,7 +18,6 @@ import { LRUCache } from 'lru-cache'
 import indexedDb from './indexed-db.service'
 import type { QueryService } from './client-query.service'
 import client from './client.service'
-import { isReplaceableEvent } from '@/lib/event'
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 
@@ -407,6 +418,101 @@ export class EventService {
     }
     
     return results
+  }
+
+  /**
+   * Kind 9735 in session LRU whose top-level `e` references the given hex event id (e.g. zap poll / note).
+   * Used to show tally immediately when opening the note drawer after the feed already saw these receipts.
+   */
+  getSessionZapReceiptsForTargetEventId(targetEventHexId: string): NEvent[] {
+    const id = targetEventHexId.trim().toLowerCase()
+    if (!/^[0-9a-f]{64}$/.test(id)) return []
+    const out: NEvent[] = []
+    for (const [, event] of this.sessionEventCache.entries()) {
+      if (event.kind !== kinds.Zap) continue
+      if (shouldDropEventOnIngest(event)) continue
+      const matches = event.tags.some(
+        (t) => (t[0] === 'e' || t[0] === 'E') && t[1]?.toLowerCase() === id
+      )
+      if (matches) out.push(event)
+    }
+    return out
+  }
+
+  /**
+   * Reply-shaped events already in the session LRU for this thread (notes, kind 1111, voice comments, zaps),
+   * found by BFS over e/E/q and (for `a`-root threads) a-tag links. Merges with relay fetches via ReplyProvider.
+   */
+  getSessionThreadInteractionEvents(root: { type: 'E' | 'A' | 'I'; id: string }): NEvent[] {
+    if (root.type === 'I') return []
+
+    const threadKeys = new Set<string>()
+    if (root.type === 'E') {
+      const id = root.id.trim().toLowerCase()
+      if (!/^[0-9a-f]{64}$/.test(id)) return []
+      threadKeys.add(id)
+    } else {
+      threadKeys.add(root.id.trim().toLowerCase())
+    }
+
+    const linkRefs = (ev: NEvent): string[] => {
+      const ids = new Set<string>()
+      const add = (v?: string) => {
+        if (v == null || v === '') return
+        ids.add(v.trim().toLowerCase())
+      }
+      add(getParentETag(ev)?.[1])
+      add(getRootETag(ev)?.[1])
+      add(getQuotedEventHexIdFromQTags(ev))
+      if (ev.kind === kinds.Zap) {
+        add(getFirstHexEventIdFromETags(ev.tags))
+      }
+      if (
+        ev.kind === kinds.ShortTextNote ||
+        ev.kind === ExtendedKind.COMMENT ||
+        ev.kind === ExtendedKind.VOICE_COMMENT
+      ) {
+        for (const t of ev.tags) {
+          if ((t[0] === 'e' || t[0] === 'E') && t[1]) add(t[1])
+        }
+      }
+      if (root.type === 'A') {
+        add(getRootATag(ev)?.[1])
+        add(getParentATag(ev)?.[1])
+        for (const t of ev.tags) {
+          if ((t[0] === 'a' || t[0] === 'A') && t[1]) add(t[1])
+        }
+      }
+      return [...ids]
+    }
+
+    const seen = new Set<string>()
+    const out: NEvent[] = []
+    const maxRounds = 14
+    for (let round = 0; round < maxRounds; round++) {
+      let added = 0
+      for (const [, ev] of this.sessionEventCache.entries()) {
+        if (shouldDropEventOnIngest(ev)) continue
+        if (!isReplyNoteEvent(ev)) continue
+        if (isNip25ReactionKind(ev.kind)) continue
+        if (seen.has(ev.id)) continue
+        if (!linkRefs(ev).some((id) => threadKeys.has(id))) continue
+        out.push(ev)
+        seen.add(ev.id)
+        added++
+        const eid = ev.id.trim().toLowerCase()
+        if (/^[0-9a-f]{64}$/.test(eid)) threadKeys.add(eid)
+        if (root.type === 'A') {
+          for (const t of ev.tags) {
+            if ((t[0] === 'a' || t[0] === 'A') && t[1]) {
+              threadKeys.add(t[1].trim().toLowerCase())
+            }
+          }
+        }
+      }
+      if (added === 0) break
+    }
+    return out
   }
 
   /**

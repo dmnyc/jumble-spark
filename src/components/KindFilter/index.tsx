@@ -19,7 +19,8 @@ const KIND_FILTER_OPTIONS = [
   { kindGroup: [kinds.LongFormArticle], label: 'Articles' },
   { kindGroup: [ExtendedKind.WIKI_ARTICLE, ExtendedKind.WIKI_ARTICLE_MARKDOWN], label: 'Wiki Articles' },
   { kindGroup: [kinds.Highlights], label: 'Highlights' },
-  { kindGroup: [ExtendedKind.POLL, ExtendedKind.ZAP_POLL], label: 'Polls' },
+  { kindGroup: [ExtendedKind.POLL], label: 'Polls' },
+  { kindGroup: [ExtendedKind.ZAP_POLL], label: 'Zap polls' },
   { kindGroup: [ExtendedKind.VOICE, ExtendedKind.VOICE_COMMENT], label: 'Voice Posts' },
   { kindGroup: [ExtendedKind.PICTURE], label: 'Photo Posts' },
   { kindGroup: [ExtendedKind.VIDEO, ExtendedKind.SHORT_VIDEO], label: 'Video Posts' },
@@ -186,7 +187,7 @@ export default function KindFilter({
           const checked = kindGroup.every((k) => temporaryShowKinds.includes(k))
           return (
             <div
-              key={label}
+              key={kindGroup.join('-')}
               className={cn(
                 'cursor-pointer grid gap-1.5 rounded-lg border px-4 py-3',
                 checked ? 'border-primary/60 bg-primary/5' : 'clickable'

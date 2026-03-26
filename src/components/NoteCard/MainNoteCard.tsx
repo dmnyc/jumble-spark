@@ -1,3 +1,4 @@
+import { ExtendedKind } from '@/constants'
 import { Separator } from '@/components/ui/separator'
 import { toNote } from '@/lib/link'
 import { useSmartNoteNavigationOptional } from '@/PageManager'
@@ -33,6 +34,9 @@ export default function MainNoteCard({
 }) {
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigationOptional()
+  const isZapFeedCard =
+    event.kind === ExtendedKind.ZAP_RECEIPT || event.kind === ExtendedKind.ZAP_REQUEST
+  const showNoteStatsRow = !embedded || isZapFeedCard
 
   return (
     <div
@@ -44,7 +48,15 @@ export default function MainNoteCard({
         if (sel && !sel.isCollapsed) return
         // Don't navigate if clicking on interactive elements
         const target = e.target as HTMLElement
-        if (target.closest('button') || target.closest('[role="button"]') || target.closest('a') || target.closest('[data-parent-note-preview]') || target.closest('[data-user-avatar]') || target.closest('[data-username]')) {
+        if (
+          target.closest('button') ||
+          target.closest('[role="button"]') ||
+          target.closest('a') ||
+          target.closest('[data-parent-note-preview]') ||
+          target.closest('[data-user-avatar]') ||
+          target.closest('[data-username]') ||
+          target.closest('[data-note-stats]')
+        ) {
           return
         }
         // For embedded notes, allow clicks (don't exclude [data-embedded-note])
@@ -80,9 +92,14 @@ export default function MainNoteCard({
             zapPollVoteHighlightOption={zapPollVoteHighlightOption}
           />
         </Collapsible>
-        {!embedded && (
-          <NoteStats className="mt-3 px-4" event={event} fetchIfNotExisting={true} />
-        )}
+        {showNoteStatsRow ? (
+          <NoteStats
+            className={embedded ? 'mt-2 px-2 sm:px-3' : 'mt-3 px-4'}
+            event={event}
+            fetchIfNotExisting={true}
+            displayTopZapsAndLikes={isZapFeedCard}
+          />
+        ) : null}
       </div>
       {!embedded && <Separator />}
     </div>

@@ -39,6 +39,16 @@ export default function ZapPoll({
   const nostr = useNostrOptional()
   const pubkey = nostr?.pubkey ?? null
   const meta = useZapPollMeta(event)
+  /** Same pubkey can appear on multiple `p` tags; Select keys/values must be unique. */
+  const payToRecipients = useMemo(() => {
+    if (!meta) return []
+    const seen = new Set<string>()
+    return meta.recipients.filter((r) => {
+      if (seen.has(r.pubkey)) return false
+      seen.add(r.pubkey)
+      return true
+    })
+  }, [meta])
   const { receipts, tally, loading, error, reload } = useZapPollTally(event, meta)
 
   const [recipientPk, setRecipientPk] = useState<string>('')
@@ -56,16 +66,17 @@ export default function ZapPoll({
     }
   }, [meta?.valueMinimum, event.id])
 
-  const defaultRecipient = meta?.recipients[0]?.pubkey ?? ''
+  const defaultRecipient = payToRecipients[0]?.pubkey ?? ''
   const effectiveRecipient = recipientPk || defaultRecipient
 
   const closed = meta ? isZapPollPastDeadline(event, meta) : false
   const viewerZapped = pubkey && meta ? userHasZappedPoll(event.id, pubkey, receipts) : false
   const myVoteOption =
-    pubkey && meta ? userZapPollVoteOption(event.id, pubkey, receipts) : undefined
+    pubkey && meta ? userZapPollVoteOption(event, meta, pubkey, receipts) : undefined
 
   const showTally =
-    !!meta && (closed || viewerZapped || event.pubkey === pubkey || tallyRevealed)
+    !!meta &&
+    (closed || viewerZapped || event.pubkey === pubkey || tallyRevealed)
 
   const satsBounds = useMemo(() => {
     if (!meta) return { min: 1, max: undefined as number | undefined }
@@ -138,7 +149,7 @@ export default function ZapPoll({
             : t('Closes {{time}}', { time: dayjs.unix(meta.closedAt).format('lll') })}
         </p>
       )}
-      {(meta.valueMinimum != null || meta.valueMaximum != null) && (
+      {!closed && (meta.valueMinimum != null || meta.valueMaximum != null) && (
         <p className="text-xs text-muted-foreground">
           {t('Vote size')}:{' '}
           {meta.valueMinimum != null && meta.valueMaximum != null
@@ -150,10 +161,13 @@ export default function ZapPoll({
               : t('≤ {{n}} sats', { n: meta.valueMaximum! })}
         </p>
       )}
-      {loading && !tally && (
+      {loading ? (
         <p className="text-xs text-muted-foreground">{t('Loading tally…')}</p>
-      )}
+      ) : null}
       {error && <p className="text-xs text-destructive">{error}</p>}
+      {!loading && showTally && tally && tally.totalSats === 0 && (
+        <p className="text-xs text-muted-foreground">{t('Zap poll no votes yet')}</p>
+      )}
       {meta && !closed && !showTally && (
         <Button
           type="button"
@@ -184,7 +198,7 @@ export default function ZapPoll({
                 isMine && 'ring-2 ring-primary/50'
               )}
             >
-              {showTally && tally && tally.totalSats > 0 && (
+              {showTally && tally && (
                 <div
                   className="absolute inset-y-0 left-0 bg-primary/15"
                   style={{ width: `${pct}%` }}
@@ -193,10 +207,8 @@ export default function ZapPoll({
               <div className="relative flex items-center justify-between gap-2 px-3 py-2">
                 <span className="text-sm break-words">{opt.label}</span>
                 {showTally && tally && (
-                  <span className="text-xs text-muted-foreground shrink-0">
-                    {satsOpt > 0 ? `${Math.round(satsOpt)} sats` : '—'}
-                    {counts > 0 ? ` · ${t('{{n}} zaps', { n: counts })}` : ''}
-                    {tally.totalSats > 0 ? ` (${pct.toFixed(0)}%)` : ''}
+                  <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+                    {`${Math.round(satsOpt)} sats · ${t('{{n}} zaps', { n: counts })} (${pct.toFixed(0)}%)`}
                   </span>
                 )}
               </div>
@@ -204,7 +216,7 @@ export default function ZapPoll({
           )
         })}
       </div>
-      {meta.consensusThreshold != null && showTally && tally && tally.totalSats > 0 && (
+      {meta.consensusThreshold != null && showTally && tally && (
         <p className="text-xs text-muted-foreground">
           {t('Consensus threshold')}: {meta.consensusThreshold}%
         </p>
@@ -221,7 +233,7 @@ export default function ZapPoll({
                 <SelectValue placeholder={t('Recipient')} />
               </SelectTrigger>
               <SelectContent>
-                {meta.recipients.map((r) => (
+                {payToRecipients.map((r) => (
                   <SelectItem key={r.pubkey} value={r.pubkey}>
                     {r.pubkey.slice(0, 12)}…
                   </SelectItem>

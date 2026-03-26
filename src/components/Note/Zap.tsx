@@ -6,13 +6,25 @@ import { toNote, toProfile } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import { Zap as ZapIcon } from 'lucide-react'
 import { Event } from 'nostr-tools'
-import { useMemo } from 'react'
+import { useMemo, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSmartNoteNavigationOptional, useSecondaryPageOptional } from '@/PageManager'
 import Username from '../Username'
 import UserAvatar from '../UserAvatar'
 
-export default function Zap({ event, className }: { event: Event; className?: string }) {
+export default function Zap({
+  event,
+  className,
+  /** When the parent row already shows the zapper (e.g. reply list), hide the duplicate sender line. */
+  omitSenderHeading,
+  /** Dense thread row (e.g. kind 1111–sized), not the full note card. */
+  variant = 'default'
+}: {
+  event: Event
+  className?: string
+  omitSenderHeading?: boolean
+  variant?: 'default' | 'compact'
+}) {
   // In quiet mode, we need to check the target event (if this is a zap receipt for an event)
   // For profile zaps, we can't check quiet mode since we don't have an event
   const zapInfo = useMemo(() => getZapInfoFromEvent(event), [event])
@@ -34,7 +46,8 @@ export default function Zap({ event, className }: { event: Event; className?: st
     return (
       <div
         className={cn(
-          'text-sm text-muted-foreground rounded-lg border border-border bg-muted/20 p-4',
+          'text-sm text-muted-foreground rounded-lg border border-border bg-muted/20',
+          variant === 'compact' ? 'px-3 py-2' : 'p-4',
           className
         )}
       >
@@ -61,6 +74,60 @@ export default function Zap({ event, className }: { event: Event; className?: st
 
   const { senderPubkey, recipientPubkey, amount, comment } = zapInfo
 
+  const openZapTarget = (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    if (isEventZap) {
+      if (targetEvent) {
+        navigateToNote(toNote(targetEvent.id), targetEvent)
+      } else if (zapInfo.eventId) {
+        navigateToNote(toNote(zapInfo.eventId))
+      }
+    } else if (isProfileZap && actualRecipientPubkey) {
+      push(toProfile(actualRecipientPubkey))
+    }
+  }
+
+  if (variant === 'compact') {
+    return (
+      <div
+        className={cn(
+          'rounded-md border-l-2 border-primary/50 bg-primary/[0.06] pl-3 pr-2 py-2 text-sm text-foreground dark:bg-primary/[0.08]',
+          className
+        )}
+      >
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <ZapIcon className="size-4 shrink-0 text-primary" strokeWidth={2} aria-hidden />
+          <span className="font-semibold tabular-nums text-foreground">{formatAmount(amount)}</span>
+          <span className="text-muted-foreground">{t('sats')}</span>
+          {recipientPubkey && recipientPubkey !== senderPubkey && (
+            <span className="text-muted-foreground text-xs">
+              <span className="text-foreground/80">{t('zapped')}</span>{' '}
+              <Username userId={recipientPubkey} className="inline font-medium text-foreground" />
+            </span>
+          )}
+          {(isEventZap || isProfileZap) && (
+            <button
+              type="button"
+              onClick={openZapTarget}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              {isEventZap
+                ? t('Zapped note')
+                : isProfileZap && actualRecipientPubkey
+                  ? t('Zapped profile')
+                  : t('Zap')}
+            </button>
+          )}
+        </div>
+        {comment ? (
+          <p className="mt-2 text-sm leading-snug text-foreground/90 whitespace-pre-wrap break-words">
+            {comment}
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+
   return (
     <div
       className={cn(
@@ -68,23 +135,9 @@ export default function Zap({ event, className }: { event: Event; className?: st
         className
       )}
     >
-      {/* Zapped note/profile link in bottom-right corner */}
       <button
         type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          if (isEventZap) {
-            // Event zap - navigate to the zapped event
-            if (targetEvent) {
-              navigateToNote(toNote(targetEvent.id), targetEvent)
-            } else if (zapInfo.eventId) {
-              navigateToNote(toNote(zapInfo.eventId))
-            }
-          } else if (isProfileZap && actualRecipientPubkey) {
-            // Profile zap - navigate to the zapped profile
-            push(toProfile(actualRecipientPubkey))
-          }
-        }}
+        onClick={openZapTarget}
         className="absolute bottom-3 right-3 flex items-center gap-2 rounded-md border border-border bg-secondary/80 px-2.5 py-1.5 text-xs font-medium text-secondary-foreground shadow-sm transition-colors hover:bg-secondary"
       >
         {isEventZap ? (
@@ -104,17 +157,19 @@ export default function Zap({ event, className }: { event: Event; className?: st
       <div className="flex items-start gap-3 pb-10 pr-2 sm:pr-36">
         <ZapIcon size={28} className="mt-0.5 shrink-0 text-primary" strokeWidth={2} />
         <div className="min-w-0 flex-1">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <UserAvatar userId={senderPubkey} size="small" />
-            <Username userId={senderPubkey} className="font-semibold text-foreground" />
-            <span className="text-sm text-muted-foreground">{t('zapped')}</span>
-            {recipientPubkey && recipientPubkey !== senderPubkey && (
-              <>
-                <UserAvatar userId={recipientPubkey} size="small" />
-                <Username userId={recipientPubkey} className="font-semibold text-foreground" />
-              </>
-            )}
-          </div>
+          {!omitSenderHeading && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <UserAvatar userId={senderPubkey} size="small" />
+              <Username userId={senderPubkey} className="font-semibold text-foreground" />
+              <span className="text-sm text-muted-foreground">{t('zapped')}</span>
+              {recipientPubkey && recipientPubkey !== senderPubkey && (
+                <>
+                  <UserAvatar userId={recipientPubkey} size="small" />
+                  <Username userId={recipientPubkey} className="font-semibold text-foreground" />
+                </>
+              )}
+            </div>
+          )}
 
           {comment ? (
             <div className="mb-3 rounded-r-md border-l-[3px] border-primary bg-muted/40 py-2.5 pl-3 pr-2 dark:bg-muted/25">

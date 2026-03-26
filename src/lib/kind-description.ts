@@ -48,6 +48,52 @@ export function getKindDescription(kind: number): { number: number; description:
       return { number: 24, description: 'Public Message' }
     case ExtendedKind.DISCUSSION:
       return { number: 11, description: 'Discussion' }
+    case kinds.Metadata:
+      return { number: 0, description: 'Profile metadata' }
+    case kinds.Repost:
+      return { number: 6, description: 'Repost' }
+    case kinds.Reaction:
+      return { number: 7, description: 'Reaction' }
+    case ExtendedKind.EXTERNAL_REACTION:
+      return { number: 17, description: 'External reaction' }
+    case kinds.CommunityDefinition:
+      return { number: 34550, description: 'Community' }
+    case kinds.LiveEvent:
+      return { number: 30311, description: 'Live event' }
+    case ExtendedKind.ZAP_REQUEST:
+      return { number: 9734, description: 'Zap request' }
+    case ExtendedKind.ZAP_RECEIPT:
+      return { number: 9735, description: 'Zap receipt' }
+    case ExtendedKind.RELAY_REVIEW:
+      return { number: 31987, description: 'Relay review' }
+    case ExtendedKind.PUBLICATION:
+      return { number: 30040, description: 'Publication' }
+    case ExtendedKind.CALENDAR_EVENT_DATE:
+      return { number: 31922, description: 'Calendar event (date)' }
+    case ExtendedKind.CALENDAR_EVENT_TIME:
+      return { number: 31923, description: 'Calendar event (time)' }
+    case ExtendedKind.CALENDAR_EVENT_RSVP:
+      return { number: 31925, description: 'Calendar RSVP' }
+    case ExtendedKind.POLL_RESPONSE:
+      return { number: 1018, description: 'Poll vote' }
+    case ExtendedKind.FOLLOW_PACK:
+      return { number: 39089, description: 'Follow pack' }
+    case ExtendedKind.GROUP_METADATA:
+      return { number: 39000, description: 'Group metadata' }
+    case ExtendedKind.APPLICATION_HANDLER_INFO:
+      return { number: 31990, description: 'Application handler' }
+    case ExtendedKind.APPLICATION_HANDLER_RECOMMENDATION:
+      return { number: 31989, description: 'Handler recommendation' }
+    case ExtendedKind.SPELL:
+      return { number: 777, description: 'Spell / filter' }
+    case ExtendedKind.RSS_THREAD_ROOT:
+      return { number: 99999, description: 'Web article thread' }
+    case ExtendedKind.FILE_METADATA:
+      return { number: 1063, description: 'File metadata' }
+    case ExtendedKind.REPORT:
+      return { number: 1984, description: 'Report' }
+    case ExtendedKind.WEB_BOOKMARK:
+      return { number: 39701, description: 'Web bookmark' }
     default:
       return { number: kind, description: `Event (kind ${kind})` }
   }

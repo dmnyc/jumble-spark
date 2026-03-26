@@ -17,7 +17,6 @@ import {
   isReplaceableEvent,
   isReplyNoteEvent
 } from '@/lib/event'
-import { shouldHideInteractions } from '@/lib/event-filtering'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
 import { toNote } from '@/lib/link'
@@ -30,8 +29,7 @@ import { useReply } from '@/providers/ReplyProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
-import client from '@/services/client.service'
-import { eventService, queryService } from '@/services/client.service'
+import client, { eventService, queryService } from '@/services/client.service'
 import noteStatsService from '@/services/note-stats.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
 import { buildReplyReadRelayList, relayHintsFromEventTags } from '@/lib/relay-list-builder'
@@ -49,14 +47,13 @@ import { SuppressEmbeddedNoteContext } from '@/contexts/suppress-embedded-note-c
 import { LoadingBar } from '../LoadingBar'
 import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 import ReplyNote, { ReplyNoteSkeleton } from '../ReplyNote'
-import ZapReplyFeedRow from './ZapReplyFeedRow'
 
 type TRootInfo =
   | { type: 'E'; id: string; pubkey: string }
   | { type: 'A'; id: string; eventId: string; pubkey: string; relay?: string }
   | { type: 'I'; id: string }
 
-const LIMIT = 100
+const LIMIT = 200
 const SHOW_COUNT = 10
 
 function ReplyNoteList({
@@ -275,15 +272,6 @@ function ReplyNoteList({
     return merged.sort((a, b) => b.created_at - a.created_at)
   }, [replies, quoteEvents, showQuotes, sort, replyIdSet])
 
-  const zapsForFeed = useMemo(() => {
-    if (shouldHideInteractions(event)) return []
-    const raw = noteStats?.zaps ?? []
-    const nonZero = raw.filter((z) => z.amount > 0) // Suppress 0 sat zaps (spam)
-    const filtered =
-      isTrustLoaded && hideUntrustedInteractions ? nonZero.filter((z) => isUserTrusted(z.pubkey)) : nonZero
-    return [...filtered].sort((a, b) => b.amount - a.amount) // Largest to smallest
-  }, [event, noteStats, isTrustLoaded, hideUntrustedInteractions, isUserTrusted])
-
   const [timelineKey] = useState<string | undefined>(undefined)
   const [until, setUntil] = useState<number | undefined>(undefined)
   const [loading, setLoading] = useState<boolean>(false)
@@ -452,32 +440,27 @@ function ReplyNoteList({
     const fetchGeneration = ++replyFetchGenRef.current
 
     const init = async () => {
-      // Check cache first - get cached data even if stale (for instant display)
+      // Session LRU (timeline / note-stats / prior panels): thread replies before relay round-trip
+      if (rootInfo.type === 'E' || rootInfo.type === 'A') {
+        const fromSession = eventService.getSessionThreadInteractionEvents(rootInfo)
+        if (fromSession.length > 0) {
+          addReplies(fromSession)
+        }
+      }
+
+      // Check cache next — discussion cache merges with relay results
       const cachedData = discussionFeedCache.getCachedReplies(rootInfo)
-      const hasFreshCache = discussionFeedCache.hasFreshCache(rootInfo)
       const hasCache = cachedData !== null
-      
+
       if (hasCache) {
-        // Display cached data immediately (even if stale) for instant switching
         addReplies(cachedData)
         setLoading(false)
       } else {
-        // No cache at all, show loading while fetching
         setLoading(true)
       }
-      
-      // Always fetch fresh data from relays to update cache
-      // If we have fresh cache, we can skip fetching (but still do it in background after a delay)
-      // If we have stale cache or no cache, fetch immediately
-      if (hasFreshCache) {
-        // Fresh cache: fetch in background after a short delay to avoid unnecessary requests
-        setTimeout(() => {
-          fetchFromRelays()
-        }, 2000) // Wait 2 seconds before background refresh
-      } else {
-        // Stale or no cache: fetch immediately
-        fetchFromRelays()
-      }
+
+      // Always refetch soon so relays fill gaps; no artificial delay (was 2s and caused empty threads)
+      void fetchFromRelays()
       
       async function fetchFromRelays() {
         if (!rootInfo) return // Type guard
@@ -506,13 +489,13 @@ function ReplyNoteList({
             // Fetch all reply types for event-based replies
             filters.push({
               '#e': [rootInfo.id],
-              kinds: [kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
+              kinds: [kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Zap],
               limit: LIMIT
             })
             // Also fetch with uppercase E tag for replaceable events
             filters.push({
               '#E': [rootInfo.id],
-              kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
+              kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Zap],
               limit: LIMIT
             })
             // Kind-1 notes that quote via #q without e-tags (still part of this thread)
@@ -534,12 +517,12 @@ function ReplyNoteList({
             filters.push(
               {
                 '#a': [rootInfo.id],
-                kinds: [kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
+                kinds: [kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Zap],
                 limit: LIMIT
               },
               {
                 '#A': [rootInfo.id],
-                kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
+                kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Zap],
                 limit: LIMIT
               }
             )
@@ -672,9 +655,6 @@ function ReplyNoteList({
   return (
     <div className="min-h-[80vh] pb-12">
       {loading && <LoadingBar />}
-      {zapsForFeed.map((zap) => (
-        <ZapReplyFeedRow key={zap.pr} zap={zap} />
-      ))}
       {!loading && until && (
         <div
           className={`text-sm text-center text-muted-foreground border-b py-2 ${!loading ? 'hover:text-foreground cursor-pointer' : ''}`}

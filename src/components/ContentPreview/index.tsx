@@ -30,6 +30,7 @@ import ApplicationHandlerInfo from '../ApplicationHandlerInfo'
 import ApplicationHandlerRecommendation from '../ApplicationHandlerRecommendation'
 import FollowPackPreview from './FollowPackPreview'
 import ReactionEmojiDisplay from '../Note/ReactionEmojiDisplay'
+import NoteKindLabel from '../Note/NoteKindLabel'
 
 /** Inert event so hooks can run before `event` is defined. */
 const CONTENT_PREVIEW_HOOK_PLACEHOLDER = {
@@ -41,6 +42,22 @@ const CONTENT_PREVIEW_HOOK_PLACEHOLDER = {
   created_at: 0,
   sig: ''
 } as Event
+
+/** Keep spacing/margins on the outer wrapper; put line-clamp on the preview body so it still clamps text. */
+function splitPreviewLayoutClasses(className?: string) {
+  if (!className?.trim()) return { outer: undefined, body: undefined }
+  const tokens = className.trim().split(/\s+/)
+  const body: string[] = []
+  const outer: string[] = []
+  for (const tok of tokens) {
+    if (tok.startsWith('line-clamp')) body.push(tok)
+    else outer.push(tok)
+  }
+  return {
+    outer: outer.length ? outer.join(' ') : undefined,
+    body: body.length ? body.join(' ') : undefined
+  }
+}
 
 export default function ContentPreview({
   event,
@@ -85,6 +102,15 @@ export default function ContentPreview({
     )
   }
 
+  const { outer: previewOuter, body: previewBody } = splitPreviewLayoutClasses(className)
+
+  const withKindRow = (node: React.ReactNode) => (
+    <div className={cn('flex min-w-0 flex-col gap-1', previewOuter)}>
+      <NoteKindLabel kind={event.kind} size="small" />
+      <div className={cn('min-w-0', previewBody)}>{node}</div>
+    </div>
+  )
+
   if (
     [
       kinds.ShortTextNote,
@@ -95,64 +121,71 @@ export default function ContentPreview({
       ExtendedKind.PUBLIC_MESSAGE
     ].includes(event.kind)
   ) {
-    return <NormalContentPreview event={event} className={className} />
+    return withKindRow(<NormalContentPreview event={event} />)
   }
 
   if (event.kind === ExtendedKind.DISCUSSION) {
-    return <DiscussionNote event={event} className={className} size="small" />
+    return (
+      <div className={cn('flex min-w-0 flex-col gap-1', previewOuter)}>
+        <NoteKindLabel kind={event.kind} size="small" />
+        <div className={cn('min-w-0', previewBody)}>
+          <DiscussionNote event={event} size="small" />
+        </div>
+      </div>
+    )
   }
 
   if (event.kind === kinds.Highlights) {
-    return <HighlightPreview event={event} className={className} />
+    return withKindRow(<HighlightPreview event={event} />)
   }
 
   if (event.kind === ExtendedKind.POLL) {
-    return <PollPreview event={event} className={className} />
+    return withKindRow(<PollPreview event={event} />)
   }
 
   if (event.kind === kinds.LongFormArticle) {
-    return <LongFormArticlePreview event={event} className={className} />
+    return withKindRow(<LongFormArticlePreview event={event} />)
   }
 
   if (event.kind === ExtendedKind.VIDEO || event.kind === ExtendedKind.SHORT_VIDEO) {
-    return <VideoNotePreview event={event} className={className} />
+    return withKindRow(<VideoNotePreview event={event} />)
   }
 
   if (event.kind === ExtendedKind.PICTURE) {
-    return <PictureNotePreview event={event} className={className} />
+    return withKindRow(<PictureNotePreview event={event} />)
   }
 
   if (event.kind === ExtendedKind.GROUP_METADATA) {
-    return <GroupMetadataPreview event={event} className={className} />
+    return withKindRow(<GroupMetadataPreview event={event} />)
   }
 
   if (event.kind === kinds.CommunityDefinition) {
-    return <CommunityDefinitionPreview event={event} className={className} />
+    return withKindRow(<CommunityDefinitionPreview event={event} />)
   }
 
   if (event.kind === kinds.LiveEvent) {
-    return <LiveEventPreview event={event} className={className} />
+    return withKindRow(<LiveEventPreview event={event} />)
   }
 
   if (event.kind === ExtendedKind.ZAP_REQUEST || event.kind === ExtendedKind.ZAP_RECEIPT) {
-    return <ZapPreview event={event} className={className} />
+    return withKindRow(<ZapPreview event={event} />)
   }
 
   if (event.kind === ExtendedKind.APPLICATION_HANDLER_INFO) {
-    return <ApplicationHandlerInfo event={event} className={className} />
+    return withKindRow(<ApplicationHandlerInfo event={event} />)
   }
 
   if (event.kind === ExtendedKind.APPLICATION_HANDLER_RECOMMENDATION) {
-    return <ApplicationHandlerRecommendation event={event} className={className} />
+    return withKindRow(<ApplicationHandlerRecommendation event={event} />)
   }
 
   if (event.kind === ExtendedKind.FOLLOW_PACK) {
-    return <FollowPackPreview event={event} className={className} />
+    return withKindRow(<FollowPackPreview event={event} />)
   }
 
   if (isNip25ReactionKind(event.kind)) {
-    return (
-      <div className={cn('pointer-events-none flex items-center gap-1.5 text-sm text-muted-foreground', className)}>
+    return withKindRow(
+      <div className="pointer-events-none flex items-center gap-1.5 text-sm text-muted-foreground">
         {reactionDisplay.status === 'pending' ? (
           <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
         ) : reactionDisplay.status === 'vote_up' ? (
@@ -172,20 +205,18 @@ export default function ContentPreview({
   }
 
   if (event.kind === kinds.Repost) {
-    return (
-      <div className={cn('pointer-events-none text-sm text-muted-foreground', className)}>
-        {t('Notification boost summary')}
-      </div>
+    return withKindRow(
+      <div className="pointer-events-none text-sm text-muted-foreground">{t('Notification boost summary')}</div>
     )
   }
 
   if (event.kind === ExtendedKind.POLL_RESPONSE) {
-    return (
-      <div className={cn('pointer-events-none text-sm text-muted-foreground', className)}>
+    return withKindRow(
+      <div className="pointer-events-none text-sm text-muted-foreground">
         {t('Notification poll vote summary')}
       </div>
     )
   }
 
-  return <div className={className}>[{t('Cannot handle event of kind k', { k: event.kind })}]</div>
+  return withKindRow(<div>[{t('Cannot handle event of kind k', { k: event.kind })}]</div>)
 }
