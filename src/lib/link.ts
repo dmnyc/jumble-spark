@@ -71,6 +71,7 @@ export const toPostSettings = () => '/settings/posts'
 export const toGeneralSettings = () => '/settings/general'
 export const toTranslation = () => '/settings/translation'
 export const toRssFeedSettings = () => '/settings/rss-feeds'
+export const toFollowSetsSettings = () => '/settings/follow-sets'
 export const toCacheSettings = () => '/settings/cache'
 export const toProfileEditor = () => '/profile-editor'
 export const toRelay = (url: string) => `/relays/${encodeURIComponent(url)}`

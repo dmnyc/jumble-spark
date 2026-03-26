@@ -300,6 +300,8 @@ export const ExtendedKind = {
   RELAY_REVIEW: 31987,
   GROUP_METADATA: 39000,
   GROUP_LIST: 10009, // NIP-51 Group List
+  /** NIP-51 follow sets (addressable); `p` tags name pubkeys in the set */
+  FOLLOW_SET: 30000,
   ZAP_REQUEST: 9734,
   ZAP_RECEIPT: 9735,
   PUBLICATION: 30040,

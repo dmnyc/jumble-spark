@@ -15,6 +15,7 @@ import PostSettingsPage from '@/pages/secondary/PostSettingsPage'
 import GeneralSettingsPage from '@/pages/secondary/GeneralSettingsPage'
 import TranslationPage from '@/pages/secondary/TranslationPage'
 import RssFeedSettingsPage from '@/pages/secondary/RssFeedSettingsPage'
+import FollowSetsSettingsPage from '@/pages/secondary/FollowSetsSettingsPage'
 import NotePage from '@/pages/secondary/NotePage'
 import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
 import FollowingListPage from '@/pages/secondary/FollowingListPage'
@@ -131,6 +132,8 @@ export class ComponentFactory {
         return React.createElement(TranslationPage, { index: 0, hideTitlebar: true })
       case 'rss-feeds':
         return React.createElement(RssFeedSettingsPage, { index: 0, hideTitlebar: true })
+      case 'follow-sets':
+        return React.createElement(FollowSetsSettingsPage, { index: 0, hideTitlebar: true })
       default:
         return React.createElement(GeneralSettingsPage, { index: 0, hideTitlebar: true })
     }

@@ -30,7 +30,16 @@ import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
-import client from '@/services/client.service'
+import {
+  decodeFollowSetSpellId,
+  dedupeFollowSetEventsByD,
+  encodeFollowSetSpellId,
+  getFollowSetDTag,
+  isFollowSetSpellId,
+  labelFollowSetEvent,
+  pubkeysFromFollowSetEvent
+} from '@/lib/follow-set-spell'
+import client, { queryService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import {
@@ -199,8 +208,18 @@ function SpellSheetOptionRow({
 
 type FauxSpellName = (typeof FAUX_SPELL_ORDER)[number]
 
-function isFauxSpellName(s: string): s is FauxSpellName {
+function isSpellsPageBuiltinFauxSpell(s: string): s is FauxSpellName {
   return (FAUX_SPELL_ORDER as readonly string[]).includes(s)
+}
+
+function isSpellsPageFauxSpellParam(s: string): boolean {
+  if (isSpellsPageBuiltinFauxSpell(s)) return true
+  if (!isFollowSetSpellId(s)) return false
+  return decodeFollowSetSpellId(s) != null
+}
+
+function isFollowFeedFauxSpellId(s: string | null): boolean {
+  return s === 'following' || (!!s && isFollowSetSpellId(s))
 }
 
 function useNoteListHideReplies() {
@@ -269,7 +288,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const [spells, setSpells] = useState<Event[]>([])
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set())
   const [selectedSpell, setSelectedSpell] = useState<Event | null>(null)
-  const [selectedFauxSpell, setSelectedFauxSpell] = useState<FauxSpellName | null>(null)
+  const [selectedFauxSpell, setSelectedFauxSpell] = useState<string | null>(null)
+  const [followSetListEvents, setFollowSetListEvents] = useState<Event[]>([])
+  const [followSetCatalogLoading, setFollowSetCatalogLoading] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [spellToEdit, setSpellToEdit] = useState<Event | null>(null)
   const [spellToClone, setSpellToClone] = useState<Event | null>(null)
@@ -291,6 +312,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const spellFeedInstrT0Ref = useRef(0)
   const spellFeedInstrLabelRef = useRef('')
   const [spellFeedInstrumentToken, setSpellFeedInstrumentToken] = useState(0)
+  const [followSetManualRefreshKey, setFollowSetManualRefreshKey] = useState(0)
 
   const logSpellFeedPickerSelection = useCallback((label: string, extra?: Record<string, unknown>) => {
     spellFeedInstrT0Ref.current = performance.now()
@@ -309,7 +331,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   /** Set when picker calls `navigatePrimary(..., { spell })` so URL effect does not log/bump token again. */
   const fauxSpellUrlSyncFromPickerRef = useRef<string | null>(null)
   useEffect(() => {
-    if (spellProp && isFauxSpellName(spellProp)) {
+    if (spellProp && isSpellsPageFauxSpellParam(spellProp)) {
       if (fauxSpellUrlSyncFromPickerRef.current === spellProp) {
         fauxSpellUrlSyncFromPickerRef.current = null
         urlFauxSpellInstrumentedRef.current = spellProp
@@ -343,7 +365,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const refreshSpellsFeedAndCatalog = useCallback(() => {
     void loadSpells()
-    if (pubkey) setSpellCatalogManualRefreshKey((k) => k + 1)
+    if (pubkey) {
+      setSpellCatalogManualRefreshKey((k) => k + 1)
+      setFollowSetManualRefreshKey((k) => k + 1)
+    }
     spellFeedListRef.current?.refresh()
   }, [loadSpells, pubkey])
 
@@ -395,6 +420,44 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       ),
     [blockedRelays]
   )
+
+  useEffect(() => {
+    if (!pubkey) {
+      setFollowSetListEvents([])
+      setFollowSetCatalogLoading(false)
+      return
+    }
+    let cancelled = false
+    setFollowSetCatalogLoading(true)
+    void (async () => {
+      try {
+        const feedUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
+          favoriteRelays,
+          blockedRelays,
+          relayList?.read ?? [],
+          { userWriteRelays: relayList?.write ?? [] }
+        )
+        const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
+        if (!urls.length) {
+          if (!cancelled) setFollowSetListEvents([])
+          return
+        }
+        const events = await queryService.fetchEvents(
+          urls,
+          { authors: [pubkey], kinds: [ExtendedKind.FOLLOW_SET], limit: 500 },
+          { eoseTimeout: 2000, globalTimeout: 15000, firstRelayResultGraceMs: false }
+        )
+        if (!cancelled) setFollowSetListEvents(dedupeFollowSetEventsByD(events))
+      } catch {
+        if (!cancelled) setFollowSetListEvents([])
+      } finally {
+        if (!cancelled) setFollowSetCatalogLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [pubkey, sortedFavoriteRelaysKey, sortedBlockedRelaysKey, relayMailboxStableKey, followSetManualRefreshKey])
 
   /**
    * Kind-777 list for the dropdown. When opening with `?spell=…` (faux name, hex id, nevent, etc.), defer
@@ -598,18 +661,58 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     client.fetchFollowings(pubkey).then(setContacts).catch(() => setContacts([]))
   }, [pubkey])
 
+  const followSetListStableKey = useMemo(
+    () =>
+      followSetListEvents
+        .map((e) => {
+          const d = getFollowSetDTag(e) ?? ''
+          return `${d}:${e.id}:${e.created_at}`
+        })
+        .sort()
+        .join('|'),
+    [followSetListEvents]
+  )
+
   useEffect(() => {
-    if (selectedFauxSpell !== 'following' || !pubkey) {
+    if (!pubkey || !isFollowFeedFauxSpellId(selectedFauxSpell)) {
       setFollowingSubRequests([])
       setFollowingFeedLoading(false)
       return
     }
+
+    const followSetD =
+      selectedFauxSpell && isFollowSetSpellId(selectedFauxSpell)
+        ? decodeFollowSetSpellId(selectedFauxSpell)
+        : null
+
+    if (followSetD && followSetCatalogLoading) {
+      setFollowingSubRequests([])
+      setFollowingFeedLoading(true)
+      return
+    }
+
     let cancelled = false
     setFollowingFeedLoading(true)
     void (async () => {
       try {
-        const followings = await client.fetchFollowings(pubkey)
-        const req = await client.generateSubRequestsForPubkeys([pubkey, ...followings], pubkey)
+        let authorPubkeys: string[]
+        if (selectedFauxSpell === 'following') {
+          const followings = await client.fetchFollowings(pubkey)
+          authorPubkeys = [pubkey, ...followings]
+        } else if (followSetD) {
+          const ev = followSetListEvents.find((e) => getFollowSetDTag(e) === followSetD)
+          if (!ev) {
+            if (!cancelled) setFollowingSubRequests([])
+            return
+          }
+          const listed = pubkeysFromFollowSetEvent(ev)
+          authorPubkeys = [pubkey, ...listed]
+        } else {
+          if (!cancelled) setFollowingSubRequests([])
+          return
+        }
+
+        const req = await client.generateSubRequestsForPubkeys(authorPubkeys, pubkey)
         const merged = augmentSubRequestsWithFavoritesFastReadAndInbox(
           req,
           favoriteRelays,
@@ -636,7 +739,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     pubkey,
     sortedFavoriteRelaysKey,
     sortedBlockedRelaysKey,
-    relayMailboxStableKey
+    relayMailboxStableKey,
+    followSetCatalogLoading,
+    followSetListStableKey
   ])
 
   const interestTagsStableKey = interestListEvent
@@ -663,7 +768,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   ].join('\0')
 
   const syncFauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
-    if (!selectedFauxSpell || selectedFauxSpell === 'following') return []
+    if (!selectedFauxSpell || isFollowFeedFauxSpellId(selectedFauxSpell)) return []
     /** Widen relay pool: these faux spells do not target social kinds (1 / 11 / 1111); skipping strip keeps fast-read mirrors in the stack. */
     const fauxSpellSkipSocialKindBlocked =
       selectedFauxSpell === 'calendar' ||
@@ -726,8 +831,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   }, [selectedFauxSpell, pubkey, fauxFeedRelaysDepsKey, relayMailboxStableKey])
 
   const fauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
-    const base =
-      selectedFauxSpell === 'following' ? followingSubRequests : syncFauxSubRequests
+    const base = isFollowFeedFauxSpellId(selectedFauxSpell ?? '')
+      ? followingSubRequests
+      : syncFauxSubRequests
     return applyFauxSpellCapsToSubRequests(base)
   }, [selectedFauxSpell, followingSubRequests, syncFauxSubRequests])
 
@@ -852,7 +958,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   /** Avoid depending on `kindFilterShowKinds` ref for faux spells that don’t use it (e.g. Discussions). */
   const followingShowKindsKey =
-    selectedFauxSpell === 'following' ? JSON.stringify(kindFilterShowKinds) : ''
+    selectedFauxSpell && isFollowFeedFauxSpellId(selectedFauxSpell)
+      ? JSON.stringify(kindFilterShowKinds)
+      : ''
 
   const showKinds = useMemo(() => {
     if (selectedFauxSpell === 'notifications') {
@@ -861,7 +969,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     if (selectedFauxSpell === 'discussions') {
       return [ExtendedKind.DISCUSSION]
     }
-    if (selectedFauxSpell === 'following') {
+    if (selectedFauxSpell && isFollowFeedFauxSpellId(selectedFauxSpell)) {
       // Profile feed kinds omit boosts; show reposts as cards in this faux spell only.
       const k = kindFilterShowKinds
       if (k.includes(nostrKinds.Repost)) return k
@@ -895,11 +1003,25 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     [favoriteIds]
   )
 
+  const selectedFauxSpellDisplayLabel = useMemo(() => {
+    if (!selectedFauxSpell) return ''
+    if (isFollowSetSpellId(selectedFauxSpell)) {
+      const d = decodeFollowSetSpellId(selectedFauxSpell)
+      if (!d) return t('Follow set')
+      const ev = followSetListEvents.find((e) => getFollowSetDTag(e) === d)
+      return ev ? labelFollowSetEvent(ev) : d
+    }
+    if (isSpellsPageBuiltinFauxSpell(selectedFauxSpell)) {
+      return t(fauxSpellLabelKey(selectedFauxSpell))
+    }
+    return selectedFauxSpell
+  }, [selectedFauxSpell, followSetListEvents, t])
+
   const spellsTitlebarTitle = useMemo(() => {
-    if (selectedFauxSpell) return t(fauxSpellLabelKey(selectedFauxSpell))
+    if (selectedFauxSpell) return selectedFauxSpellDisplayLabel
     if (selectedSpell) return spellMenuLabel(selectedSpell)
     return t('Spells')
-  }, [selectedFauxSpell, selectedSpell, spellMenuLabel, t])
+  }, [selectedFauxSpell, selectedSpell, selectedFauxSpellDisplayLabel, spellMenuLabel, t])
 
   const pickSpell = useCallback(
     (spell: Event | null) => {
@@ -930,9 +1052,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   }, [logSpellFeedPickerSelection, navigatePrimary])
 
   const pickFauxSpell = useCallback(
-    (name: FauxSpellName | null) => {
+    (name: string | null) => {
       setSpellPickerOpen(false)
       if (name) {
+        if (!isSpellsPageFauxSpellParam(name)) return
         // Re-selecting the same built-in feed from the picker should not clear + resubscribe (toggle used to call
         // pickFauxSpell(null) and wipe the timeline when the row was already selected).
         if (selectedFauxSpell === name && selectedSpell === null) {
@@ -972,7 +1095,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const fauxNoteListUseFilterAsIs = useMemo(() => {
     if (!selectedFauxSpell) return true
-    return selectedFauxSpell !== 'following' && selectedFauxSpell !== 'bookmarks'
+    if (selectedFauxSpell && isFollowFeedFauxSpellId(selectedFauxSpell)) return false
+    return selectedFauxSpell !== 'bookmarks'
   }, [selectedFauxSpell])
 
   const notificationsMentionExtraHide = useCallback(
@@ -985,12 +1109,21 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     if (selectedFauxSpell === 'interests') return t('No subscribed interests yet.')
     if (selectedFauxSpell === 'bookmarks') return t('No bookmarked notes with id tags yet.')
     if (selectedFauxSpell === 'following') return t('No follows or relays to load yet.')
+    if (isFollowSetSpellId(selectedFauxSpell)) return t('Follow set feed empty')
     return t('Nothing to load for this feed.')
   }, [selectedFauxSpell, fauxSubRequests.length, t])
 
+  const showFollowFeedLoading = !!(
+    pubkey &&
+    selectedFauxSpell &&
+    isFollowFeedFauxSpellId(selectedFauxSpell) &&
+    (followingFeedLoading ||
+      (isFollowSetSpellId(selectedFauxSpell) && followSetCatalogLoading))
+  )
+
   const spellPickerList = (
     <>
-      {FAUX_SPELL_ORDER.map((name) => {
+      {FAUX_SPELL_ORDER.flatMap((name) => {
         if (
           (name === 'notifications' ||
             name === 'following' ||
@@ -998,11 +1131,11 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             name === 'interests') &&
           !pubkey
         ) {
-          return null
+          return []
         }
         const Icon = FAUX_SPELL_ICON[name]
         const selected = selectedFauxSpell === name
-        return (
+        const builtinRow = (
           <button
             key={name}
             type="button"
@@ -1024,6 +1157,38 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             </span>
           </button>
         )
+        if (name !== 'following' || !pubkey || followSetListEvents.length === 0) {
+          return [builtinRow]
+        }
+        const setRows = followSetListEvents.flatMap((ev) => {
+          const d = getFollowSetDTag(ev)
+          if (!d) return []
+          const spellId = encodeFollowSetSpellId(d)
+          const setSelected = selectedFauxSpell === spellId
+          return [
+            <button
+              key={spellId}
+              type="button"
+              role="option"
+              aria-selected={setSelected}
+              className={cn(
+                'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 pl-8 text-left text-sm transition-colors',
+                'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                setSelected && 'bg-accent/50'
+              )}
+              onClick={() => pickFauxSpell(spellId)}
+            >
+              <span className="flex size-4 shrink-0 items-center justify-center">
+                {setSelected ? <Check className="size-4" aria-hidden /> : null}
+              </span>
+              <Users className="size-4 shrink-0 opacity-80" />
+              <span className="min-w-0 flex-1 truncate text-left font-medium">
+                {labelFollowSetEvent(ev)}
+              </span>
+            </button>
+          ]
+        })
+        return [builtinRow, ...setRows]
       })}
       <button
         type="button"
@@ -1126,7 +1291,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       className="min-w-0 flex-1 justify-between font-normal sm:max-w-md"
       title={
         selectedFauxSpell
-          ? t(fauxSpellLabelKey(selectedFauxSpell))
+          ? selectedFauxSpellDisplayLabel
           : selectedSpell
             ? spellMenuLabel(selectedSpell)
             : undefined
@@ -1135,7 +1300,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     >
       <span className="truncate">
         {selectedFauxSpell
-          ? t(fauxSpellLabelKey(selectedFauxSpell))
+          ? selectedFauxSpellDisplayLabel
           : selectedSpell
             ? spellMenuLabel(selectedSpell)
             : t('Select a spell…')}
@@ -1348,7 +1513,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             <div className="py-8 text-center text-muted-foreground">
               {t('Please log in to view notifications.')}
             </div>
-          ) : selectedFauxSpell === 'following' && !pubkey ? (
+          ) : isFollowFeedFauxSpellId(selectedFauxSpell ?? '') && !pubkey ? (
             <div className="py-8 text-center text-muted-foreground">
               {t('Please login to view following feed')}
             </div>
@@ -1356,7 +1521,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             <div className="py-8 text-center text-muted-foreground">
               {t('Please login to view bookmarks')}
             </div>
-          ) : selectedFauxSpell === 'following' && followingFeedLoading ? (
+          ) : showFollowFeedLoading ? (
             <div className="py-8 text-center text-sm text-muted-foreground">{t('loading...')}</div>
           ) : selectedFauxSpell && fauxSubRequests.length === 0 ? (
             <div className="py-8 text-center text-muted-foreground">{fauxFeedEmptyMessage}</div>
@@ -1384,10 +1549,26 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   clientSideKindFilter={selectedFauxSpell === 'notifications'}
                   useFilterAsIs={fauxNoteListUseFilterAsIs}
                   oneShotFetch={false}
-                  showKind1OPs={selectedFauxSpell === 'following' ? showKind1OPs : true}
-                  showKind1Replies={selectedFauxSpell === 'following' ? showKind1Replies : true}
-                  showKind1111={selectedFauxSpell === 'following' ? showKind1111 : true}
-                  hideReplies={selectedFauxSpell === 'following' ? hideRepliesFollowing : false}
+                  showKind1OPs={
+                    selectedFauxSpell && isFollowFeedFauxSpellId(selectedFauxSpell)
+                      ? showKind1OPs
+                      : true
+                  }
+                  showKind1Replies={
+                    selectedFauxSpell && isFollowFeedFauxSpellId(selectedFauxSpell)
+                      ? showKind1Replies
+                      : true
+                  }
+                  showKind1111={
+                    selectedFauxSpell && isFollowFeedFauxSpellId(selectedFauxSpell)
+                      ? showKind1111
+                      : true
+                  }
+                  hideReplies={
+                    selectedFauxSpell && isFollowFeedFauxSpellId(selectedFauxSpell)
+                      ? hideRepliesFollowing
+                      : false
+                  }
                   extraShouldHideEvent={
                     selectedFauxSpell === 'notifications' && pubkey
                       ? notificationsMentionExtraHide

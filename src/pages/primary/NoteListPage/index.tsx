@@ -11,7 +11,7 @@ import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import type { TNoteListRef } from '@/components/NoteList'
 import { NoteCardLoadingSkeleton } from '@/components/NoteCard'
 import { TPageRef } from '@/types'
-import { Compass, Info } from 'lucide-react'
+import { Compass, Info, UsersRound } from 'lucide-react'
 import React, {
   Dispatch,
   forwardRef,
@@ -224,28 +224,47 @@ function NoteListPageTitlebar({
   const { navigate, current, display } = usePrimaryPage()
   const { primaryViewType, setPrimaryNoteView } = usePrimaryNoteView()
   const exploreActive = display && current === 'explore' && primaryViewType === null
+  const followsLatestActive = display && current === 'follows-latest' && primaryViewType === null
 
   return (
     <div className="relative flex gap-1 items-center h-full justify-between">
       <div className="flex min-w-0 flex-1 items-center gap-1 h-full pl-1 sm:pl-3">
         {isSmallScreen && (
-          <Button
-            variant="ghost"
-            size="titlebar-icon"
-            title={t('Explore')}
-            aria-label={t('Explore')}
-            className={exploreActive ? 'bg-accent/50' : ''}
-            onClick={(e) => {
-              e.stopPropagation()
-              if (primaryViewType !== null) {
-                setPrimaryNoteView(null)
-              } else {
-                navigate('explore')
-              }
-            }}
-          >
-            <Compass />
-          </Button>
+          <>
+            <Button
+              variant="ghost"
+              size="titlebar-icon"
+              title={t('Explore')}
+              aria-label={t('Explore')}
+              className={exploreActive ? 'bg-accent/50' : ''}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (primaryViewType !== null) {
+                  setPrimaryNoteView(null)
+                } else {
+                  navigate('explore')
+                }
+              }}
+            >
+              <Compass />
+            </Button>
+            <Button
+              variant="ghost"
+              size="titlebar-icon"
+              title={t('Follows latest nav label')}
+              aria-label={t('Follows latest nav label')}
+              className={followsLatestActive ? 'bg-accent/50' : ''}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (primaryViewType !== null) {
+                  setPrimaryNoteView(null)
+                }
+                navigate('follows-latest')
+              }}
+            >
+              <UsersRound />
+            </Button>
+          </>
         )}
       </div>
       {isSmallScreen && (

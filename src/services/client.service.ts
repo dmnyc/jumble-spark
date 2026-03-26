@@ -644,7 +644,10 @@ class ClientService extends EventTarget {
 
       const bootstrapExtras: string[] = [...(additionalRelayUrls ?? [])]
       let authorInboxFromContext: string[] = []
-      if (!specifiedRelayUrls?.length && ![kinds.Contacts, kinds.Mutelist].includes(event.kind)) {
+      if (
+        !specifiedRelayUrls?.length &&
+        ![kinds.Contacts, kinds.Mutelist, ExtendedKind.FOLLOW_SET].includes(event.kind)
+      ) {
         const ctxPubkeys = this.collectReplyAndMentionPubkeys(event)
         if (ctxPubkeys.length > 0) {
           const relayLists = await this.fetchRelayLists(ctxPubkeys)
@@ -661,6 +664,7 @@ class ClientService extends EventTarget {
           kinds.RelayList,
           ExtendedKind.CACHE_RELAYS,
           kinds.Contacts,
+          ExtendedKind.FOLLOW_SET,
           ExtendedKind.BLOSSOM_SERVER_LIST,
           ExtendedKind.RELAY_REVIEW
         ].includes(event.kind)

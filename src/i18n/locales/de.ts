@@ -357,6 +357,9 @@ export default {
     'Login to set': 'Anmelden zum Set',
     'Please login to view following feed':
       'Bitte melde dich an, um den Feed der Folgenden zu sehen',
+    'Follow set': 'Folgenliste',
+    'Follow set feed empty':
+      'Diese NIP-51-Liste ist leer, wurde nicht gefunden, oder die Relays konnten sie noch nicht laden.',
     'Send only to r': 'Nur an {{r}} senden',
     'Send only to these relays': 'Nur an diese Relays senden',
     Explore: 'Entdecken',
@@ -1290,6 +1293,24 @@ export default {
     'Quiet Tags': 'Quiet Tags',
     'RSS Feed': 'RSS Feed',
     'RSS Feed Settings': 'RSS Feed Settings',
+    'Follow sets': 'Folgenlisten',
+    'Follow sets settings intro':
+      'NIP-51-Folgenlisten (Kind 30000) gruppieren Personen für eigene Feeds (z. B. in Zaubersprüchen). Die Listen werden auf deine NIP-65-Outbox-Relays und Profil-Suchrelays veröffentlicht.',
+    'New follow set': 'Neue Folgenliste',
+    'Edit follow set': 'Folgenliste bearbeiten',
+    'No follow sets yet': 'Du hast noch keine Folgenlisten angelegt.',
+    'Follow set saved': 'Folgenliste gespeichert',
+    'Follow set deleted': 'Folgenliste gelöscht',
+    'Failed to load follow sets': 'Folgenlisten konnten nicht geladen werden',
+    members: 'Mitglieder',
+    'Optional display title': 'Optionaler Anzeigename',
+    'List id (d tag)': 'Listen-ID (d-Tag)',
+    'Follow set d tag hint':
+      'Stabile Kennung dieser Liste. Nach der ersten Veröffentlichung nicht mehr änderbar.',
+    'People in this list': 'Personen in dieser Liste',
+    'Delete follow set?': 'Diese Folgenliste löschen?',
+    'Delete follow set confirm':
+      'Es wird eine Löschanfrage (Kind 5) für die Liste gesendet. Relays, die sie annehmen, entfernen die Liste; andere Clients können noch zwischengespeicherte Daten anzeigen, bis sie neu laden.',
     'RSS Feeds': 'RSS Feeds',
     'RSS feeds exported to OPML file': 'RSS feeds exported to OPML file',
     'RSS feeds saved': 'RSS feeds saved',

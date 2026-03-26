@@ -804,6 +804,16 @@ export function createMuteListDraftEvent(tags: string[][], content?: string): TD
   }
 }
 
+/** NIP-51 follow set (kind 30000, addressable). Tags must include `d`; use {@link buildFollowSetTags}. */
+export function createFollowSetDraftEvent(tags: string[][], content = '', created_at?: number): TDraftEvent {
+  return {
+    kind: ExtendedKind.FOLLOW_SET,
+    content,
+    created_at: created_at ?? dayjs().unix(),
+    tags
+  }
+}
+
 export function createProfileDraftEvent(content: string, tags: string[][] = []): TDraftEvent {
   return {
     kind: kinds.Metadata,

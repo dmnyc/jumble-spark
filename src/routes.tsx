@@ -24,6 +24,7 @@ const RelayReviewsPageLazy = lazy(() => import('./pages/secondary/RelayReviewsPa
 const RelaySettingsPageLazy = lazy(() => import('./pages/secondary/RelaySettingsPage'))
 const CacheSettingsPageLazy = lazy(() => import('./pages/secondary/CacheSettingsPage'))
 const RssFeedSettingsPageLazy = lazy(() => import('./pages/secondary/RssFeedSettingsPage'))
+const FollowSetsSettingsPageLazy = lazy(() => import('./pages/secondary/FollowSetsSettingsPage'))
 const SearchPageLazy = lazy(() => import('./pages/secondary/SearchPage'))
 const SettingsPageLazy = lazy(() => import('./pages/secondary/SettingsPage'))
 const TranslationPageLazy = lazy(() => import('./pages/secondary/TranslationPage'))
@@ -79,6 +80,7 @@ const ROUTES = [
   { path: '/settings/general', element: SR(GeneralSettingsPageLazy) },
   { path: '/settings/translation', element: SR(TranslationPageLazy) },
   { path: '/settings/rss-feeds', element: SR(RssFeedSettingsPageLazy) },
+  { path: '/settings/follow-sets', element: SR(FollowSetsSettingsPageLazy) },
   { path: '/profile-editor', element: SR(ProfileEditorPageLazy) },
   { path: '/mutes', element: SR(MuteListPageLazy) },
   { path: '/follow-packs', element: SR(FollowPacksRedirectLazy) }

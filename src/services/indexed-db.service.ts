@@ -17,6 +17,8 @@ export const StoreNames = {
   PROFILE_EVENTS: 'profileEvents',
   RELAY_LIST_EVENTS: 'relayListEvents',
   FOLLOW_LIST_EVENTS: 'followListEvents',
+  /** NIP-51 follow sets (kind 30000). Key: pubkey:d */
+  FOLLOW_SET_EVENTS: 'followSetEvents',
   MUTE_LIST_EVENTS: 'muteListEvents',
   BOOKMARK_LIST_EVENTS: 'bookmarkListEvents',
   PIN_LIST_EVENTS: 'pinListEvents',
@@ -54,7 +56,7 @@ export const StoreNames = {
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 28
+const DB_VERSION = 29
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -154,6 +156,9 @@ class IndexedDbService {
           }
           if (!db.objectStoreNames.contains(StoreNames.FOLLOW_LIST_EVENTS)) {
             db.createObjectStore(StoreNames.FOLLOW_LIST_EVENTS, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.FOLLOW_SET_EVENTS)) {
+            db.createObjectStore(StoreNames.FOLLOW_SET_EVENTS, { keyPath: 'key' })
           }
           if (!db.objectStoreNames.contains(StoreNames.MUTE_LIST_EVENTS)) {
             db.createObjectStore(StoreNames.MUTE_LIST_EVENTS, { keyPath: 'key' })
@@ -815,6 +820,8 @@ class IndexedDbService {
         return StoreNames.RELAY_LIST_EVENTS
       case kinds.Contacts:
         return StoreNames.FOLLOW_LIST_EVENTS
+      case ExtendedKind.FOLLOW_SET:
+        return StoreNames.FOLLOW_SET_EVENTS
       case kinds.Mutelist:
         return StoreNames.MUTE_LIST_EVENTS
       case kinds.BookmarkList:
@@ -1452,6 +1459,7 @@ class IndexedDbService {
     if (storeName === StoreNames.PROFILE_EVENTS) return kinds.Metadata
     if (storeName === StoreNames.RELAY_LIST_EVENTS) return kinds.RelayList
     if (storeName === StoreNames.FOLLOW_LIST_EVENTS) return kinds.Contacts
+    if (storeName === StoreNames.FOLLOW_SET_EVENTS) return ExtendedKind.FOLLOW_SET
     if (storeName === StoreNames.MUTE_LIST_EVENTS) return kinds.Mutelist
     if (storeName === StoreNames.BOOKMARK_LIST_EVENTS) return kinds.BookmarkList
     if (storeName === StoreNames.PIN_LIST_EVENTS) return 10001
@@ -1478,6 +1486,7 @@ class IndexedDbService {
       kind === kinds.RelayList ||
       kind === kinds.Mutelist ||
       kind === kinds.BookmarkList ||
+      kind === ExtendedKind.FOLLOW_SET ||
       (kind >= 10000 && kind < 20000) ||
       kind === ExtendedKind.FAVORITE_RELAYS ||
       kind === ExtendedKind.BLOCKED_RELAYS ||
@@ -1551,6 +1560,10 @@ class IndexedDbService {
       { name: StoreNames.RELAY_LIST_EVENTS, expirationTimestamp: Date.now() - 1000 * 60 * 60 * 24 }, // 1 day
       {
         name: StoreNames.FOLLOW_LIST_EVENTS,
+        expirationTimestamp: Date.now() - 1000 * 60 * 60 * 24 // 1 day
+      },
+      {
+        name: StoreNames.FOLLOW_SET_EVENTS,
         expirationTimestamp: Date.now() - 1000 * 60 * 60 * 24 // 1 day
       },
       {

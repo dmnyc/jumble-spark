@@ -6,7 +6,8 @@ import {
   toCacheSettings,
   toTranslation,
   toWallet,
-  toRssFeedSettings
+  toRssFeedSettings,
+  toFollowSetsSettings
 } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import { useSmartSettingsNavigation } from '@/PageManager'
@@ -23,6 +24,7 @@ import {
   Rss,
   Server,
   Settings2,
+  Users,
   Wallet
 } from 'lucide-react'
 import { forwardRef, HTMLProps, useState } from 'react'
@@ -94,6 +96,15 @@ export default function SettingsMenuBody({ className }: { className?: string }) 
           <div className="flex items-center gap-4">
             <Rss />
             <div>{t('RSS Feed Settings')}</div>
+          </div>
+          <ChevronRight />
+        </SettingItem>
+      )}
+      {!!pubkey && (
+        <SettingItem className="clickable" onClick={() => navigateToSettings(toFollowSetsSettings())}>
+          <div className="flex items-center gap-4">
+            <Users />
+            <div>{t('Follow sets')}</div>
           </div>
           <ChevronRight />
         </SettingItem>
