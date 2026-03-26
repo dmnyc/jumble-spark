@@ -142,9 +142,7 @@ class PollResultsService {
       })
 
     this.pollResultsMap.set(pollEventId, { ...results })
-    if (responseEvents.length) {
-      this.notifyPollResults(pollEventId)
-    }
+    this.notifyPollResults(pollEventId)
     return results
   }
 

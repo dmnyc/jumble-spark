@@ -10,7 +10,7 @@ import dayjs from 'dayjs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CheckCircle2 } from 'lucide-react'
 import { Event } from 'nostr-tools'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import logger from '@/lib/logger'
@@ -42,6 +42,12 @@ export default function Poll({ event, className }: { event: Event; className?: s
     return Boolean(isExpired) || resultsRevealed || event.pubkey === pubkey || !canVote
   }, [isExpired, resultsRevealed, event.pubkey, pubkey, canVote])
   const [containerElement, setContainerElement] = useState<HTMLDivElement | null>(null)
+  /** Stops viewport-triggered refetch loops when the first load fails or yields no subscriber update. */
+  const pollResultsViewportFetchDoneRef = useRef(false)
+
+  useEffect(() => {
+    pollResultsViewportFetchDoneRef.current = false
+  }, [event.id])
 
   const fetchResults = useCallback(async () => {
     const meta = getPollMetadataFromEvent(event)
@@ -62,12 +68,21 @@ export default function Poll({ event, className }: { event: Event; className?: s
       logger.error('Failed to fetch poll results', { error, eventId: event.id })
       toast.error('Failed to fetch poll results: ' + (error as Error).message)
     } finally {
+      pollResultsViewportFetchDoneRef.current = true
       setIsLoadingResults(false)
     }
   }, [event])
 
   useEffect(() => {
-    if (pollResults || isLoadingResults || !containerElement) return
+    if (
+      isExpired ||
+      pollResults ||
+      isLoadingResults ||
+      !containerElement ||
+      pollResultsViewportFetchDoneRef.current
+    ) {
+      return
+    }
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -87,7 +102,7 @@ export default function Poll({ event, className }: { event: Event; className?: s
     return () => {
       observer.unobserve(containerElement)
     }
-  }, [pollResults, isLoadingResults, containerElement, fetchResults])
+  }, [isExpired, pollResults, isLoadingResults, containerElement, fetchResults])
 
   useEffect(() => {
     if (!poll || !isExpired) return

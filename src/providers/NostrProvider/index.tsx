@@ -735,7 +735,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
           limit: 100
         },
         {
-          '#P': [pubkey],
+          '#p': [pubkey],
           kinds: [kinds.Zap],
           limit: 100
         }

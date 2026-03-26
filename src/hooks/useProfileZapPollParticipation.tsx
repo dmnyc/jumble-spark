@@ -47,7 +47,7 @@ export function useProfileZapPollParticipation(profilePubkey: string | undefined
       const urls = participationRelayUrls()
       const receipts = await client.fetchEvents(urls, {
         kinds: [kinds.Zap],
-        '#P': [profilePubkey.trim().toLowerCase()],
+        '#p': [profilePubkey.trim().toLowerCase()],
         limit: 300
       })
       const voteReceipts = filterZapPollVoteReceiptsForVoter(receipts, profilePubkey)
