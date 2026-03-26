@@ -7,7 +7,7 @@ import {
 } from '@/lib/fetch-badge-nip58'
 import {
   profileAccordionGetCachedBadges,
-  profileAccordionInvalidate,
+  profileAccordionGetCachedRelayUrls,
   profileAccordionRelayUrlsKey,
   profileAccordionSetBadges
 } from '@/lib/profile-accordion-session-cache'
@@ -55,6 +55,13 @@ function badgeNeedsDefinitionMedia(b: TProfileBadge): boolean {
   return !!(parsed && parsed.kind === ExtendedKind.BADGE_DEFINITION)
 }
 
+function mergeBadgesByAwardId(seed: TProfileBadge[], fresh: TProfileBadge[]): TProfileBadge[] {
+  const m = new Map<string, TProfileBadge>()
+  for (const b of seed) m.set(b.awardId, b)
+  for (const b of fresh) m.set(b.awardId, b)
+  return [...m.values()]
+}
+
 async function enrichBadgesFromIndexedDb(badges: TProfileBadge[]): Promise<TProfileBadge[]> {
   return Promise.all(
     badges.map(async (b) => {
@@ -85,6 +92,13 @@ async function enrichBadgesFromIndexedDb(badges: TProfileBadge[]): Promise<TProf
 /** Pass relayUrls to share with other profile fetches. */
 export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[]) {
   const { blockedRelays } = useFavoriteRelays()
+  const blockedRelaysRef = useRef(blockedRelays)
+  blockedRelaysRef.current = blockedRelays
+  const relayUrlsRef = useRef(relayUrls)
+  relayUrlsRef.current = relayUrls
+  const blockedRelaysKey = profileAccordionRelayUrlsKey(blockedRelays)
+  const relayUrlsKey = profileAccordionRelayUrlsKey(relayUrls ?? [])
+
   const [badges, setBadges] = useState<TProfileBadge[]>([])
   const [loading, setLoading] = useState(false)
   const fetchIdRef = useRef(0)
@@ -100,14 +114,22 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
       return
     }
 
-    const urls =
-      force || !(relayUrls && relayUrls.length > 0)
-        ? await buildProfileRelayUrls(pubkey, blockedRelays)
-        : relayUrls
+    const relayUrlsLatest = relayUrlsRef.current
+    let urls =
+      relayUrlsLatest && relayUrlsLatest.length > 0
+        ? relayUrlsLatest
+        : profileAccordionGetCachedRelayUrls(pubkey) ?? []
+
+    if (force || urls.length === 0) {
+      urls = await buildProfileRelayUrls(pubkey, blockedRelaysRef.current)
+    }
     const relayKey = profileAccordionRelayUrlsKey(urls)
 
+    const seedBadges = profileAccordionGetCachedBadges(pubkey, relayKey)
+    let deferLoading = !!(force && seedBadges?.length)
+
     if (!force) {
-      const cached = profileAccordionGetCachedBadges(pubkey, relayKey)
+      const cached = seedBadges
       if (cached?.length) {
         if (cached.some(badgeNeedsDefinitionMedia)) {
           const enriched = await enrichBadgesFromIndexedDb(cached)
@@ -118,6 +140,7 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
             setLoading(false)
             return
           }
+          deferLoading = false
           // Session cache was incomplete and IndexedDB has no definitions — fetch from network below.
         } else {
           if (myFetchId !== fetchIdRef.current) return
@@ -128,8 +151,14 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
       }
     }
 
+    if (force && seedBadges?.length && myFetchId === fetchIdRef.current) {
+      setBadges(seedBadges)
+    }
+
     if (myFetchId !== fetchIdRef.current) return
-    setLoading(true)
+    if (!deferLoading) {
+      setLoading(true)
+    }
 
     try {
       const events = await queryService.fetchEvents(
@@ -140,7 +169,7 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
       const profileBadgesEvent = events.sort((a, b) => b.created_at - a.created_at)[0]
 
       if (!profileBadgesEvent || myFetchId !== fetchIdRef.current) {
-        if (myFetchId === fetchIdRef.current) setBadges([])
+        if (myFetchId === fetchIdRef.current && !seedBadges?.length) setBadges([])
         return
       }
 
@@ -161,7 +190,7 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
       }
 
       if (pairs.length === 0) {
-        setBadges([])
+        if (!seedBadges?.length) setBadges([])
         return
       }
 
@@ -172,7 +201,7 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
             return { a, awardId: e }
           }
 
-          const relayPool = mergeNip58BadgeRelayPool(urls, eRelayHint, blockedRelays)
+          const relayPool = mergeNip58BadgeRelayPool(urls, eRelayHint, blockedRelaysRef.current)
           const [defEvent, awardEvent] = await Promise.all([
             fetchNip58BadgeDefinition(parsed.pubkey, parsed.d, relayPool),
             fetchNip58BadgeAward(e, relayPool)
@@ -212,18 +241,18 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
       )
 
       if (myFetchId !== fetchIdRef.current) return
-      setBadges(result)
-      profileAccordionSetBadges(pubkey, relayKey, result)
+      const merged = mergeBadgesByAwardId(seedBadges ?? [], result)
+      setBadges(merged)
+      profileAccordionSetBadges(pubkey, relayKey, merged)
     } catch {
       if (myFetchId !== fetchIdRef.current) return
-      setBadges([])
+      if (!seedBadges?.length) setBadges([])
     } finally {
       if (myFetchId === fetchIdRef.current) setLoading(false)
     }
-  }, [pubkey, blockedRelays, relayUrls])
+  }, [pubkey, blockedRelaysKey, relayUrlsKey])
 
   const refresh = useCallback(() => {
-    if (pubkey) profileAccordionInvalidate(pubkey, 'badges')
     void fetchBadges(true)
   }, [pubkey, fetchBadges])
 

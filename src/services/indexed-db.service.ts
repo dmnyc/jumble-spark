@@ -359,11 +359,11 @@ class IndexedDbService {
           logger.debug('[IndexedDB] No existing event found', { storeName, key })
         }
         
-        if (oldValue?.value && oldValue.value.created_at >= cleanEvent.created_at) {
-          logger.debug('[IndexedDB] Keeping existing event (newer or same timestamp)', { 
+        if (oldValue?.value && oldValue.value.created_at > cleanEvent.created_at) {
+          logger.debug('[IndexedDB] Keeping existing event (strictly newer timestamp)', {
             storeName,
             key,
-            existingEventId: oldValue.value.id 
+            existingEventId: oldValue.value.id
           })
           transaction.commit()
           return resolve(oldValue.value)
@@ -929,7 +929,7 @@ class IndexedDbService {
       const getRequest = store.get(key)
       getRequest.onsuccess = () => {
         const oldValue = getRequest.result as TValue<Event> | undefined
-        if (oldValue?.value && oldValue.value.created_at >= cleanEvent.created_at) {
+        if (oldValue?.value && oldValue.value.created_at > cleanEvent.created_at) {
           // Update master key link even if event is not newer
           if (oldValue.masterPublicationKey !== masterKey) {
             const value = this.formatValue(key, oldValue.value)
@@ -2065,15 +2065,15 @@ class IndexedDbService {
           // Ignore errors
         }
       } else if (parts.length >= 2) {
-        // Replaceable event coordinate format: "kind:pubkey" or "kind:pubkey:d"
+        // Replaceable coordinate: kind:64-hex-pubkey[:d...] (d may contain ':' per NIP-33)
         const kind = parseInt(parts[0]!, 10)
         const pubkey = parts[1]!
-        const d = parts[2]
-        if (!isNaN(kind)) {
+        const d = parts.length > 2 ? parts.slice(2).join(':') : undefined
+        if (!isNaN(kind) && /^[0-9a-f]{64}$/i.test(pubkey)) {
           try {
             const storeName = this.getStoreNameByKind(kind)
             if (storeName) {
-              await this.deleteStoreItem(storeName, this.getReplaceableEventKey(pubkey, d))
+              await this.deleteStoreItem(storeName, this.getReplaceableEventKey(pubkey.toLowerCase(), d))
               removed++
             }
           } catch {

@@ -39,6 +39,11 @@ export default function ProfileBadgeDetailDialog({
 }) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
+  /** Secondary panel is below dialog z-index; close modal before navigating. */
+  const pushSecondaryAndClose = (path: string) => {
+    onOpenChange(false)
+    push(path)
+  }
   const [recipientPubkeys, setRecipientPubkeys] = useState<string[]>([])
   const [recipientsLoading, setRecipientsLoading] = useState(false)
   const [recipientsError, setRecipientsError] = useState(false)
@@ -141,7 +146,7 @@ export default function ProfileBadgeDetailDialog({
             <button
               type="button"
               className="flex w-full items-center gap-2 rounded-md border bg-muted/40 px-2 py-1.5 text-left hover:bg-muted/60"
-              onClick={() => push(toProfile(issuerPubkey))}
+              onClick={() => pushSecondaryAndClose(toProfile(issuerPubkey))}
             >
               <UserAvatar userId={issuerPubkey} size="small" className="shrink-0" />
               <Username userId={issuerPubkey} className="truncate text-sm font-medium" skeletonClassName="h-4" />
@@ -165,7 +170,7 @@ export default function ProfileBadgeDetailDialog({
                     <button
                       type="button"
                       className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-muted/80"
-                      onClick={() => push(toProfile(pk))}
+                      onClick={() => pushSecondaryAndClose(toProfile(pk))}
                     >
                       <UserAvatar userId={pk} size="small" className="shrink-0" />
                       <Username userId={pk} className="truncate text-sm" skeletonClassName="h-4" />
@@ -177,7 +182,12 @@ export default function ProfileBadgeDetailDialog({
           )}
         </div>
 
-        <Button type="button" variant="secondary" className="w-full" onClick={() => push(toNote(badge.awardId))}>
+        <Button
+          type="button"
+          variant="secondary"
+          className="w-full"
+          onClick={() => pushSecondaryAndClose(toNote(badge.awardId))}
+        >
           {t('View award')}
         </Button>
       </DialogContent>

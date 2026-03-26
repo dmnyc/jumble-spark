@@ -48,7 +48,7 @@ import {
   FAUX_SPELL_ORDER,
   FIRST_RELAY_RESULT_GRACE_MS,
 } from '@/constants'
-import { isUserInEventMentions } from '@/lib/event'
+import { filterEventsExcludingTombstones, isUserInEventMentions } from '@/lib/event'
 import { formatPubkey } from '@/lib/pubkey'
 import {
   augmentSubRequestsWithFavoritesFastReadAndInbox,
@@ -58,6 +58,7 @@ import {
   computeKind777SpellFeedSubscriptionKey,
   computeSpellSubRequestsIdentityKey
 } from '@/lib/spell-feed-request-identity'
+import { TOMBSTONES_UPDATED_EVENT } from '@/lib/tombstone-events'
 import { normalizeUrl } from '@/lib/url'
 import {
   buildSpellCatalogAuthors,
@@ -447,7 +448,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
           { authors: [pubkey], kinds: [ExtendedKind.FOLLOW_SET], limit: 500 },
           { eoseTimeout: 2000, globalTimeout: 15000, firstRelayResultGraceMs: false }
         )
-        if (!cancelled) setFollowSetListEvents(dedupeFollowSetEventsByD(events))
+        const tombstones = await indexedDb.getAllTombstones()
+        if (!cancelled) {
+          setFollowSetListEvents(dedupeFollowSetEventsByD(filterEventsExcludingTombstones(events, tombstones)))
+        }
       } catch {
         if (!cancelled) setFollowSetListEvents([])
       } finally {
@@ -458,6 +462,12 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       cancelled = true
     }
   }, [pubkey, sortedFavoriteRelaysKey, sortedBlockedRelaysKey, relayMailboxStableKey, followSetManualRefreshKey])
+
+  useEffect(() => {
+    const onTombstones = () => setFollowSetManualRefreshKey((k) => k + 1)
+    window.addEventListener(TOMBSTONES_UPDATED_EVENT, onTombstones)
+    return () => window.removeEventListener(TOMBSTONES_UPDATED_EVENT, onTombstones)
+  }, [])
 
   /**
    * Kind-777 list for the dropdown. When opening with `?spell=…` (faux name, hex id, nevent, etc.), defer

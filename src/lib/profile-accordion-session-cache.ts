@@ -16,11 +16,15 @@ export type ProfileAccordionInteractionsSnapshot = {
 
 type Entry = {
   relayUrls?: string[]
-  /** Fingerprint of relays used for interaction/badge/pack slices */
+  /** Fingerprint of profile relay list from {@link profileAccordionSetRelayUrls} (invalidates slices when it changes) */
   relayUrlsKey?: string
   interactions?: ProfileAccordionInteractionsSnapshot
+  /** Relay key used for the last interactions fetch (per-slice; avoids races with badges / follow packs) */
+  interactionsRelayKey?: string
   badges?: TProfileBadge[]
+  badgesRelayKey?: string
   followPacks?: TProfileFollowPack[]
+  followPacksRelayKey?: string
   /** viewer hex pubkey → reports */
   reportsByViewer?: Record<string, Event[]>
 }
@@ -51,8 +55,11 @@ export function profileAccordionSetRelayUrls(pubkey: string, urls: string[]): vo
   const key = profileAccordionRelayUrlsKey(urls)
   if (e.relayUrlsKey && e.relayUrlsKey !== key) {
     delete e.interactions
+    delete e.interactionsRelayKey
     delete e.badges
+    delete e.badgesRelayKey
     delete e.followPacks
+    delete e.followPacksRelayKey
   }
   e.relayUrls = urls
   e.relayUrlsKey = key
@@ -63,7 +70,7 @@ export function profileAccordionGetCachedInteractions(
   relayKey: string
 ): ProfileAccordionInteractionsSnapshot | undefined {
   const e = store.get(pubkey)
-  if (!e?.interactions || e.relayUrlsKey !== relayKey) return undefined
+  if (!e?.interactions || e.interactionsRelayKey !== relayKey) return undefined
   return e.interactions
 }
 
@@ -73,20 +80,20 @@ export function profileAccordionSetInteractions(
   data: ProfileAccordionInteractionsSnapshot
 ): void {
   const e = getEntry(pubkey)
-  e.relayUrlsKey = relayKey
   e.interactions = data
+  e.interactionsRelayKey = relayKey
 }
 
 export function profileAccordionGetCachedBadges(pubkey: string, relayKey: string): TProfileBadge[] | undefined {
   const e = store.get(pubkey)
-  if (!e?.badges || e.relayUrlsKey !== relayKey) return undefined
+  if (!e?.badges || e.badgesRelayKey !== relayKey) return undefined
   return e.badges
 }
 
 export function profileAccordionSetBadges(pubkey: string, relayKey: string, badges: TProfileBadge[]): void {
   const e = getEntry(pubkey)
-  e.relayUrlsKey = relayKey
   e.badges = badges
+  e.badgesRelayKey = relayKey
 }
 
 export function profileAccordionGetCachedFollowPacks(
@@ -94,7 +101,7 @@ export function profileAccordionGetCachedFollowPacks(
   relayKey: string
 ): TProfileFollowPack[] | undefined {
   const e = store.get(pubkey)
-  if (!e?.followPacks || e.relayUrlsKey !== relayKey) return undefined
+  if (!e?.followPacks || e.followPacksRelayKey !== relayKey) return undefined
   return e.followPacks
 }
 
@@ -104,8 +111,8 @@ export function profileAccordionSetFollowPacks(
   packs: TProfileFollowPack[]
 ): void {
   const e = getEntry(pubkey)
-  e.relayUrlsKey = relayKey
   e.followPacks = packs
+  e.followPacksRelayKey = relayKey
 }
 
 export function profileAccordionGetCachedReports(profilePubkey: string, viewerPubkey: string): Event[] | undefined {
@@ -142,17 +149,23 @@ export function profileAccordionInvalidate(pubkey: string, slice: ProfileAccordi
       delete e.relayUrls
       delete e.relayUrlsKey
       delete e.interactions
+      delete e.interactionsRelayKey
       delete e.badges
+      delete e.badgesRelayKey
       delete e.followPacks
+      delete e.followPacksRelayKey
       break
     case 'interactions':
       delete e.interactions
+      delete e.interactionsRelayKey
       break
     case 'badges':
       delete e.badges
+      delete e.badgesRelayKey
       break
     case 'followPacks':
       delete e.followPacks
+      delete e.followPacksRelayKey
       break
     case 'reports':
       delete e.reportsByViewer

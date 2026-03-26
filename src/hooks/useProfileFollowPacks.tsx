@@ -1,7 +1,7 @@
-import { ExtendedKind } from '@/constants'
+import { ExtendedKind, FAST_READ_RELAY_URLS } from '@/constants'
 import {
   profileAccordionGetCachedFollowPacks,
-  profileAccordionInvalidate,
+  profileAccordionGetCachedRelayUrls,
   profileAccordionRelayUrlsKey,
   profileAccordionSetFollowPacks
 } from '@/lib/profile-accordion-session-cache'
@@ -27,6 +27,13 @@ export function useProfileFollowPacks(
   relayUrls?: string[]
 ) {
   const { blockedRelays } = useFavoriteRelays()
+  const blockedRelaysRef = useRef(blockedRelays)
+  blockedRelaysRef.current = blockedRelays
+  const relayUrlsRef = useRef(relayUrls)
+  relayUrlsRef.current = relayUrls
+  const blockedRelaysKey = profileAccordionRelayUrlsKey(blockedRelays)
+  const relayUrlsKey = profileAccordionRelayUrlsKey(relayUrls ?? [])
+
   const [packs, setPacks] = useState<TProfileFollowPack[]>([])
   const [loading, setLoading] = useState(false)
   const fetchIdRef = useRef(0)
@@ -42,13 +49,19 @@ export function useProfileFollowPacks(
       return
     }
 
-    const urls =
-      force || !(relayUrls && relayUrls.length > 0)
-        ? await buildProfileRelayUrls(pubkey, blockedRelays)
-        : relayUrls
-    const relayKey = profileAccordionRelayUrlsKey(urls)
+    const relayUrlsLatest = relayUrlsRef.current
+    let urls =
+      relayUrlsLatest && relayUrlsLatest.length > 0
+        ? relayUrlsLatest
+        : profileAccordionGetCachedRelayUrls(pubkey) ?? []
 
-    if (!force && urls.length > 0) {
+    if (force || urls.length === 0) {
+      urls = await buildProfileRelayUrls(pubkey, blockedRelaysRef.current)
+    }
+    const queryUrls = urls.length > 0 ? urls : [...FAST_READ_RELAY_URLS]
+    const relayKey = profileAccordionRelayUrlsKey(queryUrls)
+
+    if (!force) {
       const cached = profileAccordionGetCachedFollowPacks(pubkey, relayKey)
       if (cached) {
         if (myFetchId !== fetchIdRef.current) return
@@ -58,39 +71,44 @@ export function useProfileFollowPacks(
       }
     }
 
+    const seed = profileAccordionGetCachedFollowPacks(pubkey, relayKey)
+    if (seed?.length && myFetchId === fetchIdRef.current) {
+      setPacks(seed)
+    }
+
     if (myFetchId !== fetchIdRef.current) return
-    setLoading(true)
+    if (!seed?.length) {
+      setLoading(true)
+    }
 
     try {
-      if (urls.length === 0) {
-        if (myFetchId === fetchIdRef.current) setPacks([])
-        return
-      }
-
       const events = await queryService.fetchEvents(
-        urls,
+        queryUrls,
         [{ '#p': [pubkey], kinds: [ExtendedKind.FOLLOW_PACK], limit: 50 }],
         { eoseTimeout: 2000, globalTimeout: 15000, firstRelayResultGraceMs: false }
       )
 
       if (myFetchId !== fetchIdRef.current) return
 
-      const result: TProfileFollowPack[] = events.map((evt) => ({
+      const network: TProfileFollowPack[] = events.map((evt) => ({
         event: evt,
         title: getPackTitle(evt)
       }))
-      setPacks(result)
-      profileAccordionSetFollowPacks(pubkey, relayKey, result)
+      const byId = new Map<string, TProfileFollowPack>()
+      for (const p of seed ?? []) byId.set(p.event.id, p)
+      for (const p of network) byId.set(p.event.id, p)
+      const merged = [...byId.values()].sort((a, b) => b.event.created_at - a.event.created_at)
+      setPacks(merged)
+      profileAccordionSetFollowPacks(pubkey, relayKey, merged)
     } catch {
       if (myFetchId !== fetchIdRef.current) return
-      setPacks([])
+      if (!seed?.length) setPacks([])
     } finally {
       if (myFetchId === fetchIdRef.current) setLoading(false)
     }
-  }, [pubkey, blockedRelays, relayUrls])
+  }, [pubkey, blockedRelaysKey, relayUrlsKey])
 
   const refresh = useCallback(() => {
-    if (pubkey) profileAccordionInvalidate(pubkey, 'followPacks')
     void fetchPacks(true)
   }, [pubkey, fetchPacks])
 

@@ -1326,10 +1326,9 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }
 
   const updateFavoriteRelaysEvent = async (favoriteRelaysEvent: Event) => {
-    const newFavoriteRelaysEvent = await indexedDb.putReplaceableEvent(favoriteRelaysEvent)
-    if (newFavoriteRelaysEvent.id !== favoriteRelaysEvent.id) return
-
-    setFavoriteRelaysEvent(newFavoriteRelaysEvent)
+    const stored = await indexedDb.putReplaceableEvent(favoriteRelaysEvent)
+    /** Always sync UI to IndexedDB winner (same-second updates must not leave stale list + relay sets). */
+    setFavoriteRelaysEvent(stored)
   }
 
   const updateBlockedRelaysEvent = async (blockedRelaysEvent: Event) => {

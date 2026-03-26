@@ -9,7 +9,7 @@ import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import { TRelaySet } from '@/types'
 import { Event, kinds } from 'nostr-tools'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FavoriteRelaysContext } from './favorite-relays-context'
 import { useNostr } from './NostrProvider'
 
@@ -148,146 +148,201 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
     )
   }, [relaySetEvents, blockedRelays])
 
-  const addFavoriteRelays = async (relayUrls: string[]) => {
-    const normalizedUrls = relayUrls
-      .map((relayUrl) => normalizeUrl(relayUrl))
-      .filter((url) => !!url && !favoriteRelays.includes(url))
-    if (!normalizedUrls.length) return
+  const addFavoriteRelays = useCallback(
+    async (relayUrls: string[]) => {
+      const normalizedUrls = relayUrls
+        .map((relayUrl) => normalizeUrl(relayUrl))
+        .filter((url) => !!url && !favoriteRelays.includes(url))
+      if (!normalizedUrls.length) return
 
-    const draftEvent = createFavoriteRelaysDraftEvent(
-      [...favoriteRelays, ...normalizedUrls],
-      relaySetEvents
-    )
-    const newFavoriteRelaysEvent = await publish(draftEvent)
-    updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
-  }
+      const draftEvent = createFavoriteRelaysDraftEvent(
+        [...favoriteRelays, ...normalizedUrls],
+        relaySetEvents
+      )
+      const newFavoriteRelaysEvent = await publish(draftEvent)
+      updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
+    },
+    [favoriteRelays, relaySetEvents, publish, updateFavoriteRelaysEvent]
+  )
 
-  const deleteFavoriteRelays = async (relayUrls: string[]) => {
-    const normalizedUrls = relayUrls
-      .map((relayUrl) => normalizeUrl(relayUrl))
-      .filter((url) => !!url && favoriteRelays.includes(url))
-    if (!normalizedUrls.length) return
+  const deleteFavoriteRelays = useCallback(
+    async (relayUrls: string[]) => {
+      const normalizedUrls = relayUrls
+        .map((relayUrl) => normalizeUrl(relayUrl))
+        .filter((url) => !!url && favoriteRelays.includes(url))
+      if (!normalizedUrls.length) return
 
-    const draftEvent = createFavoriteRelaysDraftEvent(
-      favoriteRelays.filter((url) => !normalizedUrls.includes(url)),
-      relaySetEvents
-    )
-    const newFavoriteRelaysEvent = await publish(draftEvent)
-    updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
-  }
+      const draftEvent = createFavoriteRelaysDraftEvent(
+        favoriteRelays.filter((url) => !normalizedUrls.includes(url)),
+        relaySetEvents
+      )
+      const newFavoriteRelaysEvent = await publish(draftEvent)
+      updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
+    },
+    [favoriteRelays, relaySetEvents, publish, updateFavoriteRelaysEvent]
+  )
 
-  const createRelaySet = async (relaySetName: string, relayUrls: string[] = []) => {
-    const normalizedUrls = relayUrls
-      .map((url) => normalizeUrl(url))
-      .filter((url) => isWebsocketUrl(url))
-    const id = randomString()
-    const relaySetDraftEvent = createRelaySetDraftEvent({
-      id,
-      name: relaySetName,
-      relayUrls: normalizedUrls
-    })
-    const newRelaySetEvent = await publish(relaySetDraftEvent)
-    await indexedDb.putReplaceableEvent(newRelaySetEvent)
-
-    const favoriteRelaysDraftEvent = createFavoriteRelaysDraftEvent(favoriteRelays, [
-      ...relaySetEvents,
-      newRelaySetEvent
-    ])
-    const newFavoriteRelaysEvent = await publish(favoriteRelaysDraftEvent)
-    updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
-  }
-
-  const addRelaySets = async (newRelaySetEvents: Event[]) => {
-    const favoriteRelaysDraftEvent = createFavoriteRelaysDraftEvent(favoriteRelays, [
-      ...relaySetEvents,
-      ...newRelaySetEvents
-    ])
-    const newFavoriteRelaysEvent = await publish(favoriteRelaysDraftEvent)
-    updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
-  }
-
-  const deleteRelaySet = async (id: string) => {
-    const newRelaySetEvents = relaySetEvents.filter((event) => {
-      return getReplaceableEventIdentifier(event) !== id
-    })
-    if (newRelaySetEvents.length === relaySetEvents.length) return
-
-    const draftEvent = createFavoriteRelaysDraftEvent(favoriteRelays, newRelaySetEvents)
-    const newFavoriteRelaysEvent = await publish(draftEvent)
-    updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
-  }
-
-  const updateRelaySet = async (newSet: TRelaySet) => {
-    const draftEvent = createRelaySetDraftEvent(newSet)
-    const newRelaySetEvent = await publish(draftEvent)
-    await indexedDb.putReplaceableEvent(newRelaySetEvent)
-
-    setRelaySetEvents((prev) => {
-      return prev.map((event) => {
-        if (getReplaceableEventIdentifier(event) === newSet.id) {
-          return newRelaySetEvent
-        }
-        return event
+  const createRelaySet = useCallback(
+    async (relaySetName: string, relayUrls: string[] = []) => {
+      const normalizedUrls = relayUrls
+        .map((url) => normalizeUrl(url))
+        .filter((url) => isWebsocketUrl(url))
+      const id = randomString()
+      const relaySetDraftEvent = createRelaySetDraftEvent({
+        id,
+        name: relaySetName,
+        relayUrls: normalizedUrls
       })
-    })
-  }
+      const newRelaySetEvent = await publish(relaySetDraftEvent)
+      await indexedDb.putReplaceableEvent(newRelaySetEvent)
 
-  const reorderFavoriteRelays = async (reorderedRelays: string[]) => {
-    setFavoriteRelays(reorderedRelays)
-    const draftEvent = createFavoriteRelaysDraftEvent(reorderedRelays, relaySetEvents)
-    const newFavoriteRelaysEvent = await publish(draftEvent)
-    updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
-  }
+      const favoriteRelaysDraftEvent = createFavoriteRelaysDraftEvent(favoriteRelays, [
+        ...relaySetEvents,
+        newRelaySetEvent
+      ])
+      const newFavoriteRelaysEvent = await publish(favoriteRelaysDraftEvent)
+      updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
+    },
+    [favoriteRelays, relaySetEvents, publish, updateFavoriteRelaysEvent]
+  )
 
-  const addBlockedRelays = async (relayUrls: string[]) => {
-    const normalizedUrls = relayUrls
-      .map((relayUrl) => normalizeUrl(relayUrl))
-      .filter((url) => !!url && !blockedRelays.includes(url))
-    if (!normalizedUrls.length) return
-    const newBlockedRelays = [...blockedRelays, ...normalizedUrls]
-    setBlockedRelays(newBlockedRelays)
-    const draftEvent = createBlockedRelaysDraftEvent(newBlockedRelays)
-    const newBlockedRelaysEvent = await publish(draftEvent)
-    updateBlockedRelaysEvent(newBlockedRelaysEvent)
-  }
+  const addRelaySets = useCallback(
+    async (newRelaySetEvents: Event[]) => {
+      const favoriteRelaysDraftEvent = createFavoriteRelaysDraftEvent(favoriteRelays, [
+        ...relaySetEvents,
+        ...newRelaySetEvents
+      ])
+      const newFavoriteRelaysEvent = await publish(favoriteRelaysDraftEvent)
+      updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
+    },
+    [favoriteRelays, relaySetEvents, publish, updateFavoriteRelaysEvent]
+  )
 
-  const deleteBlockedRelays = async (relayUrls: string[]) => {
-    const normalizedUrls = relayUrls.map((relayUrl) => normalizeUrl(relayUrl)).filter(Boolean)
-    const newBlockedRelays = blockedRelays.filter((relay) => !normalizedUrls.includes(relay))
-    setBlockedRelays(newBlockedRelays)
-    const draftEvent = createBlockedRelaysDraftEvent(newBlockedRelays)
-    const newBlockedRelaysEvent = await publish(draftEvent)
-    updateBlockedRelaysEvent(newBlockedRelaysEvent)
-  }
+  const deleteRelaySet = useCallback(
+    async (id: string) => {
+      const newRelaySetEvents = relaySetEvents.filter((event) => {
+        return getReplaceableEventIdentifier(event) !== id
+      })
+      if (newRelaySetEvents.length === relaySetEvents.length) return
 
-  const reorderRelaySets = async (reorderedSets: TRelaySet[]) => {
-    setRelaySets(reorderedSets)
-    const draftEvent = createFavoriteRelaysDraftEvent(
+      const previousRelaySetEvents = relaySetEvents
+      setRelaySetEvents(newRelaySetEvents)
+
+      try {
+        const draftEvent = createFavoriteRelaysDraftEvent(favoriteRelays, newRelaySetEvents)
+        const newFavoriteRelaysEvent = await publish(draftEvent)
+        await updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
+      } catch (e) {
+        setRelaySetEvents(previousRelaySetEvents)
+        throw e
+      }
+    },
+    [favoriteRelays, relaySetEvents, publish, updateFavoriteRelaysEvent]
+  )
+
+  const updateRelaySet = useCallback(
+    async (newSet: TRelaySet) => {
+      const draftEvent = createRelaySetDraftEvent(newSet)
+      const newRelaySetEvent = await publish(draftEvent)
+      await indexedDb.putReplaceableEvent(newRelaySetEvent)
+
+      setRelaySetEvents((prev) => {
+        return prev.map((event) => {
+          if (getReplaceableEventIdentifier(event) === newSet.id) {
+            return newRelaySetEvent
+          }
+          return event
+        })
+      })
+    },
+    [publish]
+  )
+
+  const reorderFavoriteRelays = useCallback(
+    async (reorderedRelays: string[]) => {
+      setFavoriteRelays(reorderedRelays)
+      const draftEvent = createFavoriteRelaysDraftEvent(reorderedRelays, relaySetEvents)
+      const newFavoriteRelaysEvent = await publish(draftEvent)
+      updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
+    },
+    [relaySetEvents, publish, updateFavoriteRelaysEvent]
+  )
+
+  const addBlockedRelays = useCallback(
+    async (relayUrls: string[]) => {
+      const normalizedUrls = relayUrls
+        .map((relayUrl) => normalizeUrl(relayUrl))
+        .filter((url) => !!url && !blockedRelays.includes(url))
+      if (!normalizedUrls.length) return
+      const newBlockedRelays = [...blockedRelays, ...normalizedUrls]
+      setBlockedRelays(newBlockedRelays)
+      const draftEvent = createBlockedRelaysDraftEvent(newBlockedRelays)
+      const newBlockedRelaysEvent = await publish(draftEvent)
+      updateBlockedRelaysEvent(newBlockedRelaysEvent)
+    },
+    [blockedRelays, publish, updateBlockedRelaysEvent]
+  )
+
+  const deleteBlockedRelays = useCallback(
+    async (relayUrls: string[]) => {
+      const normalizedUrls = relayUrls.map((relayUrl) => normalizeUrl(relayUrl)).filter(Boolean)
+      const newBlockedRelays = blockedRelays.filter((relay) => !normalizedUrls.includes(relay))
+      setBlockedRelays(newBlockedRelays)
+      const draftEvent = createBlockedRelaysDraftEvent(newBlockedRelays)
+      const newBlockedRelaysEvent = await publish(draftEvent)
+      updateBlockedRelaysEvent(newBlockedRelaysEvent)
+    },
+    [blockedRelays, publish, updateBlockedRelaysEvent]
+  )
+
+  const reorderRelaySets = useCallback(
+    async (reorderedSets: TRelaySet[]) => {
+      setRelaySets(reorderedSets)
+      const draftEvent = createFavoriteRelaysDraftEvent(
+        favoriteRelays,
+        reorderedSets.map((set) => set.aTag)
+      )
+      const newFavoriteRelaysEvent = await publish(draftEvent)
+      updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
+    },
+    [favoriteRelays, publish, updateFavoriteRelaysEvent]
+  )
+
+  const contextValue = useMemo(
+    () => ({
       favoriteRelays,
-      reorderedSets.map((set) => set.aTag)
-    )
-    const newFavoriteRelaysEvent = await publish(draftEvent)
-    updateFavoriteRelaysEvent(newFavoriteRelaysEvent)
-  }
+      addFavoriteRelays,
+      deleteFavoriteRelays,
+      reorderFavoriteRelays,
+      blockedRelays,
+      addBlockedRelays,
+      deleteBlockedRelays,
+      relaySets,
+      createRelaySet,
+      addRelaySets,
+      deleteRelaySet,
+      updateRelaySet,
+      reorderRelaySets
+    }),
+    [
+      favoriteRelays,
+      blockedRelays,
+      relaySets,
+      addFavoriteRelays,
+      deleteFavoriteRelays,
+      reorderFavoriteRelays,
+      addBlockedRelays,
+      deleteBlockedRelays,
+      createRelaySet,
+      addRelaySets,
+      deleteRelaySet,
+      updateRelaySet,
+      reorderRelaySets
+    ]
+  )
 
   return (
-    <FavoriteRelaysContext.Provider
-      value={{
-        favoriteRelays,
-        addFavoriteRelays,
-        deleteFavoriteRelays,
-        reorderFavoriteRelays,
-        blockedRelays,
-        addBlockedRelays,
-        deleteBlockedRelays,
-        relaySets,
-        createRelaySet,
-        addRelaySets,
-        deleteRelaySet,
-        updateRelaySet,
-        reorderRelaySets
-      }}
-    >
+    <FavoriteRelaysContext.Provider value={contextValue}>
       {children}
     </FavoriteRelaysContext.Provider>
   )

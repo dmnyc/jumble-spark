@@ -78,6 +78,18 @@ export default function ZapPoll({
     !!meta &&
     (closed || viewerZapped || event.pubkey === pubkey || tallyRevealed)
 
+  /** When results are visible, list options by total sats (largest first). */
+  const optionsDisplayOrder = useMemo(() => {
+    if (!meta) return []
+    if (!showTally || !tally) return meta.options
+    return [...meta.options].sort((a, b) => {
+      const sa = tally.satsByOption.get(a.index) ?? 0
+      const sb = tally.satsByOption.get(b.index) ?? 0
+      if (sb !== sa) return sb - sa
+      return a.index - b.index
+    })
+  }, [meta, showTally, tally])
+
   const satsBounds = useMemo(() => {
     if (!meta) return { min: 1, max: undefined as number | undefined }
     return {
@@ -184,7 +196,7 @@ export default function ZapPoll({
         </Button>
       )}
       <div className="space-y-2">
-        {meta.options.map((opt) => {
+        {optionsDisplayOrder.map((opt) => {
           const satsOpt = tally?.satsByOption.get(opt.index) ?? 0
           const pct = tally && tally.totalSats > 0 ? (100 * satsOpt) / tally.totalSats : 0
           const counts = tally?.receiptCountByOption.get(opt.index) ?? 0

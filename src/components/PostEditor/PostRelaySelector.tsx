@@ -1,4 +1,9 @@
-import { ExtendedKind, isSocialKindBlockedKind, SOCIAL_KIND_BLOCKED_RELAY_URLS } from '@/constants'
+import {
+  ExtendedKind,
+  isSocialKindBlockedKind,
+  MAX_PUBLISH_RELAYS,
+  SOCIAL_KIND_BLOCKED_RELAY_URLS
+} from '@/constants'
 import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
 import { simplifyUrl, isLocalNetworkUrl, normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
@@ -438,9 +443,17 @@ export default function PostRelaySelector({
           <SheetContent side="bottom" className="h-[60vh] p-0">
             <div className="flex flex-col h-full">
               <div className="p-4 border-b flex items-center justify-between shrink-0 pr-12">
-                <div className="flex flex-col min-w-0 flex-1">
+                <div className="flex flex-col min-w-0 flex-1 gap-1">
                   <span className="text-lg font-medium">{t('Select relays')}</span>
                   <span className="text-sm text-muted-foreground truncate">{description}</span>
+                  {selectedRelayUrls.length >= MAX_PUBLISH_RELAYS && (
+                    <span className="text-xs text-amber-600 dark:text-amber-500">
+                      {t('Publish relay cap hint', {
+                        max: MAX_PUBLISH_RELAYS,
+                        selected: selectedRelayUrls.length
+                      })}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden p-4">
@@ -471,9 +484,19 @@ export default function PostRelaySelector({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[90vw] max-w-md p-0 max-h-[40vh] flex flex-col overflow-hidden" align="start" side="bottom" sideOffset={8}>
-          <div className="p-3 border-b flex items-center justify-between shrink-0">
-            <span className="text-sm font-medium">{t('Select relays')}</span>
-            <span className="text-xs text-muted-foreground truncate ml-2">{description}</span>
+          <div className="p-3 border-b flex flex-col gap-1 shrink-0">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium">{t('Select relays')}</span>
+              <span className="text-xs text-muted-foreground truncate">{description}</span>
+            </div>
+            {selectedRelayUrls.length >= MAX_PUBLISH_RELAYS && (
+              <span className="text-xs text-amber-600 dark:text-amber-500">
+                {t('Publish relay cap hint', {
+                  max: MAX_PUBLISH_RELAYS,
+                  selected: selectedRelayUrls.length
+                })}
+              </span>
+            )}
           </div>
           <div className="max-h-[35vh] min-h-0 overflow-y-scroll overflow-x-hidden p-3">
             {content}

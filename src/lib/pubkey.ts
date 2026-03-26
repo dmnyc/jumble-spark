@@ -81,6 +81,14 @@ export function isValidPubkey(pubkey: string) {
   return /^[0-9a-f]{64}$/i.test(pubkey)
 }
 
+/** Hex pubkey from pasted npub / nprofile / hex / `nostr:` URL (e.g. invite lists). */
+export function inviteInputToHexPubkey(raw: string): string | null {
+  const t = raw.trim().replace(/^nostr:/i, '').trim()
+  if (!t) return null
+  const pk = userIdToPubkey(t)
+  return isValidPubkey(pk) ? pk.toLowerCase() : null
+}
+
 const pubkeyImageCache = new LRUCache<string, string>({ max: 1000 })
 
 // Version identifier to force cache invalidation when algorithm changes

@@ -1374,6 +1374,8 @@ export default {
     'Select Media Type': 'Select Media Type',
     'Select group...': 'Select group...',
     'Select relays': 'Select relays',
+    'Publish relay cap hint':
+      'Pro Veröffentlichung werden höchstens {{max}} Relais angesprochen. Deine Outbox-Relais werden zuerst eingereiht, danach Priorität; wegen Fehlern übersprungene Relais entfallen. Du hast {{selected}} gewählt — der Rest wird nicht gesendet. Die genaue Liste steht in der Konsole unter [PublishEvent].',
     'Select the group where you want to create this discussion.':
       'Select the group where you want to create this discussion.',
     'Select topic...': 'Select topic...',

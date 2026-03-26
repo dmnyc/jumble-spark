@@ -18,6 +18,7 @@ import {
   isReplyNoteEvent
 } from '@/lib/event'
 import logger from '@/lib/logger'
+import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { normalizeUrl } from '@/lib/url'
 import { toNote } from '@/lib/link'
 import { generateBech32IdFromETag } from '@/lib/tag'
@@ -55,6 +56,30 @@ type TRootInfo =
 
 const LIMIT = 200
 const SHOW_COUNT = 10
+
+function partitionZapReceipts(items: NEvent[]) {
+  const zaps: NEvent[] = []
+  const nonZaps: NEvent[] = []
+  for (const e of items) {
+    if (e.kind === kinds.Zap) zaps.push(e)
+    else nonZaps.push(e)
+  }
+  return { zaps, nonZaps }
+}
+
+/** Zap receipts (9735) at top of reply feeds: largest sats first */
+function sortZapReceiptsBySatsDesc(zaps: NEvent[]) {
+  return [...zaps].sort((a, b) => {
+    const sa = getZapInfoFromEvent(a)?.amount ?? 0
+    const sb = getZapInfoFromEvent(b)?.amount ?? 0
+    if (sb !== sa) return sb - sa
+    return b.created_at - a.created_at
+  })
+}
+
+function replyFeedZapsFirst(sortedNonZapReplies: NEvent[], zaps: NEvent[]) {
+  return [...sortZapReceiptsBySatsDesc(zaps), ...sortedNonZapReplies]
+}
 
 function ReplyNoteList({
   index,
@@ -205,44 +230,61 @@ function ReplyNoteList({
     
 
 
-    // Apply sorting based on the sort parameter
+    const { zaps, nonZaps } = partitionZapReceipts(replyEvents)
+
+    // Sort notes/comments; zap receipts (9735) are always listed first, largest sats → smallest
     switch (sort) {
       case 'oldest':
-        return replyEvents.sort((a, b) => a.created_at - b.created_at)
+        return replyFeedZapsFirst(
+          [...nonZaps].sort((a, b) => a.created_at - b.created_at),
+          zaps
+        )
       case 'newest':
-        return replyEvents.sort((a, b) => b.created_at - a.created_at)
+        return replyFeedZapsFirst(
+          [...nonZaps].sort((a, b) => b.created_at - a.created_at),
+          zaps
+        )
       case 'top':
-        // Sort by vote score (upvotes - downvotes), then by newest if tied
-        return replyEvents.sort((a, b) => {
-          const scoreA = getReplyVoteScore(a)
-          const scoreB = getReplyVoteScore(b)
-          if (scoreA !== scoreB) {
-            return scoreB - scoreA // Higher scores first
-          }
-          return b.created_at - a.created_at // Newest first if tied
-        })
+        return replyFeedZapsFirst(
+          [...nonZaps].sort((a, b) => {
+            const scoreA = getReplyVoteScore(a)
+            const scoreB = getReplyVoteScore(b)
+            if (scoreA !== scoreB) {
+              return scoreB - scoreA
+            }
+            return b.created_at - a.created_at
+          }),
+          zaps
+        )
       case 'controversial':
-        // Sort by controversy score (min of upvotes and downvotes), then by newest if tied
-        return replyEvents.sort((a, b) => {
-          const controversyA = getReplyControversyScore(a)
-          const controversyB = getReplyControversyScore(b)
-          if (controversyA !== controversyB) {
-            return controversyB - controversyA // Higher controversy first
-          }
-          return b.created_at - a.created_at // Newest first if tied
-        })
+        return replyFeedZapsFirst(
+          [...nonZaps].sort((a, b) => {
+            const controversyA = getReplyControversyScore(a)
+            const controversyB = getReplyControversyScore(b)
+            if (controversyA !== controversyB) {
+              return controversyB - controversyA
+            }
+            return b.created_at - a.created_at
+          }),
+          zaps
+        )
       case 'most-zapped':
-        // Sort by total zap amount, then by newest if tied
-        return replyEvents.sort((a, b) => {
-          const zapAmountA = getReplyZapAmount(a)
-          const zapAmountB = getReplyZapAmount(b)
-          if (zapAmountA !== zapAmountB) {
-            return zapAmountB - zapAmountA // Higher zap amounts first
-          }
-          return b.created_at - a.created_at // Newest first if tied
-        })
+        return replyFeedZapsFirst(
+          [...nonZaps].sort((a, b) => {
+            const zapAmountA = getReplyZapAmount(a)
+            const zapAmountB = getReplyZapAmount(b)
+            if (zapAmountA !== zapAmountB) {
+              return zapAmountB - zapAmountA
+            }
+            return b.created_at - a.created_at
+          }),
+          zaps
+        )
       default:
-        return replyEvents.sort((a, b) => b.created_at - a.created_at)
+        return replyFeedZapsFirst(
+          [...nonZaps].sort((a, b) => b.created_at - a.created_at),
+          zaps
+        )
     }
   }, [
     event.id,
@@ -257,11 +299,20 @@ function ReplyNoteList({
   /** Events that quote the note (from useQuoteEvents) — render with quote styling and without embedded quote. */
   const quoteIdSet = useMemo(() => new Set(quoteEvents.map((e) => e.id)), [quoteEvents])
   const mergedFeed = useMemo(() => {
+    /** Quotes + time-sorted feeds must not interleave zap receipts chronologically */
+    const zapsThenTimeSorted = (merged: NEvent[], direction: 'asc' | 'desc') => {
+      const { zaps, nonZaps } = partitionZapReceipts(merged)
+      const sortedNon = [...nonZaps].sort((a, b) =>
+        direction === 'asc' ? a.created_at - b.created_at : b.created_at - a.created_at
+      )
+      return replyFeedZapsFirst(sortedNon, zaps)
+    }
+
     if (!showQuotes) return replies
     const quoteOnly = quoteEvents.filter((e) => !replyIdSet.has(e.id))
     const merged = [...replies, ...quoteOnly]
-    if (sort === 'oldest') return merged.sort((a, b) => a.created_at - b.created_at)
-    if (sort === 'newest') return merged.sort((a, b) => b.created_at - a.created_at)
+    if (sort === 'oldest') return zapsThenTimeSorted(merged, 'asc')
+    if (sort === 'newest') return zapsThenTimeSorted(merged, 'desc')
     if (sort === 'top' || sort === 'controversial' || sort === 'most-zapped') {
       const replyIds = new Set(replies.map((r) => r.id))
       const sortedReplies = [...replies]
@@ -269,7 +320,7 @@ function ReplyNoteList({
       const sortedQuotes = [...qo].sort((a, b) => b.created_at - a.created_at)
       return [...sortedReplies, ...sortedQuotes]
     }
-    return merged.sort((a, b) => b.created_at - a.created_at)
+    return zapsThenTimeSorted(merged, 'desc')
   }, [replies, quoteEvents, showQuotes, sort, replyIdSet])
 
   const [timelineKey] = useState<string | undefined>(undefined)

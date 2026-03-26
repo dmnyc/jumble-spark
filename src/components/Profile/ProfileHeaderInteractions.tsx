@@ -283,14 +283,14 @@ export default function ProfileHeaderInteractions({
   return (
     <div className="py-2 space-y-3 w-full min-w-0 overflow-visible">
       <Section title={t('Zaps')} isEmpty={displayZaps.length === 0} isLoading={loading}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 grid-rows-3 gap-1.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 auto-rows-min">
           {displayZaps.map((item) => (
             <ZapBadge key={`zap-${item.pr}`} zap={item} />
           ))}
         </div>
       </Section>
       <Section title={t('Likes')} isEmpty={reactions.length === 0} isLoading={loading}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 grid-rows-3 gap-1.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 auto-rows-min">
           {displayReactions.map((item) => (
             <ReactionBadge key={`reaction-${item.id}`} event={item} />
           ))}

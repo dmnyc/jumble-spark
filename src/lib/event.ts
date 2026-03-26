@@ -298,6 +298,11 @@ export function isTombstoneKeyForEvent(event: Event, tombstones: Set<string>): b
   return false
 }
 
+export function filterEventsExcludingTombstones(events: Event[], tombstones: Set<string>): Event[] {
+  if (tombstones.size === 0) return events
+  return events.filter((e) => !isTombstoneKeyForEvent(e, tombstones))
+}
+
 export function getNoteBech32Id(event: Event) {
   const hints = client.getEventHints(event.id).slice(0, 2)
   if (isReplaceableEvent(event.kind)) {

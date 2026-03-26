@@ -1,5 +1,6 @@
 import { Input } from '@/components/ui/input'
 import { useSearchProfiles } from '@/hooks'
+import { inviteInputToHexPubkey } from '@/lib/pubkey'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { X } from 'lucide-react'
@@ -89,6 +90,12 @@ export function InviteePicker({
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            const pk = inviteInputToHexPubkey(search)
+            if (pk) addInvitee(pk)
+          }}
           placeholder={placeholder ?? t('Search by name or npub…')}
           className="mt-1"
           autoComplete="off"

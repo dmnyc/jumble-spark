@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ChevronDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useProfileRelayUrls } from '@/hooks/useProfileRelayUrls'
 import { useProfileInteractions } from '@/hooks/useProfileInteractions'
 import { useProfileBadges } from '@/hooks/useProfileBadges'
@@ -36,6 +36,9 @@ function ProfileInteractionsContent({
   const { packs, loading: followPacksLoading, refresh: refreshFollowPacks } = useProfileFollowPacks(pubkey, relayUrls)
   const { reports, loading: reportsLoading, refresh: refreshReports } = useProfileReports(pubkey, viewerPubkey)
 
+  const onRefreshReadyRef = useRef(onRefreshReady)
+  onRefreshReadyRef.current = onRefreshReady
+
   useEffect(() => {
     const doRefresh = () => {
       void (async () => {
@@ -46,9 +49,11 @@ function ProfileInteractionsContent({
         refreshReports()
       })()
     }
-    onRefreshReady?.(doRefresh)
-    return () => { onRefreshReady?.(null) }
-  }, [refreshRelayUrls, refresh, refreshBadges, refreshFollowPacks, refreshReports, onRefreshReady])
+    onRefreshReadyRef.current?.(doRefresh)
+    return () => {
+      onRefreshReadyRef.current?.(null)
+    }
+  }, [refreshRelayUrls, refresh, refreshBadges, refreshFollowPacks, refreshReports])
 
   return (
     <ProfileHeaderInteractions

@@ -6,7 +6,7 @@ import { Event, Filter, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   profileAccordionGetCachedInteractions,
-  profileAccordionInvalidate,
+  profileAccordionGetCachedRelayUrls,
   profileAccordionRelayUrlsKey,
   profileAccordionSetInteractions
 } from '@/lib/profile-accordion-session-cache'
@@ -27,6 +27,13 @@ const NOTE_IDS_FOR_COMMENTS = 50
 /** Uses profile owner's outboxes + PROFILE_FETCH_RELAY_URLS. Pass relayUrls to share with other profile fetches. */
 export function useProfileInteractions(pubkey: string | undefined, relayUrls?: string[]) {
   const { blockedRelays } = useFavoriteRelays()
+  const blockedRelaysRef = useRef(blockedRelays)
+  blockedRelaysRef.current = blockedRelays
+  const relayUrlsRef = useRef(relayUrls)
+  relayUrlsRef.current = relayUrls
+  const blockedRelaysKey = profileAccordionRelayUrlsKey(blockedRelays)
+  const relayUrlsKey = profileAccordionRelayUrlsKey(relayUrls ?? [])
+
   const [zaps, setZaps] = useState<TProfileZap[]>([])
   const [reactions, setReactions] = useState<Event[]>([])
   const [comments, setComments] = useState<Event[]>([])
@@ -46,26 +53,45 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
       return
     }
 
-    const urls =
-      force || !(relayUrls && relayUrls.length > 0)
-        ? await buildProfileRelayUrls(pubkey, blockedRelays)
-        : relayUrls
+    const relayUrlsLatest = relayUrlsRef.current
+    let urls =
+      relayUrlsLatest && relayUrlsLatest.length > 0
+        ? relayUrlsLatest
+        : profileAccordionGetCachedRelayUrls(pubkey) ?? []
+
+    if (force || urls.length === 0) {
+      urls = await buildProfileRelayUrls(pubkey, blockedRelaysRef.current)
+    }
     const relayKey = profileAccordionRelayUrlsKey(urls)
 
     if (!force) {
       const cached = profileAccordionGetCachedInteractions(pubkey, relayKey)
       if (cached) {
         if (myFetchId !== fetchIdRef.current) return
-        setZaps(cached.zaps)
-        setReactions(cached.reactions)
-        setComments(cached.comments)
+        setZaps([...cached.zaps].sort((a, b) => b.amount - a.amount))
+        setReactions([...cached.reactions].sort((a, b) => b.created_at - a.created_at))
+        setComments([...cached.comments].sort((a, b) => b.created_at - a.created_at))
         setLoading(false)
         return
       }
     }
 
+    const seed = profileAccordionGetCachedInteractions(pubkey, relayKey)
+
+    if (seed && myFetchId === fetchIdRef.current) {
+      setZaps([...seed.zaps].sort((a, b) => b.amount - a.amount))
+      setReactions([...seed.reactions].sort((a, b) => b.created_at - a.created_at))
+      setComments([...seed.comments].sort((a, b) => b.created_at - a.created_at))
+    }
+
     if (myFetchId !== fetchIdRef.current) return
-    setLoading(true)
+
+    const hasVisibleSeed =
+      !!seed &&
+      (seed.zaps.length > 0 || seed.reactions.length > 0 || seed.comments.length > 0)
+    if (!hasVisibleSeed) {
+      setLoading(true)
+    }
 
     try {
       const profileMetaPromise = replaceableEventService.fetchReplaceableEvent(
@@ -75,11 +101,20 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
         urls
       )
 
-      const collectedZaps: TProfileZap[] = []
+      const collectedZaps: TProfileZap[] = seed ? [...seed.zaps] : []
       const reactionsByPubkey = new Map<string, Event>() // one reaction per npub, newest kept (profile event only)
-      const collectedComments: Event[] = []
-      const seenZaps = new Set<string>()
-      const seenReactions = new Set<string>()
+      if (seed) {
+        for (const e of seed.reactions) {
+          reactionsByPubkey.set(e.pubkey, e)
+        }
+      }
+      const collectedComments: Event[] = seed ? [...seed.comments] : []
+      const seenZaps = new Set(collectedZaps.map((z) => z.pr))
+      const seenProfileReactionEventIds = new Set<string>()
+      if (seed) {
+        for (const e of seed.reactions) seenProfileReactionEventIds.add(e.id)
+      }
+      const seenCommentIds = new Set(collectedComments.map((c) => c.id))
       let noteIds: string[] = []
 
       // Phase 1: zaps + profile's recent notes (for comments on those notes)
@@ -148,8 +183,8 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
       const ingestProfileReaction = (evt: Event) => {
         if (!reactionTargetsKind0Profile(evt)) return
         if (hexPubkeysEqual(evt.pubkey, pubkey)) return
-        if (seenReactions.has(evt.id)) return
-        seenReactions.add(evt.id)
+        if (seenProfileReactionEventIds.has(evt.id)) return
+        seenProfileReactionEventIds.add(evt.id)
         const existing = reactionsByPubkey.get(evt.pubkey)
         if (!existing || evt.created_at > existing.created_at) {
           reactionsByPubkey.set(evt.pubkey, evt)
@@ -158,8 +193,8 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
       }
       const ingestComment = (evt: Event) => {
         if (hexPubkeysEqual(evt.pubkey, pubkey)) return
-        if (seenReactions.has(evt.id)) return
-        seenReactions.add(evt.id)
+        if (seenCommentIds.has(evt.id)) return
+        seenCommentIds.add(evt.id)
         collectedComments.push(evt)
         flushComments()
       }
@@ -226,10 +261,10 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
     } finally {
       if (myFetchId === fetchIdRef.current) setLoading(false)
     }
-  }, [pubkey, blockedRelays, relayUrls])
+  }, [pubkey, blockedRelaysKey, relayUrlsKey])
 
   const refresh = useCallback(() => {
-    if (pubkey) profileAccordionInvalidate(pubkey, 'interactions')
+    /** Keep session cache so refresh merges new relays/events onto what is already shown */
     void fetchAll(true)
   }, [pubkey, fetchAll])
 

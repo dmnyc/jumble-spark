@@ -36,10 +36,13 @@ import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { getRelayUrlsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
 import { createFollowSetDraftEvent } from '@/lib/draft-event'
+import { filterEventsExcludingTombstones } from '@/lib/event'
 import logger from '@/lib/logger'
+import { TOMBSTONES_UPDATED_EVENT } from '@/lib/tombstone-events'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { queryService } from '@/services/client.service'
+import indexedDb from '@/services/indexed-db.service'
 import dayjs from 'dayjs'
 import type { Event } from 'nostr-tools'
 import { Pencil, Plus, Trash2, Users } from 'lucide-react'
@@ -101,7 +104,8 @@ const FollowSetsSettingsPage = forwardRef(
           { authors: [pubkey], kinds: [ExtendedKind.FOLLOW_SET], limit: 500 },
           FOLLOW_SET_FETCH_OPTS
         )
-        setLists(dedupeFollowSetEventsByD(events))
+        const tombstones = await indexedDb.getAllTombstones()
+        setLists(dedupeFollowSetEventsByD(filterEventsExcludingTombstones(events, tombstones)))
       } catch (e) {
         logger.warn('[FollowSetsSettings] Failed to load follow sets', e)
         toast.error(t('Failed to load follow sets'))
@@ -113,6 +117,12 @@ const FollowSetsSettingsPage = forwardRef(
 
     useEffect(() => {
       void loadLists()
+    }, [loadLists])
+
+    useEffect(() => {
+      const onTombstones = () => void loadLists()
+      window.addEventListener(TOMBSTONES_UPDATED_EVENT, onTombstones)
+      return () => window.removeEventListener(TOMBSTONES_UPDATED_EVENT, onTombstones)
     }, [loadLists])
 
     useEffect(() => {
@@ -151,55 +161,57 @@ const FollowSetsSettingsPage = forwardRef(
     }
 
     const handleSave = async () => {
-      if (!(await checkLogin())) return
-      if (!pubkey) return
-      let tags: string[][]
-      try {
-        tags = buildFollowSetTags({
-          d: formD,
-          title: formTitle,
-          description: formDescription,
-          image: formImage,
-          pubkeys: formPubkeys
-        })
-      } catch (e) {
-        toast.error((e as Error).message)
-        return
-      }
-
-      setSaving(true)
-      try {
-        let createdAt = dayjs().unix()
-        if (editing && createdAt === editing.created_at) {
-          await new Promise((r) => setTimeout(r, 1100))
-          createdAt = dayjs().unix()
+      await checkLogin(async () => {
+        if (!pubkey) return
+        let tags: string[][]
+        try {
+          tags = buildFollowSetTags({
+            d: formD,
+            title: formTitle,
+            description: formDescription,
+            image: formImage,
+            pubkeys: formPubkeys
+          })
+        } catch (e) {
+          toast.error((e as Error).message)
+          return
         }
-        const draft = createFollowSetDraftEvent(tags, '', createdAt)
-        await publish(draft)
-        toast.success(t('Follow set saved'))
-        closeDialog()
-        await loadLists()
-      } catch (e) {
-        showPublishingError(e instanceof Error ? e : new Error(String(e)))
-      } finally {
-        setSaving(false)
-      }
+
+        setSaving(true)
+        try {
+          let createdAt = dayjs().unix()
+          if (editing && createdAt === editing.created_at) {
+            await new Promise((r) => setTimeout(r, 1100))
+            createdAt = dayjs().unix()
+          }
+          const draft = createFollowSetDraftEvent(tags, '', createdAt)
+          await publish(draft)
+          toast.success(t('Follow set saved'))
+          closeDialog()
+          await loadLists()
+        } catch (e) {
+          showPublishingError(e instanceof Error ? e : new Error(String(e)))
+        } finally {
+          setSaving(false)
+        }
+      })
     }
 
     const handleConfirmDelete = async () => {
       if (!deleteTarget) return
-      if (!(await checkLogin())) return
-      setDeleting(true)
-      try {
-        await attemptDelete(deleteTarget)
-        toast.success(t('Follow set deleted'))
-        setDeleteTarget(null)
-        await loadLists()
-      } catch (e) {
-        showPublishingError(e instanceof Error ? e : new Error(String(e)))
-      } finally {
-        setDeleting(false)
-      }
+      await checkLogin(async () => {
+        setDeleting(true)
+        try {
+          await attemptDelete(deleteTarget)
+          toast.success(t('Follow set deleted'))
+          setDeleteTarget(null)
+          await loadLists()
+        } catch (e) {
+          showPublishingError(e instanceof Error ? e : new Error(String(e)))
+        } finally {
+          setDeleting(false)
+        }
+      })
     }
 
     return (

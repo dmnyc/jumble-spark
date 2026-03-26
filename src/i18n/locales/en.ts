@@ -1429,6 +1429,8 @@ export default {
     'Select Media Type': 'Select Media Type',
     'Select group...': 'Select group...',
     'Select relays': 'Select relays',
+    'Publish relay cap hint':
+      'At most {{max}} relays are contacted per publish. Your outboxes are merged in first, then priority order; session-blocked relays are skipped. You selected {{selected}} — lower-priority checks are not sent. See console [PublishEvent] for the exact list.',
     'Select the group where you want to create this discussion.':
       'Select the group where you want to create this discussion.',
     'Select topic...': 'Select topic...',

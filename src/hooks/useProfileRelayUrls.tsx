@@ -1,22 +1,29 @@
 import {
   profileAccordionGetCachedRelayUrls,
-  profileAccordionInvalidate,
+  profileAccordionRelayUrlsKey,
   profileAccordionSetRelayUrls
 } from '@/lib/profile-accordion-session-cache'
 import { buildProfileRelayUrls } from '@/lib/profile-relay-urls'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 
 /** Returns profile relay URLs (outboxes + PROFILE_FETCH). Use for sharing relays across profile fetches. */
 export function useProfileRelayUrls(pubkey: string | undefined, enabled: boolean) {
   const { blockedRelays } = useFavoriteRelays()
+  const blockedRelaysRef = useRef(blockedRelays)
+  blockedRelaysRef.current = blockedRelays
+  const blockedRelaysKey = profileAccordionRelayUrlsKey(blockedRelays)
+
   const [relayUrls, setRelayUrls] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+  /** Stale-while-revalidate: avoid accordion skeleton when refreshing relays but URLs already visible */
+  const relayUrlsRef = useRef<string[]>([])
+  relayUrlsRef.current = relayUrls
 
   const fetch = useCallback(
     async (force = false) => {
       if (!pubkey) {
-        setRelayUrls([])
+        setRelayUrls((prev) => (prev.length === 0 ? prev : []))
         setLoading(false)
         return
       }
@@ -30,35 +37,42 @@ export function useProfileRelayUrls(pubkey: string | undefined, enabled: boolean
         }
       }
 
-      setLoading(true)
+      const revalidateWithVisibleUrls = force && relayUrlsRef.current.length > 0
+      if (!revalidateWithVisibleUrls) {
+        setLoading(true)
+      }
       try {
-        const urls = await buildProfileRelayUrls(pubkey, blockedRelays)
+        const urls = await buildProfileRelayUrls(pubkey, blockedRelaysRef.current)
         profileAccordionSetRelayUrls(pubkey, urls)
         setRelayUrls(urls)
       } catch {
-        setRelayUrls([])
+        setRelayUrls((prev) => (prev.length === 0 ? prev : []))
       } finally {
         setLoading(false)
       }
     },
-    [pubkey, blockedRelays]
+    [pubkey, blockedRelaysKey]
   )
 
   const refresh = useCallback(() => {
-    if (pubkey) profileAccordionInvalidate(pubkey, 'relayUrls')
     if (!pubkey) return Promise.resolve()
+    /** Do not invalidate: that wipes interactions/badges/follow-packs cache and forces empty refetches */
     return fetch(true)
   }, [pubkey, fetch])
 
   useEffect(() => {
     if (!pubkey) {
-      setRelayUrls([])
+      setRelayUrls((prev) => (prev.length === 0 ? prev : []))
       setLoading(false)
       return
     }
     if (!enabled) {
       const cached = profileAccordionGetCachedRelayUrls(pubkey)
-      setRelayUrls(cached ?? [])
+      setRelayUrls((prev) => {
+        if (cached && cached.length > 0) return cached
+        if (prev.length === 0) return prev
+        return []
+      })
       setLoading(false)
       return
     }

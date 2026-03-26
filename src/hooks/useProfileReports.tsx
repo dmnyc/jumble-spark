@@ -2,7 +2,7 @@ import { ExtendedKind } from '@/constants'
 import { buildProfileReportRelayUrls } from '@/lib/profile-report-relay-urls'
 import {
   profileAccordionGetCachedReports,
-  profileAccordionInvalidate,
+  profileAccordionRelayUrlsKey,
   profileAccordionSetReports
 } from '@/lib/profile-accordion-session-cache'
 import { queryService } from '@/services/client.service'
@@ -18,6 +18,13 @@ export function useProfileReports(
   viewerPubkey: string | null | undefined
 ) {
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
+  const favoriteRelaysRef = useRef(favoriteRelays)
+  favoriteRelaysRef.current = favoriteRelays
+  const blockedRelaysRef = useRef(blockedRelays)
+  blockedRelaysRef.current = blockedRelays
+  const favoriteRelaysKey = profileAccordionRelayUrlsKey(favoriteRelays ?? [])
+  const blockedRelaysKey = profileAccordionRelayUrlsKey(blockedRelays)
+
   const [reports, setReports] = useState<Event[]>([])
   const [loading, setLoading] = useState(false)
   const fetchIdRef = useRef(0)
@@ -44,17 +51,24 @@ export function useProfileReports(
       }
     }
 
+    const seed = profileAccordionGetCachedReports(profilePubkey, viewer)
+    if (seed?.length && myFetchId === fetchIdRef.current) {
+      setReports(seed)
+    }
+
     if (myFetchId !== fetchIdRef.current) return
-    setLoading(true)
+    if (!seed?.length) {
+      setLoading(true)
+    }
 
     try {
       const urls = await buildProfileReportRelayUrls({
         viewerPubkey: viewer,
-        favoriteRelays: favoriteRelays ?? [],
-        blockedRelays
+        favoriteRelays: favoriteRelaysRef.current ?? [],
+        blockedRelays: blockedRelaysRef.current
       })
       if (urls.length === 0) {
-        if (myFetchId === fetchIdRef.current) setReports([])
+        if (myFetchId === fetchIdRef.current && !seed?.length) setReports([])
         return
       }
 
@@ -66,27 +80,26 @@ export function useProfileReports(
 
       if (myFetchId !== fetchIdRef.current) return
 
-      const seen = new Set<string>()
-      const deduped: Event[] = []
+      const byId = new Map<string, Event>()
+      for (const evt of seed ?? []) byId.set(evt.id, evt)
+      const seen = new Set<string>(byId.keys())
       for (const evt of events) {
         if (seen.has(evt.id)) continue
         seen.add(evt.id)
-        deduped.push(evt)
+        byId.set(evt.id, evt)
       }
-      deduped.sort((a, b) => b.created_at - a.created_at)
-      setReports(deduped)
-      profileAccordionSetReports(profilePubkey, viewer, deduped)
+      const merged = [...byId.values()].sort((a, b) => b.created_at - a.created_at)
+      setReports(merged)
+      profileAccordionSetReports(profilePubkey, viewer, merged)
     } catch {
       if (myFetchId !== fetchIdRef.current) return
-      setReports([])
+      if (!seed?.length) setReports([])
     } finally {
       if (myFetchId === fetchIdRef.current) setLoading(false)
     }
-  }, [profilePubkey, viewerPubkey, favoriteRelays, blockedRelays])
+  }, [profilePubkey, viewerPubkey, favoriteRelaysKey, blockedRelaysKey])
 
   const refresh = useCallback(() => {
-    const v = viewerPubkey?.trim()
-    if (profilePubkey && v) profileAccordionInvalidate(profilePubkey, 'reports')
     void fetchReports(true)
   }, [profilePubkey, viewerPubkey, fetchReports])
 

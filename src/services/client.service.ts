@@ -761,7 +761,15 @@ class ClientService extends EventTarget {
     relays = this.filterPublishingRelays(relays, event)
 
     if (specifiedRelayUrls?.length) {
+      const checkedCount = specifiedRelayUrls.length
       relays = await this.prioritizePublishUrlList(relays, event, favoriteRelayUrls ?? [])
+      if (checkedCount > relays.length) {
+        logger.info('[Publish] Relay picker: checked count exceeds per-publish cap (stage 1)', {
+          checkedInRelayPicker: checkedCount,
+          keptAfterOutboxInboxPriorityCap: relays.length,
+          maxPublishRelays: MAX_PUBLISH_RELAYS
+        })
+      }
     } else {
       relays = dedupeNormalizeRelayUrlsOrdered(relays).slice(0, MAX_PUBLISH_RELAYS)
     }
@@ -943,20 +951,36 @@ class ClientService extends EventTarget {
       return true
     })
     filtered = Array.from(new Set(filtered))
+    const countAfterFiltersBeforeCap = filtered.length
     filtered = await this.capPublishRelayUrlsForPublish(
       filtered,
       event,
       publishExtras?.favoriteRelayUrls ?? []
     )
 
+    const uniqueRelayUrls = filtered
+
+    if (relayUrls.length !== uniqueRelayUrls.length || mergedRelayUrls.length !== uniqueRelayUrls.length) {
+      logger.info('[PublishEvent] Publish target relays (UI selection vs actually contacted)', {
+        eventId: event.id?.substring(0, 12),
+        kind: event.kind,
+        maxPublishRelays: MAX_PUBLISH_RELAYS,
+        fromPickerOrDetermineCount: relayUrls.length,
+        afterMergeWithYourOutboxes: mergedRelayUrls.length,
+        afterReadonlySocialAndStrikeFilter: countAfterFiltersBeforeCap,
+        finalContactedRelayCount: uniqueRelayUrls.length,
+        finalRelays: uniqueRelayUrls,
+        explain:
+          'Your NIP-65 write relays are prepended, then the list is de-duplicated, filtered (read-only / social-kind blocks / session strike skips), and capped at maxPublishRelays in outbox→inbox→favorite→fast-write priority. Unchecked relays in the picker are never contacted; checked relays beyond the cap or filtered out are also skipped.'
+      })
+    }
+
     logger.debug('[PublishEvent] Starting publishEvent', {
       eventId: event.id?.substring(0, 8),
       kind: event.kind,
-      relayCount: filtered.length,
-      skippedStrikes: mergedRelayUrls.length - filtered.length
+      relayCount: uniqueRelayUrls.length,
+      relayUrlsPassedInCount: relayUrls.length
     })
-
-    const uniqueRelayUrls = filtered
     if (uniqueRelayUrls.length === 0) {
       const emptyBatch = new RelayPublishOpBatch('ClientService.publishEvent', event.id, [])
       emptyBatch.logBegin()
