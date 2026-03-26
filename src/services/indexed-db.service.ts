@@ -56,7 +56,7 @@ export const StoreNames = {
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 29
+const DB_VERSION = 30
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -67,6 +67,20 @@ function idbEventToError(ev: Parameters<NonNullable<IDBRequest['onerror']>>[0]):
   const domError = request?.error
   const message = domError?.message ?? 'IndexedDB operation failed'
   return new Error(message)
+}
+
+/** Create any object stores from {@link StoreNames} that are missing (e.g. after partial upgrades). */
+function ensureMissingObjectStores(db: IDBDatabase): void {
+  for (const storeName of Object.values(StoreNames)) {
+    if (db.objectStoreNames.contains(storeName)) continue
+    if (storeName === StoreNames.RSS_FEED_ITEMS) {
+      const store = db.createObjectStore(storeName, { keyPath: 'key' })
+      store.createIndex('feedUrl', 'feedUrl', { unique: false })
+      store.createIndex('pubDate', 'pubDate', { unique: false })
+    } else {
+      db.createObjectStore(storeName, { keyPath: 'key' })
+    }
+  }
 }
 
 class IndexedDbService {
@@ -240,6 +254,7 @@ class IndexedDbService {
           if (!db.objectStoreNames.contains(StoreNames.BADGE_DEFINITION_EVENTS)) {
             db.createObjectStore(StoreNames.BADGE_DEFINITION_EVENTS, { keyPath: 'key' })
           }
+          ensureMissingObjectStores(db)
         }
       }
     );
@@ -1538,12 +1553,7 @@ class IndexedDbService {
       
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result
-        // Create any missing stores
-        Object.values(StoreNames).forEach(storeName => {
-          if (!db.objectStoreNames.contains(storeName)) {
-            db.createObjectStore(storeName, { keyPath: 'key' })
-          }
-        })
+        ensureMissingObjectStores(db)
       }
     })
   }
@@ -1575,12 +1585,17 @@ class IndexedDbService {
         expirationTimestamp: Date.now() - 1000 * 60 * 60 * 24 // 1 days
       }
     ]
+    const names = this.db.objectStoreNames
+    const existingStores = stores.filter((s) => names.contains(s.name))
+    if (existingStores.length === 0) {
+      return
+    }
     const transaction = this.db!.transaction(
-      stores.map((store) => store.name),
+      existingStores.map((store) => store.name),
       'readwrite'
     )
     await Promise.allSettled(
-      stores.map(({ name, expirationTimestamp }) => {
+      existingStores.map(({ name, expirationTimestamp }) => {
         if (expirationTimestamp < 0) {
           return Promise.resolve()
         }

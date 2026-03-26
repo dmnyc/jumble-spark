@@ -42,6 +42,8 @@ export function getKindDescription(kind: number): { number: number; description:
       return { number: 9802, description: 'Highlight' }
     case ExtendedKind.POLL:
       return { number: 1068, description: 'Poll' }
+    case ExtendedKind.ZAP_POLL:
+      return { number: 6969, description: 'Zap poll' }
     case ExtendedKind.PUBLIC_MESSAGE:
       return { number: 24, description: 'Public Message' }
     case ExtendedKind.DISCUSSION:

@@ -1,5 +1,10 @@
 import { FAST_READ_RELAY_URLS, CODY_PUBKEY, JUMBLE_PUBKEY } from '@/constants'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
+import {
+  buildZapPollVoteRequestTemplate,
+  isZapPollVoteEligible,
+  type TZapPollMeta
+} from '@/lib/zap-poll'
 import { TProfile } from '@/types'
 import { init, launchPaymentModal } from '@getalby/bitcoin-connect-react'
 import { Invoice } from '@getalby/lightning-tools'
@@ -132,6 +137,127 @@ class LightningService {
         }
         if (event) {
           filter['#e'] = [event.id]
+        }
+        subCloser = client.subscribe(
+          senderRelayList.write.concat(FAST_READ_RELAY_URLS).slice(0, 4),
+          filter,
+          {
+            onevent: (evt) => {
+              const info = getZapInfoFromEvent(evt)
+              if (!info) return
+
+              if (info.invoice === pr) {
+                setPaid({ preimage: info.preimage ?? '' })
+              }
+            }
+          }
+        )
+      }
+    })
+  }
+
+  /** NIP-B9: pay-to-vote on a zap poll (kind 6969). */
+  async zapPollVote(
+    sender: string,
+    pollEvent: NostrEvent,
+    meta: TZapPollMeta,
+    recipientPubkey: string,
+    optionIndex: number,
+    sats: number,
+    comment: string,
+    closeOuterModel?: () => void
+  ): Promise<{ preimage: string; invoice: string } | null> {
+    if (!client.signer) {
+      throw new Error('You need to be logged in to zap')
+    }
+    const eligible = isZapPollVoteEligible(pollEvent, meta, sender, sats)
+    if (!eligible.ok) {
+      throw new Error(eligible.reason)
+    }
+    const rec = recipientPubkey.trim().toLowerCase()
+    if (!meta.recipients.some((r) => r.pubkey === rec)) {
+      throw new Error('Recipient is not a poll payout pubkey')
+    }
+
+    const [profile, senderRelayList] = await Promise.all([
+      (async () => {
+        const profileEvent = await replaceableEventService.fetchReplaceableEvent(rec, kinds.Metadata)
+        return profileEvent ? getProfileFromEvent(profileEvent) : undefined
+      })(),
+      client.fetchRelayList(sender)
+    ])
+    if (!profile) {
+      throw new Error('Recipient not found')
+    }
+    const zapEndpoint = await this.getZapEndpoint(profile)
+    if (!zapEndpoint) {
+      throw new Error("Recipient's lightning address is invalid")
+    }
+    const { callback, lnurl } = zapEndpoint
+    const amount = sats * 1000
+    const zapRequestDraft = buildZapPollVoteRequestTemplate({
+      poll: pollEvent,
+      meta,
+      recipientPubkey: rec,
+      optionIndex,
+      amountMillisats: amount,
+      relays: senderRelayList.write.slice(0, 4).concat(FAST_READ_RELAY_URLS),
+      comment
+    })
+    const zapRequest = await client.signer.signEvent(zapRequestDraft)
+    const zapRequestRes = await fetch(
+      `${callback}?amount=${amount}&nostr=${encodeURI(JSON.stringify(zapRequest))}&lnurl=${lnurl}`
+    )
+    const zapRequestResBody = await zapRequestRes.json()
+    if (zapRequestResBody.error) {
+      throw new Error(zapRequestResBody.message)
+    }
+    const { pr, verify, reason } = zapRequestResBody
+    if (!pr) {
+      throw new Error(reason ?? 'Failed to create invoice')
+    }
+
+    if (this.provider) {
+      const { preimage } = await this.provider.sendPayment(pr)
+      closeOuterModel?.()
+      return { preimage, invoice: pr }
+    }
+
+    return new Promise((resolve) => {
+      closeOuterModel?.()
+      let checkPaymentInterval: ReturnType<typeof setInterval> | undefined
+      let subCloser: SubCloser | undefined
+      const { setPaid } = launchPaymentModal({
+        invoice: pr,
+        onPaid: (response) => {
+          clearInterval(checkPaymentInterval)
+          subCloser?.close()
+          resolve({ preimage: response.preimage, invoice: pr })
+        },
+        onCancelled: () => {
+          clearInterval(checkPaymentInterval)
+          subCloser?.close()
+          resolve(null)
+        }
+      })
+
+      if (verify) {
+        checkPaymentInterval = setInterval(async () => {
+          const invoice = new Invoice({ pr, verify })
+          const paid = await invoice.verifyPayment()
+
+          if (paid && invoice.preimage) {
+            setPaid({
+              preimage: invoice.preimage
+            })
+          }
+        }, 1000)
+      } else {
+        const filter: Filter = {
+          kinds: [kinds.Zap],
+          '#p': [rec],
+          '#e': [pollEvent.id],
+          since: dayjs().subtract(1, 'minute').unix()
         }
         subCloser = client.subscribe(
           senderRelayList.write.concat(FAST_READ_RELAY_URLS).slice(0, 4),

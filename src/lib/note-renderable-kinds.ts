@@ -18,8 +18,15 @@ const RENDERABLE_NOTE_KINDS = new Set<number>([
   ExtendedKind.CITATION_INTERNAL,
   ExtendedKind.CITATION_EXTERNAL,
   ExtendedKind.CITATION_HARDCOPY,
-  ExtendedKind.CITATION_PROMPT
+  ExtendedKind.CITATION_PROMPT,
+  ExtendedKind.ZAP_POLL
 ])
+
+/**
+ * Every kind the main `Note` component renders with a dedicated UI (not the unknown-event fallback).
+ * Used by the notifications spell client filter so mention events use the same cards as elsewhere.
+ */
+export const RENDERABLE_NOTE_KINDS_SORTED = [...RENDERABLE_NOTE_KINDS].sort((a, b) => a - b)
 
 export function isRenderableNoteKind(kind: number): boolean {
   return RENDERABLE_NOTE_KINDS.has(kind)

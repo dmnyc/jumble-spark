@@ -50,6 +50,7 @@ import MutedNote from './MutedNote'
 import NsfwNote from './NsfwNote'
 import PictureNote from './PictureNote'
 import Poll from './Poll'
+import ZapPoll from './ZapPoll'
 import NotificationEventCard from './NotificationEventCard'
 import ReactionEmojiDisplay from './ReactionEmojiDisplay'
 import UnknownNote from './UnknownNote'
@@ -69,7 +70,8 @@ export default function Note({
   hideParentNotePreview = false,
   showFull = false,
   disableClick = false,
-  fullCalendarInvite
+  fullCalendarInvite,
+  zapPollVoteHighlightOption
 }: {
   event: Event
   originalNoteId?: string
@@ -80,6 +82,8 @@ export default function Note({
   disableClick?: boolean
   /** When viewing a kind-24 invite, use this to replace the embedded calendar with the full card (RSVP) in content */
   fullCalendarInvite?: { event: Event; naddr: string }
+  /** Profile: highlight option when this row is from a zap vote receipt. */
+  zapPollVoteHighlightOption?: number
 }) {
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigationOptional()
@@ -224,6 +228,17 @@ export default function Note({
       <>
         <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
         <Poll className="mt-2" event={event} />
+      </>
+    )
+  } else if (event.kind === ExtendedKind.ZAP_POLL) {
+    content = (
+      <>
+        <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
+        <ZapPoll
+          className="mt-2"
+          event={event}
+          voteHighlightOptionIndex={zapPollVoteHighlightOption}
+        />
       </>
     )
   } else if (event.kind === ExtendedKind.VOICE) {

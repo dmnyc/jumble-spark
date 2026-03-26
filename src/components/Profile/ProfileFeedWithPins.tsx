@@ -6,6 +6,7 @@ import { isReplyNoteEvent } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { useProfilePins } from '@/hooks/useProfilePins'
 import { useProfileTimeline } from '@/hooks/useProfileTimeline'
+import { useProfileZapPollParticipation } from '@/hooks/useProfileZapPollParticipation'
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useZap } from '@/providers/ZapProvider'
@@ -78,6 +79,9 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
     filterPredicate
   })
 
+  const { rows: zapPollVoteRows, loading: loadingZapPollVotes, reload: reloadZapPollVotes } =
+    useProfileZapPollParticipation(pubkey)
+
   const pinIds = useMemo(() => new Set(pinEvents.map((e) => e.id)), [pinEvents])
 
   const passesMainFeedTimelineRules = useCallback(
@@ -100,16 +104,53 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
     [timelineEvents, pinIds, passesMainFeedTimelineRules]
   )
 
+  type ProfileMergedRow = {
+    key: string
+    event: Event
+    sortAt: number
+    zapPollVoteHighlight?: number
+  }
+
+  const mergedRestRows = useMemo((): ProfileMergedRow[] => {
+    const showZapPollVotes = profileTimelineShowKinds.includes(ExtendedKind.ZAP_POLL)
+    const timelinePollIds = new Set(
+      restTimeline.filter((e) => e.kind === ExtendedKind.ZAP_POLL).map((e) => e.id)
+    )
+    const noteRows: ProfileMergedRow[] = restTimeline.map((e) => ({
+      key: e.id,
+      event: e,
+      sortAt: e.created_at
+    }))
+    const voteRows: ProfileMergedRow[] = showZapPollVotes
+      ? zapPollVoteRows
+          .filter((r) => !timelinePollIds.has(r.poll.id))
+          .map((r) => ({
+            key: `zap-poll-vote:${r.voteReceipt.id}`,
+            event: r.poll,
+            sortAt: r.voteReceipt.created_at,
+            zapPollVoteHighlight: r.optionIndex
+          }))
+      : []
+    return [...noteRows, ...voteRows].sort((a, b) => b.sortAt - a.sortAt)
+  }, [restTimeline, zapPollVoteRows, profileTimelineShowKinds])
+
+  const rowMatchesSearch = useCallback(
+    (event: Event) => {
+      const q = searchQuery.trim().toLowerCase()
+      if (!q) return true
+      if (event.content.toLowerCase().includes(q)) return true
+      return event.tags.some((tag) => tag.length > 1 && tag[1]?.toLowerCase().includes(q))
+    },
+    [searchQuery]
+  )
+
   const applySearch = useCallback(
     (events: Event[]) => {
       const q = searchQuery.trim().toLowerCase()
       if (!q) return events
-      return events.filter((event) => {
-        if (event.content.toLowerCase().includes(q)) return true
-        return event.tags.some((tag) => tag.length > 1 && tag[1]?.toLowerCase().includes(q))
-      })
+      return events.filter((event) => rowMatchesSearch(event))
     },
-    [searchQuery]
+    [rowMatchesSearch]
   )
 
   const filteredPins = useMemo(
@@ -117,8 +158,9 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
     [pinEvents, applySearch, isEventDeleted]
   )
   const filteredRest = useMemo(
-    () => applySearch(restTimeline).filter((e) => !isEventDeleted(e)),
-    [restTimeline, applySearch, isEventDeleted]
+    () =>
+      mergedRestRows.filter((row) => rowMatchesSearch(row.event) && !isEventDeleted(row.event)),
+    [mergedRestRows, rowMatchesSearch, isEventDeleted]
   )
 
   const mergedDisplay = useMemo(() => [...filteredPins, ...filteredRest], [filteredPins, filteredRest])
@@ -141,17 +183,18 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
   }, [searchQuery, pubkey])
 
   useEffect(() => {
-    if (!loadingPins && !loadingTimeline) {
+    if (!loadingPins && !loadingTimeline && !loadingZapPollVotes) {
       setIsRefreshing(false)
     }
-  }, [loadingPins, loadingTimeline])
+  }, [loadingPins, loadingTimeline, loadingZapPollVotes])
 
   const refreshAll = useCallback(() => {
     setIsRefreshing(true)
     refreshPins()
     refreshTimeline()
+    reloadZapPollVotes()
     void client.fetchDeletionEventsForPubkey(pubkey)
-  }, [refreshPins, refreshTimeline, pubkey])
+  }, [refreshPins, refreshTimeline, reloadZapPollVotes, pubkey])
 
   useImperativeHandle(ref, () => ({ refresh: refreshAll }), [refreshAll])
 
@@ -169,7 +212,8 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
     return () => observer.disconnect()
   }, [totalVisible, mergedDisplay.length])
 
-  const loading = (loadingPins || loadingTimeline) && mergedDisplay.length === 0
+  const loading =
+    (loadingPins || loadingTimeline || loadingZapPollVotes) && mergedDisplay.length === 0
 
   if (loading) {
     return (
@@ -190,7 +234,7 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
     )
   }
 
-  if (!mergedDisplay.length && !loadingPins && !loadingTimeline) {
+  if (!mergedDisplay.length && !loadingPins && !loadingTimeline && !loadingZapPollVotes) {
     return (
       <div className="mt-4 px-2">
         <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -255,13 +299,14 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
         )}
         {displayedFeed.length > 0 && (
           <div className="space-y-2" aria-label={t('Posts')}>
-            {displayedFeed.map((event) => (
+            {displayedFeed.map((row) => (
               <NoteCard
-                key={event.id}
+                key={row.key}
                 className="w-full"
-                event={event}
+                event={row.event}
                 filterMutedNotes={false}
                 pinned={false}
+                zapPollVoteHighlightOption={row.zapPollVoteHighlight}
               />
             ))}
           </div>

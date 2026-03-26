@@ -177,6 +177,8 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
         return 'Note: Highlight'
       case 1068: // ExtendedKind.POLL
         return 'Note: Poll'
+      case 6969: // ExtendedKind.ZAP_POLL
+        return 'Note: Zap Poll'
       case 31987: // ExtendedKind.RELAY_REVIEW
         return 'Note: Relay Review'
       case 31922: // ExtendedKind.CALENDAR_EVENT_DATE

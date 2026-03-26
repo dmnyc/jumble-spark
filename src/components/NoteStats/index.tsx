@@ -45,6 +45,7 @@ export default function NoteStats({
 
   /** Synthetic RSS article root: no boost/quote/zap; still show reaction breakdown (NIP-25 + kind-17 web). */
   const isRssArticleRoot = event.kind === ExtendedKind.RSS_THREAD_ROOT
+  const isZapPoll = event.kind === ExtendedKind.ZAP_POLL
 
   /** Emoji reaction pills (aggregated likes). Shown for RSS/Web URL threads so the side panel matches feed rows. */
   const showLikesPills = !isDiscussion && !isReplyToDiscussion
@@ -77,7 +78,9 @@ export default function NoteStats({
             <RepostButton event={event} hideCount={hideInteractions} />
           )}
           <LikeButton event={event} hideCount={hideInteractions} />
-          {!isRssArticleRoot && <ZapButton event={event} hideCount={hideInteractions} />}
+          {!isRssArticleRoot && !isZapPoll && (
+            <ZapButton event={event} hideCount={hideInteractions} />
+          )}
           <BookmarkButton event={event} />
           <SeenOnButton event={event} />
         </div>
@@ -101,7 +104,9 @@ export default function NoteStats({
             <RepostButton event={event} hideCount={hideInteractions} />
           )}
           <LikeButton event={event} hideCount={hideInteractions} />
-          {!isRssArticleRoot && <ZapButton event={event} hideCount={hideInteractions} />}
+          {!isRssArticleRoot && !isZapPoll && (
+            <ZapButton event={event} hideCount={hideInteractions} />
+          )}
         </div>
         <div className="flex items-center">
           <BookmarkButton event={event} />

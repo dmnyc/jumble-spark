@@ -287,6 +287,8 @@ export const ExtendedKind = {
   VIDEO: 21,
   SHORT_VIDEO: 22,
   POLL: 1068,
+  /** NIP-B9 zap poll (paid votes via zaps). */
+  ZAP_POLL: 6969,
   POLL_RESPONSE: 1018,
   COMMENT: 1111,
   VOICE: 1222,
@@ -398,6 +400,7 @@ export const SUPPORTED_KINDS = [
   ExtendedKind.VIDEO,
   ExtendedKind.SHORT_VIDEO,
   ExtendedKind.POLL,
+  ExtendedKind.ZAP_POLL,
   ExtendedKind.COMMENT,
   ExtendedKind.VOICE,
   ExtendedKind.VOICE_COMMENT,

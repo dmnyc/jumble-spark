@@ -17,7 +17,8 @@ export default function MainNoteCard({
   embedded,
   originalNoteId,
   pinned = false,
-  hideParentNotePreview = false
+  hideParentNotePreview = false,
+  zapPollVoteHighlightOption
 }: {
   event: Event
   className?: string
@@ -28,6 +29,7 @@ export default function MainNoteCard({
   pinned?: boolean
   /** Hide the parent note preview (e.g. when showing quotes of current note). */
   hideParentNotePreview?: boolean
+  zapPollVoteHighlightOption?: number
 }) {
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigationOptional()
@@ -75,6 +77,7 @@ export default function MainNoteCard({
             originalNoteId={originalNoteId}
             disableClick={true}
             hideParentNotePreview={hideParentNotePreview}
+            zapPollVoteHighlightOption={zapPollVoteHighlightOption}
           />
         </Collapsible>
         {!embedded && (

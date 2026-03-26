@@ -10,12 +10,13 @@
  * uses **one** shard: all subscribed topics in one `#t` filter (NIP-01 OR semantics).
  */
 import { DEFAULT_FEED_SHOW_KINDS, ExtendedKind, READ_ONLY_RELAY_URLS } from '@/constants'
+import { RENDERABLE_NOTE_KINDS_SORTED } from '@/lib/note-renderable-kinds'
 import { buildProfileAugmentedReadRelayUrls } from '@/lib/favorites-feed-relays'
 import { normalizeTopic } from '@/lib/discussion-topics'
 import { userIdToPubkey } from '@/lib/pubkey'
 import { normalizeUrl } from '@/lib/url'
 import type { TFeedSubRequest } from '@/types'
-import { type Event, type Filter, kinds } from 'nostr-tools'
+import { type Event, type Filter } from 'nostr-tools'
 
 /** Default caps for every faux spell feed (relays per subrequest, events per REQ). */
 export const FAUX_SPELL_MAX_RELAYS = 10
@@ -47,25 +48,11 @@ export function applyFauxSpellCapsToSubRequests(requests: TFeedSubRequest[]): TF
 }
 
 /**
- * Mention/notification-shaped kinds only (aligned with global notification-shaped kinds, plus zap receipts).
- * Not full {@link PROFILE_FEED_KINDS} — that asked relays for huge multi-kind slices per `#p`.
- *
- * Live notifications spell: REQ uses `#p` only (no relay `kinds`); {@link NOTIFICATION_SPELL_KINDS} is applied
- * in NoteList via `clientSideKindFilter` so the timeline buffer is not filled by other kinds that mention you.
+ * Same kinds as {@link RENDERABLE_NOTE_KINDS_SORTED}: anything `Note` renders with a real card, not
+ * the unknown-event fallback. Live notifications REQ uses `#p` only (no relay `kinds`); this list is applied in
+ * NoteList via `clientSideKindFilter` so only supported cards appear (other mention kinds are dropped).
  */
-export const NOTIFICATION_SPELL_KINDS = [
-  kinds.ShortTextNote,
-  kinds.Repost,
-  kinds.Reaction,
-  ExtendedKind.EXTERNAL_REACTION,
-  kinds.Zap,
-  ExtendedKind.COMMENT,
-  ExtendedKind.POLL_RESPONSE,
-  ExtendedKind.VOICE_COMMENT,
-  ExtendedKind.POLL,
-  ExtendedKind.PUBLIC_MESSAGE,
-  ExtendedKind.ZAP_RECEIPT
-] as const
+export const NOTIFICATION_SPELL_KINDS = RENDERABLE_NOTE_KINDS_SORTED
 
 /** Live notifications spell: longer than NoteList’s default 15s before empty state (slow `#p` on some relays). */
 export const NOTIFICATION_SPELL_LOADING_SAFETY_MS = 90_000
