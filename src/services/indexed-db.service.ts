@@ -48,11 +48,13 @@ export const StoreNames = {
   /** NIP-A7 spell events (kind 777). Key: event id. */
   SPELL_EVENTS: 'spellEvents',
   /** Tombstone list for deleted events (kind 5). Key: event id or replaceable coordinate. */
-  TOMBSTONE_LIST: 'tombstoneList'
+  TOMBSTONE_LIST: 'tombstoneList',
+  /** NIP-58 badge definitions (kind 30009). Key: pubkey:d */
+  BADGE_DEFINITION_EVENTS: 'badgeDefinitionEvents'
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 27
+const DB_VERSION = 28
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -229,6 +231,9 @@ class IndexedDbService {
           }
           if (!db.objectStoreNames.contains(StoreNames.TOMBSTONE_LIST)) {
             db.createObjectStore(StoreNames.TOMBSTONE_LIST, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.BADGE_DEFINITION_EVENTS)) {
+            db.createObjectStore(StoreNames.BADGE_DEFINITION_EVENTS, { keyPath: 'key' })
           }
         }
       }
@@ -841,6 +846,8 @@ class IndexedDbService {
       case ExtendedKind.WIKI_ARTICLE:
       case kinds.LongFormArticle:
         return StoreNames.PUBLICATION_EVENTS
+      case ExtendedKind.BADGE_DEFINITION:
+        return StoreNames.BADGE_DEFINITION_EVENTS
       default:
         return undefined
     }
@@ -1458,6 +1465,7 @@ class IndexedDbService {
       if (storeName === StoreNames.USER_EMOJI_LIST_EVENTS) return kinds.UserEmojiList
       if (storeName === StoreNames.EMOJI_SET_EVENTS) return kinds.Emojisets
       if (storeName === StoreNames.PAYMENT_INFO_EVENTS) return ExtendedKind.PAYMENT_INFO
+      if (storeName === StoreNames.BADGE_DEFINITION_EVENTS) return ExtendedKind.BADGE_DEFINITION
       // PUBLICATION_EVENTS is not replaceable, so we don't handle it here
       return undefined
   }

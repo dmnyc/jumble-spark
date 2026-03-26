@@ -19,9 +19,15 @@ type Props = {
   onRefreshReady?: (refresh: (() => void) | null) => void
 }
 
-function ProfileInteractionsContent({ pubkey, relayUrls, onRefreshReady }: {
+function ProfileInteractionsContent({
+  pubkey,
+  relayUrls,
+  refreshRelayUrls,
+  onRefreshReady
+}: {
   pubkey: string
   relayUrls: string[] | undefined
+  refreshRelayUrls: () => void | Promise<void>
   onRefreshReady?: (refresh: (() => void) | null) => void
 }) {
   const { pubkey: viewerPubkey } = useNostr()
@@ -32,14 +38,17 @@ function ProfileInteractionsContent({ pubkey, relayUrls, onRefreshReady }: {
 
   useEffect(() => {
     const doRefresh = () => {
-      refresh()
-      refreshBadges()
-      refreshFollowPacks()
-      refreshReports()
+      void (async () => {
+        await refreshRelayUrls()
+        refresh()
+        refreshBadges()
+        refreshFollowPacks()
+        refreshReports()
+      })()
     }
     onRefreshReady?.(doRefresh)
     return () => { onRefreshReady?.(null) }
-  }, [refresh, refreshBadges, refreshFollowPacks, refreshReports, onRefreshReady])
+  }, [refreshRelayUrls, refresh, refreshBadges, refreshFollowPacks, refreshReports, onRefreshReady])
 
   return (
     <ProfileHeaderInteractions
@@ -93,7 +102,7 @@ export default function ProfileInteractionsAccordion({
   onRefreshReady
 }: Props) {
   const { t } = useTranslation()
-  const { relayUrls, loading: relayUrlsLoading } = useProfileRelayUrls(pubkey, isExpanded)
+  const { relayUrls, loading: relayUrlsLoading, refresh: refreshRelayUrls } = useProfileRelayUrls(pubkey, isExpanded)
   const relaysReady = !relayUrlsLoading
   const hasContent = isExpanded && pubkey
 
@@ -118,6 +127,7 @@ export default function ProfileInteractionsAccordion({
               <ProfileInteractionsContent
                 pubkey={pubkey}
                 relayUrls={relayUrls.length > 0 ? relayUrls : undefined}
+                refreshRelayUrls={refreshRelayUrls}
                 onRefreshReady={onRefreshReady}
               />
             </div>

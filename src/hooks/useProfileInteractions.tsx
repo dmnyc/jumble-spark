@@ -4,6 +4,12 @@ import { queryService, replaceableEventService } from '@/services/client.service
 import { hexPubkeysEqual } from '@/lib/pubkey'
 import { Event, Filter, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  profileAccordionGetCachedInteractions,
+  profileAccordionInvalidate,
+  profileAccordionRelayUrlsKey,
+  profileAccordionSetInteractions
+} from '@/lib/profile-accordion-session-cache'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { buildProfileRelayUrls } from '@/lib/profile-relay-urls'
 
@@ -27,20 +33,41 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
   const [loading, setLoading] = useState(false)
   const fetchIdRef = useRef(0)
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (force = false) => {
+    const myFetchId = (fetchIdRef.current += 1)
+
     if (!pubkey) {
-      setZaps([])
-      setReactions([])
-      setComments([])
+      if (myFetchId === fetchIdRef.current) {
+        setZaps([])
+        setReactions([])
+        setComments([])
+        setLoading(false)
+      }
       return
     }
 
-    const myFetchId = (fetchIdRef.current += 1)
+    const urls =
+      force || !(relayUrls && relayUrls.length > 0)
+        ? await buildProfileRelayUrls(pubkey, blockedRelays)
+        : relayUrls
+    const relayKey = profileAccordionRelayUrlsKey(urls)
+
+    if (!force) {
+      const cached = profileAccordionGetCachedInteractions(pubkey, relayKey)
+      if (cached) {
+        if (myFetchId !== fetchIdRef.current) return
+        setZaps(cached.zaps)
+        setReactions(cached.reactions)
+        setComments(cached.comments)
+        setLoading(false)
+        return
+      }
+    }
+
+    if (myFetchId !== fetchIdRef.current) return
     setLoading(true)
 
     try {
-      const urls = relayUrls ?? (await buildProfileRelayUrls(pubkey, blockedRelays))
-
       const profileMetaPromise = replaceableEventService.fetchReplaceableEvent(
         pubkey,
         kinds.Metadata,
@@ -189,6 +216,11 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
       setZaps(collectedZaps)
       setReactions(collectedReactions)
       setComments(collectedComments)
+      profileAccordionSetInteractions(pubkey, relayKey, {
+        zaps: collectedZaps,
+        reactions: collectedReactions,
+        comments: collectedComments
+      })
     } catch {
       if (myFetchId !== fetchIdRef.current) return
     } finally {
@@ -196,11 +228,16 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
     }
   }, [pubkey, blockedRelays, relayUrls])
 
+  const refresh = useCallback(() => {
+    if (pubkey) profileAccordionInvalidate(pubkey, 'interactions')
+    void fetchAll(true)
+  }, [pubkey, fetchAll])
+
   useEffect(() => {
-    fetchAll()
+    void fetchAll(false)
   }, [fetchAll])
 
-  return { zaps, reactions, comments, loading, refresh: fetchAll }
+  return { zaps, reactions, comments, loading, refresh }
 }
 
 /** @deprecated Use useProfileInteractions instead. Returns zaps only for compatibility. */

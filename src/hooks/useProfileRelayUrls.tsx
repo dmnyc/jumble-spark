@@ -1,3 +1,8 @@
+import {
+  profileAccordionGetCachedRelayUrls,
+  profileAccordionInvalidate,
+  profileAccordionSetRelayUrls
+} from '@/lib/profile-accordion-session-cache'
 import { buildProfileRelayUrls } from '@/lib/profile-relay-urls'
 import { useCallback, useEffect, useState } from 'react'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -8,26 +13,57 @@ export function useProfileRelayUrls(pubkey: string | undefined, enabled: boolean
   const [relayUrls, setRelayUrls] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
 
-  const fetch = useCallback(async () => {
-    if (!pubkey || !enabled) {
+  const fetch = useCallback(
+    async (force = false) => {
+      if (!pubkey) {
+        setRelayUrls([])
+        setLoading(false)
+        return
+      }
+
+      if (!force) {
+        const cached = profileAccordionGetCachedRelayUrls(pubkey)
+        if (cached?.length) {
+          setRelayUrls(cached)
+          setLoading(false)
+          return
+        }
+      }
+
+      setLoading(true)
+      try {
+        const urls = await buildProfileRelayUrls(pubkey, blockedRelays)
+        profileAccordionSetRelayUrls(pubkey, urls)
+        setRelayUrls(urls)
+      } catch {
+        setRelayUrls([])
+      } finally {
+        setLoading(false)
+      }
+    },
+    [pubkey, blockedRelays]
+  )
+
+  const refresh = useCallback(() => {
+    if (pubkey) profileAccordionInvalidate(pubkey, 'relayUrls')
+    if (!pubkey) return Promise.resolve()
+    return fetch(true)
+  }, [pubkey, fetch])
+
+  useEffect(() => {
+    if (!pubkey) {
       setRelayUrls([])
       setLoading(false)
       return
     }
-    setLoading(true)
-    try {
-      const urls = await buildProfileRelayUrls(pubkey, blockedRelays)
-      setRelayUrls(urls)
-    } catch {
-      setRelayUrls([])
-    } finally {
+    if (!enabled) {
+      const cached = profileAccordionGetCachedRelayUrls(pubkey)
+      setRelayUrls(cached ?? [])
       setLoading(false)
+      return
     }
-  }, [pubkey, enabled, blockedRelays])
+    void fetch(false)
+  }, [pubkey, enabled, fetch])
 
-  useEffect(() => {
-    fetch()
-  }, [fetch])
-
-  return { relayUrls, loading, refresh: fetch }
+  return { relayUrls, loading, refresh }
 }

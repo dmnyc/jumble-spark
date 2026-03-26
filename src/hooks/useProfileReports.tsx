@@ -1,5 +1,10 @@
 import { ExtendedKind } from '@/constants'
 import { buildProfileReportRelayUrls } from '@/lib/profile-report-relay-urls'
+import {
+  profileAccordionGetCachedReports,
+  profileAccordionInvalidate,
+  profileAccordionSetReports
+} from '@/lib/profile-accordion-session-cache'
 import { queryService } from '@/services/client.service'
 import { Event } from 'nostr-tools'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -17,15 +22,29 @@ export function useProfileReports(
   const [loading, setLoading] = useState(false)
   const fetchIdRef = useRef(0)
 
-  const fetchReports = useCallback(async () => {
+  const fetchReports = useCallback(async (force = false) => {
     const viewer = viewerPubkey?.trim()
+    const myFetchId = (fetchIdRef.current += 1)
+
     if (!profilePubkey || !viewer) {
-      setReports([])
-      setLoading(false)
+      if (myFetchId === fetchIdRef.current) {
+        setReports([])
+        setLoading(false)
+      }
       return
     }
 
-    const myFetchId = (fetchIdRef.current += 1)
+    if (!force) {
+      const cached = profileAccordionGetCachedReports(profilePubkey, viewer)
+      if (cached) {
+        if (myFetchId !== fetchIdRef.current) return
+        setReports(cached)
+        setLoading(false)
+        return
+      }
+    }
+
+    if (myFetchId !== fetchIdRef.current) return
     setLoading(true)
 
     try {
@@ -56,6 +75,7 @@ export function useProfileReports(
       }
       deduped.sort((a, b) => b.created_at - a.created_at)
       setReports(deduped)
+      profileAccordionSetReports(profilePubkey, viewer, deduped)
     } catch {
       if (myFetchId !== fetchIdRef.current) return
       setReports([])
@@ -64,9 +84,15 @@ export function useProfileReports(
     }
   }, [profilePubkey, viewerPubkey, favoriteRelays, blockedRelays])
 
+  const refresh = useCallback(() => {
+    const v = viewerPubkey?.trim()
+    if (profilePubkey && v) profileAccordionInvalidate(profilePubkey, 'reports')
+    void fetchReports(true)
+  }, [profilePubkey, viewerPubkey, fetchReports])
+
   useEffect(() => {
-    fetchReports()
+    void fetchReports(false)
   }, [fetchReports])
 
-  return { reports, loading, refresh: fetchReports }
+  return { reports, loading, refresh }
 }

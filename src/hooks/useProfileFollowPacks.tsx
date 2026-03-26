@@ -1,4 +1,10 @@
 import { ExtendedKind } from '@/constants'
+import {
+  profileAccordionGetCachedFollowPacks,
+  profileAccordionInvalidate,
+  profileAccordionRelayUrlsKey,
+  profileAccordionSetFollowPacks
+} from '@/lib/profile-accordion-session-cache'
 import { queryService } from '@/services/client.service'
 import { Event } from 'nostr-tools'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -25,17 +31,37 @@ export function useProfileFollowPacks(
   const [loading, setLoading] = useState(false)
   const fetchIdRef = useRef(0)
 
-  const fetchPacks = useCallback(async () => {
+  const fetchPacks = useCallback(async (force = false) => {
+    const myFetchId = (fetchIdRef.current += 1)
+
     if (!pubkey) {
-      setPacks([])
+      if (myFetchId === fetchIdRef.current) {
+        setPacks([])
+        setLoading(false)
+      }
       return
     }
 
-    const myFetchId = (fetchIdRef.current += 1)
+    const urls =
+      force || !(relayUrls && relayUrls.length > 0)
+        ? await buildProfileRelayUrls(pubkey, blockedRelays)
+        : relayUrls
+    const relayKey = profileAccordionRelayUrlsKey(urls)
+
+    if (!force && urls.length > 0) {
+      const cached = profileAccordionGetCachedFollowPacks(pubkey, relayKey)
+      if (cached) {
+        if (myFetchId !== fetchIdRef.current) return
+        setPacks(cached)
+        setLoading(false)
+        return
+      }
+    }
+
+    if (myFetchId !== fetchIdRef.current) return
     setLoading(true)
 
     try {
-      const urls = relayUrls ?? (await buildProfileRelayUrls(pubkey, blockedRelays))
       if (urls.length === 0) {
         if (myFetchId === fetchIdRef.current) setPacks([])
         return
@@ -54,6 +80,7 @@ export function useProfileFollowPacks(
         title: getPackTitle(evt)
       }))
       setPacks(result)
+      profileAccordionSetFollowPacks(pubkey, relayKey, result)
     } catch {
       if (myFetchId !== fetchIdRef.current) return
       setPacks([])
@@ -62,9 +89,14 @@ export function useProfileFollowPacks(
     }
   }, [pubkey, blockedRelays, relayUrls])
 
+  const refresh = useCallback(() => {
+    if (pubkey) profileAccordionInvalidate(pubkey, 'followPacks')
+    void fetchPacks(true)
+  }, [pubkey, fetchPacks])
+
   useEffect(() => {
-    fetchPacks()
+    void fetchPacks(false)
   }, [fetchPacks])
 
-  return { packs, loading, refresh: fetchPacks }
+  return { packs, loading, refresh }
 }

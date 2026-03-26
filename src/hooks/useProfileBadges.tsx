@@ -1,5 +1,11 @@
 import { ExtendedKind } from '@/constants'
 import { extractBadgeDefinitionMedia } from '@/lib/badge-definition-media'
+import {
+  profileAccordionGetCachedBadges,
+  profileAccordionInvalidate,
+  profileAccordionRelayUrlsKey,
+  profileAccordionSetBadges
+} from '@/lib/profile-accordion-session-cache'
 import { queryService, replaceableEventService } from '@/services/client.service'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { tagNameEquals } from '@/lib/tag'
@@ -38,18 +44,37 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
   const [loading, setLoading] = useState(false)
   const fetchIdRef = useRef(0)
 
-  const fetchBadges = useCallback(async () => {
+  const fetchBadges = useCallback(async (force = false) => {
+    const myFetchId = (fetchIdRef.current += 1)
+
     if (!pubkey) {
-      setBadges([])
+      if (myFetchId === fetchIdRef.current) {
+        setBadges([])
+        setLoading(false)
+      }
       return
     }
 
-    const myFetchId = (fetchIdRef.current += 1)
+    const urls =
+      force || !(relayUrls && relayUrls.length > 0)
+        ? await buildProfileRelayUrls(pubkey, blockedRelays)
+        : relayUrls
+    const relayKey = profileAccordionRelayUrlsKey(urls)
+
+    if (!force) {
+      const cached = profileAccordionGetCachedBadges(pubkey, relayKey)
+      if (cached) {
+        if (myFetchId !== fetchIdRef.current) return
+        setBadges(cached)
+        setLoading(false)
+        return
+      }
+    }
+
+    if (myFetchId !== fetchIdRef.current) return
     setLoading(true)
 
     try {
-      const urls = relayUrls ?? (await buildProfileRelayUrls(pubkey, blockedRelays))
-
       const events = await queryService.fetchEvents(
         urls,
         { authors: [pubkey], kinds: [ExtendedKind.PROFILE_BADGES], '#d': ['profile_badges'] },
@@ -112,6 +137,7 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
 
       if (myFetchId !== fetchIdRef.current) return
       setBadges(result)
+      profileAccordionSetBadges(pubkey, relayKey, result)
     } catch {
       if (myFetchId !== fetchIdRef.current) return
       setBadges([])
@@ -120,9 +146,14 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
     }
   }, [pubkey, blockedRelays, relayUrls])
 
+  const refresh = useCallback(() => {
+    if (pubkey) profileAccordionInvalidate(pubkey, 'badges')
+    void fetchBadges(true)
+  }, [pubkey, fetchBadges])
+
   useEffect(() => {
-    fetchBadges()
+    void fetchBadges(false)
   }, [fetchBadges])
 
-  return { badges, loading, refresh: fetchBadges }
+  return { badges, loading, refresh }
 }
