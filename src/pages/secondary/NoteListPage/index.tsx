@@ -3,7 +3,7 @@ import type { TNoteListRef } from '@/components/NoteList'
 import NormalFeed from '@/components/NormalFeed'
 import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
-import { SEARCHABLE_RELAY_URLS } from '@/constants'
+import { isSocialKindBlockedKind, SEARCHABLE_RELAY_URLS } from '@/constants'
 import {
   augmentSubRequestsWithFavoritesFastReadAndInbox,
   getRelayUrlsWithFavoritesFastReadAndInbox
@@ -85,7 +85,7 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
       .filter((k) => !isNaN(k))
     const readUrlOpts = {
       userWriteRelays: relayList?.write ?? [],
-      applyKind1BlockedFilter: kinds.length === 0 || kinds.includes(1)
+      applySocialKindBlockedFilter: kinds.length === 0 || kinds.some(isSocialKindBlockedKind)
     }
     const hashtag = searchParams.get('t')
     if (hashtag) {

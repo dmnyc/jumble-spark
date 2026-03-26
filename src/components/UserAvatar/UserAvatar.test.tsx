@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
 import UserAvatar from './index'
 import * as useFetchProfileHook from '@/hooks/useFetchProfile'
+
+const originalIO = globalThis.IntersectionObserver
 
 // Mock the hooks and dependencies
 vi.mock('@/hooks/useFetchProfile', () => ({
@@ -11,12 +13,16 @@ vi.mock('@/hooks/useFetchProfile', () => ({
 vi.mock('@/PageManager', () => ({
   useSmartProfileNavigation: () => ({
     navigateToProfile: vi.fn()
+  }),
+  useSmartProfileNavigationOptional: () => ({
+    navigateToProfile: vi.fn()
   })
 }))
 
 vi.mock('@/lib/pubkey', () => ({
-  userIdToPubkey: (id: string) => id.startsWith('npub') ? 'decoded_pubkey' : id,
-  generateImageByPubkey: (pubkey: string) => `https://avatar.example.com/${pubkey}`
+  userIdToPubkey: (id: string) => (id.startsWith('npub') ? 'decoded_pubkey' : id),
+  generateImageByPubkey: (_pubkey: string) =>
+    `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="gray"/></svg>`)}`
 }))
 
 vi.mock('@/lib/link', () => ({
@@ -24,6 +30,45 @@ vi.mock('@/lib/link', () => ({
 }))
 
 describe('UserAvatar in Embedded Notes', () => {
+  beforeAll(() => {
+    globalThis.IntersectionObserver = class IntersectionObserverMock {
+      constructor(
+        public cb: IntersectionObserverCallback,
+        public _opts?: IntersectionObserverInit
+      ) {}
+      observe(el: Element) {
+        queueMicrotask(() => {
+          this.cb(
+            [
+              {
+                isIntersecting: true,
+                target: el,
+                intersectionRatio: 1,
+                boundingClientRect: {} as DOMRectReadOnly,
+                intersectionRect: {} as DOMRectReadOnly,
+                rootBounds: null,
+                time: Date.now()
+              }
+            ],
+            this
+          )
+        })
+      }
+      disconnect() {}
+      unobserve() {}
+      takeRecords() {
+        return []
+      }
+      root = null
+      rootMargin = ''
+      thresholds = []
+    } as unknown as typeof IntersectionObserver
+  })
+
+  afterAll(() => {
+    globalThis.IntersectionObserver = originalIO
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -55,10 +100,12 @@ describe('UserAvatar in Embedded Notes', () => {
     const avatarContainer = container.querySelector('[data-user-avatar]')
     expect(avatarContainer).toBeInTheDocument()
 
-    // Find the image
+    // Find the image — identicon first, then remote profile picture after intersection
     const img = avatarContainer?.querySelector('img')
     expect(img).toBeInTheDocument()
-    expect(img).toHaveAttribute('src', 'https://example.com/avatar.jpg')
+    await waitFor(() => {
+      expect(img).toHaveAttribute('src', 'https://example.com/avatar.jpg')
+    })
 
     // Check that the image is not hidden or covered
     const computedStyle = window.getComputedStyle(img!)

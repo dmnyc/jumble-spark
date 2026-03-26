@@ -21,14 +21,14 @@ export async function buildAccountListRelayUrlsForMerge(options: {
     favoriteRelays: favoritesTier,
     blockedRelays,
     maxRelays: 100,
-    applyKind1BlockedFilter: false
+    applySocialKindBlockedFilter: false
   })
   const write = buildPrioritizedWriteRelayUrls({
     userWriteRelays: myRelayList.write ?? [],
     favoriteRelays: favoritesTier,
     blockedRelays,
     maxRelays: 100,
-    applyKind1BlockedFilter: false
+    applySocialKindBlockedFilter: false
   })
   const merged = [...read, ...write]
   return [...new Set(merged.map((u) => normalizeUrl(u) || u).filter(Boolean))]

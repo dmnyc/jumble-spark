@@ -41,7 +41,8 @@ export class EventService {
    * In-memory session cache: events seen this tab session (timelines, queries, fetches).
    * Larger cap + no TTL so navigation and repeat fetches reuse data until reload.
    */
-  private sessionEventCache = new LRUCache<string, NEvent>({ max: 15000 })
+  /** Large cap: timelines + note-stats (reactions, replies, zaps, reposts per note) share one LRU. */
+  private sessionEventCache = new LRUCache<string, NEvent>({ max: 5_000 })
   /** Latest kind-0 per pubkey from {@link sessionEventCache} for batch profile short-circuit. */
   private sessionMetadataByPubkey = new Map<string, NEvent>()
   /** Callbacks waiting for an event id to appear in {@link sessionEventCache} (e.g. embed loads before timeline caches the note). */

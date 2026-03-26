@@ -91,7 +91,7 @@ export function getRelaysForSpellCatalogSync(
 ): string[] {
   return getRelayUrlsWithFavoritesFastReadAndInbox(favoriteRelays, blockedRelays, userInboxReadRelays, {
     userWriteRelays: options?.userWriteRelays ?? [],
-    applyKind1BlockedFilter: false
+    applySocialKindBlockedFilter: false
   })
 }
 

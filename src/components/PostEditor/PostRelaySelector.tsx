@@ -1,4 +1,4 @@
-import { KIND_1_BLOCKED_RELAY_URLS } from '@/constants'
+import { ExtendedKind, isSocialKindBlockedKind, SOCIAL_KIND_BLOCKED_RELAY_URLS } from '@/constants'
 import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
 import { simplifyUrl, isLocalNetworkUrl, normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
@@ -7,7 +7,6 @@ import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { getRelayListFromEvent } from '@/lib/event-metadata'
 import indexedDb from '@/services/indexed-db.service'
-import { ExtendedKind } from '@/constants'
 import { Check, ChevronDown, Server } from 'lucide-react'
 import { NostrEvent } from 'nostr-tools'
 import { Dispatch, SetStateAction, useCallback, useEffect, useState, useMemo } from 'react'
@@ -94,13 +93,16 @@ export default function PostRelaySelector({
   // Memoize arrays to prevent unnecessary re-renders
   const memoizedFavoriteRelays = useMemo(() => favoriteRelays, [favoriteRelays])
   const memoizedBlockedRelays = useMemo(() => {
-    // For kind 1 replies and top-level posts, also block KIND_1_BLOCKED_RELAY_URLS
-    const isKind1Publish =
-      !isPublicMessage && (typeof _parentEvent?.kind === 'undefined' || _parentEvent?.kind === 1)
-    return isKind1Publish
-      ? [...blockedRelays, ...KIND_1_BLOCKED_RELAY_URLS]
+    // Top-level compose or reply under a social thread: also block SOCIAL_KIND_BLOCKED_RELAY_URLS in the picker.
+    const isSocialPublish =
+      !isPublicMessage &&
+      (_parentEvent == null ||
+        isDiscussionReply ||
+        isSocialKindBlockedKind(_parentEvent.kind))
+    return isSocialPublish
+      ? [...blockedRelays, ...SOCIAL_KIND_BLOCKED_RELAY_URLS]
       : blockedRelays
-  }, [blockedRelays, isPublicMessage, _parentEvent?.kind])
+  }, [blockedRelays, isPublicMessage, _parentEvent, isDiscussionReply])
   const memoizedRelaySets = useMemo(() => relaySets, [relaySets])
   const memoizedOpenFrom = useMemo(() => openFrom, [openFrom])
 

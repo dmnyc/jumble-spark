@@ -54,8 +54,10 @@ const ALGO_LIMIT = 200 // Increased from 500 for algorithm feeds
 const SHOW_COUNT = 20 // Increased from 10 to show more events at once, reducing scroll load frequency
 /** Hard cap after merging parallel one-shot fetches (e.g. interests = one REQ per topic). */
 const ONE_SHOT_MERGED_CAP =100
-const FEED_PROFILE_BATCH_DEBOUNCE_MS = 120
-const FEED_PROFILE_CHUNK = 36
+/** Short debounce: batch rapid timeline updates without delaying first paint on feeds like notifications. */
+const FEED_PROFILE_BATCH_DEBOUNCE_MS = 50
+/** Larger chunks + parallel fetches below — sequential 36-pubkey rounds made notification avatars lag. */
+const FEED_PROFILE_CHUNK = 80
 
 function mergeEventBatchesById(prev: Event[], incoming: Event[], cap: number): Event[] {
   const byId = new Map<string, Event>()
@@ -274,11 +276,23 @@ const NoteList = forwardRef(
           candidates.add(t.toLowerCase())
         }
       }
+      const addPkFromEventTags = (e: Event) => {
+        let n = 0
+        for (const tag of e.tags) {
+          if (tag[0] === 'p' && tag[1]) {
+            addPk(tag[1])
+            n++
+            if (n >= 4) break
+          }
+        }
+      }
       for (const e of events) {
         addPk(e.pubkey)
+        addPkFromEventTags(e)
       }
       for (const e of newEvents) {
         addPk(e.pubkey)
+        addPkFromEventTags(e)
       }
 
       setFeedProfileBatch((prev) => {
@@ -501,14 +515,26 @@ const NoteList = forwardRef(
         const candidates = new Set<string>()
         const addPk = (p: string | undefined) => {
           if (p && p.length === 64 && /^[0-9a-f]{64}$/.test(p)) {
-            candidates.add(p)
+            candidates.add(p.toLowerCase())
+          }
+        }
+        const addPkFromEventTags = (e: Event) => {
+          let n = 0
+          for (const tag of e.tags) {
+            if (tag[0] === 'p' && tag[1]) {
+              addPk(tag[1])
+              n++
+              if (n >= 4) break
+            }
           }
         }
         for (const e of events) {
           addPk(e.pubkey)
+          addPkFromEventTags(e)
         }
         for (const e of newEvents) {
           addPk(e.pubkey)
+          addPkFromEventTags(e)
         }
 
         const need = [...candidates].filter((pk) => !feedProfileLoadedRef.current.has(pk))
@@ -530,41 +556,44 @@ const NoteList = forwardRef(
         })
 
         void (async () => {
+          if (gen !== feedProfileBatchGenRef.current) return
+          const chunks: string[][] = []
           for (let i = 0; i < need.length; i += FEED_PROFILE_CHUNK) {
-            if (gen !== feedProfileBatchGenRef.current) return
-            const chunk = need.slice(i, i + FEED_PROFILE_CHUNK)
-            try {
-              const profiles = await client.fetchProfilesForPubkeys(chunk)
-              if (gen !== feedProfileBatchGenRef.current) return
-              setFeedProfileBatch((prev) => {
-                const next = new Map(prev.profiles)
-                const pend = new Set(prev.pending)
-                for (const p of profiles) {
-                  next.set(p.pubkey, p)
-                  pend.delete(p.pubkey)
-                }
-                for (const pk of chunk) {
-                  pend.delete(pk)
-                  if (!next.has(pk)) {
-                    next.set(pk, {
-                      pubkey: pk,
-                      npub: pubkeyToNpub(pk) ?? '',
-                      username: formatPubkey(pk)
-                    })
-                  }
-                }
-                return { profiles: next, pending: pend, version: prev.version + 1 }
-              })
-            } catch {
-              chunk.forEach((pk) => feedProfileLoadedRef.current.delete(pk))
-              if (gen !== feedProfileBatchGenRef.current) return
-              setFeedProfileBatch((prev) => {
-                const pend = new Set(prev.pending)
-                chunk.forEach((pk) => pend.delete(pk))
-                return { ...prev, pending: pend, version: prev.version + 1 }
-              })
-            }
+            chunks.push(need.slice(i, i + FEED_PROFILE_CHUNK))
           }
+          const settled = await Promise.allSettled(
+            chunks.map((chunk) => client.fetchProfilesForPubkeys(chunk))
+          )
+          if (gen !== feedProfileBatchGenRef.current) return
+
+          setFeedProfileBatch((prev) => {
+            const next = new Map(prev.profiles)
+            const pend = new Set(prev.pending)
+            settled.forEach((res, idx) => {
+              const chunk = chunks[idx]!
+              if (res.status === 'rejected') {
+                chunk.forEach((pk) => feedProfileLoadedRef.current.delete(pk))
+                chunk.forEach((pk) => pend.delete(pk))
+                return
+              }
+              const profiles = res.value
+              for (const p of profiles) {
+                next.set(p.pubkey, p)
+                pend.delete(p.pubkey)
+              }
+              for (const pk of chunk) {
+                pend.delete(pk)
+                if (!next.has(pk)) {
+                  next.set(pk, {
+                    pubkey: pk,
+                    npub: pubkeyToNpub(pk) ?? '',
+                    username: formatPubkey(pk)
+                  })
+                }
+              }
+            })
+            return { profiles: next, pending: pend, version: prev.version + 1 }
+          })
         })()
       }, FEED_PROFILE_BATCH_DEBOUNCE_MS)
       return () => window.clearTimeout(handle)

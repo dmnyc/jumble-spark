@@ -1,7 +1,8 @@
 import {
   FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT,
   FIRST_RELAY_RESULT_GRACE_MS,
-  KIND_1_BLOCKED_RELAY_URLS,
+  relayFilterIncludesSocialKindBlockedKind,
+  SOCIAL_KIND_BLOCKED_RELAY_URLS,
   MAX_CONCURRENT_RELAY_CONNECTIONS,
   MAX_CONCURRENT_SUBS_PER_RELAY,
   SEARCHABLE_RELAY_URLS
@@ -107,7 +108,7 @@ export class QueryService {
     this.onRelayNoticeStrike = relaySession?.onRelayNoticeStrike
   }
 
-  /** Wire after {@link EventService} exists so all `query()` / `fetchEvents` results populate the session cache. */
+  /** Wire after {@link EventService} exists: each `query()` / `fetchEvents` event is ingested from `onevent` (session LRU). */
   setQueryResultIngest(handler: ((events: NEvent[]) => void) | undefined): void {
     this.onQueryResultIngest = handler
   }
@@ -263,7 +264,7 @@ export class QueryService {
         
         const resolvedList =
           replaceableRace && events.length > 0 ? resolveReplaceableRaceEvents() : events
-        this.onQueryResultIngest?.(resolvedList)
+        // Session cache already updated per-event in onevent; avoid duplicate ingest + waiter churn.
         resolve(resolvedList)
       }
 
@@ -271,10 +272,15 @@ export class QueryService {
         urls,
         filter,
         {
-        onevent(evt) {
+        onevent: (evt) => {
           eventCount++
           onevent?.(evt)
           events.push(evt)
+          // Session cache: ingest as events arrive (reactions/replies/zaps from note-stats, etc.),
+          // not only at resolve — otherwise embeds and fetchEvent miss until EOSE.
+          if (!shouldDropEventOnIngest(evt)) {
+            this.onQueryResultIngest?.([evt])
+          }
 
           if (firstResultTime === null) {
             firstResultTime = Date.now()
@@ -374,10 +380,12 @@ export class QueryService {
     let relays = Array.from(new Set(urls))
     const filters = Array.isArray(filter) ? filter : [filter]
 
-    const hasKind1 = filters.some((f) => f.kinds && (Array.isArray(f.kinds) ? f.kinds.includes(1) : f.kinds === 1))
-    if (hasKind1 && KIND_1_BLOCKED_RELAY_URLS.length > 0) {
-      const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-      relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
+    const stripSocialBlockedRelays =
+      SOCIAL_KIND_BLOCKED_RELAY_URLS.length > 0 &&
+      filters.some((f) => relayFilterIncludesSocialKindBlockedKind(f))
+    if (stripSocialBlockedRelays) {
+      const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+      relays = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
     }
     if (this.shouldSkipRelayForSession) {
       relays = relays.filter((url) => {
@@ -568,9 +576,11 @@ export class QueryService {
 
     return {
       close: () => {
-        opBatch?.finalize('closed', 'subscribe_close')
-        allOpened.then(() => {
+        // Close subs first, then finalize — otherwise finalize runs before any EOSE/onclose and every
+        // relay is mis-labeled "skipped" in batch_end.
+        void allOpened.then(() => {
           subs.forEach(({ close: subClose }) => subClose())
+          setTimeout(() => opBatch?.finalize('closed', 'subscribe_close'), 0)
         })
       }
     }
@@ -592,10 +602,12 @@ export class QueryService {
       relays = [...FAST_READ_RELAY_URLS]
     }
     const filters = Array.isArray(filter) ? filter : [filter]
-    const hasKind1 = filters.some((f) => f.kinds && (Array.isArray(f.kinds) ? f.kinds.includes(1) : f.kinds === 1))
-    if (hasKind1 && KIND_1_BLOCKED_RELAY_URLS.length > 0) {
-      const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-      relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
+    const stripSocialBlockedRelays =
+      SOCIAL_KIND_BLOCKED_RELAY_URLS.length > 0 &&
+      filters.some((f) => relayFilterIncludesSocialKindBlockedKind(f))
+    if (stripSocialBlockedRelays) {
+      const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+      relays = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
     }
     const { onevent, ...queryOpts } = options ?? {}
     return this.query(relays, filter, onevent, queryOpts)

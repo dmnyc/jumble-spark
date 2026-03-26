@@ -3,7 +3,9 @@ import {
   ExtendedKind,
   FAST_WRITE_RELAY_URLS,
   FIRST_RELAY_RESULT_GRACE_MS,
-  KIND_1_BLOCKED_RELAY_URLS,
+  isSocialKindBlockedKind,
+  relayFilterIncludesSocialKindBlockedKind,
+  SOCIAL_KIND_BLOCKED_RELAY_URLS,
   MAX_PUBLISH_RELAYS,
   OUTBOX_PUBLISH_RETRY_DELAY_MS,
   NIP66_DISCOVERY_RELAY_URLS,
@@ -320,18 +322,18 @@ class ClientService extends EventTarget {
    */
   private filterPublishingRelays(relays: string[], event: NEvent): string[] {
     const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-    const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
     return dedupeNormalizeRelayUrlsOrdered(
       relays.filter((url) => {
         const n = normalizeUrl(url) || url
         if (readOnlySet.has(n)) return false
-        if (event.kind === kinds.ShortTextNote && kind1BlockedSet.has(n)) return false
+        if (isSocialKindBlockedKind(event.kind) && socialKindBlockedSet.has(n)) return false
         return true
       })
     )
   }
 
-  /** NIP-65 `write` URLs for `event.pubkey`, filtered for publish (no read-only / kind-1 blocks). */
+  /** NIP-65 `write` URLs for `event.pubkey`, filtered for publish (no read-only / social-kind blocks). */
   private async getUserOutboxRelayUrlsForPublish(event: NEvent): Promise<string[]> {
     try {
       const relayList = await this.fetchRelayList(event.pubkey)
@@ -442,7 +444,7 @@ class ClientService extends EventTarget {
     )
 
     const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-    const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
 
     const t0: string[] = []
     const t1: string[] = []
@@ -464,7 +466,7 @@ class ClientService extends EventTarget {
       .filter((url) => {
         const n = normalizeUrl(url) || url
         if (readOnlySet.has(n)) return false
-        if (event.kind === kinds.ShortTextNote && kind1BlockedSet.has(n)) return false
+        if (isSocialKindBlockedKind(event.kind) && socialKindBlockedSet.has(n)) return false
         return true
       })
       .slice(0, MAX_PUBLISH_RELAYS)
@@ -492,7 +494,7 @@ class ClientService extends EventTarget {
   ) {
     const writeRelayPubOpts = {
       blockedRelays: blockedRelayUrls,
-      applyKind1BlockedFilter: event.kind === kinds.ShortTextNote
+      applySocialKindBlockedFilter: isSocialKindBlockedKind(event.kind)
     }
     if (event.kind === kinds.RelayList) {
       logger.info('[DetermineTargetRelays] Determining target relays for relay list event', {
@@ -578,7 +580,7 @@ class ClientService extends EventTarget {
         [relayUrlsLocalsFirst(authorWrite), dedupeNormalizeRelayUrlsOrdered(recipientRead)],
         blockedRelayUrls,
         MAX_PUBLISH_RELAYS,
-        { applyKind1BlockedFilter: false }
+        { applySocialKindBlockedFilter: false }
       )
       pubRelays = this.filterPublishingRelays(pubRelays, event)
       logger.debug('[DetermineTargetRelays] Public message / calendar RSVP: author outbox + recipient inboxes only', {
@@ -593,7 +595,7 @@ class ClientService extends EventTarget {
           [relayUrlsLocalsFirst([...FAST_WRITE_RELAY_URLS])],
           blockedRelayUrls,
           MAX_PUBLISH_RELAYS,
-          { applyKind1BlockedFilter: false }
+          { applySocialKindBlockedFilter: false }
         ),
         event
       )
@@ -927,11 +929,11 @@ class ClientService extends EventTarget {
     }
 
     const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-    const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
     let filtered = mergedRelayUrls.filter((url) => {
       const n = normalizeUrl(url) || url
       if (readOnlySet.has(n)) return false
-      if (event.kind === kinds.ShortTextNote && kind1BlockedSet.has(n)) return false
+      if (isSocialKindBlockedKind(event.kind) && socialKindBlockedSet.has(n)) return false
       const strikes = this.publishStrikeCount.get(n) ?? 0
       if (strikes >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) return false
       return true
@@ -1514,10 +1516,12 @@ class ClientService extends EventTarget {
     let relays = Array.from(new Set(urls))
     const filters = Array.isArray(filter) ? filter : [filter]
 
-    const hasKind1 = filters.some((f) => f.kinds && (Array.isArray(f.kinds) ? f.kinds.includes(1) : f.kinds === 1))
-    if (hasKind1 && KIND_1_BLOCKED_RELAY_URLS.length > 0) {
-      const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-      relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
+    const stripSocialBlockedRelays =
+      SOCIAL_KIND_BLOCKED_RELAY_URLS.length > 0 &&
+      filters.some((f) => relayFilterIncludesSocialKindBlockedKind(f))
+    if (stripSocialBlockedRelays) {
+      const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+      relays = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
     }
     relays = this.filterSessionStrikedRelays(relays)
 
@@ -1542,7 +1546,7 @@ class ClientService extends EventTarget {
       return { url, filters: filtersForRelay }
     })
 
-    // Kind-1 queries drop KIND_1_BLOCKED_RELAY_URLS; if every URL was removed, no subs run and
+    // Social-kind queries drop SOCIAL_KIND_BLOCKED_RELAY_URLS; if every URL was removed, no subs run and
     // oneose would never fire — timelines stay loading forever (e.g. favorites feed).
     if (groupedRequests.length === 0) {
       logger.debug('[relay-req] batch_skip', {
@@ -1783,10 +1787,10 @@ class ClientService extends EventTarget {
 
     return {
       close: () => {
-        opBatch.finalize('closed', 'subscription_closed')
         this.removeEventListener('newEvent', handleNewEventFromInternal)
-        allOpened.then(() => {
+        void allOpened.then(() => {
           subs.forEach(({ close: subClose }) => subClose())
+          setTimeout(() => opBatch.finalize('closed', 'subscription_closed'), 0)
         })
       }
     }
@@ -2121,10 +2125,12 @@ class ClientService extends EventTarget {
     let relays = Array.from(new Set(urls))
     if (relays.length === 0) relays = [...FAST_READ_RELAY_URLS]
     const filters = Array.isArray(filter) ? filter : [filter]
-    const hasKind1 = filters.some((f) => f.kinds && (Array.isArray(f.kinds) ? f.kinds.includes(1) : f.kinds === 1))
-    if (hasKind1 && KIND_1_BLOCKED_RELAY_URLS.length > 0) {
-      const kind1BlockedSet = new Set(KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-      relays = relays.filter((url) => !kind1BlockedSet.has(normalizeUrl(url) || url))
+    const stripSocialBlockedRelays =
+      SOCIAL_KIND_BLOCKED_RELAY_URLS.length > 0 &&
+      filters.some((f) => relayFilterIncludesSocialKindBlockedKind(f))
+    if (stripSocialBlockedRelays) {
+      const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+      relays = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
     }
     relays = this.filterSessionStrikedRelays(relays)
     const events = await this.queryService.query(relays, filter, onevent, {

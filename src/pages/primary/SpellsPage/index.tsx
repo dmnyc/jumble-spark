@@ -664,10 +664,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const syncFauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
     if (!selectedFauxSpell || selectedFauxSpell === 'following') return []
-    /** Widen relay pool: these filters are not kind-1-only; skipping strip keeps fast-read mirrors in the stack. */
-    const fauxSpellSkipKind1Blocked =
+    /** Widen relay pool: these faux spells do not target social kinds (1 / 11 / 1111); skipping strip keeps fast-read mirrors in the stack. */
+    const fauxSpellSkipSocialKindBlocked =
       selectedFauxSpell === 'calendar' ||
-      selectedFauxSpell === 'discussions' ||
       selectedFauxSpell === 'followPacks' ||
       selectedFauxSpell === 'media' ||
       selectedFauxSpell === 'bookmarks' ||
@@ -678,7 +677,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       relayList?.read ?? [],
       {
         userWriteRelays: relayList?.write ?? [],
-        applyKind1BlockedFilter: fauxSpellSkipKind1Blocked ? false : undefined
+        applySocialKindBlockedFilter: fauxSpellSkipSocialKindBlocked ? false : undefined
       }
     )
 

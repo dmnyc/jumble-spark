@@ -35,7 +35,7 @@ export function compactFilterForRelayLog(f: Filter): Record<string, unknown> {
   return out
 }
 
-export type RelayOpTerminalOutcome = 'eose' | 'closed' | 'skipped' | 'timeout'
+export type RelayOpTerminalOutcome = 'eose' | 'closed' | 'timeout'
 
 export interface RelayOpTerminalRow {
   cmdIndex: number
@@ -47,6 +47,73 @@ export interface RelayOpTerminalRow {
 }
 
 type GroupedRelayRow = { url: string; filters: Filter[] }
+
+/** Short host label for subscribe REQ logs (same as publish). */
+function relayHostForSubscribeLog(url: string): string {
+  return relayHostForPublishLog(url)
+}
+
+function humanizeSubscribeTerminalDetail(outcome: RelayOpTerminalOutcome, detail?: string): string {
+  const d = (detail ?? '').trim()
+  if (!d) {
+    if (outcome === 'eose') return 'end of stored events'
+    return outcome
+  }
+  if (
+    d === 'subscribe_close' ||
+    d === 'subscription_closed' ||
+    d === 'no_report_before_req_closed' ||
+    d === 'batch_finalize_closed'
+  ) {
+    return 'REQ ended before this relay reported EOSE (often normal)'
+  }
+  if (d === 'batch_finalize_timeout') return 'batch closed on timeout before relay reported'
+  return d.length > 100 ? `${d.slice(0, 97)}…` : d
+}
+
+/**
+ * One block of text for the console (like NIP-65 retry logs), instead of expanding `terminals` / `byOutcome`.
+ */
+export function buildSubscribeBatchReadableSummary(rows: RelayOpTerminalRow[]): string {
+  if (rows.length === 0) return '(no relay slots)'
+
+  type Group = { outcome: RelayOpTerminalOutcome; label: string; rows: RelayOpTerminalRow[] }
+  const groups: Group[] = []
+  for (const r of rows) {
+    const label = humanizeSubscribeTerminalDetail(r.outcome, r.detail)
+    let g = groups.find((x) => x.outcome === r.outcome && x.label === label)
+    if (!g) {
+      g = { outcome: r.outcome, label, rows: [] }
+      groups.push(g)
+    }
+    g.rows.push(r)
+  }
+
+  groups.sort((a, b) => {
+    const o = a.outcome.localeCompare(b.outcome)
+    if (o !== 0) return o
+    return a.label.localeCompare(b.label)
+  })
+
+  const parts: string[] = []
+  for (const { outcome, label, rows: list } of groups) {
+    const hosts = list.map((r) => relayHostForSubscribeLog(r.relayUrl))
+    const uniq = [...new Set(hosts)]
+    const head =
+      outcome === 'eose'
+        ? `EOSE (${list.length})`
+        : outcome === 'timeout'
+          ? `Timeout (${list.length})`
+          : `Closed (${list.length})`
+    parts.push(`${head} — ${label}`)
+    if (uniq.length <= 12) {
+      parts.push(...uniq.map((h) => `  • ${h}`))
+    } else {
+      parts.push(`  • ${uniq.slice(0, 8).join(', ')} … +${uniq.length - 8} more`)
+    }
+  }
+  return parts.join('\n')
+}
 
 function groupTerminalsByOutcome(rows: RelayOpTerminalRow[]): Record<string, { count: number; relays: string[]; cmdIndices: number[] }> {
   const map = new Map<string, { relays: string[]; cmdIndices: number[] }>()
@@ -144,8 +211,11 @@ export class RelaySubscribeOpBatch {
         this.terminal.set(i, {
           cmdIndex: i,
           relayUrl: this.grouped[i]!.url,
-          outcome: status === 'timeout' ? 'timeout' : 'skipped',
-          detail: detail ?? (status === 'timeout' ? 'batch_finalize_timeout' : 'batch_finalize_closed'),
+          outcome: status === 'timeout' ? 'timeout' : 'closed',
+          detail:
+            status === 'timeout'
+              ? (detail ?? 'batch_finalize_timeout')
+              : (detail ?? 'no_report_before_req_closed'),
           msFromBatchStart
         })
       }
@@ -160,15 +230,33 @@ export class RelaySubscribeOpBatch {
     const elapsedMs = Math.round(
       (typeof performance !== 'undefined' ? performance.now() : Date.now()) - this.t0
     )
-    this.logLine('[RelayOp] batch_end', {
+    const readableSummary = buildSubscribeBatchReadableSummary(rows)
+    const nEose = rows.filter((r) => r.outcome === 'eose').length
+    const nTimeout = rows.filter((r) => r.outcome === 'timeout').length
+    const nClosed = rows.filter((r) => r.outcome === 'closed').length
+    const headline = `${rows.length} relay(s), ${elapsedMs}ms — EOSE ${nEose}, closed ${nClosed}, timeout ${nTimeout}`
+
+    const compact: Record<string, unknown> = {
       batchId: this.batchId,
       source: this.source,
       status,
       elapsedMs,
       terminalCount: rows.length,
-      byOutcome: groupTerminalsByOutcome(rows),
-      terminals: rows
-    })
+      eoseCount: nEose,
+      closedCount: nClosed,
+      timeoutCount: nTimeout
+    }
+
+    if (this.logLevel === 'debug') {
+      this.logLine('[RelayOp] batch_end', {
+        ...compact,
+        readableSummary,
+        byOutcome: groupTerminalsByOutcome(rows),
+        terminals: rows
+      })
+    } else {
+      logger.info(`[RelayOp] batch_end — ${headline}\n${readableSummary}`, compact)
+    }
   }
 }
 
@@ -228,9 +316,11 @@ export class RelayPublishOpBatch {
     const fail = this.results.filter((r) => !r.ok)
     const sorted = this.results.sort((a, b) => a.cmdIndex - b.cmdIndex)
     const readableSummary =
-      fail.length === 0
-        ? `All ${ok.length} relay(s) accepted the publish.`
-        : [
+      this.relays.length === 0
+        ? 'No relays targeted (empty list or skipped by session rules).'
+        : fail.length === 0
+          ? `All ${ok.length} relay(s) accepted the publish.`
+          : [
             `${fail.length} relay(s) failed:`,
             ...fail.map(
               (r) =>

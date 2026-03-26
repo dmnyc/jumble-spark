@@ -40,7 +40,7 @@ export function GroupListProvider({ children }: { children: React.ReactNode }) {
       userWriteRelays: myRelayList.write ?? [],
       favoriteRelays: favoritesTier,
       blockedRelays,
-      applyKind1BlockedFilter: false
+      applySocialKindBlockedFilter: false
     })
   }, [accountPubkey, favoriteRelays, blockedRelays])
 

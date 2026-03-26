@@ -358,6 +358,12 @@ export function collectEmbeddedEventPrefetchTargets(event: Event): {
     }
   }
 
+  // Discussion roots (kind 11) usually do not reference their own id in tags/content; include the
+  // row id so feed prefetch + open-note `fetchEvent` hit session cache after the list has loaded.
+  if (event.kind === ExtendedKind.DISCUSSION) {
+    addHex(event.id)
+  }
+
   return {
     hexIds: Array.from(hexSet),
     nip19Pointers: Array.from(nip19Set)

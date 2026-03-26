@@ -1,4 +1,4 @@
-import { kinds } from 'nostr-tools'
+import { kinds, type Filter } from 'nostr-tools'
 
 /** API base URL; override with VITE_JUMBLE_API_BASE_URL for forks (e.g. https://api.jumble.imwald.eu). */
 export const JUMBLE_API_BASE_URL =
@@ -26,7 +26,8 @@ export const DESKTOP_APP_DOWNLOAD_URL_DEFAULT =
 export const DEFAULT_FAVORITE_RELAYS = [
   'wss://theforest.nostr1.com',
   'wss://orly-relay.imwald.eu',
-  'wss://nostr.land'
+  'wss://nostr.land',
+  'wss://nostr21.com'
 ]
 
 /**
@@ -181,19 +182,31 @@ export const BOOKSTR_RELAY_URLS = [
 /**
  * Block-list order (applied in sequence when building relay lists):
  * 1. READ_ONLY — never publish
- * 2. KIND_1_BLOCKED — skip for kind 1 read/write
+ * 2. SOCIAL_KIND_BLOCKED — skip for REQ/publish that target {@link SOCIAL_KIND_BLOCKED_KINDS}
  * 3. E_TAG_FILTER_BLOCKED — skip for reply/quote/stats fetches (#e, #a, #q filters)
  */
 /** Relays that must never be used for publishing (read-only aggregators, etc.). */
 export const READ_ONLY_RELAY_URLS = ['wss://aggr.nostr.land']
 
-/** Relays that block kind 1 (microblogging); skip for kind 1 read and write. */
-export const KIND_1_BLOCKED_RELAY_URLS = [
+/**
+ * Relays that reject or poorly serve “social” kinds (short notes, discussions, URL comments).
+ * Strip these from REQ/publish relay stacks when the filter or event uses {@link SOCIAL_KIND_BLOCKED_KINDS},
+ * or when a filter omits `kinds` (broad timeline).
+ */
+export const SOCIAL_KIND_BLOCKED_RELAY_URLS = [
   'wss://thecitadel.nostr1.com',
   'wss://hist.nostr.land',
   'wss://profiles.nostr1.com',
   'wss://purplepag.es',
-  'wss://wikifreedia.xyz'
+  'wss://relay.nsec.app',
+  'wss://bucket.coracle.social',
+  'wss://spatia-arcana.com',
+  'wss://relay.wikifreedia.xyz',
+  'wss://relay.gifbuddy.lol',
+  'wss://relay.noswhere.com',
+  'wss://aggr.nostr.land',
+  'wss://search.nos.today',
+  'wss://trending.nostr.wine'
 ]
 
 /** Relays that reject #e (and similar) tag filters; skip for reply/quote/stats fetches. */
@@ -327,6 +340,30 @@ export const ExtendedKind = {
   BADGE_DEFINITION: 30009,
   /** Web page bookmark (URL in i/I or r tags); used in RSS+Web relay discovery */
   WEB_BOOKMARK: 39701
+}
+
+/**
+ * Kinds aligned with {@link SOCIAL_KIND_BLOCKED_RELAY_URLS}: omit those relays when querying or publishing
+ * these kinds (or when `kinds` is omitted on a filter — see {@link relayFilterIncludesSocialKindBlockedKind}).
+ */
+export const SOCIAL_KIND_BLOCKED_KINDS: readonly number[] = [
+  kinds.ShortTextNote,
+  ExtendedKind.DISCUSSION,
+  ExtendedKind.COMMENT
+]
+
+const SOCIAL_KIND_BLOCKED_KIND_SET = new Set<number>(SOCIAL_KIND_BLOCKED_KINDS)
+
+export function isSocialKindBlockedKind(kind: number): boolean {
+  return SOCIAL_KIND_BLOCKED_KIND_SET.has(kind)
+}
+
+/** True when the filter is unrestricted by kind or includes any {@link SOCIAL_KIND_BLOCKED_KINDS}. */
+export function relayFilterIncludesSocialKindBlockedKind(filter: Filter): boolean {
+  const k = filter.kinds
+  if (k === undefined) return true
+  const arr = Array.isArray(k) ? k : [k]
+  return arr.some((kind) => SOCIAL_KIND_BLOCKED_KIND_SET.has(kind))
 }
 
 /** Event kinds that show “Read this note aloud” in note options (Web Speech API). */

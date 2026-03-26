@@ -1,7 +1,11 @@
-import { DEFAULT_FAVORITE_RELAYS, FAST_READ_RELAY_URLS, READ_ONLY_RELAY_URLS } from '@/constants'
+import {
+  DEFAULT_FAVORITE_RELAYS,
+  FAST_READ_RELAY_URLS,
+  READ_ONLY_RELAY_URLS,
+  relayFilterIncludesSocialKindBlockedKind
+} from '@/constants'
 import type { TFeedSubRequest } from '@/types'
 import { normalizeUrl } from '@/lib/url'
-import type { Filter } from 'nostr-tools'
 import {
   buildPrioritizedReadRelayUrls,
   buildReadRelayPriorityLayers,
@@ -10,14 +14,6 @@ import {
   mergeRelayPriorityLayers,
   relayUrlsLocalsFirst
 } from '@/lib/relay-url-priority'
-
-/** True when the filter is unrestricted by kind or explicitly includes kind 1 (short notes). */
-export function relayFilterLikelyIncludesKind1(filter: Filter): boolean {
-  const k = filter.kinds
-  if (k === undefined) return true
-  const arr = Array.isArray(k) ? k : [k]
-  return arr.includes(1)
-}
 
 const blockedSet = (blockedRelays: string[]) =>
   new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
@@ -104,10 +100,11 @@ export type ReadRelayPriorityOptions = {
   authorWriteRelays?: string[]
   maxRelays?: number
   /**
-   * When set, applies to all subrequests. When unset, each subrequest uses {@link relayFilterLikelyIncludesKind1}
-   * on its filter to decide whether to strip kind-1-blocklisted relays before capping.
+   * When set, applies to all subrequests. When unset, each subrequest uses
+   * {@link relayFilterIncludesSocialKindBlockedKind} on its filter to decide whether to strip
+   * relays in `SOCIAL_KIND_BLOCKED_RELAY_URLS` before capping.
    */
-  applyKind1BlockedFilter?: boolean
+  applySocialKindBlockedFilter?: boolean
   /**
    * When false, ignore each subrequest’s `urls` and use only the shared prioritized stack (rare).
    * Default true.
@@ -137,7 +134,7 @@ export function getRelayUrlsWithFavoritesFastReadAndInbox(
     favoriteRelays: favorites,
     blockedRelays,
     maxRelays: options?.maxRelays,
-    applyKind1BlockedFilter: options?.applyKind1BlockedFilter
+    applySocialKindBlockedFilter: options?.applySocialKindBlockedFilter
   })
 }
 
@@ -153,7 +150,7 @@ export function buildProfilePageReadRelayUrls(
   favoriteRelays: string[],
   blockedRelays: string[],
   authorRelayList: { read: string[]; write: string[] },
-  kindsIncludeKind1: boolean
+  kindsIncludeSocialBlockedKind: boolean
 ): string[] {
   return getRelayUrlsWithFavoritesFastReadAndInbox(
     favoriteRelays,
@@ -163,14 +160,14 @@ export function buildProfilePageReadRelayUrls(
       userWriteRelays: authorRelayList.write ?? [],
       authorWriteRelays: [],
       maxRelays: PROFILE_PAGE_FEED_MAX_RELAYS,
-      applyKind1BlockedFilter: kindsIncludeKind1
+      applySocialKindBlockedFilter: kindsIncludeSocialBlockedKind
     }
   )
 }
 
 /**
  * Per subrequest: shared inbox → author/favorites → fast read stack, normalized, user-blocked and (when applicable)
- * kind-1-blocked stripped, deduped, capped. Subrequest `urls` are prepended first by default (following shards);
+ * social-kind-blocked stripped, deduped, capped. Subrequest `urls` are prepended first by default (following shards);
  * set {@link ReadRelayPriorityOptions.mergeSubrequestRelaysIntoAuthorTier} to fold them into the author tier only
  * (e.g. curated GIF / spell relay lists).
  */
@@ -185,10 +182,10 @@ export function augmentSubRequestsWithFavoritesFastReadAndInbox(
   return requests.map((r) => {
     const useSubUrls = options?.mergeSubrequestRelayUrls !== false
     const foldIntoAuthor = options?.mergeSubrequestRelaysIntoAuthorTier === true
-    const applyK1 =
-      options?.applyKind1BlockedFilter !== undefined
-        ? options.applyKind1BlockedFilter
-        : relayFilterLikelyIncludesKind1(r.filter)
+    const applySocial =
+      options?.applySocialKindBlockedFilter !== undefined
+        ? options.applySocialKindBlockedFilter
+        : relayFilterIncludesSocialKindBlockedKind(r.filter)
 
     const favorites = getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
 
@@ -202,7 +199,7 @@ export function augmentSubRequestsWithFavoritesFastReadAndInbox(
           favoriteRelays: favorites,
           blockedRelays,
           maxRelays: max,
-          applyKind1BlockedFilter: applyK1
+          applySocialKindBlockedFilter: applySocial
         })
       }
     }
@@ -224,7 +221,7 @@ export function augmentSubRequestsWithFavoritesFastReadAndInbox(
     return {
       ...r,
       urls: mergeRelayPriorityLayers(layers, blockedRelays, max, {
-        applyKind1BlockedFilter: applyK1
+        applySocialKindBlockedFilter: applySocial
       })
     }
   })

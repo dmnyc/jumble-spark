@@ -241,7 +241,7 @@ export async function fetchGifs(
     ? dedupedUrls
     : [...dedupedUrls, THECITADEL_FOR_GIF_METADATA]
 
-  // Kind 1063 (incl. thecitadel) + kind 1/1111 on the broad list (thecitadel omitted for kind 1 via KIND_1_BLOCKED).
+  // Kind 1063 (incl. thecitadel) + kind 1/1111 on the broad list (thecitadel omitted for social kinds via SOCIAL_KIND_BLOCKED_RELAY_URLS).
   const [events1063, eventsNotes] = await Promise.all([
     queryService.fetchEvents(
       relays1063,

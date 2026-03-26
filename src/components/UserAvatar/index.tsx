@@ -4,7 +4,62 @@ import { generateImageByPubkey, userIdToPubkey } from '@/lib/pubkey'
 import { toProfile } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import { useSmartProfileNavigationOptional } from '@/PageManager'
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef, type RefObject } from 'react'
+
+/** Only defer network fetches for typical profile picture URLs (not data:, blob:, etc.). */
+function isHttpOrHttpsUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url.trim())
+}
+
+/**
+ * Defer loading remote profile pictures until the avatar is near the viewport so handles/text
+ * can paint first; identicon (data URL) shows until then.
+ */
+function useDeferRemoteProfileAvatar(
+  profileAvatar: string | undefined,
+  fallbackSrc: string,
+  containerRef: RefObject<HTMLDivElement | null>
+): string {
+  const remoteHttp = useMemo(() => {
+    const a = profileAvatar?.trim()
+    if (!a || !isHttpOrHttpsUrl(a)) return ''
+    return a
+  }, [profileAvatar])
+
+  const nonHttpAvatar = useMemo(() => {
+    const a = profileAvatar?.trim()
+    if (a && !isHttpOrHttpsUrl(a)) return a
+    return ''
+  }, [profileAvatar])
+
+  const [allowRemote, setAllowRemote] = useState(() => remoteHttp === '')
+
+  useEffect(() => {
+    setAllowRemote(remoteHttp === '')
+  }, [remoteHttp])
+
+  useEffect(() => {
+    if (!remoteHttp || allowRemote) return
+    if (typeof IntersectionObserver === 'undefined') {
+      setAllowRemote(true)
+      return
+    }
+    const el = containerRef.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setAllowRemote(true)
+        }
+      },
+      { root: null, rootMargin: '200px', threshold: 0.01 }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [remoteHttp, allowRemote, containerRef])
+
+  return nonHttpAvatar || (remoteHttp && allowRemote ? remoteHttp : '') || fallbackSrc
+}
 
 const UserAvatarSizeCnMap = {
   large: 'w-24 h-24',
@@ -40,9 +95,9 @@ export default function UserAvatar({
     () => (pubkey ? generateImageByPubkey(pubkey) : ''),
     [pubkey]
   )
-  
-  // Use profile avatar if available, otherwise use default avatar
-  const avatarSrc = profile?.avatar || defaultAvatar || ''
+
+  const containerRef = useRef<HTMLDivElement>(null)
+  const avatarSrc = useDeferRemoteProfileAvatar(profile?.avatar, defaultAvatar, containerRef)
 
   // All hooks must be called before any early returns
   const [imgError, setImgError] = useState(false)
@@ -55,12 +110,10 @@ export default function UserAvatar({
   }, [avatarSrc])
 
   const handleImageError = () => {
-    if (profile?.avatar && defaultAvatar && currentSrc === profile.avatar) {
-      // Try default avatar if profile avatar fails
+    if (profile?.avatar && defaultAvatar && currentSrc !== defaultAvatar) {
       setCurrentSrc(defaultAvatar)
       setImgError(false)
     } else {
-      // Both failed
       setImgError(true)
     }
   }
@@ -83,6 +136,7 @@ export default function UserAvatar({
   // Render image directly instead of using Radix UI Avatar for better reliability
   return (
     <div 
+      ref={containerRef}
       data-user-avatar
       className={cn('shrink-0 cursor-pointer block overflow-hidden rounded-full bg-muted', UserAvatarSizeCnMap[size], className)}
       style={{ position: 'relative', zIndex: 10, isolation: 'isolate', display: 'block' }}
@@ -94,12 +148,13 @@ export default function UserAvatar({
       {!imgError && currentSrc ? (
         <img 
           src={currentSrc}
-          alt={displayPubkey}
+          alt=""
           className="block w-full h-full object-cover object-center"
           style={{ display: 'block', position: 'static', margin: 0, padding: 0, top: 0, left: 0, right: 0, bottom: 0 }}
           onError={handleImageError}
           onLoad={handleImageLoad}
           loading="lazy"
+          decoding="async"
         />
       ) : (
         // Show initials or placeholder when image fails
@@ -133,8 +188,8 @@ export function SimpleUserAvatar({
     [pubkey]
   )
 
-  // Use profile avatar if available, otherwise use default avatar
-  const avatarSrc = profile?.avatar || defaultAvatar || ''
+  const containerRef = useRef<HTMLDivElement>(null)
+  const avatarSrc = useDeferRemoteProfileAvatar(profile?.avatar, defaultAvatar, containerRef)
   
   // All hooks must be called before any early returns
   const [imgError, setImgError] = useState(false)
@@ -147,12 +202,10 @@ export function SimpleUserAvatar({
   }, [avatarSrc])
 
   const handleImageError = () => {
-    if (profile?.avatar && defaultAvatar && currentSrc === profile.avatar) {
-      // Try default avatar if profile avatar fails
+    if (profile?.avatar && defaultAvatar && currentSrc !== defaultAvatar) {
       setCurrentSrc(defaultAvatar)
       setImgError(false)
     } else {
-      // Both failed
       setImgError(true)
     }
   }
@@ -175,17 +228,19 @@ export function SimpleUserAvatar({
   // Render image directly instead of using Radix UI Avatar for better reliability
   return (
     <div 
+      ref={containerRef}
       className={cn('shrink-0 relative overflow-hidden rounded-full bg-muted', UserAvatarSizeCnMap[size], className)}
     >
       {!imgError && currentSrc ? (
         <img 
           src={currentSrc}
-          alt={displayPubkey}
+          alt=""
           className="block w-full h-full object-cover object-center"
           style={{ display: 'block', position: 'static', margin: 0, padding: 0, top: 0, left: 0, right: 0, bottom: 0 }}
           onError={handleImageError}
           onLoad={handleImageLoad}
           loading="lazy"
+          decoding="async"
         />
       ) : (
         // Show initials or placeholder when image fails

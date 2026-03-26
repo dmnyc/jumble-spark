@@ -1,7 +1,7 @@
 import {
   FAST_READ_RELAY_URLS,
   FAST_WRITE_RELAY_URLS,
-  KIND_1_BLOCKED_RELAY_URLS,
+  SOCIAL_KIND_BLOCKED_RELAY_URLS,
   MAX_PUBLISH_RELAYS,
   MAX_REQ_RELAY_URLS
 } from '@/constants'
@@ -38,23 +38,23 @@ function blockedNormSet(blockedRelays: string[] | undefined): Set<string> {
   return new Set((blockedRelays ?? []).map((b) => normalizeUrl(b) || b).filter(Boolean))
 }
 
-let kind1BlockedNormCache: Set<string> | undefined
-function kind1BlockedNormSet(): Set<string> {
-  if (!kind1BlockedNormCache) {
-    kind1BlockedNormCache = new Set(
-      KIND_1_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean)
+let socialKindBlockedNormCache: Set<string> | undefined
+function socialKindBlockedNormSet(): Set<string> {
+  if (!socialKindBlockedNormCache) {
+    socialKindBlockedNormCache = new Set(
+      SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter(Boolean)
     )
   }
-  return kind1BlockedNormCache
+  return socialKindBlockedNormCache
 }
 
 export type MergeRelayPriorityLayersOptions = {
-  /** When true, drop {@link KIND_1_BLOCKED_RELAY_URLS} before applying the max cap. */
-  applyKind1BlockedFilter?: boolean
+  /** When true, drop {@link SOCIAL_KIND_BLOCKED_RELAY_URLS} before applying the max cap. */
+  applySocialKindBlockedFilter?: boolean
 }
 
 /**
- * Merge priority layers in order; first occurrence wins; skip blocked (and optional kind-1 block list); stop at `max`.
+ * Merge priority layers in order; first occurrence wins; skip blocked (and optional social-kind block list); stop at `max`.
  */
 export function mergeRelayPriorityLayers(
   layers: string[][],
@@ -63,13 +63,15 @@ export function mergeRelayPriorityLayers(
   mergeOpts?: MergeRelayPriorityLayersOptions
 ): string[] {
   const blocked = blockedNormSet(blockedRelays)
-  const k1 = mergeOpts?.applyKind1BlockedFilter ? kind1BlockedNormSet() : new Set<string>()
+  const socialBlocked = mergeOpts?.applySocialKindBlockedFilter
+    ? socialKindBlockedNormSet()
+    : new Set<string>()
   const seen = new Set<string>()
   const out: string[] = []
   for (const layer of layers) {
     for (const u of layer) {
       const n = normalizeUrl(u) || u
-      if (!n || blocked.has(n) || k1.has(n) || seen.has(n)) continue
+      if (!n || blocked.has(n) || socialBlocked.has(n) || seen.has(n)) continue
       seen.add(n)
       out.push(n)
       if (out.length >= max) return out
@@ -89,7 +91,7 @@ const normFastWrite = (): string[] =>
   )
 
 /**
- * Ordered layers for REQ / read (before merge, dedupe, blocked strip, kind-1 strip, cap).
+ * Ordered layers for REQ / read (before merge, dedupe, blocked strip, social-kind strip, cap).
  */
 export function buildReadRelayPriorityLayers(opts: {
   userReadRelays: string[]
@@ -109,7 +111,7 @@ export function buildReadRelayPriorityLayers(opts: {
 
 /**
  * REQ / read: user inboxes (locals first) + user local outboxes → author outboxes → favorites → FAST_READ.
- * Blocked and (optionally) kind-1-blocked relays are removed before slicing to `maxRelays`.
+ * Blocked and (optionally) social-kind-blocked relays are removed before slicing to `maxRelays`.
  */
 export function buildPrioritizedReadRelayUrls(opts: {
   userReadRelays: string[]
@@ -118,11 +120,11 @@ export function buildPrioritizedReadRelayUrls(opts: {
   favoriteRelays: string[]
   blockedRelays?: string[]
   maxRelays?: number
-  /** Default true: strip {@link KIND_1_BLOCKED_RELAY_URLS} (kind-1-heavy timelines). Set false for non–kind-1 queries. */
-  applyKind1BlockedFilter?: boolean
+  /** Default true: strip {@link SOCIAL_KIND_BLOCKED_RELAY_URLS} for social-kind-heavy timelines. Set false for other queries. */
+  applySocialKindBlockedFilter?: boolean
 }): string[] {
   const max = opts.maxRelays ?? MAX_REQ_RELAY_URLS
-  const applyK1 = opts.applyKind1BlockedFilter !== false
+  const applySocial = opts.applySocialKindBlockedFilter !== false
   const layers = buildReadRelayPriorityLayers({
     userReadRelays: opts.userReadRelays,
     userWriteRelays: opts.userWriteRelays,
@@ -130,7 +132,7 @@ export function buildPrioritizedReadRelayUrls(opts: {
     favoriteRelays: opts.favoriteRelays
   })
   return mergeRelayPriorityLayers(layers, opts.blockedRelays, max, {
-    applyKind1BlockedFilter: applyK1
+    applySocialKindBlockedFilter: applySocial
   })
 }
 
@@ -162,8 +164,8 @@ export function buildPrioritizedWriteRelayUrls(opts: {
   extraRelays?: string[]
   blockedRelays?: string[]
   maxRelays?: number
-  /** When true, strip {@link KIND_1_BLOCKED_RELAY_URLS} before capping (kind 1 notes). */
-  applyKind1BlockedFilter?: boolean
+  /** When true, strip {@link SOCIAL_KIND_BLOCKED_RELAY_URLS} before capping (social kinds). */
+  applySocialKindBlockedFilter?: boolean
 }): string[] {
   const max = opts.maxRelays ?? MAX_PUBLISH_RELAYS
   const layers = buildWriteRelayPriorityLayers({
@@ -173,6 +175,6 @@ export function buildPrioritizedWriteRelayUrls(opts: {
     extraRelays: opts.extraRelays
   })
   return mergeRelayPriorityLayers(layers, opts.blockedRelays, max, {
-    applyKind1BlockedFilter: opts.applyKind1BlockedFilter === true
+    applySocialKindBlockedFilter: opts.applySocialKindBlockedFilter === true
   })
 }

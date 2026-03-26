@@ -11,6 +11,7 @@ import {
   getRootETag,
   isNip25ReactionKind
 } from '@/lib/event'
+import client from '@/services/client.service'
 import { Event, kinds } from 'nostr-tools'
 import { createContext, useCallback, useContext, useState } from 'react'
 
@@ -41,6 +42,7 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
       if (newReplyIdSet.has(reply.id)) return
       if (isNip25ReactionKind(reply.kind)) return
       newReplyIdSet.add(reply.id)
+      client.addEventToCache(reply)
 
       let rootId: string | undefined
       const rootETag = getRootETag(reply)

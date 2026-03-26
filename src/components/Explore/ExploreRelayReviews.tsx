@@ -46,7 +46,7 @@ export default function ExploreRelayReviews() {
         {
           userWriteRelays: relayList?.write ?? [],
           maxRelays: EXPLORE_REVIEWS_MAX_RELAYS,
-          applyKind1BlockedFilter: false
+          applySocialKindBlockedFilter: false
         }
       ),
       blockedRelays

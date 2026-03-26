@@ -2,7 +2,7 @@ import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import client from '@/services/client.service'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Event } from 'nostr-tools'
-import { CALENDAR_EVENT_KINDS, ExtendedKind } from '@/constants'
+import { CALENDAR_EVENT_KINDS, ExtendedKind, isSocialKindBlockedKind } from '@/constants'
 import { buildProfilePageReadRelayUrls } from '@/lib/favorites-feed-relays'
 import { normalizeUrl } from '@/lib/url'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -182,7 +182,7 @@ export function useProfileTimeline({
         favoriteRelays,
         blockedRelays,
         authorRl,
-        kinds.includes(1)
+        kinds.some(isSocialKindBlockedKind)
       )
 
       const startWave = async (subRequests: ReturnType<typeof buildSubRequests>) => {
