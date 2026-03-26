@@ -1,12 +1,18 @@
 import { ExtendedKind } from '@/constants'
 import { extractBadgeDefinitionMedia } from '@/lib/badge-definition-media'
 import {
+  fetchNip58BadgeAward,
+  fetchNip58BadgeDefinition,
+  mergeNip58BadgeRelayPool
+} from '@/lib/fetch-badge-nip58'
+import {
   profileAccordionGetCachedBadges,
   profileAccordionInvalidate,
   profileAccordionRelayUrlsKey,
   profileAccordionSetBadges
 } from '@/lib/profile-accordion-session-cache'
-import { queryService, replaceableEventService } from '@/services/client.service'
+import { queryService } from '@/services/client.service'
+import indexedDb from '@/services/indexed-db.service'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { tagNameEquals } from '@/lib/tag'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -25,6 +31,8 @@ export type TProfileBadge = {
   thumb?: string
   /** From badge definition (NIP-58) */
   description?: string
+  /** Kind 8 award `created_at` when loaded */
+  awardCreatedAt?: number
 }
 
 /** Parse a-tag "30009:pubkey:d" into { kind, pubkey, d } */
@@ -33,7 +41,44 @@ function parseATag(aTag: string): { kind: number; pubkey: string; d: string } | 
   if (parts.length < 3) return null
   const kind = parseInt(parts[0], 10)
   if (isNaN(kind)) return null
-  return { kind, pubkey: parts[1], d: parts[2] }
+  const pk = parts[1]
+  if (!/^[0-9a-fA-F]{64}$/.test(pk)) return null
+  const d = parts.slice(2).join(':')
+  if (!d) return null
+  return { kind, pubkey: pk.toLowerCase(), d }
+}
+
+/** True when we should re-resolve the badge definition (missing media but coordinate looks like kind 30009). */
+function badgeNeedsDefinitionMedia(b: TProfileBadge): boolean {
+  if (b.thumb || b.image) return false
+  const parsed = parseATag(b.a)
+  return !!(parsed && parsed.kind === ExtendedKind.BADGE_DEFINITION)
+}
+
+async function enrichBadgesFromIndexedDb(badges: TProfileBadge[]): Promise<TProfileBadge[]> {
+  return Promise.all(
+    badges.map(async (b) => {
+      if (b.thumb || b.image) return b
+      const parsed = parseATag(b.a)
+      if (!parsed || parsed.kind !== ExtendedKind.BADGE_DEFINITION) return b
+      try {
+        const def = await indexedDb.getReplaceableEvent(parsed.pubkey, parsed.kind, parsed.d)
+        if (!def) return b
+        const name = def.tags.find(tagNameEquals('name'))?.[1]
+        const description = def.tags.find(tagNameEquals('description'))?.[1]
+        const media = extractBadgeDefinitionMedia(def)
+        return {
+          ...b,
+          name: name ?? b.name ?? parsed.d,
+          image: media.image,
+          thumb: media.thumb ?? media.image,
+          description: description ?? b.description
+        }
+      } catch {
+        return b
+      }
+    })
+  )
 }
 
 /** NIP-58: Fetches profile badges (kind 30008) and resolves badge definitions (kind 30009). */
@@ -63,11 +108,23 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
 
     if (!force) {
       const cached = profileAccordionGetCachedBadges(pubkey, relayKey)
-      if (cached) {
-        if (myFetchId !== fetchIdRef.current) return
-        setBadges(cached)
-        setLoading(false)
-        return
+      if (cached?.length) {
+        if (cached.some(badgeNeedsDefinitionMedia)) {
+          const enriched = await enrichBadgesFromIndexedDb(cached)
+          if (!enriched.some(badgeNeedsDefinitionMedia)) {
+            if (myFetchId !== fetchIdRef.current) return
+            setBadges(enriched)
+            profileAccordionSetBadges(pubkey, relayKey, enriched)
+            setLoading(false)
+            return
+          }
+          // Session cache was incomplete and IndexedDB has no definitions — fetch from network below.
+        } else {
+          if (myFetchId !== fetchIdRef.current) return
+          setBadges(cached)
+          setLoading(false)
+          return
+        }
       }
     }
 
@@ -88,12 +145,18 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
       }
 
       const tags = profileBadgesEvent.tags
-      const pairs: { a: string; e: string }[] = []
+      const pairs: { a: string; e: string; eRelayHint?: string }[] = []
       for (let i = 0; i < tags.length - 1; i++) {
-        const [tagNameA, aVal] = tags[i]
-        const [tagNameE, eVal] = tags[i + 1]
-        if (tagNameA === 'a' && tagNameE === 'e' && aVal && eVal && /^[a-f0-9]{64}$/i.test(eVal)) {
-          pairs.push({ a: aVal, e: eVal })
+        const ta = tags[i]
+        const te = tags[i + 1]
+        if (
+          ta[0] === 'a' &&
+          te[0] === 'e' &&
+          ta[1] &&
+          te[1] &&
+          /^[a-f0-9]{64}$/i.test(te[1])
+        ) {
+          pairs.push({ a: ta[1], e: te[1], eRelayHint: te[2] })
         }
       }
 
@@ -102,38 +165,51 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
         return
       }
 
-      const result: TProfileBadge[] = []
-      for (const { a, e } of pairs) {
-        const parsed = parseATag(a)
-        if (!parsed || parsed.kind !== ExtendedKind.BADGE_DEFINITION) {
-          result.push({ a, awardId: e })
-          continue
-        }
+      const result: TProfileBadge[] = await Promise.all(
+        pairs.map(async ({ a, e, eRelayHint }) => {
+          const parsed = parseATag(a)
+          if (!parsed || parsed.kind !== ExtendedKind.BADGE_DEFINITION) {
+            return { a, awardId: e }
+          }
 
-        const defEvent = await replaceableEventService.fetchReplaceableEvent(
-          parsed.pubkey,
-          parsed.kind,
-          parsed.d
-        )
+          const relayPool = mergeNip58BadgeRelayPool(urls, eRelayHint, blockedRelays)
+          const [defEvent, awardEvent] = await Promise.all([
+            fetchNip58BadgeDefinition(parsed.pubkey, parsed.d, relayPool),
+            fetchNip58BadgeAward(e, relayPool)
+          ])
 
-        if (!defEvent) {
-          result.push({ a, awardId: e })
-          continue
-        }
+          const awardATag = awardEvent?.tags.find(tagNameEquals('a'))?.[1]
+          const awardMatchesDefinition = !awardEvent || awardATag === a
+          const awardCreatedAt =
+            awardMatchesDefinition && awardEvent ? awardEvent.created_at : undefined
 
-        const name = defEvent.tags.find(tagNameEquals('name'))?.[1]
-        const description = defEvent.tags.find(tagNameEquals('description'))?.[1]
-        const media = extractBadgeDefinitionMedia(defEvent)
+          if (defEvent) {
+            try {
+              await indexedDb.putReplaceableEvent(defEvent)
+            } catch {
+              // ignore ingest failures (tombstone / validation)
+            }
+          }
 
-        result.push({
-          a,
-          awardId: e,
-          name: name ?? parsed.d,
-          image: media.image,
-          thumb: media.thumb ?? media.image,
-          description
+          if (!defEvent) {
+            return { a, awardId: e, awardCreatedAt }
+          }
+
+          const name = defEvent.tags.find(tagNameEquals('name'))?.[1]
+          const description = defEvent.tags.find(tagNameEquals('description'))?.[1]
+          const media = extractBadgeDefinitionMedia(defEvent)
+
+          return {
+            a,
+            awardId: e,
+            name: name ?? parsed.d,
+            image: media.image,
+            thumb: media.thumb ?? media.image,
+            description,
+            awardCreatedAt
+          }
         })
-      }
+      )
 
       if (myFetchId !== fetchIdRef.current) return
       setBadges(result)

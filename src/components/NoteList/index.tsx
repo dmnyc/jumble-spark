@@ -112,6 +112,12 @@ const NoteList = forwardRef(
        */
       mergeTimelineWhenSubRequestFiltersMatch = false,
       /**
+       * When set with {@link preserveTimelineOnSubRequestsChange}: home relay chip / feed mode identity.
+       * If this string changes (e.g. single relay → all favorites), the timeline is cleared even when the new
+       * relay URL set is a strict superset of the old one (which would otherwise keep stale rows).
+       */
+      feedTimelineScopeKey,
+      /**
        * Spells / one-shot feeds: when the initial fetch finishes with zero rows, show explicit empty copy
        * (see list footer). Does not end loading early — loading stays until EOSE, first events, or safety timeouts.
        */
@@ -174,6 +180,7 @@ const NoteList = forwardRef(
       feedSubscriptionKey?: string
       preserveTimelineOnSubRequestsChange?: boolean
       mergeTimelineWhenSubRequestFiltersMatch?: boolean
+      feedTimelineScopeKey?: string
       /** When set (e.g. spells), use explicit empty-feed copy after load completes with no rows. */
       spellFetchTimeoutMs?: number
       spellFeedInstrumentToken?: number
@@ -257,6 +264,7 @@ const NoteList = forwardRef(
 
     const timelineSubscriptionKey = feedSubscriptionKey ?? subRequestsKey
     const prevSubRequestsKeyForTimelineRef = useRef<string | null>(null)
+    const feedTimelineScopePrevRef = useRef<string | undefined>(undefined)
     /** Detect pull-to-refresh so preserve-mode feeds still clear; unrelated dep changes must not clear. */
     const timelineEffectLastRefreshCountRef = useRef(refreshCount)
 
@@ -641,9 +649,23 @@ const NoteList = forwardRef(
       if (userPulledRefresh) {
         timelineEffectLastRefreshCountRef.current = refreshCount
       }
+
+      const prevFeedScope = feedTimelineScopePrevRef.current
+      const feedScopeKey = feedTimelineScopeKey
+      const feedScopeChanged =
+        feedScopeKey !== undefined &&
+        prevFeedScope !== undefined &&
+        prevFeedScope !== feedScopeKey
+      if (feedScopeKey !== undefined) {
+        feedTimelineScopePrevRef.current = feedScopeKey
+      } else {
+        feedTimelineScopePrevRef.current = undefined
+      }
+
       const keepExistingTimelineEvents =
         preserveTimelineOnSubRequestsChange &&
         !userPulledRefresh &&
+        !feedScopeChanged &&
         (prevSubKey === subRequestsKey ||
           isRelayUrlStrictSupersetIdentityKey(prevSubKey, subRequestsKey) ||
           (mergeTimelineWhenSubRequestFiltersMatch &&
@@ -1037,6 +1059,7 @@ const NoteList = forwardRef(
       subRequestsKey,
       preserveTimelineOnSubRequestsChange,
       mergeTimelineWhenSubRequestFiltersMatch,
+      feedTimelineScopeKey,
       refreshCount,
       showKindsKey,
       showKind1OPs,

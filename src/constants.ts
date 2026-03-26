@@ -206,7 +206,8 @@ export const SOCIAL_KIND_BLOCKED_RELAY_URLS = [
   'wss://relay.noswhere.com',
   'wss://aggr.nostr.land',
   'wss://search.nos.today',
-  'wss://trending.nostr.wine'
+  'wss://trending.nostr.wine',
+  'wss://sendit.nosflare.com'
 ]
 
 /** Relays that reject #e (and similar) tag filters; skip for reply/quote/stats fetches. */

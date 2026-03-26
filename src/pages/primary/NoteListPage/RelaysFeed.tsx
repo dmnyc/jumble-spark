@@ -81,6 +81,17 @@ const RelaysFeed = forwardRef<
       feedInfo.feedType === 'all-favorites') &&
     relayUrls.length > 0
 
+  /** Distinguishes home relay chips so we do not keep the previous timeline on single→all-favorites (strict superset). */
+  const feedTimelineScopeKey = useMemo(() => {
+    if (feedInfo.feedType === 'all-favorites') return 'all-favorites'
+    if (feedInfo.feedType === 'relays') return `relays:${feedInfo.id ?? ''}`
+    if (feedInfo.feedType === 'relay') {
+      const id = feedInfo.id ? normalizeUrl(feedInfo.id) || feedInfo.id : ''
+      return `relay:${id}`
+    }
+    return undefined
+  }, [feedInfo.feedType, feedInfo.id])
+
   // Hooks must run every render — never place useMemo after conditional returns.
   const subRequests = useMemo(() => {
     if (!canRenderFeed) return []
@@ -98,6 +109,9 @@ const RelaysFeed = forwardRef<
     return null
   }
 
+  // preserveTimeline: merge when relay list grows (e.g. all-favorites list fills in). Do not use
+  // mergeTimelineWhenSubRequestFiltersMatch here — same kinds + different URLs would keep the old
+  // timeline when switching home feed chips (all-favorites ↔ set ↔ single relay).
   return (
     <NormalFeed
       ref={ref}
@@ -108,7 +122,7 @@ const RelaysFeed = forwardRef<
       setSubHeader={setSubHeader}
       onSubHeaderRefresh={onSubHeaderRefresh}
       preserveTimelineOnSubRequestsChange
-      mergeTimelineWhenSubRequestFiltersMatch
+      feedTimelineScopeKey={feedTimelineScopeKey}
     />
   )
 })

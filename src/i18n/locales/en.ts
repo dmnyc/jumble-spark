@@ -511,6 +511,7 @@ export default {
     'No other recipients found': 'No other recipients found',
     'Recipients could not be loaded': 'Recipients could not be loaded',
     'View award': 'View award',
+    'Awarded on': 'Awarded on',
     'Please log in to follow': 'Please log in to follow',
     'Following All': 'Following All',
     'Followed {{count}} users': 'Followed {{count}} users',

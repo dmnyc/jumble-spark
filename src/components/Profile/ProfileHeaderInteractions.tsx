@@ -184,7 +184,6 @@ function BadgeItem({
             alt=""
             className="size-full rounded-lg object-cover"
             loading="lazy"
-            referrerPolicy="no-referrer"
             onError={(e) => {
               e.currentTarget.style.visibility = 'hidden'
               const fallback = e.currentTarget.nextElementSibling as HTMLElement | null

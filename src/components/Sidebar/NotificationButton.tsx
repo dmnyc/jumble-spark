@@ -12,7 +12,7 @@ export default function NotificationButton() {
 
   return (
     <SidebarItem
-      title="notifications"
+      title="Notifications"
       onClick={() => checkLogin(() => navigate('spells', { spell: 'notifications' }))}
       active={
         display &&

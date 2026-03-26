@@ -24,6 +24,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
    */
   preserveTimelineOnSubRequestsChange?: boolean
   mergeTimelineWhenSubRequestFiltersMatch?: boolean
+  /** Home favorite-relays chip scope; see {@link NoteList} `feedTimelineScopeKey`. */
+  feedTimelineScopeKey?: string
 }>(function NormalFeed(
   {
     subRequests,
@@ -33,7 +35,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
     setSubHeader,
     onSubHeaderRefresh,
     preserveTimelineOnSubRequestsChange = false,
-    mergeTimelineWhenSubRequestFiltersMatch = false
+    mergeTimelineWhenSubRequestFiltersMatch = false,
+    feedTimelineScopeKey
   },
   ref
 ) {
@@ -119,6 +122,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
           relayCapabilityReady={relayCapabilityReady}
           preserveTimelineOnSubRequestsChange={preserveTimelineOnSubRequestsChange}
           mergeTimelineWhenSubRequestFiltersMatch={mergeTimelineWhenSubRequestFiltersMatch}
+          feedTimelineScopeKey={feedTimelineScopeKey}
         />
       </div>
     </>

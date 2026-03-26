@@ -1,3 +1,5 @@
+import { resolveHttpMediaUrl } from '@/lib/badge-definition-media'
+import { getImetaInfosFromEvent } from '@/lib/event'
 import { getPubkeysFromPTags } from '@/lib/tag'
 import logger from '@/lib/logger'
 import { cn } from '@/lib/utils'
@@ -6,12 +8,27 @@ import { useMuteList } from '@/contexts/mute-list-context'
 import { useNostr } from '@/providers/NostrProvider'
 import { Event } from 'nostr-tools'
 import { Users } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import UserAvatar, { SimpleUserAvatar } from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import { Button } from '@/components/ui/button'
+
+/** NIP-style `image` tags on kind 39089; falls back to first NIP-94 `imeta` URL. */
+function followPackBannerUrlFromEvent(event: Event): string | undefined {
+  for (const t of event.tags) {
+    if (t[0] === 'image' && t[1]) {
+      const u = resolveHttpMediaUrl(t[1])
+      if (u) return u
+    }
+  }
+  for (const im of getImetaInfosFromEvent(event)) {
+    const u = resolveHttpMediaUrl(im.url)
+    if (u) return u
+  }
+  return undefined
+}
 
 export default function FollowPackPreview({
   event,
@@ -26,8 +43,14 @@ export default function FollowPackPreview({
   const followings = followList?.followings ?? []
   const { mutePubkeySet } = useMuteList()
   const [busy, setBusy] = useState(false)
+  const [bannerFailed, setBannerFailed] = useState(false)
 
   const packPubkeys = useMemo(() => getPubkeysFromPTags(event.tags), [event.tags])
+  const bannerUrl = useMemo(() => followPackBannerUrlFromEvent(event), [event])
+
+  useEffect(() => {
+    setBannerFailed(false)
+  }, [event.id])
 
   const getPackTitle = (pack: Event): string => {
     const titleTag = pack.tags.find((tag) => tag[0] === 'title' || tag[0] === 'name')
@@ -87,7 +110,21 @@ export default function FollowPackPreview({
   )
 
   return (
-    <div className={cn('rounded-lg border bg-muted/30 p-3', className)}>
+    <div className={cn('overflow-hidden rounded-lg border bg-muted/30', className)}>
+      {bannerUrl && !bannerFailed ? (
+        <div className="relative w-full max-h-52 overflow-hidden bg-muted">
+          <img
+            src={bannerUrl}
+            alt={title}
+            className="h-auto w-full max-h-52 object-cover object-center"
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={() => setBannerFailed(true)}
+          />
+        </div>
+      ) : null}
+      <div className="p-3">
       <div className="mb-2 space-y-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm text-muted-foreground">[{t('Follow Pack')}]</span>
@@ -153,6 +190,7 @@ export default function FollowPackPreview({
           )}
         </Button>
       )}
+      </div>
     </div>
   )
 }

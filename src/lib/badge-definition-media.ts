@@ -15,6 +15,23 @@ export function resolveHttpMediaUrl(raw: string | undefined): string | undefined
   }
 }
 
+/** NIP-58 allows multiple `thumb` tags; prefer a medium size for grid tiles when dimensions are tagged. */
+function pickThumbFromDefinitionTags(defEvent: Event): string | undefined {
+  const thumbTags = defEvent.tags.filter(tagNameEquals('thumb'))
+  if (thumbTags.length === 0) return undefined
+  const preferredDims = ['256x256', '512x512', '128x128', '64x64', '32x32', '16x16', '1024x1024']
+  for (const dim of preferredDims) {
+    const row = thumbTags.find((t) => t[2] === dim)
+    const u = row && resolveHttpMediaUrl(row[1])
+    if (u) return u
+  }
+  for (const t of thumbTags) {
+    const u = resolveHttpMediaUrl(t[1])
+    if (u) return u
+  }
+  return undefined
+}
+
 /** Resolve `image` / `thumb` / `imeta` URLs from a NIP-58 badge definition (kind 30009). */
 export function extractBadgeDefinitionMedia(defEvent: Event | undefined): {
   image?: string
@@ -22,14 +39,14 @@ export function extractBadgeDefinitionMedia(defEvent: Event | undefined): {
 } {
   if (!defEvent) return {}
   const tagImage = defEvent.tags.find(tagNameEquals('image'))?.[1]
-  const tagThumb = defEvent.tags.find(tagNameEquals('thumb'))?.[1]
+  const tagThumb = pickThumbFromDefinitionTags(defEvent)
   const imetaUrls = getImetaInfosFromEvent(defEvent)
     .map((i) => i.url)
     .filter(Boolean) as string[]
-  const orderedThumb = [tagThumb, tagImage, ...imetaUrls].map(resolveHttpMediaUrl).find(Boolean)
-  const orderedImage = [tagImage, tagThumb, ...imetaUrls].map(resolveHttpMediaUrl).find(Boolean)
+  const imageResolved = [tagImage, ...imetaUrls].map(resolveHttpMediaUrl).find(Boolean)
+  const thumbResolved = [tagThumb, tagImage, ...imetaUrls].map(resolveHttpMediaUrl).find(Boolean)
   return {
-    thumb: orderedThumb ?? orderedImage,
-    image: orderedImage ?? orderedThumb
+    thumb: thumbResolved ?? imageResolved,
+    image: imageResolved ?? thumbResolved
   }
 }

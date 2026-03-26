@@ -125,6 +125,16 @@ export default function ProfileBadgeDetailDialog({
           </p>
         ) : null}
 
+        {badge.awardCreatedAt != null ? (
+          <p className="text-xs text-muted-foreground">
+            {t('Awarded on', { defaultValue: 'Awarded on' })}{' '}
+            {new Date(badge.awardCreatedAt * 1000).toLocaleString(undefined, {
+              dateStyle: 'medium',
+              timeStyle: 'short'
+            })}
+          </p>
+        ) : null}
+
         {issuerPubkey ? (
           <div className="space-y-1">
             <div className="text-xs font-medium text-muted-foreground">{t('Issued by')}</div>
