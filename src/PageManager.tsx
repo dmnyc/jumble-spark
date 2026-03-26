@@ -73,6 +73,7 @@ const MePageLazy = lazy(() => import('./pages/primary/MePage'))
 const ProfilePageLazy = lazy(() => import('./pages/primary/ProfilePage'))
 const RelayPageLazy = lazy(() => import('./pages/primary/RelayPage'))
 const SearchPageLazy = lazy(() => import('./pages/primary/SearchPage'))
+const FollowsLatestPageLazy = lazy(() => import('./pages/primary/FollowsLatestPage'))
 const RssPageLazy = lazy(() => import('./pages/primary/RssPage'))
 const SettingsPrimaryPageLazy = lazy(() => import('./pages/primary/SettingsPrimaryPage'))
 
@@ -99,6 +100,7 @@ const PRIMARY_PAGE_REF_MAP = {
   profile: createRef<TPageRef>(),
   relay: createRef<TPageRef>(),
   search: createRef<TPageRef>(),
+  'follows-latest': createRef<TPageRef>(),
   rss: createRef<TPageRef>(),
   settings: createRef<TPageRef>(),
   spells: createRef<TPageRef>()
@@ -135,6 +137,11 @@ const getPrimaryPageMap = () => ({
   search: (
     <Suspense fallback={primaryPageLazyFallback}>
       <SearchPageLazy ref={PRIMARY_PAGE_REF_MAP.search} />
+    </Suspense>
+  ),
+  'follows-latest': (
+    <Suspense fallback={primaryPageLazyFallback}>
+      <FollowsLatestPageLazy ref={PRIMARY_PAGE_REF_MAP['follows-latest']} />
     </Suspense>
   ),
   rss: (
@@ -208,8 +215,16 @@ export { useSecondaryPage, useSecondaryPageOptional }
 // Helper function to build contextual note URL
 function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): string {
   // Pages that should preserve context in the URL
-  const contextualPages: TPrimaryPageName[] = ['search', 'profile', 'feed', 'spells', 'rss', 'explore']
-  
+  const contextualPages: TPrimaryPageName[] = [
+    'search',
+    'profile',
+    'feed',
+    'spells',
+    'rss',
+    'explore',
+    'follows-latest'
+  ]
+
   if (currentPage && contextualPages.includes(currentPage)) {
     return `/${currentPage}/notes/${noteId}`
   }
@@ -219,7 +234,15 @@ function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): str
 
 function buildRssArticleUrl(articleUrl: string, currentPage: TPrimaryPageName | null): string {
   const key = encodeRssArticlePathSegment(articleUrl)
-  const contextualPages: TPrimaryPageName[] = ['search', 'profile', 'feed', 'spells', 'rss', 'explore']
+  const contextualPages: TPrimaryPageName[] = [
+    'search',
+    'profile',
+    'feed',
+    'spells',
+    'rss',
+    'explore',
+    'follows-latest'
+  ]
   if (currentPage && contextualPages.includes(currentPage)) {
     return `/${currentPage}/rss-item/${key}`
   }
@@ -237,7 +260,7 @@ function secondaryUrlIsRssArticle(url: string): boolean {
     /* keep path */
   }
   return (
-    /^\/(discussions|search|profile|home|feed|spells|explore|rss)\/rss-item\/[^/?#]+/.test(path) ||
+    /^\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/rss-item\/[^/?#]+/.test(path) ||
     /^\/rss-item\/[^/?#]+/.test(path)
   )
 }
@@ -322,7 +345,7 @@ function restoredPrimaryBrowserUrl(pathname: string, fullUrlForQuery: string): s
 function parseNoteUrl(url: string): { noteId: string; context?: string } {
   // Match patterns like /discussions/notes/{noteId} or /notes/{noteId}
   const contextualMatch = url.match(
-    /\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\/(.+)$/
+    /\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/notes\/(.+)$/
   )
   if (contextualMatch) {
     return { noteId: contextualMatch[2], context: contextualMatch[1] }
@@ -458,7 +481,9 @@ export function useSmartRelayNavigation() {
   const navigateToRelay = (url: string) => {
     // Extract relay URL from path (handles both /relays/{url} and /{context}/relays/{url})
     const relayUrlMatch =
-      url.match(/\/(discussions|search|profile|home|feed|spells|explore)\/relays\/(.+)$/) ||
+      url.match(
+        /\/(discussions|search|profile|home|feed|spells|explore|follows-latest)\/relays\/(.+)$/
+      ) ||
       url.match(/\/relays\/(.+)$/)
     const relayUrl = relayUrlMatch ? decodeURIComponent(relayUrlMatch[relayUrlMatch.length - 1]) : decodeURIComponent(url.replace(/.*\/relays\//, ''))
     
@@ -493,7 +518,9 @@ export function useSmartRelayNavigationOptional() {
   const { current: currentPrimaryPage } = primaryPage
   const navigateToRelay = (url: string) => {
     const relayUrlMatch =
-      url.match(/\/(discussions|search|profile|home|feed|spells|explore)\/relays\/(.+)$/) ||
+      url.match(
+        /\/(discussions|search|profile|home|feed|spells|explore|follows-latest)\/relays\/(.+)$/
+      ) ||
       url.match(/\/relays\/(.+)$/)
     const relayUrl = relayUrlMatch ? decodeURIComponent(relayUrlMatch[relayUrlMatch.length - 1]) : decodeURIComponent(url.replace(/.*\/relays\//, ''))
     const contextualUrl = buildRelayUrl(relayUrl, currentPrimaryPage)
@@ -1012,7 +1039,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       const pathname = window.location.pathname
       
       // Check if this is a note URL - handle both /notes/{id} and /{context}/notes/{id}
-      const contextualNoteMatch = pathname.match(/\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\/(.+)$/)
+      const contextualNoteMatch = pathname.match(/\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/notes\/(.+)$/)
       const standardNoteMatch = pathname.match(/\/notes\/(.+)$/)
       const noteUrlMatch = contextualNoteMatch || standardNoteMatch
       
@@ -1081,7 +1108,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
 
       // RSS article in side panel: /{context}/rss-item/{key} or /rss-item/{key}
       const contextualRssMatch = pathname.match(
-        /^\/(discussions|search|profile|home|feed|spells|explore|rss)\/rss-item\/([^/?#]+)/
+        /^\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/rss-item\/([^/?#]+)/
       )
       const standardRssMatch = pathname.match(/^\/rss-item\/([^/?#]+)/)
       const rssArticleKey = contextualRssMatch?.[2] ?? standardRssMatch?.[1]
@@ -1216,7 +1243,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         // Check if pathname matches a primary page name
         // First, check if it's a contextual note URL (e.g., /discussions/notes/...)
         const contextualNoteMatch = pathname.match(
-          /^\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\//
+          /^\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/notes\//
         )
         if (contextualNoteMatch) {
           const pageContext = contextualNoteMatch[1]
@@ -1281,7 +1308,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       const urlToCheck = state?.url || window.location.pathname
       
       // Check if it's a note URL (we'll update drawer after stack is synced)
-      const noteUrlMatch = urlToCheck.match(/\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\/(.+)$/) || 
+      const noteUrlMatch = urlToCheck.match(/\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/notes\/(.+)$/) || 
                           urlToCheck.match(/\/notes\/(.+)$/)
       const noteIdToShow = noteUrlMatch ? noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0] : null
 
@@ -1303,7 +1330,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           /* keep pathname */
         }
         const ctxRssPop = rssPathSync.match(
-          /^\/(discussions|search|profile|home|feed|spells|explore|rss)\/rss-item\/([^/?#]+)/
+          /^\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/rss-item\/([^/?#]+)/
         )
         if (ctxRssPop) {
           const resolvedPop = noteContextToPrimaryEntry(ctxRssPop[1])
@@ -1394,7 +1421,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           }
           
           // Check if navigating to a note URL (supports both /notes/{id} and /{context}/notes/{id})
-          const noteUrlMatch = state.url.match(/\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\/(.+)$/) || 
+          const noteUrlMatch = state.url.match(/\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/notes\/(.+)$/) || 
                               state.url.match(/\/notes\/(.+)$/)
           if (noteUrlMatch) {
             const noteId = noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0]
@@ -1445,7 +1472,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             // Extract noteId from top item's URL or from state.url
             const topItemUrl = newStack[newStack.length - 1]?.url || state?.url
             if (topItemUrl) {
-              const topNoteUrlMatch = topItemUrl.match(/\/(discussions|search|profile|home|feed|spells|explore|rss)\/notes\/(.+)$/) || 
+              const topNoteUrlMatch = topItemUrl.match(/\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/notes\/(.+)$/) || 
                                      topItemUrl.match(/\/notes\/(.+)$/)
               if (topNoteUrlMatch) {
                 const topNoteId = topNoteUrlMatch[topNoteUrlMatch.length - 1].split('?')[0].split('#')[0]

@@ -1,4 +1,3 @@
-import LatestFromFollowsSection from '@/components/LatestFromFollowsSection'
 import { RefreshButton } from '@/components/RefreshButton'
 import SearchBar, { TSearchBarRef } from '@/components/SearchBar'
 import SearchResult from '@/components/SearchResult'
@@ -11,9 +10,7 @@ import { BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
-type SearchPageProps = { expandFollows?: boolean }
-const SearchPage = forwardRef<TPageRef>((props: SearchPageProps, ref) => {
-  const { expandFollows } = props ?? {}
+const SearchPage = forwardRef<TPageRef>((_props, ref) => {
   const { current, display } = usePrimaryPage()
   const { pubkey, relayList } = useNostr()
   const [input, setInput] = useState('')
@@ -88,13 +85,7 @@ const SearchPage = forwardRef<TPageRef>((props: SearchPageProps, ref) => {
         </div>
         <div className="h-4"></div>
         <div key={resultRefreshKey} className="min-w-0">
-          {searchParams ? (
-            <SearchResult searchParams={searchParams} />
-          ) : pubkey ? (
-            <div className="mb-4 min-w-0 space-y-2">
-              <LatestFromFollowsSection defaultOpen={expandFollows} />
-            </div>
-          ) : null}
+          <SearchResult searchParams={searchParams} />
         </div>
       </div>
     </PrimaryPageLayout>

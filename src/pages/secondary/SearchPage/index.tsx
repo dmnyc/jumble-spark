@@ -1,4 +1,3 @@
-import LatestFromFollowsSection from '@/components/LatestFromFollowsSection'
 import { RefreshButton } from '@/components/RefreshButton'
 import SearchBar, { TSearchBarRef } from '@/components/SearchBar'
 import SearchResult from '@/components/SearchResult'
@@ -9,8 +8,8 @@ import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
-import { TSearchParams } from '@/types'
 import { BookOpen } from 'lucide-react'
+import { TSearchParams } from '@/types'
 import { Button } from '@/components/ui/button'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -151,14 +150,7 @@ const SearchPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
         </div>
         <div className="h-4"></div>
         <div key={resultRefreshKey} className="min-w-0">
-          {searchParams ? (
-            <SearchResult searchParams={searchParams} />
-          ) : (
-            <div className="mb-4 min-w-0 space-y-2">
-              <LatestFromFollowsSection />
-              <SearchResult searchParams={null} />
-            </div>
-          )}
+          <SearchResult searchParams={searchParams} />
         </div>
       </div>
     </SecondaryPageLayout>

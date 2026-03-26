@@ -366,15 +366,23 @@ export const SUPPORTED_KINDS = [
   ExtendedKind.APPLICATION_HANDLER_INFO
 ]
 
-/** Kinds for profile feed and favorites-style feeds: supported kinds except boosts (kind 6), publications, publication content, NIP-89 handlers. */
+/**
+ * Kinds for profile-style feeds and the kind-filter UI (includes boosts). Excludes publications,
+ * publication content, and NIP-89 handler kinds.
+ */
 export const PROFILE_FEED_KINDS = SUPPORTED_KINDS.filter(
   (k) =>
-    k !== kinds.Repost &&
     k !== ExtendedKind.PUBLICATION &&
     k !== ExtendedKind.PUBLICATION_CONTENT &&
     k !== ExtendedKind.APPLICATION_HANDLER_RECOMMENDATION &&
     k !== ExtendedKind.APPLICATION_HANDLER_INFO
 )
+
+/**
+ * {@link PROFILE_FEED_KINDS} without reposts (kind 6). Default for the global kind filter, home feed,
+ * and most faux spells. Reposts are still shown on profile timelines, Spells → Following, and Follows latest.
+ */
+export const DEFAULT_FEED_SHOW_KINDS = PROFILE_FEED_KINDS.filter((k) => k !== kinds.Repost)
 
 /** Order for faux-spells in the feed / spell picker. */
 export const FAUX_SPELL_ORDER = [

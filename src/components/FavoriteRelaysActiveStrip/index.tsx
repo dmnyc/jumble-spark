@@ -310,7 +310,7 @@ export function FavoriteRelaysActiveStripMobileBar({ className }: { className?: 
           avatarSize="small"
           labelClassName="text-[0.7rem] font-medium text-muted-foreground"
           stackClassName="w-full min-w-0 max-w-full"
-          onOpenFollowsNotes={pubkey ? () => navigate('search', { expandFollows: true }) : undefined}
+          onOpenFollowsNotes={pubkey ? () => navigate('follows-latest') : undefined}
         />
       </div>
     </div>
@@ -408,7 +408,7 @@ export function FavoriteRelaysActiveStripSidebar({ className }: { className?: st
               className="size-7 shrink-0"
               aria-label={t('See the newest notes from your follows')}
               title={t('See the newest notes from your follows')}
-              onClick={() => navigate('search', { expandFollows: true })}
+              onClick={() => navigate('follows-latest')}
             >
               <FileText className="size-3.5" />
             </Button>
@@ -429,7 +429,7 @@ export function FavoriteRelaysActiveStripSidebar({ className }: { className?: st
             className="size-8 shrink-0"
             aria-label={t('See the newest notes from your follows')}
             title={t('See the newest notes from your follows')}
-            onClick={() => navigate('search', { expandFollows: true })}
+            onClick={() => navigate('follows-latest')}
           >
             <FileText className="size-4" />
           </Button>
@@ -446,7 +446,7 @@ export function FavoriteRelaysActiveStripSidebar({ className }: { className?: st
           avatarSize="xSmall"
           labelClassName="text-[0.6rem] font-medium text-muted-foreground xl:px-1"
           stackClassName="w-full max-xl:items-center"
-          onOpenFollowsNotes={pubkey ? () => navigate('search', { expandFollows: true }) : undefined}
+          onOpenFollowsNotes={pubkey ? () => navigate('follows-latest') : undefined}
         />
       </div>
     </div>

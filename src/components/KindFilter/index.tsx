@@ -3,7 +3,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { ExtendedKind, SUPPORTED_KINDS } from '@/constants'
+import { ExtendedKind, PROFILE_FEED_KINDS } from '@/constants'
 import { cn } from '@/lib/utils'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -25,7 +25,8 @@ const KIND_FILTER_OPTIONS = [
   { kindGroup: [ExtendedKind.VIDEO, ExtendedKind.SHORT_VIDEO], label: 'Video Posts' },
   { kindGroup: [ExtendedKind.DISCUSSION], label: 'Discussions' },
   { kindGroup: [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME], label: 'Calendar Events' },
-  { kindGroup: [ExtendedKind.ZAP_RECEIPT], label: 'Zaps' }
+  { kindGroup: [ExtendedKind.ZAP_RECEIPT], label: 'Zaps' },
+  { kindGroup: [kinds.Repost], label: 'Boosts' }
 ]
 
 function buildShowKindsFromOptions(
@@ -210,13 +211,7 @@ export default function KindFilter({
           variant="secondary"
           onClick={() => {
             setTemporaryShowKinds(
-              SUPPORTED_KINDS.filter(
-                (k) =>
-                  k !== kinds.Repost &&
-                  k !== ExtendedKind.PUBLICATION &&
-                  k !== KIND_1 &&
-                  k !== KIND_1111
-              )
+              PROFILE_FEED_KINDS.filter((k) => k !== KIND_1 && k !== KIND_1111)
             )
             setTemporaryShowKind1OPs(true)
             setTemporaryShowKind1Replies(true)

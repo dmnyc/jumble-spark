@@ -35,9 +35,9 @@ import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import {
   ExtendedKind,
+  DEFAULT_FEED_SHOW_KINDS,
   FAUX_SPELL_ORDER,
   FIRST_RELAY_RESULT_GRACE_MS,
-  PROFILE_FEED_KINDS
 } from '@/constants'
 import { isUserInEventMentions } from '@/lib/event'
 import { formatPubkey } from '@/lib/pubkey'
@@ -81,7 +81,7 @@ import {
   Wand2
 } from 'lucide-react'
 import type { Event } from 'nostr-tools'
-import { verifyEvent } from 'nostr-tools'
+import { kinds as nostrKinds, verifyEvent } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
@@ -703,7 +703,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       if (!pubkey || !interestListEvent) return []
       const topics = interestListEvent.tags.filter((tag) => tag[0] === 't' && tag[1]).map((tag) => tag[1]!)
       const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
-      return buildInterestsSubRequests(urls, topics, PROFILE_FEED_KINDS)
+      return buildInterestsSubRequests(urls, topics, DEFAULT_FEED_SHOW_KINDS)
     }
     if (selectedFauxSpell === 'bookmarks') {
       if (!pubkey) return []
@@ -859,7 +859,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return [ExtendedKind.DISCUSSION]
     }
     if (selectedFauxSpell === 'following') {
-      return kindFilterShowKinds
+      // Profile feed kinds omit boosts; show reposts as cards in this faux spell only.
+      const k = kindFilterShowKinds
+      if (k.includes(nostrKinds.Repost)) return k
+      return [...k, nostrKinds.Repost].sort((a, b) => a - b)
     }
     if (selectedFauxSpell === 'followPacks') {
       return [ExtendedKind.FOLLOW_PACK]
@@ -871,10 +874,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME]
     }
     if (selectedFauxSpell === 'interests') {
-      return PROFILE_FEED_KINDS
+      return [...DEFAULT_FEED_SHOW_KINDS]
     }
     if (selectedFauxSpell === 'bookmarks') {
-      return PROFILE_FEED_KINDS
+      return [...DEFAULT_FEED_SHOW_KINDS]
     }
     if (!selectedSpell) return [1]
     const kinds = selectedSpell.tags

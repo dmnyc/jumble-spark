@@ -9,7 +9,7 @@
  * inbox+favorites fill the cap and global kinds/media/hashtags never hit aggr). The **interests** spell
  * uses **one** shard: all subscribed topics in one `#t` filter (NIP-01 OR semantics).
  */
-import { ExtendedKind, PROFILE_FEED_KINDS, READ_ONLY_RELAY_URLS } from '@/constants'
+import { DEFAULT_FEED_SHOW_KINDS, ExtendedKind, READ_ONLY_RELAY_URLS } from '@/constants'
 import { buildProfileAugmentedReadRelayUrls } from '@/lib/favorites-feed-relays'
 import { normalizeTopic } from '@/lib/discussion-topics'
 import { userIdToPubkey } from '@/lib/pubkey'
@@ -182,7 +182,7 @@ export function buildCalendarSpellFilter(): Filter {
 export function buildInterestsSubRequests(
   relayUrls: string[],
   rawTopics: string[],
-  kindsList: number[] = PROFILE_FEED_KINDS
+  kindsList: number[] = DEFAULT_FEED_SHOW_KINDS
 ): TFeedSubRequest[] {
   if (!relayUrls.length || !rawTopics.length || !kindsList.length) return []
   const topics = Array.from(

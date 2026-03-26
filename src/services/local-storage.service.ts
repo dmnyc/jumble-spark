@@ -3,7 +3,7 @@ import {
   ExtendedKind,
   MEDIA_AUTO_LOAD_POLICY,
   NOTIFICATION_LIST_STYLE,
-  PROFILE_FEED_KINDS,
+  DEFAULT_FEED_SHOW_KINDS,
   StorageKey
 } from '@/constants'
 import { kinds } from 'nostr-tools'
@@ -223,7 +223,7 @@ class LocalStorageService {
 
     const showKindsStr = window.localStorage.getItem(StorageKey.SHOW_KINDS)
     if (!showKindsStr) {
-      this.showKinds = [...PROFILE_FEED_KINDS]
+      this.showKinds = [...DEFAULT_FEED_SHOW_KINDS]
     } else {
       const showKindsVersionStr = window.localStorage.getItem(StorageKey.SHOW_KINDS_VERSION)
       const showKindsVersion = showKindsVersionStr ? parseInt(showKindsVersionStr) : 0
@@ -291,10 +291,11 @@ class LocalStorageService {
           }
         }
       }
+      // v9: boosts are optional in the same filter list as other kinds; do not auto-enable (leave absent).
       this.showKinds = showKinds
     }
     this.persistSetting(StorageKey.SHOW_KINDS, JSON.stringify(this.showKinds))
-    this.persistSetting(StorageKey.SHOW_KINDS_VERSION, '8')
+    this.persistSetting(StorageKey.SHOW_KINDS_VERSION, '9')
 
     // Feed filter: kind 1 OPs, kind 1 replies, kind 1111 (migrate from legacy showRepliesAndComments if set)
     const showKind1OPsStr = window.localStorage.getItem(StorageKey.SHOW_KIND_1_OPs)

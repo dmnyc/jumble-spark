@@ -425,6 +425,7 @@ export default {
     All: 'All',
     Reactions: 'Reactions',
     Zaps: 'Zaps',
+    Boosts: 'Boosts',
     Badges: 'Badges',
     'Enjoying Jumble?': 'Enjoying Jumble?',
     'Your donation helps me maintain Jumble and make it better! 😊':
@@ -660,7 +661,6 @@ export default {
     'No more boosts': 'No more boosts',
     'No boosts yet': 'No boosts yet',
     'n more boosts': '{{count}} more boosts',
-    Boosts: 'Boosts',
     FollowListNotFoundConfirmation:
       'Follow list not found. Do you want to create a new one? If you have followed users before, please DO NOT confirm as this operation will cause you to lose your previous follow list.',
     MuteListNotFoundConfirmation:
@@ -766,6 +766,10 @@ export default {
     'Trending on the Default Relays': 'Trending on the Default Relays',
     'Latest from your follows': 'Latest from your follows',
     'Latest from our recommended follows': 'Latest from our recommended follows',
+    'Follows latest page title': 'Latest from follows',
+    'Follows latest page description':
+      'Recent notes from accounts you follow (or a curated list when not signed in), using their outbox relays merged with your favorites. Expand a row for notes or open the profile from the row.',
+    'Follows latest nav label': 'Follows latest',
     'Loading follow list…': 'Loading follow list…',
     'Could not load recommended follows': 'Could not load recommended follows',
     'Your follow list is empty': 'Your follow list is empty',

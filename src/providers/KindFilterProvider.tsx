@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, useMemo } from 'react'
 import storage from '@/services/local-storage.service'
-import { ExtendedKind, PROFILE_FEED_KINDS } from '@/constants'
+import { DEFAULT_FEED_SHOW_KINDS, ExtendedKind } from '@/constants'
 import { kinds } from 'nostr-tools'
 
 const KIND_1 = kinds.ShortTextNote
@@ -42,7 +42,7 @@ export const useKindFilter = () => {
 }
 
 export function KindFilterProvider({ children }: { children: React.ReactNode }) {
-  const defaultShowKinds = PROFILE_FEED_KINDS
+  const defaultShowKinds = DEFAULT_FEED_SHOW_KINDS
   const storedShowKinds = storage.getShowKinds()
   const storedShowKind1OPs = storage.getShowKind1OPs()
   const storedShowKind1Replies = storage.getShowKind1Replies()

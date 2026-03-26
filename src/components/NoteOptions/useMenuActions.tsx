@@ -640,7 +640,9 @@ export function useMenuActions({
               ? `/spells/notes/${noteId}`
               : currentPrimaryPage === 'rss'
                 ? `/rss/notes/${noteId}`
-                : `/notes/${noteId}`
+                : currentPrimaryPage === 'follows-latest'
+                  ? `/follows-latest/notes/${noteId}`
+                  : `/notes/${noteId}`
           const jumbleUrl = `https://jumble.imwald.eu${path}`
           navigator.clipboard.writeText(jumbleUrl)
           closeDrawer()

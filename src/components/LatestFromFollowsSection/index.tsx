@@ -25,7 +25,7 @@ import { useUserTrust } from '@/contexts/user-trust-context'
 import { queryService, replaceableEventService } from '@/services/client.service'
 import type { TRelayList } from '@/types'
 import logger from '@/lib/logger'
-import { ChevronDown, ChevronRight, Star } from 'lucide-react'
+import { ChevronRight, Star } from 'lucide-react'
 import { Event, kinds, nip19, NostrEvent } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -94,7 +94,15 @@ function recommendedCuratorHexPubkey(): string | null {
   }
 }
 
-export default function LatestFromFollowsSection({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
+export default function LatestFromFollowsSection({
+  refreshKey = 0,
+  variant = 'embedded'
+}: {
+  /** Bump to re-run batched relay fetches (e.g. titlebar / page refresh). */
+  refreshKey?: number
+  /** `page`: full-width list on the follows-latest primary page; `embedded`: tighter vertical spacing. */
+  variant?: 'page' | 'embedded'
+} = {}) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
   const { pubkey, followListEvent, isInitialized, isAccountSessionHydrating } = useNostr()
@@ -113,8 +121,6 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
 
   const [postsByPubkey, setPostsByPubkey] = useState<Map<string, NostrEvent[]>>(() => new Map())
   const [batchBusy, setBatchBusy] = useState(false)
-  /** Search page: start collapsed so the bar doesn’t push the search field; data still prefetches in the background. */
-  const [sectionOpen, setSectionOpen] = useState(defaultOpen)
   const abortedRef = useRef(false)
 
   const followPubkeys = pubkey ? (loggedInFollowPubkeys ?? []) : guestFollowPubkeys
@@ -323,7 +329,8 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
     loadingFollowList,
     isInitialized,
     acceptEvent,
-    followsFeedScopeKey
+    followsFeedScopeKey,
+    refreshKey
   ])
 
   const sortedRowPubkeys = useMemo(() => {
@@ -337,10 +344,7 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
     return [...withPosts, ...withoutPosts]
   }, [followPubkeys, postsByPubkey])
 
-  const heading =
-    followsLabel === 'recommended'
-      ? t('Latest from our recommended follows')
-      : t('Latest from your follows')
+  const vertical = variant === 'page' ? '' : 'mb-6'
 
   if (!isInitialized) {
     return null
@@ -348,7 +352,7 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
 
   if (loadingFollowList) {
     return (
-      <div className="mb-6 space-y-2" role="status" aria-busy="true" aria-live="polite">
+      <div className={cn('space-y-2', vertical)} role="status" aria-busy="true" aria-live="polite">
         <Skeleton className="h-4 w-56 max-w-full" />
         <Skeleton className="h-4 w-72 max-w-full" />
       </div>
@@ -357,7 +361,12 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
 
   if (followPubkeys.length === 0) {
     return (
-      <div className="mb-6 rounded-lg border border-border/80 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+      <div
+        className={cn(
+          'rounded-lg border border-border/80 bg-muted/20 px-4 py-3 text-sm text-muted-foreground',
+          vertical
+        )}
+      >
         {followsLabel === 'recommended'
           ? t('Could not load recommended follows')
           : t('Your follow list is empty')}
@@ -366,51 +375,36 @@ export default function LatestFromFollowsSection({ defaultOpen = false }: { defa
   }
 
   return (
-    <Collapsible open={sectionOpen} onOpenChange={setSectionOpen} className="min-w-0">
-      <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/80 bg-muted/15 px-3 py-2.5 text-left hover:bg-muted/25">
-        <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="text-base font-semibold">{heading}</span>
-          {batchBusy && postsByPubkey.size === 0 ? (
-            <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
-          ) : null}
-        </span>
-        <ChevronDown
-          className={cn('size-5 shrink-0 text-muted-foreground transition-transform', sectionOpen && 'rotate-180')}
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="overflow-hidden">
-        <div className="mt-2 space-y-0 rounded-lg border border-border/60 overflow-hidden">
-          {batchBusy && postsByPubkey.size === 0 ? (
-            <div className="space-y-2 px-4 py-4" role="status" aria-busy="true" aria-live="polite">
-              <Skeleton className="h-3 w-64 max-w-full" />
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-14 w-full rounded-md" />
-              ))}
-            </div>
-          ) : null}
-          {sortedRowPubkeys.map((pk) => {
-            const posts = postsByPubkey.get(pk) ?? []
-            const count = posts.length
-            const latest = posts[0]?.created_at
-            return (
-              <FollowPulseRow
-                key={pk}
-                pubkey={pk}
-                count={count}
-                latestCreatedAt={latest}
-                posts={posts}
-                onOpenProfile={() => push(toProfile(pk))}
-              />
-            )
-          })}
+    <div className="min-w-0 space-y-0 rounded-lg border border-border/60 overflow-hidden">
+      {batchBusy && postsByPubkey.size === 0 ? (
+        <div className="space-y-2 px-4 py-4" role="status" aria-busy="true" aria-live="polite">
+          <Skeleton className="h-3 w-64 max-w-full" />
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-14 w-full rounded-md" />
+          ))}
         </div>
-        {batchBusy && postsByPubkey.size > 0 ? (
-          <div className="mt-2 px-1">
-            <Skeleton className="h-3 w-28" aria-hidden />
-          </div>
-        ) : null}
-      </CollapsibleContent>
-    </Collapsible>
+      ) : null}
+      {sortedRowPubkeys.map((pk) => {
+        const posts = postsByPubkey.get(pk) ?? []
+        const count = posts.length
+        const latest = posts[0]?.created_at
+        return (
+          <FollowPulseRow
+            key={pk}
+            pubkey={pk}
+            count={count}
+            latestCreatedAt={latest}
+            posts={posts}
+            onOpenProfile={() => push(toProfile(pk))}
+          />
+        )
+      })}
+      {batchBusy && postsByPubkey.size > 0 ? (
+        <div className="px-4 py-2 border-t border-border/50">
+          <Skeleton className="h-3 w-28" aria-hidden />
+        </div>
+      ) : null}
+    </div>
   )
 }
 

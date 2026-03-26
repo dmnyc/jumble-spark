@@ -42,6 +42,11 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
   const { isEventDeleted } = useDeletedEvent()
   const { zapReplyThreshold } = useZap()
   const { showKinds, showKind1OPs, showKind1Replies, showKind1111 } = useKindFilter()
+  /** Profile timelines always show reposts; global kind filter still applies to other kinds. */
+  const profileTimelineShowKinds = useMemo(() => {
+    if (showKinds.includes(kinds.Repost)) return showKinds
+    return [...showKinds, kinds.Repost].sort((a, b) => a - b)
+  }, [showKinds])
   const hideReplies = useHideRepliesLikeMainFeed()
   const [searchQuery, setSearchQuery] = useState('')
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -77,7 +82,7 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
 
   const passesMainFeedTimelineRules = useCallback(
     (event: Event) => {
-      if (!showKinds.includes(event.kind)) return false
+      if (!profileTimelineShowKinds.includes(event.kind)) return false
       if (event.kind === kinds.ShortTextNote) {
         const isReply = isReplyNoteEvent(event)
         if (hideReplies && isReply) return false
@@ -87,7 +92,7 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
       if (event.kind === ExtendedKind.COMMENT && !showKind1111) return false
       return true
     },
-    [showKinds, showKind1OPs, showKind1Replies, showKind1111, hideReplies]
+    [profileTimelineShowKinds, showKind1OPs, showKind1Replies, showKind1111, hideReplies]
   )
 
   const restTimeline = useMemo(

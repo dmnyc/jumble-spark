@@ -429,6 +429,7 @@ export default {
     All: 'Alle',
     Reactions: 'Reaktionen',
     Zaps: 'Zaps',
+    Boosts: 'Boosts',
     Badges: 'Abzeichen',
     'Enjoying Jumble?': 'Gefällt dir Jumble?',
     'Your donation helps me maintain Jumble and make it better! 😊':
@@ -670,7 +671,6 @@ export default {
     'No more boosts': 'Keine weiteren Boosts',
     'No boosts yet': 'Noch keine Boosts',
     'n more boosts': '{{count}} weitere Boosts',
-    Boosts: 'Boosts',
     FollowListNotFoundConfirmation:
       'Folgeliste nicht gefunden. Möchten Sie eine neue erstellen? Wenn Sie zuvor Benutzer gefolgt haben, bestätigen Sie bitte NICHT, da diese Operation dazu führt, dass Sie Ihre vorherige Folgeliste verlieren.',
     MuteListNotFoundConfirmation:
@@ -780,6 +780,10 @@ export default {
     'Trending on the Default Relays': 'Trending auf den Standard-Relays',
     'Latest from your follows': 'Neuestes von deinen Follows',
     'Latest from our recommended follows': 'Neuestes von unseren empfohlenen Follows',
+    'Follows latest page title': 'Neuestes von Follows',
+    'Follows latest page description':
+      'Aktuelle Notizen von Leuten, denen du folgst (ohne Konto: unsere kuratierte Liste). Wir führen Outbox-Relays aus ihren NIP-65-Listen mit deinen Favoriten zusammen und laden in Stapeln. Zeile aufklappen für Notizen oder Profil antippen.',
+    'Follows latest nav label': 'Follows: neueste',
     'Loading follow list…': 'Follow-Liste wird geladen …',
     'Could not load recommended follows': 'Empfohlene Follows konnten nicht geladen werden',
     'Your follow list is empty': 'Deine Follow-Liste ist leer',
