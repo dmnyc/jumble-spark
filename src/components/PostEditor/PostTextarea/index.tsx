@@ -109,6 +109,8 @@ const PostTextarea = forwardRef<
       }
     }, [activeTab, getDraftEventJson, kind])
     const editor = useEditor({
+      // TipTap + Radix Dialog/Tabs: defer init so React 18 does not warn about flushSync in a lifecycle.
+      immediatelyRender: false,
       extensions: [
         Document,
         Paragraph,
@@ -237,7 +239,8 @@ const PostTextarea = forwardRef<
             </div>
           )}
         </div>
-        <TabsContent value="edit">
+        {/* Keep editor mounted: remounting EditorContent after Preview/Json triggers TipTap flushSync under React 18. */}
+        <TabsContent value="edit" forceMount>
           <EditorContent className="tiptap" editor={editor} />
         </TabsContent>
         <TabsContent value="preview">
