@@ -239,6 +239,7 @@ function EmbeddedNoteContent({
       >
         <UnknownNote
           event={finalEvent}
+          showAuthorSummary
           className={cn('my-0 p-2 sm:p-3 border rounded-lg w-full', className)}
         />
       </div>

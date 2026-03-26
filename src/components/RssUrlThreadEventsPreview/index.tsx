@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import { useNoteStatsRelayHints } from '@/hooks/useNoteStatsRelayHints'
 import {
-  buildRssArticleUrlThreadInteractionFilters,
+  buildRssArticleUrlThreadInteractionFilterGroups,
   isRssArticleUrlThreadInteraction
 } from '@/lib/rss-web-feed'
 import { queryService } from '@/services/client.service'
@@ -28,14 +28,25 @@ export default function RssUrlThreadEventsPreview({ canonicalUrl }: { canonicalU
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    const filters = buildRssArticleUrlThreadInteractionFilters(canonicalUrl, FETCH_LIMIT)
-    void queryService
-      .fetchEvents(relayUrls, filters)
-      .then((all) => {
+    const { nonSocial, social } = buildRssArticleUrlThreadInteractionFilterGroups(
+      canonicalUrl,
+      FETCH_LIMIT
+    )
+    const fetchOpts = {
+      eoseTimeout: 12_000,
+      globalTimeout: 26_000,
+      firstRelayResultGraceMs: false as const
+    }
+    void Promise.all([
+      nonSocial.length > 0 ? queryService.fetchEvents(relayUrls, nonSocial, fetchOpts) : Promise.resolve([]),
+      social.length > 0 ? queryService.fetchEvents(relayUrls, social, fetchOpts) : Promise.resolve([])
+    ])
+      .then(([a, b]) => {
         if (cancelled) return
+        const all = [...a, ...b]
         const seen = new Set<string>()
         const merged: Event[] = []
-        for (const e of [...all].sort((a, b) => b.created_at - a.created_at)) {
+        for (const e of [...all].sort((x, y) => y.created_at - x.created_at)) {
           if (seen.has(e.id)) continue
           if (!isRssArticleUrlThreadInteraction(e, canonicalUrl)) continue
           seen.add(e.id)

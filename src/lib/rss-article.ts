@@ -2,7 +2,7 @@ import { bytesToHex } from '@noble/hashes/utils'
 import { sha256 } from '@noble/hashes/sha256'
 import { ExtendedKind } from '@/constants'
 import { cleanUrl } from '@/lib/url'
-import type { Event } from 'nostr-tools'
+import { kinds, type Event } from 'nostr-tools'
 
 /** NIP-22: `K` / `k` value for http(s) URL comment scopes (web pages, articles). */
 export const NIP22_URL_SCOPE_KIND = 'web'
@@ -111,6 +111,12 @@ export function getHighlightSourceHttpUrl(event: Pick<Event, 'tags'>): string | 
     return canonicalizeRssArticleUrl(u)
   }
   return undefined
+}
+
+/** NIP-73: kind 7 reaction targeting an http(s) page via `r` tags (same disambiguation as highlights). */
+export function getReactionPageUrlFromRTags(event: Pick<Event, 'kind' | 'tags'>): string | undefined {
+  if (event.kind !== kinds.Reaction) return undefined
+  return getHighlightSourceHttpUrl(event)
 }
 
 /**

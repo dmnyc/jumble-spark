@@ -13,6 +13,7 @@ import {
   computeRTagFilterValuesForArticleThread,
   getArticleUrlFromCommentITags,
   getHighlightSourceHttpUrl,
+  getReactionPageUrlFromRTags,
   getWebExternalReactionTargetUrl,
   rssArticleStableEventId
 } from '@/lib/rss-article'
@@ -179,18 +180,33 @@ class NoteStatsService {
         ? getReplaceableCoordinateFromEvent(event)
         : undefined
 
-      const filters: Filter[] = this.buildFilters(event, replaceableCoordinate)
+      const { nonSocial, social } = this.buildFilterGroups(event, replaceableCoordinate)
+      const fetchOpts = {
+        eoseTimeout: 10_000,
+        globalTimeout: 28_000,
+        firstRelayResultGraceMs: false as const
+      }
 
       const events: Event[] = []
       logger.debug('[NoteStats] Fetching stats for event', event.id.substring(0, 8), 'from', finalRelayUrls.length, 'relays')
-      
+
       const { queryService } = await import('@/services/client.service')
-      await queryService.fetchEvents(finalRelayUrls, filters, {
-        onevent: (evt) => {
-          this.updateNoteStatsByEvents([evt], event.pubkey)
-          events.push(evt)
-        }
-      })
+      const onStatsEvent = (evt: Event) => {
+        this.updateNoteStatsByEvents([evt], event.pubkey)
+        events.push(evt)
+      }
+      if (nonSocial.length > 0) {
+        await queryService.fetchEvents(finalRelayUrls, nonSocial, {
+          ...fetchOpts,
+          onevent: onStatsEvent
+        })
+      }
+      if (social.length > 0) {
+        await queryService.fetchEvents(finalRelayUrls, social, {
+          ...fetchOpts,
+          onevent: onStatsEvent
+        })
+      }
       
       logger.debug('[NoteStats] Fetched', events.length, 'events for stats')
 
@@ -261,30 +277,33 @@ class NoteStatsService {
   }
 
   /**
-   * Reactions must not share one `limit` with replies — relays often return newest notes first and
-   * fill the bucket with kind 1/1111, dropping kind 7 entirely.
-   * Do not use `since` from last fetch `updatedAt`: reaction `created_at` is usually far in the past,
-   * so incremental filters would return nothing and leave stats stuck empty.
+   * Split REQ batches so “social” kinds (1 / 11 / 1111) do not strip aggregator relays from the
+   * same subscription as reactions and zaps ({@link relayFilterIncludesSocialKindBlockedKind}).
+   * RSS URL threads also need `#r` + kind 7 for NIP-73 page-targeted likes.
    */
-  private buildFilters(event: Event, replaceableCoordinate?: string): Filter[] {
+  private buildFilterGroups(
+    event: Event,
+    replaceableCoordinate?: string
+  ): { nonSocial: Filter[]; social: Filter[] } {
     const reactionLimit = 300
     const interactionLimit = 80
 
-    const filters: Filter[] = [
+    const nonSocial: Filter[] = [
+      { '#e': [event.id], kinds: [kinds.Reaction], limit: reactionLimit },
+      { '#e': [event.id], kinds: [kinds.Zap], limit: 100 }
+    ]
+
+    const social: Filter[] = [
       {
         '#e': [event.id],
-        kinds: [kinds.Reaction],
-        limit: reactionLimit
-      },
-      {
-        '#e': [event.id],
-        kinds: [kinds.Repost, kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Highlights],
+        kinds: [
+          kinds.Repost,
+          kinds.ShortTextNote,
+          ExtendedKind.COMMENT,
+          ExtendedKind.VOICE_COMMENT,
+          kinds.Highlights
+        ],
         limit: interactionLimit
-      },
-      {
-        '#e': [event.id],
-        kinds: [kinds.Zap],
-        limit: 100
       },
       {
         '#q': [event.id],
@@ -297,57 +316,41 @@ class NoteStatsService {
       const url = getArticleUrlFromCommentITags(event)
       if (url) {
         const canonical = canonicalizeRssArticleUrl(url)
-        filters.push(
-          {
-            '#i': [canonical],
-            kinds: [ExtendedKind.EXTERNAL_REACTION],
-            limit: reactionLimit
-          },
-          {
-            '#I': [canonical],
-            kinds: [ExtendedKind.EXTERNAL_REACTION],
-            limit: reactionLimit
-          },
-          {
-            '#i': [canonical],
-            kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
-            limit: interactionLimit
-          },
-          {
-            '#I': [canonical],
-            kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT],
-            limit: interactionLimit
-          },
-          {
-            '#r': computeRTagFilterValuesForArticleThread(canonical),
-            kinds: [kinds.Highlights],
-            limit: interactionLimit
-          },
-          {
-            kinds: [kinds.BookmarkList],
-            '#e': [event.id],
-            limit: 200
-          }
+        const rVals = computeRTagFilterValuesForArticleThread(canonical)
+        nonSocial.push(
+          { '#i': [canonical], kinds: [ExtendedKind.EXTERNAL_REACTION], limit: reactionLimit },
+          { '#I': [canonical], kinds: [ExtendedKind.EXTERNAL_REACTION], limit: reactionLimit },
+          { kinds: [kinds.BookmarkList], '#e': [event.id], limit: 200 }
+        )
+        if (rVals.length > 0) {
+          nonSocial.push(
+            { '#r': rVals, kinds: [kinds.Highlights], limit: interactionLimit },
+            { '#r': rVals, kinds: [kinds.Reaction], limit: reactionLimit }
+          )
+        }
+        social.push(
+          { '#i': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit: interactionLimit },
+          { '#I': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit: interactionLimit }
         )
       }
     }
 
     if (replaceableCoordinate) {
-      filters.push(
+      nonSocial.push(
+        { '#a': [replaceableCoordinate], kinds: [kinds.Reaction], limit: reactionLimit },
+        { '#a': [replaceableCoordinate], kinds: [kinds.Zap], limit: 100 }
+      )
+      social.push(
         {
           '#a': [replaceableCoordinate],
-          kinds: [kinds.Reaction],
-          limit: reactionLimit
-        },
-        {
-          '#a': [replaceableCoordinate],
-          kinds: [kinds.Repost, kinds.ShortTextNote, ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT, kinds.Highlights],
+          kinds: [
+            kinds.Repost,
+            kinds.ShortTextNote,
+            ExtendedKind.COMMENT,
+            ExtendedKind.VOICE_COMMENT,
+            kinds.Highlights
+          ],
           limit: interactionLimit
-        },
-        {
-          '#a': [replaceableCoordinate],
-          kinds: [kinds.Zap],
-          limit: 100
         },
         {
           '#q': [replaceableCoordinate],
@@ -357,7 +360,7 @@ class NoteStatsService {
       )
     }
 
-    return filters
+    return { nonSocial, social }
   }
 
 
@@ -507,7 +510,13 @@ class NoteStatsService {
   }
 
   private addLikeByEvent(evt: Event, originalEventAuthor?: string, forcedTargetEventId?: string) {
-    const targetEventId = forcedTargetEventId ?? getFirstHexEventIdFromETags(evt.tags)
+    let targetEventId = forcedTargetEventId ?? getFirstHexEventIdFromETags(evt.tags)
+    if (!targetEventId && evt.kind === kinds.Reaction) {
+      const pageUrl = getReactionPageUrlFromRTags(evt)
+      if (pageUrl) {
+        targetEventId = rssArticleStableEventId(canonicalizeRssArticleUrl(pageUrl))
+      }
+    }
     if (!targetEventId) return
 
     const old = this.noteStatsMap.get(targetEventId) || {}

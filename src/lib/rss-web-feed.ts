@@ -7,6 +7,7 @@ import {
   computeRTagFilterValuesForArticleThread,
   getArticleUrlFromCommentITags,
   getHighlightSourceHttpUrl,
+  getReactionPageUrlFromRTags,
   getWebBookmarkArticleUrl,
   getWebExternalReactionTargetUrl
 } from '@/lib/rss-article'
@@ -173,29 +174,59 @@ export function isRssWebUnifiedClutterUrl(url: string): boolean {
   return false
 }
 
-/** REQ filters for Nostr comments, voice comments, and highlights on one article URL (synthetic RSS thread). */
+/**
+ * Split filters: kind 1/1111 in `social` strip aggregator relays from the whole REQ; reactions and
+ * `#r` queries stay in `nonSocial` so aggr and similar still answer.
+ */
+export function buildRssArticleUrlThreadInteractionFilterGroups(
+  canonicalArticleUrl: string,
+  limit: number
+): { nonSocial: Filter[]; social: Filter[] } {
+  const canonical = canonicalizeRssArticleUrl(canonicalArticleUrl)
+  const rVals = computeRTagFilterValuesForArticleThread(canonical)
+  const social: Filter[] = [
+    { '#i': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit },
+    { '#I': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit }
+  ]
+  const nonSocial: Filter[] = [
+    { '#i': [canonical], kinds: [ExtendedKind.EXTERNAL_REACTION], limit },
+    { '#I': [canonical], kinds: [ExtendedKind.EXTERNAL_REACTION], limit }
+  ]
+  if (rVals.length > 0) {
+    nonSocial.push(
+      { '#r': rVals, kinds: [kinds.Highlights], limit },
+      { '#r': rVals, kinds: [kinds.Reaction], limit }
+    )
+  }
+  return { nonSocial, social }
+}
+
+/** REQ filters for Nostr comments, reactions, and highlights on one article URL (synthetic RSS thread). */
 export function buildRssArticleUrlThreadInteractionFilters(
   canonicalArticleUrl: string,
   limit: number
 ): Filter[] {
-  const canonical = canonicalizeRssArticleUrl(canonicalArticleUrl)
-  const rVals = computeRTagFilterValuesForArticleThread(canonical)
-  const filters: Filter[] = [
-    { '#i': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit },
-    { '#I': [canonical], kinds: [ExtendedKind.COMMENT, ExtendedKind.VOICE_COMMENT], limit }
-  ]
-  if (rVals.length > 0) {
-    filters.push({ '#r': rVals, kinds: [kinds.Highlights], limit })
-  }
-  return filters
+  const { nonSocial, social } = buildRssArticleUrlThreadInteractionFilterGroups(
+    canonicalArticleUrl,
+    limit
+  )
+  return [...nonSocial, ...social]
 }
 
-/** Whether `evt` belongs to the URL-scoped article thread (comments / voice / highlight of this page). */
+/** Whether `evt` belongs to the URL-scoped article thread (comments / voice / highlight / reactions on this page). */
 export function isRssArticleUrlThreadInteraction(evt: Event, canonicalArticleUrl: string): boolean {
   const key = canonicalizeRssArticleUrl(canonicalArticleUrl)
   if (evt.kind === kinds.Highlights) {
     const hu = getHighlightSourceHttpUrl(evt)
     return !!hu && canonicalizeRssArticleUrl(hu) === key
+  }
+  if (evt.kind === ExtendedKind.EXTERNAL_REACTION) {
+    const u = getWebExternalReactionTargetUrl(evt)
+    return !!u && canonicalizeRssArticleUrl(u) === key
+  }
+  if (evt.kind === kinds.Reaction) {
+    const u = getReactionPageUrlFromRTags(evt)
+    return !!u && canonicalizeRssArticleUrl(u) === key
   }
   if (!isReplyNoteEvent(evt)) return false
   const u = getArticleUrlFromCommentITags(evt)
@@ -352,11 +383,12 @@ export async function buildRssWebNostrQueryRelayUrls(options: {
   return dedupeRelayUrlsForRssWeb([...inboxAndFavorites, ...FAST_READ_RELAY_URLS])
 }
 
-/** Kinds 1111, 17, 9802, 1244, 39701 — one REQ each in {@link fetchDiscoveredWebUrlsFromRelays}. */
+/** One REQ per kind in {@link fetchDiscoveredWebUrlsFromRelays} (includes kind 7 with page `r` tags). */
 const RSS_WEB_RELAY_DISCOVERY_KINDS: number[] = [
   ExtendedKind.COMMENT,
   ExtendedKind.EXTERNAL_REACTION,
   kinds.Highlights,
+  kinds.Reaction,
   ExtendedKind.VOICE_COMMENT,
   ExtendedKind.WEB_BOOKMARK
 ]
@@ -366,6 +398,10 @@ function extractArticleUrlFromWebActivityEvent(evt: Event): string | undefined {
     const u = getArticleUrlFromCommentITags(evt)
     if (!u || !isHttpArticleUrl(u)) return undefined
     return canonicalizeRssArticleUrl(u)
+  }
+  if (evt.kind === kinds.Reaction) {
+    const u = getReactionPageUrlFromRTags(evt)
+    return u && isHttpArticleUrl(u) ? canonicalizeRssArticleUrl(u) : undefined
   }
   if (evt.kind === ExtendedKind.EXTERNAL_REACTION) {
     const u = getWebExternalReactionTargetUrl(evt)

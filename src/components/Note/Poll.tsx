@@ -24,6 +24,8 @@ export default function Poll({ event, className }: { event: Event; className?: s
   const startLogin = nostr?.startLogin ?? (() => {})
   const [isVoting, setIsVoting] = useState(false)
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([])
+  /** User chose to view vote breakdown without voting first (card UX). */
+  const [resultsRevealed, setResultsRevealed] = useState(false)
   const pollResults = useFetchPollResults(event.id)
   const [isLoadingResults, setIsLoadingResults] = useState(false)
   const poll = useMemo(() => getPollMetadataFromEvent(event), [event])
@@ -38,8 +40,8 @@ export default function Poll({ event, className }: { event: Event; className?: s
   const isMultipleChoice = useMemo(() => poll?.pollType === POLL_TYPE.MULTIPLE_CHOICE, [poll])
   const canVote = useMemo(() => !isExpired && !votedOptionIds.length, [isExpired, votedOptionIds])
   const showResults = useMemo(() => {
-    return event.pubkey === pubkey || !canVote
-  }, [event, pubkey, canVote])
+    return resultsRevealed || event.pubkey === pubkey || !canVote
+  }, [resultsRevealed, event.pubkey, pubkey, canVote])
   const [containerElement, setContainerElement] = useState<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -227,6 +229,22 @@ export default function Poll({ event, className }: { event: Event; className?: s
             )
           })}
         </div>
+
+        {canVote && !resultsRevealed && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={(e) => {
+              e.stopPropagation()
+              setResultsRevealed(true)
+              void fetchResults()
+            }}
+          >
+            {t('See results')}
+          </Button>
+        )}
 
         {/* Results Summary */}
         <div className="flex justify-between items-center text-sm text-muted-foreground">

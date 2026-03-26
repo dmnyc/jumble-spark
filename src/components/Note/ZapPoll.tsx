@@ -45,6 +45,8 @@ export default function ZapPoll({
   const [optionIndex, setOptionIndex] = useState<number | null>(null)
   const [sats, setSats] = useState<number>(21)
   const [zapping, setZapping] = useState(false)
+  /** Show sat/zap breakdown without having voted (card UX). */
+  const [tallyRevealed, setTallyRevealed] = useState(false)
 
   useEffect(() => {
     if (meta?.valueMinimum != null) {
@@ -62,7 +64,8 @@ export default function ZapPoll({
   const myVoteOption =
     pubkey && meta ? userZapPollVoteOption(event.id, pubkey, receipts) : undefined
 
-  const showTally = !!meta && (closed || viewerZapped || event.pubkey === pubkey)
+  const showTally =
+    !!meta && (closed || viewerZapped || event.pubkey === pubkey || tallyRevealed)
 
   const satsBounds = useMemo(() => {
     if (!meta) return { min: 1, max: undefined as number | undefined }
@@ -151,6 +154,21 @@ export default function ZapPoll({
         <p className="text-xs text-muted-foreground">{t('Loading tally…')}</p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
+      {meta && !closed && !showTally && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={(e) => {
+            e.stopPropagation()
+            setTallyRevealed(true)
+            void reload()
+          }}
+        >
+          {t('See results')}
+        </Button>
+      )}
       <div className="space-y-2">
         {meta.options.map((opt) => {
           const satsOpt = tally?.satsByOption.get(opt.index) ?? 0
