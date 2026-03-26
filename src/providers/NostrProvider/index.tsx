@@ -1,4 +1,5 @@
 import LoginDialog from '@/components/LoginDialog'
+import NcryptsecPasswordPrompt from '@/components/NcryptsecPasswordPrompt'
 import {
   ACCOUNT_SESSION_NETWORK_HYDRATE_MIN_INTERVAL_MS,
   DEFAULT_FAVORITE_RELAYS,
@@ -95,6 +96,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   const [ncryptsec, setNcryptsec] = useState<string | null>(null)
   const [signer, setSigner] = useState<ISigner | null>(null)
   const [openLoginDialog, setOpenLoginDialog] = useState(false)
+  const [ncryptsecPasswordOpen, setNcryptsecPasswordOpen] = useState(false)
+  const ncryptsecPasswordResolveRef = useRef<((value: string | null) => void) | null>(null)
   const [profile, setProfile] = useState<TProfile | null>(null)
 
   // Cleanup on page unload to prevent extension UI issues
@@ -812,6 +815,23 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     await loginWithAccountPointer(act)
   }
 
+  const finishNcryptsecPasswordPrompt = useCallback((password: string | null) => {
+    const resolve = ncryptsecPasswordResolveRef.current
+    if (!resolve) return
+    ncryptsecPasswordResolveRef.current = null
+    setNcryptsecPasswordOpen(false)
+    resolve(password)
+  }, [])
+
+  const askNcryptsecPassword = useCallback((): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const prev = ncryptsecPasswordResolveRef.current
+      if (prev) prev(null)
+      ncryptsecPasswordResolveRef.current = resolve
+      setNcryptsecPasswordOpen(true)
+    })
+  }, [])
+
   const nsecLogin = async (nsecOrHex: string, password?: string, needSetup?: boolean) => {
     const nsecSigner = new NsecSigner()
     let privkey: Uint8Array
@@ -840,11 +860,17 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }
 
   const ncryptsecLogin = async (ncryptsec: string) => {
-    const password = prompt(t('Enter the password to decrypt your ncryptsec'))
+    const password = await askNcryptsecPassword()
     if (!password) {
       throw new Error('Password is required')
     }
-    const privkey = nip49.decrypt(ncryptsec, password)
+    let privkey: Uint8Array
+    try {
+      privkey = nip49.decrypt(ncryptsec, password)
+    } catch (e) {
+      toast.error(t('Login failed') + ': ' + (e as Error).message)
+      throw e
+    }
     const browserNsecSigner = new NsecSigner()
     const pubkey = browserNsecSigner.login(privkey)
     return login(browserNsecSigner, { pubkey, signerType: 'ncryptsec', ncryptsec })
@@ -922,11 +948,17 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       }
     } else if (account.signerType === 'ncryptsec') {
       if (account.ncryptsec) {
-        const password = prompt(t('Enter the password to decrypt your ncryptsec'))
+        const password = await askNcryptsecPassword()
         if (!password) {
           return null
         }
-        const privkey = nip49.decrypt(account.ncryptsec, password)
+        let privkey: Uint8Array
+        try {
+          privkey = nip49.decrypt(account.ncryptsec, password)
+        } catch (e) {
+          toast.error(t('Login failed') + ': ' + (e as Error).message)
+          return null
+        }
         const browserNsecSigner = new NsecSigner()
         browserNsecSigner.login(privkey)
         return login(browserNsecSigner, account)
@@ -1376,6 +1408,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     >
       {children}
       <LoginDialog open={openLoginDialog} setOpen={setOpenLoginDialog} />
+      <NcryptsecPasswordPrompt open={ncryptsecPasswordOpen} onResult={finishNcryptsecPasswordPrompt} />
     </NostrContext.Provider>
   )
 }
