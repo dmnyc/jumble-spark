@@ -1,5 +1,9 @@
 import logger from '@/lib/logger'
 import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
+import {
+  readRelayPulseActiveNpubsCache,
+  writeRelayPulseActiveNpubsCache
+} from '@/lib/relay-pulse-active-npubs-cache'
 import { hexPubkeysEqual, normalizeHexPubkey, userIdToPubkey } from '@/lib/pubkey'
 import { getPubkeysFromPTags } from '@/lib/tag'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -92,8 +96,15 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
         setLoading(false)
         setRelayActivityReady(true)
         const now = Date.now()
+        setOrderedPubkeys([])
         lastCompletedFetchAtRef.current = now
         setLastFetchedAtMs(now)
+        writeRelayPulseActiveNpubsCache({
+          relayKey,
+          viewerPubkey: viewerPubkey ?? null,
+          orderedPubkeys: [],
+          lastFetchedAtMs: now
+        })
         return
       }
       setLoading(true)
@@ -109,9 +120,16 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
           }
         )
         const now = Date.now()
-        setOrderedPubkeys(aggregatePubkeysByRecency(events))
+        const nextPubkeys = aggregatePubkeysByRecency(events)
+        setOrderedPubkeys(nextPubkeys)
         lastCompletedFetchAtRef.current = now
         setLastFetchedAtMs(now)
+        writeRelayPulseActiveNpubsCache({
+          relayKey,
+          viewerPubkey: viewerPubkey ?? null,
+          orderedPubkeys: nextPubkeys,
+          lastFetchedAtMs: now
+        })
       } catch (error) {
         logger.debug('[FavoriteRelaysActivity] fetch failed', { error, useDefaultRelays })
         if (!useDefaultRelays && favoriteRelays.length > 0) {
@@ -122,7 +140,7 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
         setRelayActivityReady(true)
       }
     },
-    [favoriteRelays, blockedRelays]
+    [favoriteRelays, blockedRelays, relayKey, viewerPubkey]
   )
 
   const fetchRef = useRef(fetchActive)
@@ -159,6 +177,16 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
     }
     prevViewerRef.current = viewerPubkey ?? undefined
   }, [viewerPubkey, resetForRefetch])
+
+  /** Restore last successful relay-pulse author list from localStorage (same relay set + viewer). */
+  useEffect(() => {
+    const row = readRelayPulseActiveNpubsCache(relayKey, viewerPubkey ?? null)
+    if (!row) return
+    setOrderedPubkeys(row.orderedPubkeys)
+    setLastFetchedAtMs(row.lastFetchedAtMs)
+    setRelayActivityReady(true)
+    lastCompletedFetchAtRef.current = row.lastFetchedAtMs
+  }, [relayKey, viewerPubkey])
 
   /** When follow list from context is empty but we have a logged-in viewer, try IndexedDB cache.
    * Fixes race where pulse data arrives before NostrProvider has hydrated follow list from cache. */
