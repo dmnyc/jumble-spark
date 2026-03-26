@@ -28,6 +28,9 @@ function CompactProfileCard({ event }: { event: Event }) {
   const profile = getProfileFromEvent(event)
   const nip05s = collectAggregatedNip05sFromKind0(event)
   const about = truncateAbout(profile.about, ABOUT_PREVIEW_LEN)
+  const { setActiveNpubsDrawerOpen } = useFavoriteRelaysActivity()
+  const profileUrl = toProfile(event.pubkey)
+  const closeDrawer = () => setActiveNpubsDrawerOpen(false)
 
   return (
     <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
@@ -35,8 +38,9 @@ function CompactProfileCard({ event }: { event: Event }) {
         <UserAvatar userId={event.pubkey} size="semiBig" />
         <div className="min-w-0 flex-1">
           <SecondaryPageLink
-            to={toProfile(event.pubkey)}
+            to={profileUrl}
             className="font-semibold text-foreground hover:underline"
+            onClick={closeDrawer}
           >
             {profile.username}
           </SecondaryPageLink>
@@ -46,10 +50,16 @@ function CompactProfileCard({ event }: { event: Event }) {
             </p>
           ) : null}
           {nip05s.length > 0 ? (
-            <ul className="mt-2 space-y-0.5 text-xs text-primary">
+            <ul className="mt-2 space-y-0.5 text-xs">
               {nip05s.map((id) => (
                 <li key={id} className="truncate font-mono">
-                  {id}
+                  <SecondaryPageLink
+                    to={profileUrl}
+                    className="text-primary hover:underline"
+                    onClick={closeDrawer}
+                  >
+                    {id}
+                  </SecondaryPageLink>
                 </li>
               ))}
             </ul>

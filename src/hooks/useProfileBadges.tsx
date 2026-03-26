@@ -1,4 +1,5 @@
 import { ExtendedKind } from '@/constants'
+import { extractBadgeDefinitionMedia } from '@/lib/badge-definition-media'
 import { queryService, replaceableEventService } from '@/services/client.service'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { tagNameEquals } from '@/lib/tag'
@@ -16,6 +17,8 @@ export type TProfileBadge = {
   image?: string
   /** Thumbnail URL (prefer thumb over image for grid display) */
   thumb?: string
+  /** From badge definition (NIP-58) */
+  description?: string
 }
 
 /** Parse a-tag "30009:pubkey:d" into { kind, pubkey, d } */
@@ -88,16 +91,22 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
           parsed.d
         )
 
-        const name = defEvent?.tags.find(tagNameEquals('name'))?.[1]
-        const image = defEvent?.tags.find(tagNameEquals('image'))?.[1]
-        const thumb = defEvent?.tags.find(tagNameEquals('thumb'))?.[1]
+        if (!defEvent) {
+          result.push({ a, awardId: e })
+          continue
+        }
+
+        const name = defEvent.tags.find(tagNameEquals('name'))?.[1]
+        const description = defEvent.tags.find(tagNameEquals('description'))?.[1]
+        const media = extractBadgeDefinitionMedia(defEvent)
 
         result.push({
           a,
           awardId: e,
           name: name ?? parsed.d,
-          image,
-          thumb: thumb ?? image
+          image: media.image,
+          thumb: media.thumb ?? media.image,
+          description
         })
       }
 

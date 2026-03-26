@@ -1,7 +1,7 @@
 import { getPubkeysFromPTags } from '@/lib/tag'
 import logger from '@/lib/logger'
 import { cn } from '@/lib/utils'
-import { useFollowList } from '@/providers/FollowListProvider'
+import { useFollowListOptional } from '@/providers/FollowListProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
 import { useNostr } from '@/providers/NostrProvider'
 import { Event } from 'nostr-tools'
@@ -9,8 +9,9 @@ import { Users } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { SimpleUserAvatar } from '../UserAvatar'
-import { Button } from '../ui/button'
+import UserAvatar, { SimpleUserAvatar } from '@/components/UserAvatar'
+import Username from '@/components/Username'
+import { Button } from '@/components/ui/button'
 
 export default function FollowPackPreview({
   event,
@@ -21,7 +22,8 @@ export default function FollowPackPreview({
 }) {
   const { t } = useTranslation()
   const { pubkey } = useNostr()
-  const { followings, follow } = useFollowList()
+  const followList = useFollowListOptional()
+  const followings = followList?.followings ?? []
   const { mutePubkeySet } = useMuteList()
   const [busy, setBusy] = useState(false)
 
@@ -56,6 +58,8 @@ export default function FollowPackPreview({
         toast.error(t('Please log in to follow'))
         return
       }
+      if (!followList) return
+      const { follow } = followList
       const toFollow = packPubkeys.filter((p) => !followingSet.has(p) && !mutePubkeySet.has(p))
       if (toFollow.length === 0) {
         const mutedCount = packPubkeys.filter((p) => mutePubkeySet.has(p) && !followingSet.has(p)).length
@@ -79,14 +83,25 @@ export default function FollowPackPreview({
         setBusy(false)
       }
     },
-    [pubkey, packPubkeys, followingSet, mutePubkeySet, follow, t]
+    [pubkey, followList, packPubkeys, followingSet, mutePubkeySet, t]
   )
 
   return (
     <div className={cn('rounded-lg border bg-muted/30 p-3', className)}>
-      <div className="mb-2 flex items-center gap-1">
-        <span className="text-sm text-muted-foreground">[{t('Follow Pack')}]</span>
-        <span className="text-sm font-semibold">{title}</span>
+      <div className="mb-2 space-y-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-sm text-muted-foreground">[{t('Follow Pack')}]</span>
+          <span className="text-sm font-semibold">{title}</span>
+        </div>
+        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="shrink-0">{t('Follow pack by')}:</span>
+          <UserAvatar userId={event.pubkey} size="xSmall" className="shrink-0" />
+          <Username
+            userId={event.pubkey}
+            className="min-w-0 truncate font-medium text-foreground"
+            skeletonClassName="h-3"
+          />
+        </div>
       </div>
 
       {description ? (
@@ -120,7 +135,7 @@ export default function FollowPackPreview({
 
       {!pubkey ? (
         <p className="text-sm text-muted-foreground">{t('Please log in to follow')}</p>
-      ) : (
+      ) : !followList ? null : (
         <Button
           variant="outline"
           size="sm"

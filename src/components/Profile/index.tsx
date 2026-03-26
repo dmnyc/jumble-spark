@@ -535,14 +535,6 @@ export default function Profile({
               <PubkeyCopy pubkey={pubkey} showFull />
               <NpubQrCode pubkey={pubkey} />
             </div>
-            <div className="mt-4 pt-2">
-              <ProfileInteractionsAccordion
-                pubkey={pubkey}
-                isExpanded={profileInteractionsExpanded}
-                onExpandedChange={setProfileInteractionsExpanded}
-                onRefreshReady={(refresh) => { profileInteractionsRefreshRef.current = refresh ?? null }}
-              />
-            </div>
             <Collapsible>
               <ProfileAbout
                 about={about}
@@ -648,6 +640,14 @@ export default function Profile({
                 {isSelf && <SmartMuteLink />}
               </div>
               {!isSelf && <FollowedBy pubkey={pubkey} />}
+            </div>
+            <div className="mt-4 pt-2">
+              <ProfileInteractionsAccordion
+                pubkey={pubkey}
+                isExpanded={profileInteractionsExpanded}
+                onExpandedChange={setProfileInteractionsExpanded}
+                onRefreshReady={(refresh) => { profileInteractionsRefreshRef.current = refresh ?? null }}
+              />
             </div>
           </div>
         </div>

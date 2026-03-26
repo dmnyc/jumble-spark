@@ -320,6 +320,8 @@ export const ExtendedKind = {
   APPLICATION_HANDLER_INFO: 31990,
   PAYMENT_INFO: 10133,
   FOLLOW_PACK: 39089,
+  /** NIP-56: reporting / flagging (tagged `p` for reported pubkey, optional `e` for reported note) */
+  REPORT: 1984,
   /** NIP-94 File Metadata (e.g. GIFs) */
   FILE_METADATA: 1063,
   /** NIP-66 Relay discovery (relay characteristics from NIP-11 or probing) */

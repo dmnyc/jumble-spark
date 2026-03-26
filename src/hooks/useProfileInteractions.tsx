@@ -1,6 +1,6 @@
 import { ExtendedKind } from '@/constants'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
-import { queryService } from '@/services/client.service'
+import { queryService, replaceableEventService } from '@/services/client.service'
 import { hexPubkeysEqual } from '@/lib/pubkey'
 import { Event, Filter, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -15,9 +15,9 @@ export type TProfileZap = {
   comment?: string
 }
 
-const NOTE_IDS_FOR_REACTIONS = 50
+const NOTE_IDS_FOR_COMMENTS = 50
 
-/** Fetches zaps, reactions (likes on profile's notes), and comments (on profile's notes). */
+/** Fetches zaps, reactions (likes on the kind-0 profile metadata event only), and comments (on the user's notes + profile). */
 /** Uses profile owner's outboxes + PROFILE_FETCH_RELAY_URLS. Pass relayUrls to share with other profile fetches. */
 export function useProfileInteractions(pubkey: string | undefined, relayUrls?: string[]) {
   const { blockedRelays } = useFavoriteRelays()
@@ -41,17 +41,24 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
     try {
       const urls = relayUrls ?? (await buildProfileRelayUrls(pubkey, blockedRelays))
 
+      const profileMetaPromise = replaceableEventService.fetchReplaceableEvent(
+        pubkey,
+        kinds.Metadata,
+        undefined,
+        urls
+      )
+
       const collectedZaps: TProfileZap[] = []
-      const reactionsByPubkey = new Map<string, Event>() // one reaction per npub, newest kept
+      const reactionsByPubkey = new Map<string, Event>() // one reaction per npub, newest kept (profile event only)
       const collectedComments: Event[] = []
       const seenZaps = new Set<string>()
       const seenReactions = new Set<string>()
       let noteIds: string[] = []
 
-      // Phase 1: zaps + profile's recent notes (to find reactions/comments on their content)
+      // Phase 1: zaps + profile's recent notes (for comments on those notes)
       const phase1Filters: Filter[] = [
         { '#p': [pubkey], kinds: [kinds.Zap], limit: 100 },
-        { authors: [pubkey], kinds: [kinds.ShortTextNote], limit: NOTE_IDS_FOR_REACTIONS }
+        { authors: [pubkey], kinds: [kinds.ShortTextNote], limit: NOTE_IDS_FOR_COMMENTS }
       ]
 
       const flushZaps = () => {
@@ -85,8 +92,23 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
         }
       })
 
-      noteIds = [...new Set(noteIds)].slice(0, NOTE_IDS_FOR_REACTIONS)
+      noteIds = [...new Set(noteIds)].slice(0, NOTE_IDS_FOR_COMMENTS)
       if (myFetchId !== fetchIdRef.current) return
+
+      const profileMetaEvent = await profileMetaPromise
+      if (myFetchId !== fetchIdRef.current) return
+
+      const profileReactionATags = new Set([`0:${pubkey}:`, `0:${pubkey}:profile`])
+      const reactionTargetsKind0Profile = (evt: Event): boolean => {
+        if (evt.kind !== kinds.Reaction) return false
+        const aHit = evt.tags.some((t) => t[0] === 'a' && t[1] && profileReactionATags.has(t[1]))
+        if (aHit) return true
+        const pid = profileMetaEvent?.id
+        if (!pid) return false
+        return evt.tags.some(
+          (t) => t[0] === 'e' && t[1] && hexPubkeysEqual(t[1], pid)
+        )
+      }
 
       const flushReactions = () => {
         if (myFetchId !== fetchIdRef.current) return
@@ -96,40 +118,43 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
         if (myFetchId !== fetchIdRef.current) return
         setComments([...collectedComments].sort((a, b) => b.created_at - a.created_at))
       }
-      const handleReactionOrComment = (evt: Event) => {
-        if (hexPubkeysEqual(evt.pubkey, pubkey)) return // skip self-reactions/self-comments (likely tests)
+      const ingestProfileReaction = (evt: Event) => {
+        if (!reactionTargetsKind0Profile(evt)) return
+        if (hexPubkeysEqual(evt.pubkey, pubkey)) return
         if (seenReactions.has(evt.id)) return
         seenReactions.add(evt.id)
-        if (evt.kind === kinds.Reaction) {
-          const existing = reactionsByPubkey.get(evt.pubkey)
-          if (!existing || evt.created_at > existing.created_at) {
-            reactionsByPubkey.set(evt.pubkey, evt)
-          }
-          flushReactions()
-        } else {
-          collectedComments.push(evt)
-          flushComments()
+        const existing = reactionsByPubkey.get(evt.pubkey)
+        if (!existing || evt.created_at > existing.created_at) {
+          reactionsByPubkey.set(evt.pubkey, evt)
         }
+        flushReactions()
+      }
+      const ingestComment = (evt: Event) => {
+        if (hexPubkeysEqual(evt.pubkey, pubkey)) return
+        if (seenReactions.has(evt.id)) return
+        seenReactions.add(evt.id)
+        collectedComments.push(evt)
+        flushComments()
       }
 
-      const phase2Opts = {
+      const phase2CommentOpts = {
         eoseTimeout: 2000,
         globalTimeout: 15000,
         firstRelayResultGraceMs: false as const,
         onevent: (evt: Event) => {
-          if (evt.kind === kinds.Reaction || evt.kind === ExtendedKind.COMMENT) {
-            handleReactionOrComment(evt)
+          if (evt.kind === ExtendedKind.COMMENT) {
+            ingestComment(evt)
           }
         }
       }
 
-      // Phase 2a: reactions and comments on profile's notes (#e)
+      // Phase 2a: comments on profile's notes (#e) only
       if (noteIds.length > 0) {
         await queryService.fetchEvents(urls, [{
           '#e': noteIds,
-          kinds: [kinds.Reaction, ExtendedKind.COMMENT],
+          kinds: [ExtendedKind.COMMENT],
           limit: 50
-        }], phase2Opts)
+        }], phase2CommentOpts)
       }
 
       // Phase 2b: comments ON the profile itself (kind 0) - use #a (required), p is optional
@@ -138,7 +163,24 @@ export function useProfileInteractions(pubkey: string | undefined, relayUrls?: s
         '#a': profileAddrs,
         kinds: [ExtendedKind.COMMENT],
         limit: 50
-      }], phase2Opts)
+      }], phase2CommentOpts)
+
+      // Phase 2c: reactions (likes) on the kind-0 profile metadata event only (#e + event id, and/or #a coordinates)
+      const profileReactionFilters: Filter[] = []
+      if (profileMetaEvent?.id) {
+        profileReactionFilters.push({ '#e': [profileMetaEvent.id], kinds: [kinds.Reaction], limit: 80 })
+      }
+      profileReactionFilters.push({ '#a': [...profileReactionATags], kinds: [kinds.Reaction], limit: 80 })
+      await queryService.fetchEvents(urls, profileReactionFilters, {
+        eoseTimeout: 2000,
+        globalTimeout: 15000,
+        firstRelayResultGraceMs: false,
+        onevent: (evt: Event) => {
+          if (evt.kind === kinds.Reaction) {
+            ingestProfileReaction(evt)
+          }
+        }
+      })
 
       if (myFetchId !== fetchIdRef.current) return
       collectedZaps.sort((a, b) => b.amount - a.amount)

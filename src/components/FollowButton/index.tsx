@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useFollowList } from '@/providers/FollowListProvider'
+import { useFollowListOptional } from '@/providers/FollowListProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
 import { useNostr } from '@/providers/NostrProvider'
 import { useMemo, useState } from 'react'
@@ -21,14 +21,18 @@ import { toast } from 'sonner'
 export default function FollowButton({ pubkey }: { pubkey: string }) {
   const { t } = useTranslation()
   const { pubkey: accountPubkey, checkLogin } = useNostr()
-  const { followings, follow, unfollow } = useFollowList()
+  const followList = useFollowListOptional()
   const { mutePubkeySet, unmutePubkey } = useMuteList()
   const [updating, setUpdating] = useState(false)
   const [hover, setHover] = useState(false)
+
+  const followings = followList?.followings ?? []
   const isFollowing = useMemo(() => followings.includes(pubkey), [followings, pubkey])
   const isMuted = useMemo(() => mutePubkeySet.has(pubkey), [mutePubkeySet, pubkey])
 
-  if (!accountPubkey || (pubkey && pubkey === accountPubkey)) return null
+  if (!followList || !accountPubkey || (pubkey && pubkey === accountPubkey)) return null
+
+  const { follow, unfollow } = followList
 
   const handleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation()
