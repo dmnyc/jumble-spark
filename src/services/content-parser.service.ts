@@ -9,6 +9,7 @@ import { getImetaInfosFromEvent } from '@/lib/event'
 import { URL_REGEX, ExtendedKind } from '@/constants'
 import { TImetaInfo } from '@/types'
 import logger from '@/lib/logger'
+import { isPseudoNostrHttpsUrl } from '@/lib/url'
 
 export interface ParsedContent {
   html: string
@@ -982,6 +983,7 @@ class ContentParserService {
 
         // Give 'r' tags lowest priority
         if (tag[0] === 'r' && (!sourceTag || sourceTag[0] === 'r')) {
+          if (tag[1] && isPseudoNostrHttpsUrl(tag[1])) continue
           sourceTag = tag
           continue
         }
@@ -1009,7 +1011,7 @@ class ContentParserService {
             relays: relay ? [relay] : []
           })
         })
-      } else if (sourceTag[0] === 'r') {
+      } else if (sourceTag[0] === 'r' && sourceTag[1] && !isPseudoNostrHttpsUrl(sourceTag[1])) {
         sources.push({
           type: 'url',
           value: sourceTag[1],

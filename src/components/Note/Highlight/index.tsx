@@ -7,6 +7,7 @@ import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import { useSmartNoteNavigationOptional } from '@/PageManager'
 import { toNote } from '@/lib/link'
+import { isPseudoNostrHttpsUrl } from '@/lib/url'
 import { useFetchEvent } from '@/hooks'
 import { useEffect, useState, useMemo } from 'react'
 import { ExtendedKind } from '@/constants'
@@ -143,8 +144,9 @@ export default function Highlight({
           continue
         }
         
-        // Give 'r' tags lowest priority
+        // Give 'r' tags lowest priority (skip fake `https://nostr:…` r-tags — not web URLs)
         if (tag[0] === 'r' && (!sourceTag || sourceTag[0] === 'r')) {
+          if (tag[1] && isPseudoNostrHttpsUrl(tag[1])) continue
           sourceTag = tag
           continue
         }
@@ -181,8 +183,10 @@ export default function Highlight({
         tempSourceEventId = bech32 // Store bech32 for fetching the event
         tempSourceBech32 = bech32 // Store bech32 for navigation
       } else if (sourceTag[0] === 'r') {
-        // Check if the r-tag value is a URL or Nostr address
-        if (sourceTag[1] && isUrlOrNostrAddress(sourceTag[1])) {
+        // Ignore fake `https://nostr:…` (invalid https; breaks WebPreview)
+        if (sourceTag[1] && isPseudoNostrHttpsUrl(sourceTag[1])) {
+          // no source / no quote card for this tag
+        } else if (sourceTag[1] && isUrlOrNostrAddress(sourceTag[1])) {
           // Try to decode as Nostr address to extract author
           try {
             const decoded = nip19.decode(sourceTag[1])
@@ -249,7 +253,10 @@ export default function Highlight({
     const hasSpecialCard = useMemo(() => {
       // For r-tags that are regular URLs (http/https), they have OpenGraph cards - always use those
       if (sourceTag && sourceTag[0] === 'r' && sourceTag[1]) {
-        if (sourceTag[1].startsWith('http://') || sourceTag[1].startsWith('https://')) {
+        if (
+          (sourceTag[1].startsWith('http://') || sourceTag[1].startsWith('https://')) &&
+          !isPseudoNostrHttpsUrl(sourceTag[1])
+        ) {
           return true // URLs have OpenGraph cards - use full preview
         }
       }

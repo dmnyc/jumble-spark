@@ -149,6 +149,17 @@ export class ReplaceableEventService {
     })
     
     try {
+      if (kind === kinds.Metadata && !d) {
+        const sessionEv = client.eventService.getSessionMetadataForPubkey(pubkey)
+        if (sessionEv && !shouldDropEventOnIngest(sessionEv)) {
+          this.replaceableEventFromBigRelaysDataloader.prime(
+            { pubkey, kind },
+            Promise.resolve(sessionEv)
+          )
+          return sessionEv
+        }
+      }
+
       // If we have containing event relays and this is a profile, we need to use a custom relay list
       // Otherwise, use DataLoader (which batches IndexedDB checks and network fetches)
       let event: NEvent | undefined
@@ -292,28 +303,39 @@ export class ReplaceableEventService {
    * Checks IndexedDB first, then network
    */
   async fetchReplaceableEventsFromProfileFetchRelays(pubkeys: string[], kind: number): Promise<(NEvent | undefined)[]> {
-    const results: (NEvent | undefined)[] = []
-    const misses: { pubkey: string; index: number }[] = []
-    
-    // Check IndexedDB in parallel
-    const indexedDbPromises = pubkeys.map(async (pubkey, index) => {
-      try {
-        const event = await indexedDb.getReplaceableEvent(pubkey, kind)
-        if (event) {
-          results[index] = event
-          return { index, event }
+    const results: (NEvent | undefined)[] = new Array(pubkeys.length)
+    const needsIndexedDb: { pubkey: string; index: number }[] = []
+
+    for (let index = 0; index < pubkeys.length; index++) {
+      const pubkey = pubkeys[index]
+      if (kind === kinds.Metadata) {
+        const sessionEv = client.eventService.getSessionMetadataForPubkey(pubkey)
+        if (sessionEv && !shouldDropEventOnIngest(sessionEv)) {
+          results[index] = sessionEv
+          this.replaceableEventFromBigRelaysDataloader.prime(
+            { pubkey, kind },
+            Promise.resolve(sessionEv)
+          )
+          continue
         }
-      } catch {
-        // Ignore errors
       }
-      misses.push({ pubkey, index })
-      return null
-    })
-    
-    await Promise.allSettled(indexedDbPromises)
-    
-    // Find what's still missing and fetch from network
-    const stillMissing = misses.filter(({ index }) => results[index] === undefined)
+      needsIndexedDb.push({ pubkey, index })
+    }
+
+    await Promise.allSettled(
+      needsIndexedDb.map(async ({ pubkey, index }) => {
+        try {
+          const event = await indexedDb.getReplaceableEvent(pubkey, kind)
+          if (event) {
+            results[index] = event
+          }
+        } catch {
+          /* ignore */
+        }
+      })
+    )
+
+    const stillMissing = needsIndexedDb.filter(({ index }) => results[index] === undefined)
     if (stillMissing.length > 0) {
       const newEvents = await this.replaceableEventFromBigRelaysDataloader.loadMany(
         stillMissing.map(({ pubkey }) => ({ pubkey, kind }))
@@ -327,7 +349,7 @@ export class ReplaceableEventService {
         }
       })
     }
-    
+
     return results
   }
 
@@ -367,45 +389,53 @@ export class ReplaceableEventService {
       })
     }
     
-    // Step 1: Batch check IndexedDB for all requested events
-    const groups = new Map<number, string[]>()
-    params.forEach(({ pubkey, kind }) => {
-      if (!groups.has(kind)) {
-        groups.set(kind, [])
-      }
-      groups.get(kind)!.push(pubkey)
-    })
-    
     const results: (NEvent | null)[] = new Array(params.length).fill(null)
     const eventsMap = new Map<string, NEvent>()
+
+    for (let i = 0; i < params.length; i++) {
+      const { pubkey, kind } = params[i]
+      if (kind !== kinds.Metadata) continue
+      const sessionEv = client.eventService.getSessionMetadataForPubkey(pubkey)
+      if (sessionEv && !shouldDropEventOnIngest(sessionEv)) {
+        results[i] = sessionEv
+        eventsMap.set(`${pubkey}:${kind}`, sessionEv)
+        this.replaceableEventFromBigRelaysDataloader.prime(
+          { pubkey, kind },
+          Promise.resolve(sessionEv)
+        )
+      }
+    }
+
+    const idbByKind = new Map<number, { pubkey: string; index: number }[]>()
+    params.forEach(({ pubkey, kind }, index) => {
+      if (results[index] != null) return
+      if (!idbByKind.has(kind)) {
+        idbByKind.set(kind, [])
+      }
+      idbByKind.get(kind)!.push({ pubkey, index })
+    })
+
     const missingParams: { pubkey: string; kind: number; index: number }[] = []
-    
-    // Batch IndexedDB checks by kind
+
     await Promise.allSettled(
-      Array.from(groups.entries()).map(async ([kind, pubkeys]) => {
+      Array.from(idbByKind.entries()).map(async ([kind, items]) => {
+        const pubkeys = items.map((x) => x.pubkey)
         try {
-          // Use batched IndexedDB query
           const indexedDbEvents = await indexedDb.getManyReplaceableEvents(pubkeys, kind)
-          // Only log at debug level to reduce noise during rapid scrolling
           logger.debug('[ReplaceableEventService] IndexedDB batch query completed', {
             kind,
             pubkeyCount: pubkeys.length,
-            foundCount: indexedDbEvents.filter(e => e !== null && e !== undefined).length
+            foundCount: indexedDbEvents.filter((e) => e !== null && e !== undefined).length
           })
-          
-          // Map IndexedDB results back to params
-          pubkeys.forEach((pubkey, idx) => {
-            const paramIndex = params.findIndex(p => p.pubkey === pubkey && p.kind === kind)
-            if (paramIndex >= 0) {
-              const event = indexedDbEvents[idx]
-              if (event && event !== null) {
-                results[paramIndex] = event
-                eventsMap.set(`${pubkey}:${kind}`, event)
-                // Refresh in background
-                this.refreshInBackground(pubkey, kind).catch(() => {})
-              } else {
-                missingParams.push({ pubkey, kind, index: paramIndex })
-              }
+
+          items.forEach(({ pubkey, index }, idx) => {
+            const event = indexedDbEvents[idx]
+            if (event && event !== null) {
+              results[index] = event
+              eventsMap.set(`${pubkey}:${kind}`, event)
+              this.refreshInBackground(pubkey, kind).catch(() => {})
+            } else {
+              missingParams.push({ pubkey, kind, index })
             }
           })
         } catch (error) {
@@ -413,20 +443,16 @@ export class ReplaceableEventService {
             kind,
             error: error instanceof Error ? error.message : String(error)
           })
-          // If IndexedDB fails, mark all as missing
-          pubkeys.forEach((pubkey) => {
-            const paramIndex = params.findIndex(p => p.pubkey === pubkey && p.kind === kind)
-            if (paramIndex >= 0) {
-              missingParams.push({ pubkey, kind, index: paramIndex })
-            }
-          })
+          for (const { pubkey, index } of items) {
+            missingParams.push({ pubkey, kind, index })
+          }
         }
       })
     )
     
     // Step 2: Only fetch missing events from network
     if (missingParams.length === 0) {
-      logger.debug('[ReplaceableEventService] All events found in IndexedDB, skipping network fetch', {
+      logger.debug('[ReplaceableEventService] All events resolved (session + IndexedDB), skipping network fetch', {
         totalCount: params.length
       })
       return results
@@ -793,6 +819,18 @@ export class ReplaceableEventService {
     if (!pubkey) {
       logger.error('[ReplaceableEventService] Invalid id - no pubkey extracted', { id })
       throw new Error('Invalid id')
+    }
+
+    if (!_skipCache) {
+      const sessionEv = client.eventService.getSessionMetadataForPubkey(pubkey)
+      if (sessionEv && !shouldDropEventOnIngest(sessionEv)) {
+        this.replaceableEventFromBigRelaysDataloader.prime(
+          { pubkey, kind: kinds.Metadata },
+          Promise.resolve(sessionEv)
+        )
+        await this.indexProfile(sessionEv)
+        return sessionEv
+      }
     }
     
     // CRITICAL: Always use relay hints from bech32 addresses (nprofile, naddr, nevent) when available

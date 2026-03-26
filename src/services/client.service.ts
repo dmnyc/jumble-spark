@@ -89,6 +89,18 @@ function summarizeFiltersForRelayLog(filters: Filter[]): Record<string, unknown>
   if (f['#t']?.length) out.tTagCount = f['#t'].length
   return out
 }
+
+/** Hostname (+ path when not "/") for readable publish / retry console lines. */
+function relayHostForUserLog(url: string): string {
+  const n = normalizeUrl(url) || url
+  try {
+    const u = new URL(n.replace(/^wss:/i, 'https:').replace(/^ws:/i, 'http:'))
+    const path = u.pathname && u.pathname !== '/' ? u.pathname.replace(/\/$/, '') : ''
+    return path ? `${u.host}${path}` : u.host
+  } catch {
+    return n
+  }
+}
 import { EventService } from './client-events.service'
 import { ReplaceableEventService } from './client-replaceable-events.service'
 import { MacroService, createBookstrService } from './client-macro.service'
@@ -344,14 +356,50 @@ class ClientService extends EventTarget {
     }
     const failedOutboxes = userOutboxUrls.filter((u) => !hadSuccess.has(norm(u)))
     if (failedOutboxes.length === 0) return
-    logger.info('[PublishEvent] Outbox relay(s) failed; retrying once after delay', {
-      eventId: event.id?.slice(0, 8),
-      kind: event.kind,
-      failedCount: failedOutboxes.length,
-      delayMs: OUTBOX_PUBLISH_RETRY_DELAY_MS
-    })
+
+    const statusHint = (url: string): string => {
+      const n = norm(url)
+      const forUrl = relayStatuses.filter((r) => norm(r.url) === n)
+      const failMsgs = forUrl.filter((r) => !r.success).map((r) => r.error).filter(Boolean)
+      if (failMsgs.length) return failMsgs[failMsgs.length - 1]!
+      return 'No OK from this relay (timeout, connection failed, or still pending when the first wave ended)'
+    }
+
+    const okOutboxes = userOutboxUrls.filter((u) => hadSuccess.has(norm(u)))
+    const eventHint =
+      event.id && /^[0-9a-f]{64}$/i.test(event.id)
+        ? `note id ${event.id.slice(0, 12)}… (kind ${event.kind})`
+        : `kind ${event.kind} note`
+
+    const failedSummary = failedOutboxes
+      .map((u) => `  • ${relayHostForUserLog(u)} — ${statusHint(u)}`)
+      .join('\n')
+    const okSummary =
+      okOutboxes.length > 0
+        ? okOutboxes.map((u) => `  • ${relayHostForUserLog(u)}`).join('\n')
+        : '  (none)'
+
+    logger.info(
+      `[Publish] NIP-65 write relays (your outboxes): ${failedOutboxes.length} did not confirm ${eventHint}. ` +
+        `Retrying only those in ${OUTBOX_PUBLISH_RETRY_DELAY_MS / 1000}s (one more try each).\n` +
+        `Not OK:\n${failedSummary}\n` +
+        `Confirmed on first publish wave:\n${okSummary}`,
+      {
+        delaySeconds: OUTBOX_PUBLISH_RETRY_DELAY_MS / 1000,
+        failed: failedOutboxes.map((url) => ({
+          url,
+          host: relayHostForUserLog(url),
+          reason: statusHint(url)
+        })),
+        confirmed: okOutboxes.map((url) => ({ url, host: relayHostForUserLog(url) }))
+      }
+    )
+
     await new Promise<void>((r) => setTimeout(r, OUTBOX_PUBLISH_RETRY_DELAY_MS))
-    await this.publishEvent(failedOutboxes, event, { skipOutboxRetry: true })
+    await this.publishEvent(failedOutboxes, event, {
+      skipOutboxRetry: true,
+      publishBatchLabel: 'NIP-65 outbox retry — 2nd attempt (failed write relays only)'
+    })
   }
 
   private async prioritizePublishUrlList(
@@ -717,8 +765,14 @@ class ClientService extends EventTarget {
   /** One failed publish or subscribe connection per normalized URL (accumulates until {@link SESSION_RELAY_FAILURE_STRIKE_THRESHOLD}). */
   /** NOTICE "failed to fetch events" (relay DB/backend) — same session strike as a failed connection. */
   private recordRelayNoticeFetchFailure(url: string, noticeMessage: string) {
+    const n = normalizeUrl(url) || url
+    if (!n) return
+    const prev = this.publishStrikeCount.get(n) ?? 0
+    if (prev >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) {
+      return
+    }
     logger.info('[Relay] NOTICE failed-fetch → session strike', {
-      url,
+      url: n,
       noticeSnippet: noticeMessage.slice(0, 220)
     })
     this.recordSessionRelayFailure(url)
@@ -922,9 +976,21 @@ class ClientService extends EventTarget {
     } else {
       logger.debug('[PublishEvent] Unique relays', { count: uniqueRelayUrls.length, relays: uniqueRelayUrls.slice(0, 5) })
     }
-    
+
+    const publishBatchSource = publishExtras?.publishBatchLabel
+      ? `publish — ${publishExtras.publishBatchLabel}`
+      : 'ClientService.publishEvent'
+    if (publishExtras?.publishBatchLabel) {
+      const idBit =
+        event.id && /^[0-9a-f]{64}$/i.test(event.id) ? `${event.id.slice(0, 12)}…` : '(unsigned or no id)'
+      logger.info(`[Publish] ${publishExtras.publishBatchLabel}`, {
+        readable: `Kind ${event.kind} note ${idBit} → ${uniqueRelayUrls.length} relay(s): ${uniqueRelayUrls.map(relayHostForUserLog).join(', ')}`,
+        targets: uniqueRelayUrls.map((url) => ({ where: relayHostForUserLog(url), url }))
+      })
+    }
+
     const relayStatuses: { url: string; success: boolean; error?: string }[] = []
-    const publishOpBatch = new RelayPublishOpBatch('ClientService.publishEvent', event.id, uniqueRelayUrls)
+    const publishOpBatch = new RelayPublishOpBatch(publishBatchSource, event.id, uniqueRelayUrls)
     publishOpBatch.logBegin()
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -1166,9 +1232,14 @@ class ClientService extends EventTarget {
           void client
             .retryFailedOutboxPublishesOnce(event, userOutboxUrls, relayStatuses)
             .catch((err) =>
-              logger.warn('[PublishEvent] Outbox retry pass failed', {
-                error: err instanceof Error ? err.message : String(err)
-              })
+              logger.warn(
+                '[Publish] NIP-65 outbox retry (2nd attempt) failed — check the network or relay logs above',
+                {
+                  error: err instanceof Error ? err.message : String(err),
+                  eventKind: event.kind,
+                  eventId: event.id && /^[0-9a-f]{64}$/i.test(event.id) ? `${event.id.slice(0, 16)}…` : event.id
+                }
+              )
             )
         })
       }
@@ -2223,8 +2294,26 @@ class ClientService extends EventTarget {
   }
 
   async searchNpubsFromLocal(query: string, limit: number = 100) {
-    const result = await this.userIndex.searchAsync(query, { limit })
-    return result.map((pubkey) => pubkeyToNpub(pubkey as string)).filter(Boolean) as string[]
+    const seen = new Set<string>()
+    const out: string[] = []
+    const pushNpub = (npub: string) => {
+      if (!npub || seen.has(npub) || out.length >= limit) return
+      seen.add(npub)
+      out.push(npub)
+    }
+    for (const pk of this.eventService.searchSessionProfilePubkeys(query, limit)) {
+      const npub = pubkeyToNpub(pk)
+      if (npub) pushNpub(npub)
+    }
+    if (out.length >= limit) return out
+    const remaining = limit - out.length
+    const result = await this.userIndex.searchAsync(query, { limit: remaining * 4 })
+    for (const pubkey of result) {
+      const npub = pubkeyToNpub(pubkey as string)
+      if (npub) pushNpub(npub)
+      if (out.length >= limit) break
+    }
+    return out
   }
 
   /**

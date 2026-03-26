@@ -4,14 +4,15 @@ import { TProfile } from '@/types'
 import { useEffect, useState } from 'react'
 
 export function useSearchProfiles(search: string, limit: number) {
-  const [isFetching, setIsFetching] = useState(true)
+  const [isFetching, setIsFetching] = useState(false)
   const [error, setError] = useState<Error | null>(null)
   const [profiles, setProfiles] = useState<TProfile[]>([])
 
   useEffect(() => {
     const fetchProfiles = async () => {
-      if (!search) {
+      if (!search.trim()) {
         setProfiles([])
+        setIsFetching(false)
         return
       }
 

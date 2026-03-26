@@ -18,6 +18,12 @@ const NormalFeed = forwardRef<TNoteListRef, {
   setSubHeader?: (node: React.ReactNode) => void
   /** Shown in the subHeader row to the left of the kind filter (mobile primary feed). */
   onSubHeaderRefresh?: () => void
+  /**
+   * When true with {@link mergeTimelineWhenSubRequestFiltersMatch}, relay URL list can change (e.g. favorites
+   * hydrate after load) without clearing rows — same REQ shape, merge new stream into existing events.
+   */
+  preserveTimelineOnSubRequestsChange?: boolean
+  mergeTimelineWhenSubRequestFiltersMatch?: boolean
 }>(function NormalFeed(
   {
     subRequests,
@@ -25,7 +31,9 @@ const NormalFeed = forwardRef<TNoteListRef, {
     relayCapabilityReady = true,
     isMainFeed = false,
     setSubHeader,
-    onSubHeaderRefresh
+    onSubHeaderRefresh,
+    preserveTimelineOnSubRequestsChange = false,
+    mergeTimelineWhenSubRequestFiltersMatch = false
   },
   ref
 ) {
@@ -109,6 +117,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
           hideUntrustedNotes={hideUntrustedNotes}
           areAlgoRelays={areAlgoRelays}
           relayCapabilityReady={relayCapabilityReady}
+          preserveTimelineOnSubRequestsChange={preserveTimelineOnSubRequestsChange}
+          mergeTimelineWhenSubRequestFiltersMatch={mergeTimelineWhenSubRequestFiltersMatch}
         />
       </div>
     </>

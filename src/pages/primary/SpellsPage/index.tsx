@@ -904,6 +904,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const pickSpell = useCallback(
     (spell: Event | null) => {
+      setSpellPickerOpen(false)
+      if (spell && selectedSpell?.id === spell.id && !selectedFauxSpell) {
+        return
+      }
       if (spell) {
         logSpellFeedPickerSelection(`kind777:${getSpellName(spell)}`, {
           spellId: spell.id,
@@ -913,10 +917,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       }
       setSelectedSpell(spell)
       setSelectedFauxSpell(null)
-      setSpellPickerOpen(false)
       navigatePrimary('spells')
     },
-    [logSpellFeedPickerSelection, navigatePrimary]
+    [logSpellFeedPickerSelection, navigatePrimary, selectedSpell?.id, selectedFauxSpell]
   )
 
   const clearSpellSelection = useCallback(() => {
@@ -929,20 +932,27 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const pickFauxSpell = useCallback(
     (name: FauxSpellName | null) => {
+      setSpellPickerOpen(false)
       if (name) {
+        // Re-selecting the same built-in feed from the picker should not clear + resubscribe (toggle used to call
+        // pickFauxSpell(null) and wipe the timeline when the row was already selected).
+        if (selectedFauxSpell === name && selectedSpell === null) {
+          return
+        }
         logSpellFeedPickerSelection(`faux:${name}`, { fauxSpell: name })
         fauxSpellUrlSyncFromPickerRef.current = name
+        setSelectedFauxSpell(name)
+        setSelectedSpell(null)
+        navigatePrimary('spells', { spell: name })
       } else {
         logSpellFeedPickerSelection('(cleared faux)', { clearedFaux: true })
         fauxSpellUrlSyncFromPickerRef.current = null
+        setSelectedFauxSpell(null)
+        setSelectedSpell(null)
+        navigatePrimary('spells')
       }
-      setSelectedFauxSpell(name)
-      setSelectedSpell(null)
-      setSpellPickerOpen(false)
-      if (name) navigatePrimary('spells', { spell: name })
-      else navigatePrimary('spells')
     },
-    [logSpellFeedPickerSelection, navigatePrimary]
+    [logSpellFeedPickerSelection, navigatePrimary, selectedFauxSpell, selectedSpell]
   )
 
   const selectedSpellIsOwn = !!(pubkey && selectedSpell && selectedSpell.pubkey === pubkey)
@@ -1004,7 +1014,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
               'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               selected && 'bg-accent/50'
             )}
-            onClick={() => pickFauxSpell(selected ? null : name)}
+            onClick={() => pickFauxSpell(name)}
           >
             <span className="flex size-4 shrink-0 items-center justify-center">
               {selected ? <Check className="size-4" aria-hidden /> : null}

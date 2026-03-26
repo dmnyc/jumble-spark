@@ -8,7 +8,15 @@ import YoutubeEmbeddedPlayer from '@/components/YoutubeEmbeddedPlayer'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
 import { toNoteList } from '@/lib/link'
 import { useMediaExtraction } from '@/hooks'
-import { cleanUrl, isImage, isMedia, isVideo, isAudio, isWebsocketUrl } from '@/lib/url'
+import {
+  cleanUrl,
+  isImage,
+  isMedia,
+  isVideo,
+  isAudio,
+  isWebsocketUrl,
+  isPseudoNostrHttpsUrl
+} from '@/lib/url'
 import { getHttpUrlFromITags, getImetaInfosFromEvent } from '@/lib/event'
 import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
 import { Event, kinds } from 'nostr-tools'
@@ -1848,6 +1856,18 @@ function parseMarkdownContent(
             {url}
           </a>
         )
+      } else if (isPseudoNostrHttpsUrl(url)) {
+        parts.push(
+          <a
+            key={`link-${patternIdx}`}
+            href={url}
+            className="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {url}
+          </a>
+        )
       } else {
         parts.push(
           <div key={`webpreview-${patternIdx}`} className="my-2">
@@ -3350,6 +3370,7 @@ export default function MarkdownArticle({
       .forEach(tag => {
         const url = tag[1]
         if (!url.startsWith('http://') && !url.startsWith('https://')) return
+        if (isPseudoNostrHttpsUrl(url)) return
         if (isImage(url) || isMedia(url)) return
         if (isYouTubeUrl(url)) return // Exclude YouTube URLs
         

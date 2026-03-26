@@ -7,7 +7,7 @@ import { EmbeddedMention, EmbeddedNote } from '@/components/Embedded'
 import ImageGallery from '@/components/ImageGallery'
 import WebPreview from '@/components/WebPreview'
 import { BookstrContent } from '@/components/Bookstr/BookstrContent'
-import { cleanUrl, isImage, isMedia } from '@/lib/url'
+import { cleanUrl, isImage, isMedia, isPseudoNostrHttpsUrl } from '@/lib/url'
 import { getImetaInfosFromEvent } from '@/lib/event'
 import { parsePaytoUri } from '@/lib/payto'
 import PaytoLink from '@/components/PaytoLink'
@@ -155,7 +155,10 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
     }
     
     const cleanedUrl = cleanUrl(url)
-    
+    if (isPseudoNostrHttpsUrl(url)) {
+      continue
+    }
+
     // Check if it's an image
     if (isImage(cleanedUrl)) {
       allMatches.push({

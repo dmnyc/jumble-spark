@@ -7,7 +7,7 @@ import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { cn } from '@/lib/utils'
 import { getHttpUrlFromITags } from '@/lib/event'
-import { cleanUrl, isImage, isMedia, isAudio, isVideo } from '@/lib/url'
+import { cleanUrl, isImage, isMedia, isAudio, isVideo, isPseudoNostrHttpsUrl } from '@/lib/url'
 import { TImetaInfo } from '@/types'
 import { Event } from 'nostr-tools'
 import { useMemo } from 'react'
@@ -113,7 +113,13 @@ export default function Content({
     nodes.forEach((node) => {
       if (node.type === 'url') {
         const url = node.data
-        if ((url.startsWith('http://') || url.startsWith('https://')) && !isImage(url) && !isMedia(url) && !isYouTubeUrl(url)) {
+        if (
+          (url.startsWith('http://') || url.startsWith('https://')) &&
+          !isPseudoNostrHttpsUrl(url) &&
+          !isImage(url) &&
+          !isMedia(url) &&
+          !isYouTubeUrl(url)
+        ) {
           const cleaned = cleanUrl(url)
           if (cleaned && !seenUrls.has(cleaned) && !(iArticleCleaned && cleaned === iArticleCleaned)) {
             links.push(cleaned)
@@ -165,7 +171,13 @@ export default function Content({
       .filter(tag => tag[0] === 'r' && tag[1])
       .forEach(tag => {
         const url = tag[1]
-        if ((url.startsWith('http://') || url.startsWith('https://')) && !isImage(url) && !isMedia(url) && !isYouTubeUrl(url)) {
+        if (
+          (url.startsWith('http://') || url.startsWith('https://')) &&
+          !isPseudoNostrHttpsUrl(url) &&
+          !isImage(url) &&
+          !isMedia(url) &&
+          !isYouTubeUrl(url)
+        ) {
           const cleaned = cleanUrl(url)
           // Only include if not already in content links and not already seen in tags
           if (cleaned && !contentLinkUrls.has(cleaned) && !seenUrls.has(cleaned)) {

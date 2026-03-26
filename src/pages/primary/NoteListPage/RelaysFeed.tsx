@@ -107,6 +107,8 @@ const RelaysFeed = forwardRef<
       isMainFeed
       setSubHeader={setSubHeader}
       onSubHeaderRefresh={onSubHeaderRefresh}
+      preserveTimelineOnSubRequestsChange
+      mergeTimelineWhenSubRequestFiltersMatch
     />
   )
 })

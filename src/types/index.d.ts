@@ -186,6 +186,8 @@ export type TPublishEventExtras = {
   favoriteRelayUrls?: string[]
   /** When true (internal): only publish to the given URLs; do not merge outboxes or schedule outbox retry. */
   skipOutboxRetry?: boolean
+  /** Shown in relay batch logs and an info line (e.g. "NIP-65 outbox retry — 2nd attempt"). */
+  publishBatchLabel?: string
 }
 
 export type TNoteListMode = 'posts' | 'postsAndReplies' | 'you' | 'bookmarksAndHashtags'

@@ -1,7 +1,19 @@
 import logger from '@/lib/logger'
+import { normalizeUrl } from '@/lib/url'
 import type { Filter } from 'nostr-tools'
 
 let batchSeq = 0
+
+function relayHostForPublishLog(url: string): string {
+  const n = normalizeUrl(url) || url
+  try {
+    const u = new URL(n.replace(/^wss:/i, 'https:').replace(/^ws:/i, 'http:'))
+    const path = u.pathname && u.pathname !== '/' ? u.pathname.replace(/\/$/, '') : ''
+    return path ? `${u.host}${path}` : u.host
+  } catch {
+    return n
+  }
+}
 
 function nextBatchId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${(++batchSeq).toString(36)}`
@@ -214,6 +226,20 @@ export class RelayPublishOpBatch {
     )
     const ok = this.results.filter((r) => r.ok)
     const fail = this.results.filter((r) => !r.ok)
+    const sorted = this.results.sort((a, b) => a.cmdIndex - b.cmdIndex)
+    const readableSummary =
+      fail.length === 0
+        ? `All ${ok.length} relay(s) accepted the publish.`
+        : [
+            `${fail.length} relay(s) failed:`,
+            ...fail.map(
+              (r) =>
+                `  • ${relayHostForPublishLog(r.relayUrl)} — ${(r.error && String(r.error).trim()) || 'rejected or error'}`
+            ),
+            ok.length > 0 ? `${ok.length} relay(s) OK: ${ok.map((r) => relayHostForPublishLog(r.relayUrl)).join(', ')}` : ''
+          ]
+            .filter(Boolean)
+            .join('\n')
     logger.info('[RelayOp] publish_batch_end', {
       batchId: this.batchId,
       source: this.source,
@@ -222,16 +248,23 @@ export class RelayPublishOpBatch {
       elapsedMs,
       okCount: ok.length,
       failCount: fail.length,
+      readableSummary,
       byState: {
-        ok: { count: ok.length, relays: ok.map((r) => r.relayUrl), cmdIndices: ok.map((r) => r.cmdIndex) },
+        ok: {
+          count: ok.length,
+          relays: ok.map((r) => r.relayUrl),
+          hosts: ok.map((r) => relayHostForPublishLog(r.relayUrl)),
+          cmdIndices: ok.map((r) => r.cmdIndex)
+        },
         fail: {
           count: fail.length,
           relays: fail.map((r) => r.relayUrl),
+          hosts: fail.map((r) => relayHostForPublishLog(r.relayUrl)),
           cmdIndices: fail.map((r) => r.cmdIndex),
           errors: fail.map((r) => r.error ?? '')
         }
       },
-      results: this.results.sort((a, b) => a.cmdIndex - b.cmdIndex)
+      results: sorted
     })
   }
 }

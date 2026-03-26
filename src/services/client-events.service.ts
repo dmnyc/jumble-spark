@@ -358,6 +358,36 @@ export class EventService {
   }
 
   /**
+   * Pubkeys whose session-cached kind 0 matches a name / display_name / nip-05 substring (for search without IDB).
+   */
+  searchSessionProfilePubkeys(query: string, limit: number): string[] {
+    const q = query.trim().toLowerCase()
+    if (!q || limit <= 0) return []
+    const out: string[] = []
+    for (const ev of this.sessionMetadataByPubkey.values()) {
+      if (shouldDropEventOnIngest(ev)) continue
+      if (out.length >= limit) break
+      try {
+        const o = JSON.parse(ev.content) as Record<string, unknown>
+        const blob = [
+          o.display_name,
+          o.name,
+          typeof o.nip05 === 'string' ? o.nip05 : ''
+        ]
+          .map((x) => (typeof x === 'string' ? x : ''))
+          .join(' ')
+          .toLowerCase()
+        if (blob.includes(q)) {
+          out.push(ev.pubkey.toLowerCase())
+        }
+      } catch {
+        /* invalid JSON */
+      }
+    }
+    return out
+  }
+
+  /**
    * Get events from session cache matching search
    */
   getSessionEventsMatchingSearch(query: string, limit: number, allowedKinds?: number[]): NEvent[] {

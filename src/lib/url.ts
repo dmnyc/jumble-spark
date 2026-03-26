@@ -103,6 +103,14 @@ export function simplifyUrl(url: string): string {
     .replace(/\/$/, '')
 }
 
+/**
+ * Some events use r-tags like `https://nostr:nevent1…` — not a real http(s) URL (the `nostr:` NIP-21
+ * scheme is pasted after `https://`). Those strings pass a naive `https://` check and break WebPreview.
+ */
+export function isPseudoNostrHttpsUrl(url: string): boolean {
+  return /^https?:\/\/nostr:/i.test(url.trim())
+}
+
 export function isLocalNetworkUrl(urlString: string): boolean {
   try {
     const url = new URL(urlString)

@@ -218,6 +218,13 @@ const NoteList = forwardRef(
      * That stacks subscriptions on strict relays (e.g. ≤10 subs) and triggers rejections / rate limits.
      */
     const timelineEstablishedCloserRef = useRef<(() => void) | null>(null)
+    /** Session snapshot was written to state; log once after commit (see feed-paint layout effect). */
+    const feedPaintSessionPendingRef = useRef(false)
+    /** Relay / one-shot data was written to state; log once after commit. */
+    const feedPaintRelayPendingRef = useRef(false)
+    const feedPaintRelayMetaRef = useRef<Record<string, unknown> | null>(null)
+    /** First live `onEvents` paint per timeline init (rows or terminal EOSE). */
+    const feedPaintLiveRelayDoneRef = useRef(false)
 
     const [feedProfileBatch, setFeedProfileBatch] = useState<{
       profiles: Map<string, TProfile>
@@ -298,7 +305,11 @@ const NoteList = forwardRef(
       return JSON.stringify([...showKinds].sort((a, b) => a - b))
     }, [showKinds])
 
-    /** Session snapshot identity: same feed + kind / reply UI toggles so restore matches filtering. */
+    /**
+     * Session snapshot identity: feed + kind UI toggles that affect **REQ** / merged rows.
+     * Do **not** include {@link hideReplies}: Notes vs Replies only changes client-side filtering; the same
+     * raw timeline should restore for both tabs (otherwise Replies can show cache while Notes looks empty).
+     */
     const sessionSnapshotIdentityKey = useMemo(
       () =>
         JSON.stringify({
@@ -306,10 +317,9 @@ const NoteList = forwardRef(
           kinds: showKindsKey,
           op: showKind1OPs,
           rep: showKind1Replies,
-          c1111: showKind1111,
-          hr: hideReplies
+          c1111: showKind1111
         }),
-      [timelineSubscriptionKey, showKindsKey, showKind1OPs, showKind1Replies, showKind1111, hideReplies]
+      [timelineSubscriptionKey, showKindsKey, showKind1OPs, showKind1Replies, showKind1111]
     )
 
     const showKindsRef = useRef(showKinds)
@@ -401,6 +411,45 @@ const NoteList = forwardRef(
         return true
       })
     }, [events, showCount, shouldHideEvent, showKinds, showKind1OPs, showKind1Replies, showKind1111])
+
+    useLayoutEffect(() => {
+      if (!feedPaintSessionPendingRef.current && !feedPaintRelayPendingRef.current) return
+
+      const shorten = (s: string, max: number) =>
+        s.length > max ? `${s.slice(0, max)}…` : s
+      const feedKeyShort = shorten(timelineSubscriptionKey, 200)
+      const snapshotKeyShort = shorten(sessionSnapshotIdentityKey, 160)
+
+      if (feedPaintSessionPendingRef.current) {
+        feedPaintSessionPendingRef.current = false
+        logger.info('[FeedPaint] Session cache committed (DOM)', {
+          feedKey: feedKeyShort,
+          snapshotKey: snapshotKeyShort,
+          eventCount: events.length,
+          filteredVisibleRows: filteredEvents.length,
+          pubkeySlice: pubkey ? `${pubkey.slice(0, 12)}…` : undefined
+        })
+      }
+      if (feedPaintRelayPendingRef.current) {
+        feedPaintRelayPendingRef.current = false
+        const meta = feedPaintRelayMetaRef.current
+        feedPaintRelayMetaRef.current = null
+        logger.info('[FeedPaint] Relay/network results committed (DOM)', {
+          feedKey: feedKeyShort,
+          snapshotKey: snapshotKeyShort,
+          committedEventCount: events.length,
+          filteredVisibleRows: filteredEvents.length,
+          pubkeySlice: pubkey ? `${pubkey.slice(0, 12)}…` : undefined,
+          ...meta
+        })
+      }
+    }, [
+      events,
+      filteredEvents.length,
+      timelineSubscriptionKey,
+      sessionSnapshotIdentityKey,
+      pubkey
+    ])
 
     const filteredNewEvents = useMemo(() => {
       const idSet = new Set<string>()
@@ -576,6 +625,11 @@ const NoteList = forwardRef(
       let effectActive = true
 
       async function init() {
+        feedPaintSessionPendingRef.current = false
+        feedPaintRelayPendingRef.current = false
+        feedPaintRelayMetaRef.current = null
+        feedPaintLiveRelayDoneRef.current = false
+
         // Re-subscribe with rows visible (e.g. relay URL expansion): don't flash global loading / skeleton.
         const keepRowsVisible =
           preserveTimelineOnSubRequestsChange &&
@@ -588,6 +642,7 @@ const NoteList = forwardRef(
 
         if (!keepExistingTimelineEvents) {
           if (restoredFromSession && sessionSnap) {
+            feedPaintSessionPendingRef.current = true
             setEvents(sessionSnap)
             lastEventsForTimelinePrefetchRef.current = sessionSnap
             setNewEvents([])
@@ -716,11 +771,25 @@ const NoteList = forwardRef(
             }
             setEvents(merged)
             lastEventsForTimelinePrefetchRef.current = merged
+            feedPaintRelayPendingRef.current = true
+            feedPaintRelayMetaRef.current = {
+              variant: 'one_shot_fetch',
+              mergedCount: merged.length,
+              mergedWithPriorSession: !!(sessionSnap?.length && !userPulledRefresh)
+            }
           } catch (err) {
             if (oneShotDebugLabel) {
               logger.warn(`[${oneShotDebugLabel}] one-shot fetch threw`, err)
             }
-            if (effectActive) setEvents([])
+            if (effectActive) {
+              feedPaintRelayPendingRef.current = true
+              feedPaintRelayMetaRef.current = {
+                variant: 'one_shot_fetch',
+                mergedCount: 0,
+                fetchThrew: true
+              }
+              setEvents([])
+            }
           } finally {
             if (effectActive) {
               setLoading(false)
@@ -761,6 +830,28 @@ const NoteList = forwardRef(
               onEvents: (batch: Event[], eosed: boolean) => {
                 if (!effectActive) return
                 const narrowed = narrowLiveBatch(batch)
+                if (!feedPaintLiveRelayDoneRef.current) {
+                  if (narrowed.length > 0) {
+                    feedPaintLiveRelayDoneRef.current = true
+                    feedPaintRelayPendingRef.current = true
+                    feedPaintRelayMetaRef.current = {
+                      variant: 'live_subscription',
+                      mode: 'rows',
+                      narrowedInBatch: narrowed.length,
+                      batchIncoming: batch.length,
+                      eosed
+                    }
+                  } else if (eosed) {
+                    feedPaintLiveRelayDoneRef.current = true
+                    feedPaintRelayPendingRef.current = true
+                    feedPaintRelayMetaRef.current = {
+                      variant: 'live_subscription',
+                      mode: 'eose_no_visible_rows',
+                      batchIncoming: batch.length,
+                      eosed
+                    }
+                  }
+                }
                 if (batch.length > 0) {
                   if (narrowed.length > 0) {
                     if (preserveTimelineOnSubRequestsChange) {
@@ -874,6 +965,10 @@ const NoteList = forwardRef(
           timelineEstablishedCloserRef.current = closer
           timelineKey = result.timelineKey
           setTimelineKey(timelineKey)
+          // subscribeTimeline resolves once shards are wired; EOSE / merge callbacks can be delayed or
+          // skipped on edge paths (all relays fail, strict NOTICE closes, etc.). Do not keep the global
+          // skeleton until the first onEvents(..., eosed) — that can freeze the feed indefinitely.
+          setLoading(false)
           return closer
       } catch (_error) {
         setLoading(false)
@@ -1393,9 +1488,18 @@ const NoteList = forwardRef(
               <NoteCardLoadingSkeleton key={i} />
             ))}
           </div>
-        ) : events.length > 0 && (hasMore || loading) ? (
-          <div ref={bottomRef}>
-            <NoteCardLoadingSkeleton />
+        ) : events.length > 0 && hasMore ? (
+          <div
+            ref={bottomRef}
+            className={
+              filteredEvents.length === 0 && !loading
+                ? 'min-h-[35vh] py-4'
+                : loading
+                  ? 'min-h-8'
+                  : 'min-h-4'
+            }
+          >
+            {loading ? <NoteCardLoadingSkeleton /> : null}
           </div>
         ) : events.length > 0 ? (
           <div className="text-center text-sm text-muted-foreground mt-2">{t('no more notes')}</div>
