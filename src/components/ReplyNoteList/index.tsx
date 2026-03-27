@@ -1,4 +1,4 @@
-import { E_TAG_FILTER_BLOCKED_RELAY_URLS, ExtendedKind } from '@/constants'
+import { E_TAG_FILTER_BLOCKED_RELAY_URLS, ExtendedKind, THREAD_BACKLINK_STREAM_KINDS } from '@/constants'
 import { isDiscussionDownvoteEmoji, isDiscussionUpvoteEmoji } from '@/lib/discussion-votes'
 import {
   canonicalizeRssArticleUrl,
@@ -6,22 +6,21 @@ import {
   getHighlightSourceHttpUrl
 } from '@/lib/rss-article'
 import {
-  eventReferencesEventId,
   getParentATag,
   getParentETag,
   getReplaceableCoordinateFromEvent,
   getRootATag,
   getRootETag,
   getRootEventHexId,
-  isMentioningMutedUsers,
   isNip25ReactionKind,
+  isNip56ReportEvent,
   isReplaceableEvent,
-  isReplyNoteEvent,
   kind1QuotesThreadRoot
 } from '@/lib/event'
 import logger from '@/lib/logger'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { normalizeUrl } from '@/lib/url'
+import { shouldHideThreadResponseEvent } from '@/lib/thread-response-filter'
 import { toNote } from '@/lib/link'
 import { generateBech32IdFromETag } from '@/lib/tag'
 import { useSmartNoteNavigation, useSecondaryPage } from '@/PageManager'
@@ -36,7 +35,7 @@ import client, { eventService, queryService } from '@/services/client.service'
 import noteStatsService from '@/services/note-stats.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
 import { buildReplyReadRelayList, relayHintsFromEventTags } from '@/lib/relay-list-builder'
-import { eventReplyMatchesThreadRoot } from '@/lib/thread-reply-root-match'
+import { replyBelongsToNoteThread } from '@/lib/thread-reply-root-match'
 import {
   buildRssArticleUrlThreadInteractionFilters,
   isRssArticleUrlThreadInteraction
@@ -44,12 +43,15 @@ import {
 import { Filter, Event as NEvent, kinds } from 'nostr-tools'
 import { useNoteStatsById } from '@/hooks/useNoteStatsById'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { useQuoteEvents } from '@/hooks'
-import { SuppressEmbeddedNoteContext } from '@/contexts/suppress-embedded-note-context'
 import { LoadingBar } from '../LoadingBar'
-import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 import ReplyNote, { ReplyNoteSkeleton } from '../ReplyNote'
+import ThreadQuoteBacklink, {
+  BacklinkAvatarStrip,
+  ThreadQuoteBacklinkSkeleton
+} from './ThreadQuoteBacklink'
 
 type TRootInfo =
   | { type: 'E'; id: string; pubkey: string }
@@ -83,20 +85,137 @@ function replyFeedZapsFirst(sortedNonZapReplies: NEvent[], zaps: NEvent[]) {
   return [...sortZapReceiptsBySatsDesc(zaps), ...sortedNonZapReplies]
 }
 
-/** Shown after thread replies for E/A roots (quote stream + kind 1 #q-only). */
-const EA_THREAD_TAIL_REFERENCE_KINDS = new Set<number>([
-  kinds.Highlights,
-  kinds.LongFormArticle,
-  ExtendedKind.WIKI_ARTICLE,
-  ExtendedKind.WIKI_ARTICLE_MARKDOWN,
-  ExtendedKind.PUBLICATION_CONTENT
-])
+type TBacklinkSubsection = 'primary' | 'bookmark' | 'list' | 'report'
+
+function sortWithinBacklinkGroup(events: NEvent[]): NEvent[] {
+  return [...events].sort((a, b) => b.created_at - a.created_at)
+}
+
+function backlinkTailSubsection(item: NEvent): TBacklinkSubsection {
+  if (isNip56ReportEvent(item)) return 'report'
+  if (item.kind === kinds.BookmarkList) return 'bookmark'
+  if (
+    item.kind === kinds.Pinlist ||
+    item.kind === kinds.Genericlists ||
+    item.kind === kinds.Bookmarksets ||
+    item.kind === kinds.Curationsets
+  ) {
+    return 'list'
+  }
+  return 'primary'
+}
+
+/** Quotes/highlights/citations → bookmarks → lists → reports; newest first within each group. */
+function partitionAndSortBacklinkTail(tail: NEvent[]): NEvent[] {
+  const primary: NEvent[] = []
+  const bookmarks: NEvent[] = []
+  const lists: NEvent[] = []
+  const reports: NEvent[] = []
+  for (const e of tail) {
+    const sub = backlinkTailSubsection(e)
+    if (sub === 'report') reports.push(e)
+    else if (sub === 'bookmark') bookmarks.push(e)
+    else if (sub === 'list') lists.push(e)
+    else primary.push(e)
+  }
+  return [
+    ...sortWithinBacklinkGroup(primary),
+    ...sortWithinBacklinkGroup(bookmarks),
+    ...sortWithinBacklinkGroup(lists),
+    ...sortWithinBacklinkGroup(reports)
+  ]
+}
+
+type TBacklinkDisplayRow =
+  | { type: 'reply'; event: NEvent }
+  | { type: 'backlink-run'; subsection: TBacklinkSubsection; events: NEvent[] }
+
+function buildVisibleBacklinkRows(
+  visibleFeed: NEvent[],
+  quoteUiIdSet: Set<string>
+): TBacklinkDisplayRow[] {
+  const rows: TBacklinkDisplayRow[] = []
+  let i = 0
+  while (i < visibleFeed.length) {
+    const item = visibleFeed[i]
+    if (!quoteUiIdSet.has(item.id)) {
+      rows.push({ type: 'reply', event: item })
+      i++
+      continue
+    }
+    const sub = backlinkTailSubsection(item)
+    const run: NEvent[] = []
+    while (
+      i < visibleFeed.length &&
+      quoteUiIdSet.has(visibleFeed[i].id) &&
+      backlinkTailSubsection(visibleFeed[i]) === sub
+    ) {
+      run.push(visibleFeed[i])
+      i++
+    }
+    if (run.length > 0) {
+      rows.push({ type: 'backlink-run', subsection: sub, events: run })
+    }
+  }
+  return rows
+}
+
+function backlinkRunSectionClass(
+  subsection: TBacklinkSubsection,
+  prev: TBacklinkDisplayRow | undefined
+): string {
+  if (!prev) {
+    return subsection === 'report'
+      ? 'mb-3 pt-1'
+      : 'mb-3 pt-1'
+  }
+  if (prev.type === 'reply') {
+    return subsection === 'report'
+      ? 'mt-8 mb-3 border-t border-amber-500/40 pt-6 dark:border-amber-400/30'
+      : 'mt-8 mb-3 border-t border-border/60 pt-6'
+  }
+  return subsection === 'report'
+    ? 'mt-6 mb-3 border-t border-amber-500/40 pt-4 dark:border-amber-400/30'
+    : 'mt-6 mb-3 border-t border-border/60 pt-4'
+}
+
+/** Preserve order except NIP-56 reports move to the end (after all non-reports). */
+function moveReportsToEndPreserveOrder(events: NEvent[]): NEvent[] {
+  const non = events.filter((e) => !isNip56ReportEvent(e))
+  const rep = events.filter((e) => isNip56ReportEvent(e))
+  return [...non, ...rep]
+}
+
+/** Shown after thread replies for E/A roots (quote stream + kind 1 #q-only); matches {@link THREAD_BACKLINK_STREAM_KINDS}. */
+const EA_THREAD_TAIL_REFERENCE_KINDS = new Set<number>(THREAD_BACKLINK_STREAM_KINDS)
 
 /** Web (NIP-22) thread: tail = reference-style rows + URL-scoped reactions (same block order as E/A). */
 const WEB_THREAD_EXTRA_TAIL_KINDS = new Set<number>([kinds.Reaction, ExtendedKind.EXTERNAL_REACTION])
 
 function isWebThreadTailKind(kind: number): boolean {
   return EA_THREAD_TAIL_REFERENCE_KINDS.has(kind) || WEB_THREAD_EXTRA_TAIL_KINDS.has(kind)
+}
+
+function threadBacklinkRelationLabel(item: NEvent, t: TFunction): string {
+  if (item.kind === kinds.Highlights) return t('highlighted this note')
+  if (item.kind === kinds.ShortTextNote) return t('quoted this note')
+  if (
+    item.kind === kinds.LongFormArticle ||
+    item.kind === ExtendedKind.WIKI_ARTICLE ||
+    item.kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN ||
+    item.kind === ExtendedKind.PUBLICATION_CONTENT
+  ) {
+    return t('cited in article')
+  }
+  if (item.kind === kinds.Label) return t('labeled this note')
+  if (isNip56ReportEvent(item)) return t('reported this note')
+  if (item.kind === kinds.BookmarkList) return t('bookmarked this note')
+  if (item.kind === kinds.Pinlist) return t('pinned this note')
+  if (item.kind === kinds.Genericlists) return t('listed this note')
+  if (item.kind === kinds.Bookmarksets) return t('bookmark set reference')
+  if (item.kind === kinds.Curationsets) return t('curated this note')
+  if (item.kind === kinds.BadgeAward) return t('badge award for this note')
+  return t('referenced this note')
 }
 
 function isKind1QuoteOnlyOfEaRoot(evt: NEvent, root: TRootInfo): boolean {
@@ -136,6 +255,18 @@ function ReplyNoteList({
   const { quoteEvents, quoteLoading } = useQuoteEvents(
     event,
     showQuotes ?? false
+  )
+  const filteredQuoteEvents = useMemo(
+    () =>
+      quoteEvents.filter(
+        (e) =>
+          !shouldHideThreadResponseEvent(
+            e,
+            mutePubkeySet,
+            hideContentMentioningMutedUsers
+          )
+      ),
+    [quoteEvents, mutePubkeySet, hideContentMentioningMutedUsers]
   )
 
   const isDiscussionRoot = event.kind === ExtendedKind.DISCUSSION
@@ -228,12 +359,16 @@ function ReplyNoteList({
       events.forEach((evt) => {
         if (replyIdSet.has(evt.id)) return
         if (isNip25ReactionKind(evt.kind)) return
-        if (mutePubkeySet.has(evt.pubkey)) {
+        if (
+          shouldHideThreadResponseEvent(
+            evt,
+            mutePubkeySet,
+            hideContentMentioningMutedUsers
+          )
+        ) {
           return
         }
-        if (hideContentMentioningMutedUsers && isMentioningMutedUsers(evt, mutePubkeySet)) {
-          return
-        }
+        if (rootInfo && !replyBelongsToNoteThread(evt, event, rootInfo)) return
 
         replyIdSet.add(evt.id)
         replyEvents.push(evt)
@@ -312,8 +447,8 @@ function ReplyNoteList({
         )
     }
   }, [
-    event.id,
-    event.kind,
+    event,
+    rootInfo,
     repliesMap,
     mutePubkeySet,
     hideContentMentioningMutedUsers,
@@ -323,7 +458,7 @@ function ReplyNoteList({
   const replyIdSet = useMemo(() => new Set(replies.map((r) => r.id)), [replies])
   /** Render with quote card chrome (tail stream + kind 1 #q-only of E/A root). */
   const quoteUiIdSet = useMemo(() => {
-    const s = new Set(quoteEvents.map((e) => e.id))
+    const s = new Set(filteredQuoteEvents.map((e) => e.id))
     if (rootInfo?.type === 'E' || rootInfo?.type === 'A') {
       for (const r of replies) {
         if (isKind1QuoteOnlyOfEaRoot(r, rootInfo)) s.add(r.id)
@@ -335,7 +470,7 @@ function ReplyNoteList({
       }
     }
     return s
-  }, [quoteEvents, replies, rootInfo])
+  }, [filteredQuoteEvents, replies, rootInfo])
   const mergedFeed = useMemo(() => {
     /** Quotes + time-sorted feeds must not interleave zap receipts chronologically */
     const zapsThenTimeSorted = (merged: NEvent[], direction: 'asc' | 'desc') => {
@@ -343,12 +478,12 @@ function ReplyNoteList({
       const sortedNon = [...nonZaps].sort((a, b) =>
         direction === 'asc' ? a.created_at - b.created_at : b.created_at - a.created_at
       )
-      return replyFeedZapsFirst(sortedNon, zaps)
+      return moveReportsToEndPreserveOrder(replyFeedZapsFirst(sortedNon, zaps))
     }
 
     if (!showQuotes) return replies
 
-    const quoteOnly = quoteEvents.filter((e) => !replyIdSet.has(e.id))
+    const quoteOnly = filteredQuoteEvents.filter((e) => !replyIdSet.has(e.id))
 
     // E/A: zaps (sats desc) → thread replies (1 / 1111 / 1244, excluding #q-only) → tail (quotes, highlights, long-form refs)
     if (rootInfo?.type === 'E' || rootInfo?.type === 'A') {
@@ -364,8 +499,8 @@ function ReplyNoteList({
       }
       for (const e of qOnlyFromReplies) pushTail(e)
       for (const e of quoteOnly) pushTail(e)
-      tail.sort((a, b) => b.created_at - a.created_at)
-      return [...replyFeedZapsFirst(middle, zaps), ...tail]
+      const tailSorted = partitionAndSortBacklinkTail(tail)
+      return [...replyFeedZapsFirst(middle, zaps), ...tailSorted]
     }
 
     // Web article / URL thread (NIP-22): same zaps → middle → tail layout as E/A
@@ -382,8 +517,8 @@ function ReplyNoteList({
       }
       for (const e of tailFromReplies) pushTail(e)
       for (const e of quoteOnly) pushTail(e)
-      tail.sort((a, b) => b.created_at - a.created_at)
-      return [...replyFeedZapsFirst(middle, zaps), ...tail]
+      const tailSorted = partitionAndSortBacklinkTail(tail)
+      return [...replyFeedZapsFirst(middle, zaps), ...tailSorted]
     }
 
     const merged = [...replies, ...quoteOnly]
@@ -393,11 +528,11 @@ function ReplyNoteList({
       const replyIds = new Set(replies.map((r) => r.id))
       const sortedReplies = [...replies]
       const qo = merged.filter((e) => !replyIds.has(e.id))
-      const sortedQuotes = [...qo].sort((a, b) => b.created_at - a.created_at)
+      const sortedQuotes = partitionAndSortBacklinkTail([...qo])
       return [...sortedReplies, ...sortedQuotes]
     }
     return zapsThenTimeSorted(merged, 'desc')
-  }, [replies, quoteEvents, showQuotes, sort, replyIdSet, rootInfo])
+  }, [replies, filteredQuoteEvents, showQuotes, sort, replyIdSet, rootInfo])
 
   const [timelineKey] = useState<string | undefined>(undefined)
   const [until, setUntil] = useState<number | undefined>(undefined)
@@ -514,7 +649,17 @@ function ReplyNoteList({
           rssStatsHydratedReplyIdsRef.current.delete(id)
         }
       }
-      if (!cancelled && batch.length > 0) addReplies(batch)
+      if (!cancelled && batch.length > 0) {
+        const ok = batch.filter(
+          (e) =>
+            !shouldHideThreadResponseEvent(
+              e,
+              mutePubkeySet,
+              hideContentMentioningMutedUsers
+            )
+        )
+        if (ok.length > 0) addReplies(ok)
+      }
     })()
 
     return () => {
@@ -527,24 +672,38 @@ function ReplyNoteList({
     noteStats?.replies,
     noteStats?.updatedAt,
     repliesMap,
-    addReplies
+    addReplies,
+    mutePubkeySet,
+    hideContentMentioningMutedUsers
   ])
 
-  const onNewReply = useCallback((evt: NEvent) => {
-    addReplies([evt])
-    if (rootInfo) {
-      const cachedReplies = discussionFeedCache.getCachedReplies(rootInfo) || []
-      const without = cachedReplies.filter((r) => r.id !== evt.id)
-      discussionFeedCache.setCachedReplies(rootInfo, [...without, evt])
-    }
-  }, [addReplies, rootInfo])
+  const onNewReply = useCallback(
+    (evt: NEvent) => {
+      if (
+        shouldHideThreadResponseEvent(
+          evt,
+          mutePubkeySet,
+          hideContentMentioningMutedUsers
+        )
+      ) {
+        return
+      }
+      addReplies([evt])
+      if (rootInfo) {
+        const cachedReplies = discussionFeedCache.getCachedReplies(rootInfo) || []
+        const without = cachedReplies.filter((r) => r.id !== evt.id)
+        discussionFeedCache.setCachedReplies(rootInfo, [...without, evt])
+      }
+    },
+    [addReplies, rootInfo, mutePubkeySet, hideContentMentioningMutedUsers]
+  )
 
   useEffect(() => {
     if (!rootInfo) return
     const handleEventPublished = (data: Event) => {
       const ce = data as CustomEvent<NEvent>
       const evt = ce.detail
-      if (!evt || !eventReplyMatchesThreadRoot(evt, rootInfo)) return
+      if (!evt || !replyBelongsToNoteThread(evt, event, rootInfo)) return
       onNewReply(evt)
     }
 
@@ -552,7 +711,7 @@ function ReplyNoteList({
     return () => {
       client.removeEventListener('newEvent', handleEventPublished)
     }
-  }, [rootInfo, onNewReply])
+  }, [rootInfo, event, onNewReply])
 
   const replyFetchGenRef = useRef(0)
 
@@ -678,13 +837,18 @@ function ReplyNoteList({
           if (fetchGeneration !== replyFetchGenRef.current) return
 
           // Filter and add replies (URL threads include kind 9802 highlights of this page)
-          const regularReplies = allReplies.filter((evt) =>
-            rootInfo.type === 'I'
-              ? isRssArticleUrlThreadInteraction(evt, rootInfo.id)
-              : isReplyNoteEvent(evt) ||
-                  ((rootInfo.type === 'E' || rootInfo.type === 'A') &&
-                    kind1QuotesThreadRoot(evt, rootInfo))
-          )
+          const regularReplies = allReplies.filter((evt) => {
+            const match =
+              rootInfo.type === 'I'
+                ? isRssArticleUrlThreadInteraction(evt, rootInfo.id)
+                : replyBelongsToNoteThread(evt, event, rootInfo)
+            if (!match) return false
+            return !shouldHideThreadResponseEvent(
+              evt,
+              mutePubkeySet,
+              hideContentMentioningMutedUsers
+            )
+          })
           
           // Store in cache (this merges with existing cached replies)
           // After this call, the cache contains ALL replies we've ever seen for this thread
@@ -729,7 +893,9 @@ function ReplyNoteList({
     event.kind,
     blockedRelays,
     browsingRelayUrls,
-    addReplies
+    addReplies,
+    mutePubkeySet,
+    hideContentMentioningMutedUsers
   ])
 
   useEffect(() => {
@@ -769,19 +935,34 @@ function ReplyNoteList({
 
     setLoading(true)
     const events = await client.loadMoreTimeline(timelineKey, until, LIMIT)
-    const olderEvents = events.filter(
-      (evt) =>
-        isReplyNoteEvent(evt) ||
-        ((rootInfo?.type === 'E' || rootInfo?.type === 'A') &&
-          rootInfo &&
-          kind1QuotesThreadRoot(evt, rootInfo))
-    )
+    const olderEvents = events.filter((evt) => {
+      if (!rootInfo) return false
+      const matchesThread =
+        rootInfo.type === 'I'
+          ? isRssArticleUrlThreadInteraction(evt, rootInfo.id)
+          : replyBelongsToNoteThread(evt, event, rootInfo)
+      if (!matchesThread) return false
+      return !shouldHideThreadResponseEvent(
+        evt,
+        mutePubkeySet,
+        hideContentMentioningMutedUsers
+      )
+    })
     if (olderEvents.length > 0) {
       addReplies(olderEvents)
     }
     setUntil(events.length ? events[events.length - 1].created_at - 1 : undefined)
     setLoading(false)
-  }, [loading, until, timelineKey, rootInfo?.type, rootInfo?.id])
+  }, [
+    loading,
+    until,
+    timelineKey,
+    rootInfo,
+    event,
+    mutePubkeySet,
+    hideContentMentioningMutedUsers,
+    addReplies
+  ])
 
   const highlightReply = useCallback((eventId: string, scrollTo = true) => {
     if (scrollTo) {
@@ -799,6 +980,50 @@ function ReplyNoteList({
     }, 1500)
   }, [])
 
+  const visibleFeed = mergedFeed.slice(0, showCount)
+
+  const shouldShowFeedItem = useCallback(
+    (item: NEvent) => {
+      if (shouldHideThreadResponseEvent(item, mutePubkeySet, hideContentMentioningMutedUsers)) {
+        return false
+      }
+      const isQuote = quoteUiIdSet.has(item.id)
+      if (isTrustLoaded && hideUntrustedInteractions && !isUserTrusted(item.pubkey)) {
+        if (isQuote) return false
+        if (rootInfo?.type !== 'I') {
+          const repliesForThisReply = repliesMap.get(item.id)
+          if (
+            !repliesForThisReply ||
+            repliesForThisReply.events.every((evt) => !isUserTrusted(evt.pubkey))
+          ) {
+            return false
+          }
+        }
+      }
+      return true
+    },
+    [
+      mutePubkeySet,
+      hideContentMentioningMutedUsers,
+      quoteUiIdSet,
+      isTrustLoaded,
+      hideUntrustedInteractions,
+      isUserTrusted,
+      rootInfo?.type,
+      repliesMap
+    ]
+  )
+
+  const visibleForRender = useMemo(
+    () => visibleFeed.filter(shouldShowFeedItem),
+    [visibleFeed, shouldShowFeedItem]
+  )
+
+  const displayRows = useMemo(
+    () => buildVisibleBacklinkRows(visibleForRender, quoteUiIdSet),
+    [visibleForRender, quoteUiIdSet]
+  )
+
   return (
     <div className="min-h-[80vh] pb-12">
       {loading && <LoadingBar />}
@@ -811,117 +1036,147 @@ function ReplyNoteList({
         </div>
       )}
       <div>
-        {mergedFeed.slice(0, showCount).map((item) => {
-          const isQuote = quoteUiIdSet.has(item.id)
-          // Don't filter by trust until trust data is loaded - prevents replies from
-          // vanishing when wotSet is still empty (all non-self appear untrusted)
-          if (isTrustLoaded && hideUntrustedInteractions && !isUserTrusted(item.pubkey)) {
-            if (isQuote) return null
-            // URL-scoped comments (NIP-22 / kind 1111) are keyed under the article URL in ReplyProvider,
-            // not under each note id — repliesMap.get(item.id) is usually empty. Skipping the "trusted
-            // children" rule avoids hiding every untrusted URL-thread note.
-            if (rootInfo?.type !== 'I') {
-              const repliesForThisReply = repliesMap.get(item.id)
-              if (
-                !repliesForThisReply ||
-                repliesForThisReply.events.every((evt) => !isUserTrusted(evt.pubkey))
-              ) {
-                return null
-              }
-            }
-          }
+        {displayRows.map((row, ri) => {
+          const prevRow = ri > 0 ? displayRows[ri - 1] : undefined
+          if (row.type === 'reply') {
+            const reply = row.event
+            const parentETag = getParentETag(reply)
+            const parentEventHexId = parentETag?.[1]
+            const parentEventId = parentETag ? generateBech32IdFromETag(parentETag) : undefined
 
-          if (isQuote) {
-            const quoteLabel =
-              item.kind === kinds.Highlights
-                ? t('highlighted this note')
-                : item.kind === kinds.ShortTextNote
-                  ? t('quoted this note')
-                  : EA_THREAD_TAIL_REFERENCE_KINDS.has(item.kind)
-                    ? t('cited in article')
-                    : t('quoted this note')
-            const hideQuotedNote = eventReferencesEventId(item, event)
+            const replyRootId = getRootEventHexId(reply)
+            const replyUrlForIThread =
+              rootInfo?.type === 'I'
+                ? reply.kind === kinds.Highlights
+                  ? getHighlightSourceHttpUrl(reply)
+                  : getArticleUrlFromCommentITags(reply)
+                : undefined
+            const belongsToSameThread = rootInfo && (
+              (rootInfo.type === 'E' && replyRootId === rootInfo.id) ||
+              (rootInfo.type === 'A' && getRootATag(reply)?.[1] === rootInfo.id) ||
+              (rootInfo.type === 'I' &&
+                !!replyUrlForIThread &&
+                canonicalizeRssArticleUrl(replyUrlForIThread) === canonicalizeRssArticleUrl(rootInfo.id))
+            )
+
             return (
-              <SuppressEmbeddedNoteContext.Provider
-                key={item.id}
-                value={{
-                  hexId: event.id,
-                  coordinate: isReplaceableEvent(event.kind) ? getReplaceableCoordinateFromEvent(event) : undefined
-                }}
+              <div
+                ref={(el) => (replyRefs.current[reply.id] = el)}
+                key={reply.id}
+                className="scroll-mt-12"
               >
-                <div
-                  ref={(el) => (replyRefs.current[item.id] = el)}
-                  className="scroll-mt-12 border-l-2 border-muted-foreground/40 pl-3 py-1 my-1 rounded-r"
-                >
-                  <div className="text-xs font-medium text-muted-foreground mb-1">
-                    {quoteLabel}
-                  </div>
-                  <NoteCard
-                    event={item}
-                    className="w-full"
-                    hideParentNotePreview={hideQuotedNote}
-                  />
-                </div>
-              </SuppressEmbeddedNoteContext.Provider>
+                <ReplyNote
+                  event={reply}
+                  parentEventId={event.id !== parentEventHexId ? parentEventId : undefined}
+                  duplicateWebPreviewCleanedUrlHints={replyDuplicateWebPreviewHints}
+                  onClickParent={() => {
+                    if (!parentEventHexId) return
+                    if (replies.every((r) => r.id !== parentEventHexId)) {
+                      navigateToNote(toNote(parentEventId ?? parentEventHexId))
+                      return
+                    }
+                    highlightReply(parentEventHexId)
+                  }}
+                  onClickReply={belongsToSameThread ? (replyEvent) => {
+                    const replyNoteUrl = toNote(replyEvent.id)
+                    window.history.pushState(null, '', replyNoteUrl)
+                    const replyIndex = mergedFeed.findIndex((r) => r.id === replyEvent.id)
+                    if (replyIndex >= 0 && replyIndex >= showCount) {
+                      setShowCount(replyIndex + 1)
+                    }
+                    setTimeout(() => {
+                      highlightReply(replyEvent.id, true)
+                    }, 50)
+                  } : undefined}
+                  highlight={highlightReplyId === reply.id}
+                />
+              </div>
             )
           }
 
-          const reply = item
-          const parentETag = getParentETag(reply)
-          const parentEventHexId = parentETag?.[1]
-          const parentEventId = parentETag ? generateBech32IdFromETag(parentETag) : undefined
-          
-          const replyRootId = getRootEventHexId(reply)
-          const replyUrlForIThread =
-            rootInfo?.type === 'I'
-              ? reply.kind === kinds.Highlights
-                ? getHighlightSourceHttpUrl(reply)
-                : getArticleUrlFromCommentITags(reply)
-              : undefined
-          const belongsToSameThread = rootInfo && (
-            (rootInfo.type === 'E' && replyRootId === rootInfo.id) ||
-            (rootInfo.type === 'A' && getRootATag(reply)?.[1] === rootInfo.id) ||
-            (rootInfo.type === 'I' &&
-              !!replyUrlForIThread &&
-              canonicalizeRssArticleUrl(replyUrlForIThread) === canonicalizeRssArticleUrl(rootInfo.id))
-          )
-          
+          const { subsection, events: blEvents } = row
+          const wrapClass = backlinkRunSectionClass(subsection, prevRow)
+
+          if (subsection === 'bookmark') {
+            return (
+              <div
+                key={`bl-bookmark-${blEvents[0].id}`}
+                className={wrapClass}
+              >
+                <BacklinkAvatarStrip
+                  events={blEvents}
+                  sectionLabel={t('Thread backlinks bookmarks section')}
+                  relationLabelForTitle={t('bookmarked this note')}
+                />
+              </div>
+            )
+          }
+
+          if (subsection === 'list') {
+            return (
+              <div
+                key={`bl-list-${blEvents[0].id}`}
+                className={wrapClass}
+              >
+                <BacklinkAvatarStrip
+                  events={blEvents}
+                  sectionLabel={t('Thread backlinks lists section')}
+                  getTitle={(e) => threadBacklinkRelationLabel(e, t)}
+                />
+              </div>
+            )
+          }
+
+          if (subsection === 'report') {
+            return (
+              <div key={`bl-report-${blEvents[0].id}`} className={wrapClass}>
+                <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-amber-950/90 dark:text-amber-100/90">
+                  {t('Report events heading')}
+                </h2>
+                {blEvents.map((item) => (
+                  <div
+                    key={item.id}
+                    ref={(el) => (replyRefs.current[item.id] = el)}
+                    className="scroll-mt-12 mb-1"
+                  >
+                    <ThreadQuoteBacklink
+                      event={item}
+                      quoteKindLabel={threadBacklinkRelationLabel(item, t)}
+                      variant="warning"
+                    />
+                  </div>
+                ))}
+              </div>
+            )
+          }
+
           return (
-            <div
-              ref={(el) => (replyRefs.current[reply.id] = el)}
-              key={reply.id}
-              className="scroll-mt-12"
-            >
-              <ReplyNote
-                event={reply}
-                parentEventId={event.id !== parentEventHexId ? parentEventId : undefined}
-                duplicateWebPreviewCleanedUrlHints={replyDuplicateWebPreviewHints}
-                onClickParent={() => {
-                  if (!parentEventHexId) return
-                  if (replies.every((r) => r.id !== parentEventHexId)) {
-                    navigateToNote(toNote(parentEventId ?? parentEventHexId))
-                    return
-                  }
-                  highlightReply(parentEventHexId)
-                }}
-                onClickReply={belongsToSameThread ? (replyEvent) => {
-                  const replyNoteUrl = toNote(replyEvent.id)
-                  window.history.pushState(null, '', replyNoteUrl)
-                  const replyIndex = mergedFeed.findIndex((r) => r.id === replyEvent.id)
-                  if (replyIndex >= 0 && replyIndex >= showCount) {
-                    setShowCount(replyIndex + 1)
-                  }
-                  setTimeout(() => {
-                    highlightReply(replyEvent.id, true)
-                  }, 50)
-                } : undefined}
-                highlight={highlightReplyId === reply.id}
-              />
+            <div key={`bl-primary-${blEvents[0].id}`} className={wrapClass}>
+              <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {t('Thread backlinks primary section')}
+              </h2>
+              {blEvents.map((item) => (
+                <div
+                  key={item.id}
+                  ref={(el) => (replyRefs.current[item.id] = el)}
+                  className="scroll-mt-12 mb-1"
+                >
+                  <ThreadQuoteBacklink
+                    event={item}
+                    quoteKindLabel={threadBacklinkRelationLabel(item, t)}
+                    variant="default"
+                  />
+                </div>
+              ))}
             </div>
           )
         })}
       </div>
-      {quoteLoading && showQuotes && <NoteCardLoadingSkeleton />}
+      {quoteLoading && showQuotes && (
+        <div className="mt-4 space-y-2">
+          <ThreadQuoteBacklinkSkeleton />
+        </div>
+      )}
       {!loading && !quoteLoading && (
         <div className="text-sm mt-2 mb-3 text-center text-muted-foreground">
           {mergedFeed.length > 0 ? t('no more replies') : t('no replies')}

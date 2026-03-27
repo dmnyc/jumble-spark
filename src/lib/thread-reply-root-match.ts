@@ -1,4 +1,10 @@
-import { getRootATag, getRootEventHexId, kind1QuotesThreadRoot } from '@/lib/event'
+import {
+  getParentEventHexId,
+  getQuotedEventHexIdFromQTags,
+  getRootATag,
+  getRootEventHexId,
+  kind1QuotesThreadRoot
+} from '@/lib/event'
 import {
   canonicalizeRssArticleUrl,
   getArticleUrlFromCommentITags,
@@ -33,4 +39,27 @@ export function eventReplyMatchesThreadRoot(evt: Event, root: TThreadRootRef): b
   }
   if (getRootEventHexId(evt) === root.id) return true
   return kind1QuotesThreadRoot(evt, root)
+}
+
+/**
+ * Whether `evt` should appear in the reply list for note `opEvent` with thread root `root`.
+ * Stricter than treating any kind-1 with an `e` tag as a reply: requires thread root / #q to match (so notes that only
+ * tag the quoted inner note as `e`+`root` do not show under the quoter's thread).
+ * For quote posts, also drops kind-1 replies whose **parent** is the embedded quoted id but not the OP.
+ */
+export function replyBelongsToNoteThread(evt: Event, opEvent: Event, root: TThreadRootRef): boolean {
+  if (root.type === 'I') {
+    return eventReplyMatchesThreadRoot(evt, root)
+  }
+  if (!eventReplyMatchesThreadRoot(evt, root)) return false
+  if (root.type === 'A') return true
+
+  if (opEvent.kind !== kinds.ShortTextNote) return true
+  const quotedHex = getQuotedEventHexIdFromQTags(opEvent)?.toLowerCase()
+  if (!quotedHex) return true
+  const parentHex = getParentEventHexId(evt)?.toLowerCase()
+  if (!parentHex) return true
+  const rootId = root.id.trim().toLowerCase()
+  if (parentHex === quotedHex && parentHex !== rootId) return false
+  return true
 }

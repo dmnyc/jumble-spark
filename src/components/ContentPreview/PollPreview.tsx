@@ -1,10 +1,12 @@
 import { POLL_TYPE } from '@/constants'
 import { getPollMetadataFromEvent } from '@/lib/event-metadata'
+import { parsePollOptionVisualParts } from '@/lib/poll-option-display'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { cn } from '@/lib/utils'
 import { Event } from 'nostr-tools'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import PollOptionContent from '@/components/Note/PollOptionContent'
 import Content from './Content'
 
 export default function PollPreview({ event, className }: { event: Event; className?: string }) {
@@ -32,18 +34,29 @@ export default function PollPreview({ event, className }: { event: Event; classN
       ) : null}
       {poll && poll.options.length > 0 ? (
         <div className="grid gap-2">
-          {poll.options.map((option) => (
+          {poll.options.map((option) => {
+            const optLabel = option.label || t('Option')
+            const visual = parsePollOptionVisualParts(optLabel)
+            const hasImg = visual.images.length > 0
+            return (
             <div
               key={option.id}
-              className="relative w-full px-4 py-3 rounded-lg border border-border bg-background flex items-center gap-2 overflow-hidden"
+              className={cn(
+                'relative w-full px-4 py-3 rounded-lg border border-border bg-background flex gap-2 overflow-hidden',
+                hasImg ? 'items-start' : 'items-center'
+              )}
             >
-              <div className="flex items-center gap-2 flex-1 w-0 z-10">
-                <div className="line-clamp-2 text-left text-sm">
-                  {option.label || t('Option')}
-                </div>
+              <div
+                className={cn(
+                  'flex min-h-0 gap-2 flex-1 w-0 z-10',
+                  hasImg ? 'items-start pt-0.5' : 'items-center'
+                )}
+              >
+                <PollOptionContent label={optLabel} visualParts={visual} textClassName="text-sm" />
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       ) : poll ? (
         <div className="text-sm text-muted-foreground italic">

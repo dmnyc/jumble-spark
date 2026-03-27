@@ -106,8 +106,23 @@ export function getKindDescription(
       return { number: 99999, description: 'Web article thread' }
     case ExtendedKind.FILE_METADATA:
       return { number: 1063, description: 'File metadata' }
+    case kinds.Report:
     case ExtendedKind.REPORT:
       return { number: 1984, description: 'Report' }
+    case kinds.Label:
+      return { number: 1985, description: 'Label' }
+    case kinds.BookmarkList:
+      return { number: 10003, description: 'Bookmark list' }
+    case kinds.Pinlist:
+      return { number: 10001, description: 'Pin list' }
+    case kinds.Genericlists:
+      return { number: 30001, description: 'List' }
+    case kinds.Bookmarksets:
+      return { number: 30003, description: 'Bookmark set' }
+    case kinds.Curationsets:
+      return { number: 30004, description: 'Curation set' }
+    case kinds.BadgeAward:
+      return { number: 8, description: 'Badge award' }
     case ExtendedKind.WEB_BOOKMARK:
       return { number: 39701, description: 'Web bookmark' }
     default:

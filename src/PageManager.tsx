@@ -365,7 +365,7 @@ function parseNoteUrl(url: string): { noteId: string; context?: string } {
 // Fixed: Note navigation uses drawer on mobile/single-pane, secondary panel on double-pane desktop
 export function useSmartNoteNavigation() {
   const { push: pushSecondaryPage } = useSecondaryPage()
-  const { openDrawer, isDrawerOpen } = useNoteDrawer()
+  const { openDrawer } = useNoteDrawer()
   const { isSmallScreen } = useScreenSize()
   const { current: currentPrimaryPage } = usePrimaryPage()
   
@@ -397,17 +397,10 @@ export function useSmartNoteNavigation() {
       // Desktop: check panel mode
       const currentPanelMode = storage.getPanelMode()
       if (currentPanelMode === 'single') {
-        // Single-pane: if drawer is already open, push to stack AND update drawer
-        // Otherwise, just open drawer
-        if (isDrawerOpen) {
-          // Navigating from within drawer - push to stack for back button support
-          pushSecondaryPage(contextualUrl)
-          openDrawer(noteId, event)
-        } else {
-          // Opening drawer for first time
-          window.history.pushState(null, '', contextualUrl)
-          openDrawer(noteId, event)
-        }
+        // Always push so the secondary stack matches the drawer; otherwise the first note is not on
+        // the stack and Back after opening a quote only closes the drawer instead of the parent note.
+        pushSecondaryPage(contextualUrl)
+        openDrawer(noteId, event)
       } else {
         // Double-pane: use secondary panel
         pushSecondaryPage(contextualUrl)
@@ -434,7 +427,7 @@ export function useSmartNoteNavigationOptional() {
   }
 
   const { push } = pushSecondaryPage
-  const { openDrawer, isDrawerOpen } = noteDrawer
+  const { openDrawer } = noteDrawer
   const { isSmallScreen } = screenSize
   const { current: currentPrimaryPage } = primaryPage
 
@@ -456,13 +449,8 @@ export function useSmartNoteNavigationOptional() {
     } else {
       const currentPanelMode = storage.getPanelMode()
       if (currentPanelMode === 'single') {
-        if (isDrawerOpen) {
-          push(contextualUrl)
-          openDrawer(noteId, event)
-        } else {
-          window.history.pushState(null, '', contextualUrl)
-          openDrawer(noteId, event)
-        }
+        push(contextualUrl)
+        openDrawer(noteId, event)
       } else {
         push(contextualUrl)
       }
@@ -1046,18 +1034,37 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       if (noteUrlMatch) {
         const noteId = noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0]
         if (noteId) {
+          let primaryForNoteUrl: TPrimaryPageName = currentPrimaryPage
+
+          const pushNoteUrlOnStack = (noteUrl: string) => {
+            setSecondaryStack((prevStack) => {
+              if (isCurrentPage(prevStack, noteUrl)) return prevStack
+              const { newStack, newItem } = pushNewPageToStack(
+                prevStack,
+                noteUrl,
+                maxStackSize,
+                window.history.state?.index
+              )
+              if (newItem) {
+                window.history.replaceState({ index: newItem.index, url: noteUrl }, '', noteUrl)
+              }
+              return newStack
+            })
+          }
+
           // If this is a contextual note URL, set the primary page first
           if (contextualNoteMatch) {
             const pageContext = contextualNoteMatch[1]
             const resolved = noteContextToPrimaryEntry(pageContext)
             if (resolved) {
+              primaryForNoteUrl = resolved.name
               // Open drawer immediately, then load background page asynchronously
               // This prevents the background page loading from blocking the drawer
               if (isSmallScreen || panelMode === 'single') {
-                // Single-pane mode or mobile: open drawer first
+                // Seed stack so in-drawer navigation (e.g. quotes → back) can pop to this note
+                pushNoteUrlOnStack(buildNoteUrl(noteId, resolved.name))
                 openDrawer(noteId)
 
-                // Load background page asynchronously after drawer opens
                 setTimeout(() => {
                   setCurrentPrimaryPage(resolved.name)
                   setPrimaryPages((prev) => mergePrimaryPageEntry(prev, resolved))
@@ -1072,35 +1079,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               }
             }
           }
-          
-              // Build contextual URL based on current page (for both single and double-pane)
-          const contextualUrl = buildNoteUrl(noteId, currentPrimaryPage)
-          
-          // Check pane mode to determine how to open the note
+
+          const contextualUrl = buildNoteUrl(noteId, primaryForNoteUrl)
+
           if (isSmallScreen || panelMode === 'single') {
-            // Single-pane mode or mobile: open in drawer
+            pushNoteUrlOnStack(contextualUrl)
             openDrawer(noteId)
-            // Update URL to contextual URL if different
-            if (url !== contextualUrl) {
-              window.history.replaceState(null, '', contextualUrl)
-            }
             return
           } else {
-            // Double-pane mode: push to secondary stack with contextual URL
-            setSecondaryStack((prevStack) => {
-              if (isCurrentPage(prevStack, contextualUrl)) return prevStack
-
-              const { newStack, newItem } = pushNewPageToStack(
-                prevStack,
-                contextualUrl,
-                maxStackSize,
-                window.history.state?.index
-              )
-              if (newItem) {
-                window.history.replaceState({ index: newItem.index, url: contextualUrl }, '', contextualUrl)
-              }
-              return newStack
-            })
+            pushNoteUrlOnStack(contextualUrl)
             return
           }
         }
@@ -1366,13 +1353,34 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         const currentItem = pre[pre.length - 1] as TStackItem | undefined
         const currentIndex = currentItem?.index
         if (!state) {
-          if (window.location.pathname + window.location.search + window.location.hash !== '/') {
-            // Just change the URL
-            return pre
-          } else {
-            // Back to root
-            state = { index: -1, url: '/' }
+          const locUrl =
+            window.location.pathname + window.location.search + window.location.hash
+          if (locUrl !== '/' && locUrl !== '') {
+            const synced = syncSecondaryStackWhenPopStateStateIsNull(pre, locUrl)
+            if ((isSmallScreen || panelMode === 'single') && drawerOpen && drawerNoteId && synced.length > 0) {
+              const topItemUrl = synced[synced.length - 1]?.url
+              if (topItemUrl) {
+                const topNoteUrlMatch =
+                  topItemUrl.match(
+                    /\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/notes\/(.+)$/
+                  ) || topItemUrl.match(/\/notes\/(.+)$/)
+                if (topNoteUrlMatch) {
+                  const topNoteId = topNoteUrlMatch[topNoteUrlMatch.length - 1]
+                    .split('?')[0]
+                    .split('#')[0]
+                  if (topNoteId && topNoteId !== drawerNoteId) {
+                    setTimeout(() => {
+                      if (drawerOpen) {
+                        openDrawer(topNoteId)
+                      }
+                    }, 0)
+                  }
+                }
+              }
+            }
+            return synced
           }
+          state = { index: -1, url: '/' }
         }
 
         // Go forward
@@ -1452,8 +1460,8 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             return []
           }
         } else if (!topItem.component) {
-          // Load the component if it's not cached
-          const { component, ref } = findAndCreateComponent(topItem.url, state.index)
+          // Load the component if it's not cached (e.g. LRU cleared an older stack frame)
+          const { component, ref } = findAndCreateComponent(topItem.url, topItem.index)
           if (component) {
             topItem.component = component
             topItem.ref = ref
@@ -1671,17 +1679,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
         }
       } else if (secondaryStack.length > 1) {
-        // Pop from stack directly instead of using history.go(-1)
-        // This ensures the stack is updated immediately
-        setSecondaryStack((prevStack) => {
-          const newStack = prevStack.slice(0, -1)
-          const topItem = newStack[newStack.length - 1]
-          if (topItem) {
-            // Update URL to match the top item
-            window.history.replaceState({ index: topItem.index, url: topItem.url }, '', topItem.url)
-          }
-          return newStack
-        })
+        // Must use real history navigation: replaceState + slice desyncs URL from the session stack
+        // (e.g. note → highlight → Back: bar shows the article but the panel still shows the highlight).
+        // popstate applies {@link onPopState} so stack and URL stay aligned with pushState indices.
+        window.history.back()
       } else {
         // Just go back in history - popstate will handle stack update
         window.history.go(-1)
@@ -1748,15 +1749,8 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
       }
     } else if (secondaryStack.length > 1) {
-      // Pop to previous page (e.g. from /settings/general back to /settings) so Back/Close return to the list instead of closing the panel
-      setSecondaryStack((prevStack) => {
-        const newStack = prevStack.slice(0, -1)
-        const topItem = newStack[newStack.length - 1]
-        if (topItem) {
-          window.history.replaceState({ index: topItem.index, url: topItem.url }, '', topItem.url)
-        }
-        return newStack
-      })
+      // Same as double-pane: let popstate shrink the stack so it matches history.
+      window.history.back()
     } else {
       window.history.go(-1)
     }
@@ -2126,6 +2120,72 @@ function cloneSecondaryRouteElement(
     }
   }
   return cloneElement(element, props as any)
+}
+
+/** Hex id segment from /notes/{id} or /{context}/notes/{id} (query/hash stripped). */
+function noteHexIdFromSecondaryNoteUrl(url: string): string | null {
+  const contextual = url.match(
+    /\/(?:discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/notes\/(.+)$/
+  )
+  const standard = url.match(/\/notes\/(.+)$/)
+  const m = contextual || standard
+  return m ? m[m.length - 1].split('?')[0].split('#')[0] : null
+}
+
+/** Same secondary destination as /notes/x vs /explore/notes/x (different paths, one note). */
+function secondaryPanelUrlsMatch(stackUrl: string, locationUrl: string): boolean {
+  if (stackUrl === locationUrl) return true
+  const idA = noteHexIdFromSecondaryNoteUrl(stackUrl)
+  const idB = noteHexIdFromSecondaryNoteUrl(locationUrl)
+  return Boolean(idA && idB && idA === idB)
+}
+
+/**
+ * When popstate has no history state (e.g. after pushState(null, …) on load), the URL still updates
+ * but we must realign the secondary stack; otherwise the panel shows a stale page.
+ */
+function syncSecondaryStackWhenPopStateStateIsNull(pre: TStackItem[], locUrl: string): TStackItem[] {
+  const pathOnly = locUrl.split('?')[0].split('#')[0]
+  const segments = pathOnly.split('/').filter(Boolean)
+  const firstSeg = segments[0] ?? ''
+  const primaryMap = getPrimaryPageMap()
+  const isPrimaryOnly =
+    segments.length === 0 ||
+    (segments.length === 1 &&
+      (firstSeg === 'discussions' ||
+        firstSeg === 'home' ||
+        firstSeg === 'explore' ||
+        firstSeg in primaryMap))
+  if (isPrimaryOnly) {
+    return []
+  }
+
+  const top = pre[pre.length - 1]
+  if (top && secondaryPanelUrlsMatch(top.url, locUrl)) {
+    return pre
+  }
+
+  for (let i = pre.length - 1; i >= 0; i--) {
+    if (secondaryPanelUrlsMatch(pre[i].url, locUrl)) {
+      const newStack = pre.slice(0, i + 1)
+      const newTop = newStack[newStack.length - 1]
+      if (newTop && !newTop.component) {
+        const { component, ref } = findAndCreateComponent(newTop.url, newTop.index)
+        if (component) {
+          newTop.component = component
+          newTop.ref = ref
+        }
+      }
+      return newStack
+    }
+  }
+
+  const nextIdx = pre.length === 0 ? 0 : Math.max(...pre.map((x) => x.index)) + 1
+  const { component, ref } = findAndCreateComponent(locUrl, nextIdx)
+  if (!component) {
+    return []
+  }
+  return [{ index: nextIdx, url: locUrl, component, ref }]
 }
 
 function findAndCreateComponent(url: string, index: number) {

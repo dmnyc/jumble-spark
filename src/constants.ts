@@ -352,6 +352,34 @@ export const ExtendedKind = {
 }
 
 /**
+ * Kinds subscribed on `#e` / `#a` for the OP in {@link useQuoteEvents} (thread “backlinks” shard),
+ * alongside kind-1 `#q` quotes. Covers highlights, long-form, NIP-32 labels, NIP-56 reports,
+ * NIP-51 lists (bookmarks, pins, generic/bookmark/curation sets), and NIP-58 badge awards.
+ */
+export const THREAD_BACKLINK_STREAM_KINDS: readonly number[] = [
+  kinds.Highlights,
+  kinds.LongFormArticle,
+  ExtendedKind.WIKI_ARTICLE,
+  ExtendedKind.WIKI_ARTICLE_MARKDOWN,
+  ExtendedKind.PUBLICATION_CONTENT,
+  kinds.Label,
+  kinds.Report,
+  kinds.BookmarkList,
+  kinds.Pinlist,
+  kinds.Genericlists,
+  kinds.Bookmarksets,
+  kinds.Curationsets,
+  kinds.BadgeAward
+]
+
+/**
+ * {@link THREAD_BACKLINK_STREAM_KINDS} without kind 9802. Highlights use separate low-`kinds` REQs so
+ * relays that reject large `kinds` arrays still return NIP-84 backlinks.
+ */
+export const THREAD_BACKLINK_STREAM_KINDS_WITHOUT_HIGHLIGHT: readonly number[] =
+  THREAD_BACKLINK_STREAM_KINDS.filter((k) => k !== kinds.Highlights)
+
+/**
  * Kinds aligned with {@link SOCIAL_KIND_BLOCKED_RELAY_URLS}: omit those relays when querying or publishing
  * these kinds (or when `kinds` is omitted on a filter — see {@link relayFilterIncludesSocialKindBlockedKind}).
  */

@@ -1,34 +1,32 @@
 import {
   E_TAG_FILTER_BLOCKED_RELAY_URLS,
-  ExtendedKind,
   FAST_READ_RELAY_URLS,
-  SEARCHABLE_RELAY_URLS
+  SEARCHABLE_RELAY_URLS,
+  THREAD_BACKLINK_STREAM_KINDS_WITHOUT_HIGHLIGHT
 } from '@/constants'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
+import { buildNormalizedBlockedRelaySet } from '@/lib/thread-response-filter'
 import { normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
 import dayjs from 'dayjs'
 import { Event, kinds } from 'nostr-tools'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const LIMIT = 100
 const INITIAL_QUOTE_LOAD_TIMEOUT_MS = 12_000
-
-/** Kinds that reference the OP via #e / #a in the quote shard (with highlights). */
-const QUOTE_STREAM_REFERENCE_KINDS: number[] = [
-  kinds.Highlights,
-  kinds.LongFormArticle,
-  ExtendedKind.WIKI_ARTICLE,
-  ExtendedKind.WIKI_ARTICLE_MARKDOWN,
-  ExtendedKind.PUBLICATION_CONTENT
-]
 
 /** Fetches events that quote or reference the given event (#q, #e, #a tags). */
 export function useQuoteEvents(event: Event | null, enabled: boolean) {
   const { relayList: userRelayList } = useNostr()
   const { relayUrls: browsingRelayUrls } = useCurrentRelays()
+  const { blockedRelays } = useFavoriteRelays()
+  const userBlockedRelaysNorm = useMemo(
+    () => buildNormalizedBlockedRelaySet(blockedRelays),
+    [blockedRelays]
+  )
   const [timelineKey, setTimelineKey] = useState<string | undefined>(undefined)
   const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
@@ -86,25 +84,43 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
       )
         .filter(Boolean)
         .filter((u) => !eTagBlockedSet.has(normalizeUrl(u) || u))
+        .filter((u) => !userBlockedRelaysNorm.has((normalizeUrl(u) || u).toLowerCase()))
 
       const filterQeId = isReplaceableEvent(ev.kind)
         ? getReplaceableCoordinateFromEvent(ev)
         : ev.id
+      const qeIdForTagFilter =
+        /^[0-9a-f]{64}$/i.test(filterQeId) ? filterQeId.toLowerCase() : filterQeId
       const eventCoordinate = isReplaceableEvent(ev.kind)
         ? getReplaceableCoordinateFromEvent(ev)
         : `${ev.kind}:${ev.pubkey}:${ev.id}`
+
+      const highlightKinds = [kinds.Highlights] as const
+      const otherBacklinkKinds = [...THREAD_BACKLINK_STREAM_KINDS_WITHOUT_HIGHLIGHT]
 
       const { closer, timelineKey } = await client.subscribeTimeline(
         [
           {
             urls: finalRelayUrls,
-            filter: { '#q': [filterQeId], kinds: [kinds.ShortTextNote], limit: LIMIT }
+            filter: { '#q': [qeIdForTagFilter], kinds: [kinds.ShortTextNote], limit: LIMIT }
+          },
+          {
+            urls: finalRelayUrls,
+            filter: { '#q': [qeIdForTagFilter], kinds: [...highlightKinds], limit: LIMIT }
           },
           {
             urls: finalRelayUrls,
             filter: {
-              '#e': [filterQeId],
-              kinds: [...QUOTE_STREAM_REFERENCE_KINDS],
+              '#e': [qeIdForTagFilter],
+              kinds: [...highlightKinds],
+              limit: LIMIT
+            }
+          },
+          {
+            urls: finalRelayUrls,
+            filter: {
+              '#e': [qeIdForTagFilter],
+              kinds: otherBacklinkKinds,
               limit: LIMIT
             }
           },
@@ -112,7 +128,15 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
             urls: finalRelayUrls,
             filter: {
               '#a': [eventCoordinate],
-              kinds: [...QUOTE_STREAM_REFERENCE_KINDS],
+              kinds: [...highlightKinds],
+              limit: LIMIT
+            }
+          },
+          {
+            urls: finalRelayUrls,
+            filter: {
+              '#a': [eventCoordinate],
+              kinds: otherBacklinkKinds,
               limit: LIMIT
             }
           }
@@ -164,7 +188,7 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
       if (loadTimeoutId) clearTimeout(loadTimeoutId)
       promise.then((closer) => closer?.())
     }
-  }, [event, enabled, browsingRelayUrls, userRelayList?.read])
+  }, [event, enabled, browsingRelayUrls, userRelayList?.read, userBlockedRelaysNorm])
 
   const loadMore = async () => {
     if (!timelineKey || loading || !hasMore) return

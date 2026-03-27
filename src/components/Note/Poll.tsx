@@ -3,6 +3,7 @@ import { FAST_READ_RELAY_URLS, POLL_TYPE } from '@/constants'
 import { useFetchPollResults } from '@/hooks/useFetchPollResults'
 import { createPollResponseDraftEvent } from '@/lib/draft-event'
 import { getPollMetadataFromEvent } from '@/lib/event-metadata'
+import { parsePollOptionVisualParts } from '@/lib/poll-option-display'
 import { buildPollResultsReadRelayUrls } from '@/lib/relay-list-builder'
 import { cn, isPartiallyInViewport } from '@/lib/utils'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -17,6 +18,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import logger from '@/lib/logger'
 import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
+import PollOptionContent from './PollOptionContent'
 
 /**
  * Persists "See results" across remounts (React Strict Mode dev double-mount, list recycle).
@@ -224,9 +226,12 @@ export default function Poll({ event, className }: { event: Event; className?: s
               pollResults && pollResults.totalVotes > 0 && showResults
                 ? Object.values(pollResults.results).every((res) => res.size <= votes)
                 : false
+            const optionVisual = parsePollOptionVisualParts(option.label)
+            const optionHasImages = optionVisual.images.length > 0
 
             const rowClass = cn(
-              'relative w-full px-4 py-3 rounded-lg border flex items-center gap-2 overflow-hidden',
+              'relative w-full px-4 py-3 rounded-lg border flex gap-2 overflow-hidden',
+              optionHasImages ? 'items-start' : 'items-center',
               canVote && 'transition-all',
               canVote ? 'cursor-pointer' : 'cursor-default',
               canVote &&
@@ -237,10 +242,17 @@ export default function Poll({ event, className }: { event: Event; className?: s
 
             const inner = (
               <>
-                <div className="flex items-center gap-2 flex-1 w-0 z-10">
-                  <div className={cn('line-clamp-2 text-left', isMax ? 'font-semibold' : '')}>
-                    {option.label}
-                  </div>
+                <div
+                  className={cn(
+                    'flex min-h-0 gap-2 flex-1 w-0 z-10',
+                    optionHasImages ? 'items-start pt-0.5' : 'items-center'
+                  )}
+                >
+                  <PollOptionContent
+                    label={option.label}
+                    visualParts={optionVisual}
+                    textClassName={isMax ? 'font-semibold' : undefined}
+                  />
                   {votedOptionIds.includes(option.id) && (
                     <CheckCircle2 className="size-4 shrink-0" />
                   )}
@@ -249,7 +261,8 @@ export default function Poll({ event, className }: { event: Event; className?: s
                   <div
                     className={cn(
                       'text-muted-foreground shrink-0 z-10 tabular-nums text-right',
-                      isMax ? 'font-semibold text-foreground' : ''
+                      isMax ? 'font-semibold text-foreground' : '',
+                      optionHasImages && 'self-center'
                     )}
                   >
                     {isExpired

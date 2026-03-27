@@ -116,9 +116,9 @@ function normalizeImageUrl(url: string): string | null {
 }
 
 /**
- * Check if URL is likely an image
+ * Check if URL is likely an image (extension or known image host).
  */
-function isImageUrl(url: string): boolean {
+export function isImageUrl(url: string): boolean {
   const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|bmp|tiff|ico)(\?.*)?$/i
   const imageDomains = [
     'i.nostr.build',

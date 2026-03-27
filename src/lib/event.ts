@@ -25,6 +25,11 @@ export function isNip18RepostKind(kind: number): boolean {
   return kind === kinds.Repost || kind === ExtendedKind.GENERIC_REPOST
 }
 
+/** NIP-56: kind 1984 report / flag (`kinds.Report` and {@link ExtendedKind.REPORT} are the same kind). */
+export function isNip56ReportEvent(event: Pick<Event, 'kind'>): boolean {
+  return event.kind === kinds.Report || event.kind === ExtendedKind.REPORT
+}
+
 const EVENT_EMBEDDED_NOTES_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_EMBEDDED_PUBKEYS_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_IS_REPLY_NOTE_CACHE = new LRUCache<string, boolean>({ max: 10000 })
