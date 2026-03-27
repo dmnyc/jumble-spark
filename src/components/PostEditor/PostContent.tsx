@@ -4,6 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
@@ -30,10 +31,12 @@ import {
   createCitationInternalDraftEvent,
   createCitationExternalDraftEvent,
   createCitationHardcopyDraftEvent,
-  createCitationPromptDraftEvent
+  createCitationPromptDraftEvent,
+  createGitReleaseDraftEvent
 } from '@/lib/draft-event'
 import { ExtendedKind } from '@/constants'
-import { isTouchDevice } from '@/lib/utils'
+import { parseRepoOwnerPubkeyInput } from '@/lib/git-republic-event'
+import { cn, isTouchDevice } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFeed } from '@/providers/FeedProvider'
 import { useReply } from '@/providers/ReplyProvider'
@@ -240,7 +243,16 @@ export default function PostContent({
   const [citationGeohash, setCitationGeohash] = useState('')
   const [citationVersion, setCitationVersion] = useState('')
   const [citationSummary, setCitationSummary] = useState('')
-  
+  const [isGitRelease, setIsGitRelease] = useState(false)
+  const [releaseRepoOwnerInput, setReleaseRepoOwnerInput] = useState('')
+  const [releaseRepoId, setReleaseRepoId] = useState('')
+  const [releaseTagName, setReleaseTagName] = useState('')
+  const [releaseTagHash, setReleaseTagHash] = useState('')
+  const [releaseTitle, setReleaseTitle] = useState('')
+  const [releaseDownloadUrl, setReleaseDownloadUrl] = useState('')
+  const [releaseDraft, setReleaseDraft] = useState(false)
+  const [releasePrerelease, setReleasePrerelease] = useState(false)
+
   const [hasPrivateRelaysAvailable, setHasPrivateRelaysAvailable] = useState(false)
   const [showMediaKindDialog, setShowMediaKindDialog] = useState(false)
   const [pendingMediaUpload, setPendingMediaUpload] = useState<{ url: string; tags: string[][]; file: File } | null>(null)
@@ -253,20 +265,32 @@ export default function PostContent({
     }
   }, [mediaNoteKind, mediaImetaTags])
   const isFirstRender = useRef(true)
+  const releaseFieldsOk = useMemo(() => {
+    if (!isGitRelease) return true
+    const owner = parseRepoOwnerPubkeyInput(releaseRepoOwnerInput)
+    return (
+      !!owner &&
+      !!releaseRepoId.trim() &&
+      !!releaseTagName.trim() &&
+      /^[0-9a-f]{40}$/i.test(releaseTagHash.trim())
+    )
+  }, [isGitRelease, releaseRepoOwnerInput, releaseRepoId, releaseTagName, releaseTagHash])
+
   const canPost = useMemo(() => {
     const isArticle = isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
     const result = (
       !!pubkey &&
       !posting &&
       !uploadProgresses.length &&
-      // For media notes, text is optional - just need media
-      ((mediaNoteKind !== null && mediaUrl) || !!text) &&
+      // For media notes, text is optional - just need media; Git releases use the editor as release notes (optional)
+      ((mediaNoteKind !== null && mediaUrl) || !!text || isGitRelease) &&
       (!isPoll || pollCreateData.options.filter((option) => !!option.trim()).length >= 2) &&
       (!isPublicMessage || extractedMentions.length > 0 || parentEvent?.kind === ExtendedKind.PUBLIC_MESSAGE) &&
       (!isProtectedEvent || additionalRelayUrls.length > 0) &&
       (!isHighlight || highlightData.sourceValue.trim() !== '') &&
       // For articles, dTag is mandatory
       (!isArticle || !!articleDTag.trim()) &&
+      (!isGitRelease || releaseFieldsOk) &&
       // For citations, required fields must be filled
       (!isCitationInternal || !!citationInternalCTag.trim()) &&
       (!isCitationExternal || (!!citationExternalUrl.trim() && !!citationAccessedOn.trim())) &&
@@ -296,6 +320,8 @@ export default function PostContent({
     isWikiArticleMarkdown,
     isPublicationContent,
     articleDTag,
+    isGitRelease,
+    releaseFieldsOk,
     isCitationInternal,
     citationInternalCTag,
     isCitationExternal,
@@ -387,6 +413,8 @@ export default function PostContent({
       return ExtendedKind.WIKI_ARTICLE_MARKDOWN
     } else if (isPublicationContent) {
       return ExtendedKind.PUBLICATION_CONTENT
+    } else if (isGitRelease) {
+      return ExtendedKind.GIT_RELEASE
     } else if (isCitationInternal) {
       return ExtendedKind.CITATION_INTERNAL
     } else if (isCitationExternal) {
@@ -411,6 +439,7 @@ export default function PostContent({
     isWikiArticle,
     isWikiArticleMarkdown,
     isPublicationContent,
+    isGitRelease,
     isCitationInternal,
     isCitationExternal,
     isCitationHardcopy,
@@ -646,6 +675,23 @@ export default function PostContent({
       })
     }
 
+    if (isGitRelease) {
+      const ownerHex = parseRepoOwnerPubkeyInput(releaseRepoOwnerInput)
+      if (!ownerHex) {
+        throw new Error(t('Invalid repository owner pubkey'))
+      }
+      return createGitReleaseDraftEvent(cleanedText, {
+        repoOwnerPubkey: ownerHex,
+        repoId: releaseRepoId.trim(),
+        tagName: releaseTagName.trim(),
+        tagHash: releaseTagHash.trim().toLowerCase(),
+        title: releaseTitle.trim() || undefined,
+        downloadUrl: releaseDownloadUrl.trim() || undefined,
+        isDraft: releaseDraft,
+        isPrerelease: releasePrerelease
+      })
+    }
+
     // Citations
     if (isCitationInternal) {
       return createCitationInternalDraftEvent(cleanedText, {
@@ -781,6 +827,15 @@ export default function PostContent({
     isWikiArticle,
     isWikiArticleMarkdown,
     isPublicationContent,
+    isGitRelease,
+    releaseRepoOwnerInput,
+    releaseRepoId,
+    releaseTagName,
+    releaseTagHash,
+    releaseTitle,
+    releaseDownloadUrl,
+    releaseDraft,
+    releasePrerelease,
     isCitationInternal,
     isCitationExternal,
     isCitationHardcopy,
@@ -798,7 +853,8 @@ export default function PostContent({
     articleImage,
     articleSubject,
     articleSummary,
-    pubkey
+    pubkey,
+    t
   ])
 
   // Function to generate draft event JSON for preview
@@ -808,7 +864,10 @@ export default function PostContent({
     if (isArticle && !articleDTag.trim()) {
       throw new Error(t('D-Tag is required for articles'))
     }
-    
+    if (isGitRelease && !releaseFieldsOk) {
+      throw new Error(t('Fill repository release fields'))
+    }
+
     if (!pubkey) {
       return JSON.stringify({ error: 'Not logged in' }, null, 2)
     }
@@ -830,6 +889,8 @@ export default function PostContent({
     isWikiArticleMarkdown,
     isPublicationContent,
     articleDTag,
+    isGitRelease,
+    releaseFieldsOk,
     createDraftEvent,
     t
   ])
@@ -998,6 +1059,11 @@ export default function PostContent({
       // When enabling poll mode, clear other modes
       setIsPublicMessage(false)
       setIsHighlight(false)
+      setIsGitRelease(false)
+      setIsCitationInternal(false)
+      setIsCitationExternal(false)
+      setIsCitationHardcopy(false)
+      setIsCitationPrompt(false)
     }
   }
 
@@ -1009,6 +1075,11 @@ export default function PostContent({
       // When enabling public message mode, clear other modes
       setIsPoll(false)
       setIsHighlight(false)
+      setIsGitRelease(false)
+      setIsCitationInternal(false)
+      setIsCitationExternal(false)
+      setIsCitationHardcopy(false)
+      setIsCitationPrompt(false)
     }
   }
 
@@ -1020,6 +1091,11 @@ export default function PostContent({
       // When enabling highlight mode, clear other modes and set client tag to true
       setIsPoll(false)
       setIsPublicMessage(false)
+      setIsGitRelease(false)
+      setIsCitationInternal(false)
+      setIsCitationExternal(false)
+      setIsCitationHardcopy(false)
+      setIsCitationPrompt(false)
       setAddClientTag(true)
     }
   }
@@ -1407,7 +1483,8 @@ export default function PostContent({
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
     setIsCitationPrompt(false)
-    
+    setIsGitRelease(false)
+
     // Clear uploaded file from map and picture accumulation ref
     uploadedMediaFileMap.current.clear()
     pictureImetaTagsRef.current = []
@@ -1426,6 +1503,7 @@ export default function PostContent({
     setIsPublicMessage(false)
     setIsHighlight(false)
     setMediaNoteKind(null)
+    setIsGitRelease(false)
     setIsCitationInternal(false)
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
@@ -1455,7 +1533,8 @@ export default function PostContent({
 
   const handleCitationToggle = (type: 'internal' | 'external' | 'hardcopy' | 'prompt') => {
     if (parentEvent) return // Can't create citations as replies
-    
+
+    setIsGitRelease(false)
     setIsCitationInternal(type === 'internal')
     setIsCitationExternal(type === 'external')
     setIsCitationHardcopy(type === 'hardcopy')
@@ -1475,6 +1554,24 @@ export default function PostContent({
     if (!citationAccessedOn && (type === 'external' || type === 'hardcopy' || type === 'prompt')) {
       setCitationAccessedOn(new Date().toISOString().split('T')[0]) // ISO date format YYYY-MM-DD
     }
+  }
+
+  const handleGitReleaseFromMenu = () => {
+    if (parentEvent) return
+
+    setIsGitRelease(true)
+    setIsCitationInternal(false)
+    setIsCitationExternal(false)
+    setIsCitationHardcopy(false)
+    setIsCitationPrompt(false)
+    setIsPoll(false)
+    setIsPublicMessage(false)
+    setIsHighlight(false)
+    setMediaNoteKind(null)
+    setIsLongFormArticle(false)
+    setIsWikiArticle(false)
+    setIsWikiArticleMarkdown(false)
+    setIsPublicationContent(false)
   }
 
   const handleClear = () => {
@@ -1502,6 +1599,15 @@ export default function PostContent({
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
     setIsCitationPrompt(false)
+    setIsGitRelease(false)
+    setReleaseRepoOwnerInput('')
+    setReleaseRepoId('')
+    setReleaseTagName('')
+    setReleaseTagHash('')
+    setReleaseTitle('')
+    setReleaseDownloadUrl('')
+    setReleaseDraft(false)
+    setReleasePrerelease(false)
     // Clear citation fields
     setCitationInternalCTag('')
     setCitationInternalRelayHint('')

@@ -99,6 +99,7 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
         if (!isReply && !showKind1OPs) return false
       }
       if (event.kind === ExtendedKind.COMMENT && !showKind1111) return false
+      if (event.kind === ExtendedKind.GIT_RELEASE && !showKind1OPs) return false
       return true
     },
     [profileTimelineShowKinds, showKind1OPs, showKind1Replies, showKind1111, hideReplies]

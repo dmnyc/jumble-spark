@@ -4,6 +4,13 @@ import { kinds, type Filter } from 'nostr-tools'
 export const JUMBLE_API_BASE_URL =
   (import.meta.env.VITE_JUMBLE_API_BASE_URL as string | undefined) ?? 'https://api.jumble.imwald.eu'
 
+/** Git Republic web UI for repository links; override with VITE_GITREPUBLIC_WEB_BASE_URL for self-hosted. */
+export const GITREPUBLIC_WEB_BASE_URL = (
+  (import.meta.env.VITE_GITREPUBLIC_WEB_BASE_URL as string | undefined) ?? 'https://gitrepublic.imwald.eu'
+)
+  .trim()
+  .replace(/\/$/, '')
+
 /**
  * Piper TTS proxy (same contract as aitherboard `POST /api/piper-tts`: JSON `{ text, voice?, speed? }`, body `audio/wav`).
  * Set `VITE_READ_ALOUD_TTS_URL` to your deployed aitherboard URL, e.g. `https://aitherboard.example.com/api/piper-tts`.
@@ -350,7 +357,13 @@ export const ExtendedKind = {
   /** NIP-58 Badges: badge definition (addressable) */
   BADGE_DEFINITION: 30009,
   /** Web page bookmark (URL in i/I or r tags); used in RSS+Web relay discovery */
-  WEB_BOOKMARK: 39701
+  WEB_BOOKMARK: 39701,
+  /** NIP-34 / Git Republic: repository announcement (addressable) */
+  GIT_REPO_ANNOUNCEMENT: 30617,
+  /** NIP-34 / Git Republic: issue */
+  GIT_ISSUE: 1621,
+  /** Git Republic: release (linked to repo via `a` tag) */
+  GIT_RELEASE: 1642
 }
 
 /**
@@ -452,7 +465,10 @@ export const SUPPORTED_KINDS = [
   // ExtendedKind.PUBLICATION_CONTENT, // Excluded - publication content should only be embedded in publications
   // NIP-89 Application Handlers
   ExtendedKind.APPLICATION_HANDLER_RECOMMENDATION,
-  ExtendedKind.APPLICATION_HANDLER_INFO
+  ExtendedKind.APPLICATION_HANDLER_INFO,
+  ExtendedKind.GIT_REPO_ANNOUNCEMENT,
+  ExtendedKind.GIT_ISSUE,
+  ExtendedKind.GIT_RELEASE
 ]
 
 /**
@@ -472,7 +488,11 @@ export const PROFILE_FEED_KINDS = SUPPORTED_KINDS.filter(
  * and most faux spells. Reposts are still shown on profile timelines, Spells → Following, and Follows latest.
  */
 export const DEFAULT_FEED_SHOW_KINDS = PROFILE_FEED_KINDS.filter(
-  (k) => k !== kinds.Repost && k !== ExtendedKind.GENERIC_REPOST
+  (k) =>
+    k !== kinds.Repost &&
+    k !== ExtendedKind.GENERIC_REPOST &&
+    k !== ExtendedKind.GIT_REPO_ANNOUNCEMENT &&
+    k !== ExtendedKind.GIT_ISSUE
 )
 
 /** Order for faux-spells in the feed / spell picker. */

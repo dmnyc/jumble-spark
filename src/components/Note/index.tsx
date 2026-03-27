@@ -69,6 +69,7 @@ import Zap from './Zap'
 import CitationCard from '@/components/CitationCard'
 import FollowPackPreview from '../ContentPreview/FollowPackPreview'
 import CalendarEventContent from '../CalendarEventContent'
+import GitRepublicEventCard from './GitRepublicEventCard'
 
 export default function Note({
   event,
@@ -284,6 +285,12 @@ export default function Note({
     content = <Zap className="mt-2" event={event} />
   } else if (event.kind === ExtendedKind.FOLLOW_PACK) {
     content = <FollowPackPreview className="mt-2" event={event} />
+  } else if (
+    event.kind === ExtendedKind.GIT_REPO_ANNOUNCEMENT ||
+    event.kind === ExtendedKind.GIT_ISSUE ||
+    event.kind === ExtendedKind.GIT_RELEASE
+  ) {
+    content = <GitRepublicEventCard className="mt-2" event={event} />
   } else if (event.kind === kinds.ShortTextNote || event.kind === ExtendedKind.COMMENT) {
     // Plain text notes use MarkdownArticle for proper markdown rendering
     content = <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />

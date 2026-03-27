@@ -31,6 +31,7 @@ import ApplicationHandlerRecommendation from '../ApplicationHandlerRecommendatio
 import FollowPackPreview from './FollowPackPreview'
 import ReactionEmojiDisplay from '../Note/ReactionEmojiDisplay'
 import NoteKindLabel from '../Note/NoteKindLabel'
+import GitRepublicEventCard from '../Note/GitRepublicEventCard'
 
 /** Inert event so hooks can run before `event` is defined. */
 const CONTENT_PREVIEW_HOOK_PLACEHOLDER = {
@@ -181,6 +182,14 @@ export default function ContentPreview({
 
   if (event.kind === ExtendedKind.FOLLOW_PACK) {
     return withKindRow(<FollowPackPreview event={event} />)
+  }
+
+  if (
+    event.kind === ExtendedKind.GIT_REPO_ANNOUNCEMENT ||
+    event.kind === ExtendedKind.GIT_ISSUE ||
+    event.kind === ExtendedKind.GIT_RELEASE
+  ) {
+    return withKindRow(<GitRepublicEventCard variant="compact" event={event} />)
   }
 
   if (isNip25ReactionKind(event.kind)) {

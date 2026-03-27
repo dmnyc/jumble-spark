@@ -2223,3 +2223,44 @@ export function createCitationPromptDraftEvent(
     created_at: dayjs().unix()
   }
 }
+
+/** Git Republic release (kind 1642); mirrors `releases-service` tag layout. */
+export function createGitReleaseDraftEvent(
+  content: string,
+  options: {
+    repoOwnerPubkey: string
+    repoId: string
+    tagName: string
+    tagHash: string
+    title?: string
+    downloadUrl?: string
+    isDraft?: boolean
+    isPrerelease?: boolean
+  }
+): TDraftEvent {
+  const repoAddress = `${ExtendedKind.GIT_REPO_ANNOUNCEMENT}:${options.repoOwnerPubkey}:${options.repoId}`
+  const tags: string[][] = [
+    ['a', repoAddress],
+    ['p', options.repoOwnerPubkey],
+    ['tag', options.tagName],
+    ['r', options.tagHash, '', 'tag']
+  ]
+  if (options.title) {
+    tags.push(['title', options.title])
+  }
+  if (options.downloadUrl) {
+    tags.push(['r', options.downloadUrl, '', 'download'])
+  }
+  if (options.isDraft) {
+    tags.push(['draft', 'true'])
+  }
+  if (options.isPrerelease) {
+    tags.push(['prerelease', 'true'])
+  }
+  return {
+    kind: ExtendedKind.GIT_RELEASE,
+    content,
+    tags,
+    created_at: dayjs().unix()
+  }
+}

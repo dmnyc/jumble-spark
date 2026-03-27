@@ -28,7 +28,10 @@ const KIND_FILTER_OPTIONS = [
   { kindGroup: [ExtendedKind.DISCUSSION], label: 'Discussions' },
   { kindGroup: [ExtendedKind.CALENDAR_EVENT_DATE, ExtendedKind.CALENDAR_EVENT_TIME], label: 'Calendar Events' },
   { kindGroup: [ExtendedKind.ZAP_RECEIPT], label: 'Zaps' },
-  { kindGroup: [kinds.Repost, ExtendedKind.GENERIC_REPOST], label: 'Boosts' }
+  { kindGroup: [kinds.Repost, ExtendedKind.GENERIC_REPOST], label: 'Boosts' },
+  { kindGroup: [ExtendedKind.GIT_REPO_ANNOUNCEMENT], label: 'Git repositories' },
+  { kindGroup: [ExtendedKind.GIT_ISSUE], label: 'Git issues' },
+  { kindGroup: [ExtendedKind.GIT_RELEASE], label: 'Git releases' }
 ]
 
 function buildShowKindsFromOptions(

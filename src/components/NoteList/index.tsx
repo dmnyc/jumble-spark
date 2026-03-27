@@ -495,6 +495,8 @@ const NoteList = forwardRef(
           }
           // Kind 1111 (comments): show only if showKind1111
           if (evt.kind === ExtendedKind.COMMENT && !showKind1111) return false
+          // Git Republic releases: same visibility as kind-1 OPs
+          if (evt.kind === ExtendedKind.GIT_RELEASE && !showKind1OPs) return false
         }
         if (shouldHideEvent(evt)) return false
 
@@ -568,6 +570,7 @@ const NoteList = forwardRef(
             if (!isReply && !showKind1OPs) return false
           }
           if (event.kind === ExtendedKind.COMMENT && !showKind1111) return false
+          if (event.kind === ExtendedKind.GIT_RELEASE && !showKind1OPs) return false
         }
         if (shouldHideEvent(event)) return false
 
@@ -1136,6 +1139,7 @@ const NoteList = forwardRef(
                   if (!isReply && !showKind1OPs) return
                 }
                 if (event.kind === ExtendedKind.COMMENT && !showKind1111) return
+                if (event.kind === ExtendedKind.GIT_RELEASE && !showKind1OPs) return
               }
               if (shouldHideEventRef.current(event)) return
               if (pubkey && event.pubkey === pubkey) {

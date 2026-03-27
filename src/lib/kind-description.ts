@@ -125,6 +125,12 @@ export function getKindDescription(
       return { number: 8, description: 'Badge award' }
     case ExtendedKind.WEB_BOOKMARK:
       return { number: 39701, description: 'Web bookmark' }
+    case ExtendedKind.GIT_REPO_ANNOUNCEMENT:
+      return { number: 30617, description: 'Git repository' }
+    case ExtendedKind.GIT_ISSUE:
+      return { number: 1621, description: 'Git issue' }
+    case ExtendedKind.GIT_RELEASE:
+      return { number: 1642, description: 'Git release' }
     default:
       return { number: kind, description: `Event (kind ${kind})` }
   }
