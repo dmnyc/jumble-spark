@@ -7,7 +7,11 @@ import logger from '@/lib/logger'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
 import { speakNoteReadAloud } from '@/lib/read-aloud'
-import { buildPinListTagsAfterToggle, fetchLatestReplaceableListEvent } from '@/lib/replaceable-list-latest'
+import {
+  buildPinListTagsAfterToggle,
+  fetchNewestPinListForPubkey,
+  isEventInPinList
+} from '@/lib/replaceable-list-latest'
 import { generateBech32IdFromATag } from '@/lib/tag'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -150,29 +154,16 @@ export function useMenuActions({
           .filter((url): url is string => !!url)
         
         const comprehensiveRelays = Array.from(new Set(normalizedRelays))
-        
-        let pinListEvent: Event | null | undefined = await fetchLatestReplaceableListEvent(
-          pubkey,
-          10001,
-          comprehensiveRelays
-        )
-        if (!pinListEvent) {
-          try {
-            pinListEvent = (await client.fetchPinListEvent(pubkey)) ?? null
-          } catch (error) {
-            logger.component('PinStatus', 'Error fetching pin list fallback', {
-              error: (error as Error).message
-            })
-            pinListEvent = null
-          }
-        }
-        
+
+        const pinListEvent = await fetchNewestPinListForPubkey(pubkey, comprehensiveRelays)
         if (pinListEvent) {
-          const isEventPinned = pinListEvent.tags.some(tag => tag[0] === 'e' && tag[1] === event.id)
-          setIsPinned(isEventPinned)
+          setIsPinned(isEventInPinList(pinListEvent, event))
+        } else {
+          setIsPinned(false)
         }
       } catch (error) {
         logger.component('PinStatus', 'Error checking pin status', { error: (error as Error).message })
+        setIsPinned(false)
       }
     }
     checkIfPinned()
@@ -196,19 +187,12 @@ export function useMenuActions({
         .filter((url): url is string => !!url)
       
       const comprehensiveRelays = Array.from(new Set(normalizedRelays))
-      
-      let latestPinList = await fetchLatestReplaceableListEvent(pubkey, 10001, comprehensiveRelays)
-      if (!latestPinList) {
-        try {
-          latestPinList = (await client.fetchPinListEvent(pubkey)) ?? undefined
-        } catch (error) {
-          logger.component('PinNote', 'Pin list fallback fetch failed', { error: (error as Error).message })
-        }
-      }
+
+      const latestPinList = await fetchNewestPinListForPubkey(pubkey, comprehensiveRelays)
 
       logger.component('PinNote', 'Current pin list event', { hasEvent: !!latestPinList })
 
-      const newTags = buildPinListTagsAfterToggle(latestPinList ?? null, event.id, !isPinned)
+      const newTags = buildPinListTagsAfterToggle(latestPinList ?? null, event, !isPinned)
       const successMessage = isPinned ? t('Note unpinned') : t('Note pinned')
       logger.component('PinNote', 'Pin list tag count after merge', { count: newTags.length })
       

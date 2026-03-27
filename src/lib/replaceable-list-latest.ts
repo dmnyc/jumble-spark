@@ -1,7 +1,7 @@
 import { METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS, METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS } from '@/constants'
 import { normalizeHexPubkey } from '@/lib/pubkey'
 import { normalizeUrl } from '@/lib/url'
-import { queryService } from '@/services/client.service'
+import client, { queryService } from '@/services/client.service'
 import type { Event } from 'nostr-tools'
 
 /**
@@ -29,6 +29,39 @@ export async function fetchLatestReplaceableListEvent(
   return rows.reduce((best, e) => (e.created_at > best.created_at ? e : best))
 }
 
+/**
+ * Kind 10001 from browsing relays can be stale vs the copy resolved via the author’s relay set
+ * ({@link client.fetchPinListEvent}). Merge both and keep the newest `created_at` so pin UI and merges
+ * match the profile pin list.
+ */
+export async function fetchNewestPinListForPubkey(
+  pubkeyHex: string,
+  relayUrls: string[]
+): Promise<Event | undefined> {
+  const pk = normalizeHexPubkey(pubkeyHex)
+  const [fromRelays, fromService] = await Promise.all([
+    relayUrls.length
+      ? fetchLatestReplaceableListEvent(pk, 10001, relayUrls)
+      : Promise.resolve(undefined),
+    client.fetchPinListEvent(pk).catch(() => undefined)
+  ])
+  if (!fromRelays) return fromService
+  if (!fromService) return fromRelays
+  return fromService.created_at >= fromRelays.created_at ? fromService : fromRelays
+}
+
+/** Whether this event is referenced by the pin list via `e` (hex id) or `a` (NIP-33 coordinate). */
+export function isEventInPinList(pinList: Event, event: Event): boolean {
+  const idLower = event.id.toLowerCase()
+  const d = event.tags.find((t) => t[0] === 'd')?.[1] ?? ''
+  const coord = `${event.kind}:${event.pubkey}:${d}`.toLowerCase()
+  for (const tag of pinList.tags) {
+    if (tag[0] === 'e' && tag[1] && tag[1].toLowerCase() === idLower) return true
+    if (tag[0] === 'a' && tag[1] && tag[1].toLowerCase() === coord) return true
+  }
+  return false
+}
+
 function orderedUniqueEHexIds(tags: string[][]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
@@ -46,17 +79,23 @@ function orderedUniqueEHexIds(tags: string[][]): string[] {
 
 /**
  * Next pin list (kind 10001) tags: preserve non-`e`/`a` tags and `a` pins, merge `e` hex ids with dedupe.
+ * Unpin removes both the `e` id and an `a` coordinate when the list used NIP-33 pins.
  */
 export function buildPinListTagsAfterToggle(
   latest: Event | null | undefined,
-  noteHexId: string,
+  targetEvent: Event,
   shouldPin: boolean
 ): string[][] {
   const tags = latest?.tags ?? []
   const meta = tags.filter((t) => t[0] !== 'e' && t[0] !== 'a')
-  const aKeep = tags.filter((t) => t[0] === 'a' && t[1])
+  const d = targetEvent.tags.find((t) => t[0] === 'd')?.[1] ?? ''
+  const coord = `${targetEvent.kind}:${targetEvent.pubkey}:${d}`.toLowerCase()
+  let aKeep = tags.filter((t) => t[0] === 'a' && t[1])
+  if (!shouldPin) {
+    aKeep = aKeep.filter((t) => t[1]!.toLowerCase() !== coord)
+  }
   let eIds = orderedUniqueEHexIds(tags)
-  const id = noteHexId.toLowerCase()
+  const id = targetEvent.id.toLowerCase()
   if (shouldPin) {
     if (!eIds.includes(id)) eIds = [...eIds, id]
   } else {
