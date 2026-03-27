@@ -19,6 +19,7 @@ import logger from '@/lib/logger'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { contentParserService } from '@/services/content-parser.service'
 import { useSmartNoteNavigationOptional } from '@/PageManager'
+import { getCachedThreadContextEvents } from '@/lib/navigation-related-events'
 import { toNote } from '@/lib/link'
 import {
   type EmbeddedNoteIdValidation,
@@ -597,7 +598,7 @@ function EmbeddedBookstrEvent({ event, originalNoteId, className }: { event: Eve
         }
         e.stopPropagation()
         const noteUrl = toNote(originalNoteId ?? event)
-        navigateToNote(noteUrl, event)
+        navigateToNote(noteUrl, event, getCachedThreadContextEvents(event))
       }}
     >
       {/* Header */}

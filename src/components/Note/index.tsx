@@ -8,6 +8,7 @@ import {
   isNip25ReactionKind,
   isNsfwEvent
 } from '@/lib/event'
+import { getCachedThreadContextEvents } from '@/lib/navigation-related-events'
 import { toNote } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import {
@@ -311,7 +312,7 @@ export default function Note({
           }
           e.stopPropagation()
           client.addEventToCache(event)
-          navigateToNote(toNote(event), event)
+          navigateToNote(toNote(event), event, getCachedThreadContextEvents(event))
         }}
       >
         <div className="flex justify-between items-start gap-2">
@@ -422,7 +423,7 @@ export default function Note({
                 onClick={(e) => {
                   e.stopPropagation()
                   client.addEventToCache(event)
-                  navigateToNote(toNote(event), event)
+                  navigateToNote(toNote(event), event, getCachedThreadContextEvents(event))
                 }}
                 title="View in Discussions"
               >
@@ -467,7 +468,12 @@ export default function Note({
             className="mt-2"
             onClick={(e) => {
               e.stopPropagation()
-              navigateToNote(toNote(parentEventId))
+              const parentEv = client.peekSessionCachedEvent(parentEventId)
+              navigateToNote(
+                toNote(parentEventId),
+                parentEv,
+                parentEv ? getCachedThreadContextEvents(parentEv) : undefined
+              )
             }}
           />
         ) : null}

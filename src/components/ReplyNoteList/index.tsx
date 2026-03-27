@@ -21,6 +21,7 @@ import logger from '@/lib/logger'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { normalizeUrl } from '@/lib/url'
 import { shouldHideThreadResponseEvent } from '@/lib/thread-response-filter'
+import { getCachedThreadContextEvents } from '@/lib/navigation-related-events'
 import { toNote } from '@/lib/link'
 import { generateBech32IdFromETag } from '@/lib/tag'
 import { useSmartNoteNavigation, useSecondaryPage } from '@/PageManager'
@@ -1079,7 +1080,16 @@ function ReplyNoteList({
                   onClickParent={() => {
                     if (!parentEventHexId) return
                     if (replies.every((r) => r.id !== parentEventHexId)) {
-                      navigateToNote(toNote(parentEventId ?? parentEventHexId))
+                      const pid = parentEventId ?? parentEventHexId
+                      const parentEv =
+                        event.id.toLowerCase() === parentEventHexId.toLowerCase()
+                          ? event
+                          : client.peekSessionCachedEvent(pid)
+                      navigateToNote(
+                        toNote(pid),
+                        parentEv ?? undefined,
+                        parentEv ? getCachedThreadContextEvents(parentEv) : undefined
+                      )
                       return
                     }
                     highlightReply(parentEventHexId)

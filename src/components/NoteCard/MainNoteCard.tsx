@@ -1,5 +1,6 @@
 import { ExtendedKind } from '@/constants'
 import { Separator } from '@/components/ui/separator'
+import { getCachedThreadContextEvents } from '@/lib/navigation-related-events'
 import { toNote } from '@/lib/link'
 import { useSmartNoteNavigationOptional } from '@/PageManager'
 import client from '@/services/client.service'
@@ -67,7 +68,7 @@ export default function MainNoteCard({
         e.stopPropagation()
         client.addEventToCache(event)
         const noteUrl = toNote(originalNoteId ?? event)
-        navigateToNote(noteUrl, event)
+        navigateToNote(noteUrl, event, getCachedThreadContextEvents(event))
       }}
     >
       <div className={`clickable ${embedded ? 'p-2 sm:p-3 border rounded-lg' : 'py-3'}`} style={embedded ? { position: 'relative', isolation: 'isolate', overflow: 'visible' } : undefined}>

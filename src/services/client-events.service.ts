@@ -114,6 +114,16 @@ export class EventService {
   }
 
   /**
+   * Read parent/root (or any) event from the session cache without removing it.
+   * Accepts hex, note1, or nevent1 (not naddr).
+   */
+  peekSessionCachedEvent(noteId: string): NEvent | undefined {
+    const hex = this.resolveHexWaiterKey(noteId.trim())
+    if (!hex) return undefined
+    return this.getSessionEventIfAllowed(hex)
+  }
+
+  /**
    * When an event with this id is added to the session cache, invoke `callback` (and when already cached).
    * Only supports hex, note1, and nevent1 (not naddr).
    */

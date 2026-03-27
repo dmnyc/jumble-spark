@@ -1,3 +1,4 @@
+import { getCachedThreadContextEvents } from '@/lib/navigation-related-events'
 import { useSmartNoteNavigation } from '@/PageManager'
 import { ExtendedKind } from '@/constants'
 import { Button } from '@/components/ui/button'
@@ -94,7 +95,7 @@ export default function ReplyNote({
         if (onClickReply) {
           onClickReply(event)
         } else {
-          navigateToNote(toNote(event), event)
+          navigateToNote(toNote(event), event, getCachedThreadContextEvents(event))
         }
       }}
     >

@@ -2320,6 +2320,10 @@ class ClientService extends EventTarget {
     this.eventService.addEventToCache(event)
   }
 
+  peekSessionCachedEvent(noteId: string): NEvent | undefined {
+    return this.eventService.peekSessionCachedEvent(noteId)
+  }
+
   getSessionEventsMatchingSearch(query: string, limit: number, allowedKinds: number[]): NEvent[] {
     return this.eventService.getSessionEventsMatchingSearch(query, limit, allowedKinds)
   }

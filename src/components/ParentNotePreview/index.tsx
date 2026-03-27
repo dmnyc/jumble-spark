@@ -34,6 +34,7 @@ export default function ParentNotePreview({
     try {
       const foundEvent = await client.fetchEventWithExternalRelays(eventId, SEARCHABLE_RELAY_URLS)
       if (foundEvent) {
+        client.addEventToCache(foundEvent)
         setFallbackEvent(foundEvent)
       }
     } catch (error) {
