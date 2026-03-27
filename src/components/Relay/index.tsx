@@ -82,6 +82,8 @@ const Relay = forwardRef<TNoteListRef, { url?: string; className?: string }>(fun
         subRequests={[
           { urls: [normalizedUrl], filter: debouncedInput ? { search: debouncedInput } : {} }
         ]}
+        useFilterAsIs
+        allowKindlessRelayExplore
       />
     </div>
   )

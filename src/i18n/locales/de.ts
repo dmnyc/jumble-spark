@@ -1437,6 +1437,7 @@ export default {
     'Subscribed to topic (local)': 'Subscribed to topic (local)',
     'Subscribing...': 'Subscribing...',
     Summary: 'Summary',
+    'Unknown note reference tags': 'Referenz-Tags (e, p, q, a)',
     'Supported Event Types': 'Supported Event Types',
     'Take a note': 'Take a note',
     'The full prompt conversation (optional)': 'The full prompt conversation (optional)',

@@ -34,6 +34,9 @@ const ELEVATED_TAG_NAMES = new Set([
   'pubkey'
 ])
 
+/** e / p / q / a: thread & pubkey refs — noisy in preview; show under Technical details only. */
+const TECHNICAL_ONLY_TAG_NAMES = new Set(['e', 'p', 'q', 'a'])
+
 function truncatePreview(text: string, max: number): string {
   const t = text.trim()
   if (t.length <= max) return t
@@ -166,7 +169,17 @@ export default function UnknownNote({
 
   const elevated = useMemo(() => extractElevatedTags(event.tags), [event.tags])
   const remainderTags = useMemo(
-    () => event.tags.filter(tag => tag[0] && !ELEVATED_TAG_NAMES.has(tag[0])),
+    () => event.tags.filter((tag) => tag[0] && !ELEVATED_TAG_NAMES.has(tag[0])),
+    [event.tags]
+  )
+
+  const mainCardTags = useMemo(
+    () => remainderTags.filter((tag) => !TECHNICAL_ONLY_TAG_NAMES.has(tag[0])),
+    [remainderTags]
+  )
+
+  const technicalReferenceTags = useMemo(
+    () => event.tags.filter((tag) => tag[0] && TECHNICAL_ONLY_TAG_NAMES.has(tag[0])),
     [event.tags]
   )
 
@@ -199,22 +212,23 @@ export default function UnknownNote({
   const showNoTextPlaceholder =
     !contentRaw && !hasAnyElevatedCopy && !isBookstrEvent
 
-  const proseClass = 'text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground/95'
+  const proseClass =
+    'text-xs leading-snug whitespace-pre-wrap break-words text-foreground/95'
 
   return (
     <div
       className={cn(
-        'flex flex-col gap-3 my-4',
+        'flex flex-col gap-2 my-2',
         className
       )}
     >
-      <div className="rounded-lg border border-border bg-card px-4 py-3 text-card-foreground shadow-sm space-y-3">
-        <p className="text-sm text-muted-foreground leading-snug">
+      <div className="rounded-lg border border-border bg-card px-3 py-2 text-card-foreground shadow-sm space-y-2">
+        <p className="text-xs text-muted-foreground leading-snug">
           {t('Unsupported event preview')}
         </p>
 
         {showAuthorSummary && isValidPubkey(event.pubkey) ? (
-          <div className="flex min-w-0 items-center gap-2 border-b border-border/60 pb-3">
+          <div className="flex min-w-0 items-center gap-2 border-b border-border/60 pb-2">
             <UserAvatar userId={event.pubkey} size="medium" className="shrink-0" />
             <Username
               userId={event.pubkey}
@@ -225,12 +239,12 @@ export default function UnknownNote({
         ) : null}
 
         <div>
-          <h3 className="text-base font-semibold leading-tight text-foreground">{headline}</h3>
+          <h3 className="text-sm font-semibold leading-tight text-foreground">{headline}</h3>
           {!omitKindLabel ? (
-            <NoteKindLabel kind={event.kind} event={event} size="small" className="mt-1" />
+            <NoteKindLabel kind={event.kind} event={event} size="small" className="mt-0.5" />
           ) : null}
           {elevated.title?.trim() && !omitKindLabel ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="mt-0.5 text-[11px] text-muted-foreground leading-snug">
               <span className="text-foreground/80">{kindLabel.description}</span>
               <span className="mx-1.5 text-border">·</span>
               <span className="font-mono tabular-nums">{t('Event kind label', { kind: event.kind })}</span>
@@ -252,12 +266,12 @@ export default function UnknownNote({
 
         {elevated.topics.length > 0 ? (
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
               {t('Topics')}
             </p>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1">
               {elevated.topics.map((topic, i) => (
-                <Badge key={`${topic}-${i}`} variant="secondary" className="font-normal">
+                <Badge key={`${topic}-${i}`} variant="secondary" className="font-normal text-xs py-0">
                   {topic}
                 </Badge>
               ))}
@@ -272,7 +286,7 @@ export default function UnknownNote({
                 key={`${url}-${i}`}
                 src={url}
                 alt=""
-                className="max-h-52 w-full rounded-md border border-border object-cover bg-muted"
+                className="max-h-40 w-full rounded-md border border-border object-cover bg-muted"
                 loading="lazy"
                 referrerPolicy="no-referrer"
               />
@@ -282,7 +296,7 @@ export default function UnknownNote({
 
         {elevated.summary ? (
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-0.5">
               {t('Summary')}
             </p>
             <p className={cn(proseClass, 'text-muted-foreground')}>{truncatePreview(elevated.summary, CONTENT_PREVIEW_MAX)}</p>
@@ -291,7 +305,7 @@ export default function UnknownNote({
 
         {elevated.description ? (
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-0.5">
               {t('Description')}
             </p>
             <p className={proseClass}>{truncatePreview(elevated.description, CONTENT_PREVIEW_MAX)}</p>
@@ -300,7 +314,7 @@ export default function UnknownNote({
 
         {elevated.tagContent && normText(elevated.tagContent) !== contentNorm ? (
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-0.5">
               {t('Unknown note tagged content')}
             </p>
             <p className={proseClass}>{truncatePreview(elevated.tagContent, CONTENT_PREVIEW_MAX)}</p>
@@ -322,17 +336,17 @@ export default function UnknownNote({
         ) : null}
 
         {showNoTextPlaceholder ? (
-          <p className="text-sm text-muted-foreground italic">{t('No text content in event')}</p>
+          <p className="text-xs text-muted-foreground italic">{t('No text content in event')}</p>
         ) : null}
 
-        {remainderTags.length > 0 ? (
-          <div className="border-t border-border/80 pt-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+        {mainCardTags.length > 0 ? (
+          <div className="border-t border-border/80 pt-2">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
               {t('Tags')}
             </p>
-            <ul className="space-y-1.5 text-sm">
-              {remainderTags.map((tag, i) => (
-                <li key={i} className="flex gap-2 rounded-md bg-muted/40 px-2 py-1.5">
+            <ul className="space-y-0.5 text-xs">
+              {mainCardTags.map((tag, i) => (
+                <li key={i} className="flex gap-1.5 rounded bg-muted/40 px-1.5 py-0.5">
                   <span className="shrink-0 font-medium text-foreground/90">{tag[0]}</span>
                   <span className="min-w-0 break-all text-muted-foreground">
                     {tag.length > 1 ? tag.slice(1).join(' · ') : '—'}
@@ -362,7 +376,27 @@ export default function UnknownNote({
             )}
           </Button>
         </CollapsibleTrigger>
-        <CollapsibleContent className="mt-2">
+        <CollapsibleContent className="mt-2 space-y-2">
+          {technicalReferenceTags.length > 0 ? (
+            <div className="rounded-md border border-border bg-muted/25 px-2 py-1.5">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
+                {t('Unknown note reference tags')}
+              </p>
+              <ul className="space-y-0.5 font-mono text-[11px] leading-snug text-muted-foreground">
+                {technicalReferenceTags.map((tag, i) => (
+                  <li key={i} className="break-all">
+                    <span className="text-foreground/80">{tag[0]}</span>
+                    {tag.length > 1 ? (
+                      <>
+                        {' '}
+                        {tag.slice(1).join(' · ')}
+                      </>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <EventViewer event={displayEvent} />
         </CollapsibleContent>
       </Collapsible>

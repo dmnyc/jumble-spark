@@ -61,6 +61,8 @@ import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
 const LIMIT = 100 // Increased from 200 to load more events per request
 const ALGO_LIMIT = 200 // Increased from 500 for algorithm feeds
+/** Single-relay explore: kindless REQ cap (relay returns whatever it has, up to this many). */
+const RELAY_EXPLORE_LIMIT = 200
 
 /**
  * Vite HMR replaces this module and remounts NoteList; timeline refs reset while the subscription can briefly look
@@ -97,11 +99,13 @@ function mergeEventBatchesById(prev: Event[], incoming: Event[], cap: number): E
 
 /** When omitting `kinds` from a live REQ, require another scope so we never subscribe to a whole relay. */
 function timelineFilterHasNonKindScope(f: Filter): boolean {
+  const search = f.search
   return (
     (Array.isArray(f.authors) && f.authors.length > 0) ||
     (Array.isArray(f.ids) && f.ids.length > 0) ||
     (Array.isArray(f['#p']) && f['#p']!.length > 0) ||
-    (Array.isArray(f['#e']) && f['#e']!.length > 0)
+    (Array.isArray(f['#e']) && f['#e']!.length > 0) ||
+    (typeof search === 'string' && search.trim().length > 0)
   )
 }
 
@@ -114,6 +118,10 @@ const NoteList = forwardRef(
       showKind1Replies = true,
       showKind1111 = true,
       seeAllFeedEvents = false,
+      /**
+       * Single-relay Explore / home chip: REQ omits `kinds`, limit 200, no feed kind filter (relay decides what to send).
+       */
+      allowKindlessRelayExplore = false,
       filterMutedNotes = true,
       hideReplies = false,
       hideUntrustedNotes = false,
@@ -184,6 +192,7 @@ const NoteList = forwardRef(
       showKind1111?: boolean
       /** Omit REQ kinds and skip client-side kind filtering (main feed testing). Ignored when useFilterAsIs. */
       seeAllFeedEvents?: boolean
+      allowKindlessRelayExplore?: boolean
       filterMutedNotes?: boolean
       hideReplies?: boolean
       hideUntrustedNotes?: boolean
@@ -376,11 +385,15 @@ const NoteList = forwardRef(
       () =>
         JSON.stringify({
           feed: timelineSubscriptionKey,
-          kinds: showKindsKey,
-          op: showKind1OPs,
-          rep: showKind1Replies,
-          c1111: showKind1111,
-          seeAll: seeAllFeedEvents
+          ...(allowKindlessRelayExplore
+            ? { relayKindless: true }
+            : {
+                kinds: showKindsKey,
+                op: showKind1OPs,
+                rep: showKind1Replies,
+                c1111: showKind1111,
+                seeAll: seeAllFeedEvents
+              })
         }),
       [
         timelineSubscriptionKey,
@@ -388,14 +401,22 @@ const NoteList = forwardRef(
         showKind1OPs,
         showKind1Replies,
         showKind1111,
-        seeAllFeedEvents
+        seeAllFeedEvents,
+        allowKindlessRelayExplore
       ]
     )
+
+    /** Kindless relay explore ignores the feed kind picker; avoid re-subscribing when it changes. */
+    const timelineResubscribeKindKey = allowKindlessRelayExplore
+      ? 'kindless-relay-explore'
+      : `${showKindsKey}|${showKind1OPs}|${showKind1Replies}|${showKind1111}`
 
     const showKindsRef = useRef(showKinds)
     showKindsRef.current = showKinds
     const seeAllFeedEventsRef = useRef(seeAllFeedEvents)
     seeAllFeedEventsRef.current = seeAllFeedEvents
+    const allowKindlessRelayExploreRef = useRef(allowKindlessRelayExplore)
+    allowKindlessRelayExploreRef.current = allowKindlessRelayExplore
     const useFilterAsIsRef = useRef(useFilterAsIs)
     useFilterAsIsRef.current = useFilterAsIs
     const clientSideKindFilterRef = useRef(clientSideKindFilter)
@@ -464,7 +485,7 @@ const NoteList = forwardRef(
       const idSet = new Set<string>()
 
       return events.slice(0, showCount).filter((evt) => {
-        if (!seeAllFeedEvents) {
+        if (!seeAllFeedEvents && !allowKindlessRelayExplore) {
           if (!showKinds.includes(evt.kind)) return false
           // Kind 1: show only OPs if showKind1OPs, only replies if showKind1Replies
           if (evt.kind === kinds.ShortTextNote) {
@@ -492,7 +513,8 @@ const NoteList = forwardRef(
       showKind1OPs,
       showKind1Replies,
       showKind1111,
-      seeAllFeedEvents
+      seeAllFeedEvents,
+      allowKindlessRelayExplore
     ])
 
     useLayoutEffect(() => {
@@ -538,7 +560,7 @@ const NoteList = forwardRef(
       const idSet = new Set<string>()
 
       return newEvents.filter((event: Event) => {
-        if (!seeAllFeedEvents) {
+        if (!seeAllFeedEvents && !allowKindlessRelayExplore) {
           if (!showKinds.includes(event.kind)) return false
           if (event.kind === kinds.ShortTextNote) {
             const isReply = isReplyNoteEvent(event)
@@ -565,7 +587,8 @@ const NoteList = forwardRef(
       showKind1OPs,
       showKind1Replies,
       showKind1111,
-      seeAllFeedEvents
+      seeAllFeedEvents,
+      allowKindlessRelayExplore
     ])
 
     useLayoutEffect(() => {
@@ -792,8 +815,16 @@ const NoteList = forwardRef(
         const mappedSubRequests = subRequestsRef.current.map(({ urls, filter }) => {
           const baseLimit = filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT)
           if (useFilterAsIs) {
-            const finalFilter: Filter = { ...filter, limit: baseLimit }
             const hasKindsInRequest = Array.isArray(filter.kinds) && filter.kinds.length > 0
+            if (allowKindlessRelayExplore && urls.length === 1 && !hasKindsInRequest) {
+              const finalFilter: Filter = {
+                ...filter,
+                limit: filter.limit ?? RELAY_EXPLORE_LIMIT
+              }
+              delete finalFilter.kinds
+              return { urls, filter: finalFilter }
+            }
+            const finalFilter: Filter = { ...filter, limit: baseLimit }
             if (clientSideKindFilter) {
               if (hasKindsInRequest) {
                 finalFilter.kinds = filter.kinds
@@ -828,10 +859,13 @@ const NoteList = forwardRef(
         })
 
         const filterMissingKinds = (f: Filter) => !f.kinds || f.kinds.length === 0
-        const invalidFilters = mappedSubRequests.filter(({ filter: f }) => {
+        const invalidFilters = mappedSubRequests.filter(({ urls, filter: f }) => {
           if (seeAllNoSpell) return false
           if (!filterMissingKinds(f)) return false
           if (useFilterAsIs && clientSideKindFilter && timelineFilterHasNonKindScope(f)) return false
+          if (useFilterAsIs && allowKindlessRelayExplore && urls.length === 1) {
+            return false
+          }
           return true
         })
         if (invalidFilters.length > 0) {
@@ -849,7 +883,7 @@ const NoteList = forwardRef(
         }
 
         const narrowLiveBatch = (evs: Event[]) => {
-          if (seeAllNoSpell) return evs
+          if (seeAllFeedEventsRef.current || allowKindlessRelayExploreRef.current) return evs
           if (!useFilterAsIs || !clientSideKindFilter) return evs
           return evs.filter((e) => showKinds.includes(e.kind))
         }
@@ -886,7 +920,12 @@ const NoteList = forwardRef(
             let merged = [...byId.values()]
               .sort((a, b) => b.created_at - a.created_at)
               .slice(0, cap)
-            if (useFilterAsIs && clientSideKindFilter) {
+            if (
+              useFilterAsIs &&
+              clientSideKindFilter &&
+              !seeAllFeedEventsRef.current &&
+              !allowKindlessRelayExploreRef.current
+            ) {
               merged = merged.filter((e) => showKinds.includes(e.kind))
             }
             if (sessionSnap?.length && !userPulledRefresh) {
@@ -970,7 +1009,11 @@ const NoteList = forwardRef(
             }, subscribeSetupRaceMs)
           })
 
-          const eventCap = areAlgoRelays ? ALGO_LIMIT : LIMIT
+          const eventCap = allowKindlessRelayExplore
+            ? RELAY_EXPLORE_LIMIT
+            : areAlgoRelays
+              ? ALGO_LIMIT
+              : LIMIT
 
           timelineSubscribePromise = client.subscribeTimeline(
             mappedSubRequests as Array<{ urls: string[]; filter: TSubRequestFilter }>,
@@ -1084,10 +1127,9 @@ const NoteList = forwardRef(
             onNew: (event: Event) => {
               if (!effectActive) return
               feedRelayReturnedAnyEventRef.current = true
-              const seeAll = seeAllFeedEventsRef.current && !useFilterAsIs
-              if (!seeAll && !useFilterAsIs && !showKinds.includes(event.kind)) return
-              if (clientSideKindFilter && useFilterAsIs && !showKinds.includes(event.kind)) return
-              if (!seeAll) {
+              if (!seeAllFeedEventsRef.current && !allowKindlessRelayExploreRef.current) {
+                if (!useFilterAsIs && !showKinds.includes(event.kind)) return
+                if (clientSideKindFilter && useFilterAsIs && !showKinds.includes(event.kind)) return
                 if (event.kind === kinds.ShortTextNote) {
                   const isReply = isReplyNoteEvent(event)
                   if (isReply && !showKind1Replies) return
@@ -1179,10 +1221,7 @@ const NoteList = forwardRef(
       mergeTimelineWhenSubRequestFiltersMatch,
       feedTimelineScopeKey,
       refreshCount,
-      showKindsKey,
-      showKind1OPs,
-      showKind1Replies,
-      showKind1111,
+      timelineResubscribeKindKey,
       seeAllFeedEvents,
       useFilterAsIs,
       areAlgoRelays,
@@ -1194,7 +1233,8 @@ const NoteList = forwardRef(
       oneShotGlobalTimeoutMs,
       oneShotEoseTimeoutMs,
       oneShotFirstRelayGraceMs,
-      clientSideKindFilter
+      clientSideKindFilter,
+      allowKindlessRelayExplore
     ])
 
     const oneShotDebugPrevLoadingRef = useRef(false)
@@ -1458,14 +1498,17 @@ const NoteList = forwardRef(
             }
 
             let fetchBatch = newEvents
-            let toAppend =
-              useFilterAsIsRef.current && clientSideKindFilterRef.current
-                ? fetchBatch.filter((e) => showKindsRef.current.includes(e.kind))
-                : fetchBatch
-
-            if (
+            const narrowLoadMore =
               useFilterAsIsRef.current &&
               clientSideKindFilterRef.current &&
+              !seeAllFeedEventsRef.current &&
+              !allowKindlessRelayExploreRef.current
+            let toAppend = narrowLoadMore
+              ? fetchBatch.filter((e) => showKindsRef.current.includes(e.kind))
+              : fetchBatch
+
+            if (
+              narrowLoadMore &&
               toAppend.length === 0 &&
               fetchBatch.length > 0
             ) {

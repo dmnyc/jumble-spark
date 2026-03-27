@@ -26,6 +26,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
   mergeTimelineWhenSubRequestFiltersMatch?: boolean
   /** Home favorite-relays chip scope; see {@link NoteList} `feedTimelineScopeKey`. */
   feedTimelineScopeKey?: string
+  /** Single-relay Explore / chip: kindless REQ (limit 200), no feed kind filter. */
+  useFilterAsIs?: boolean
+  clientSideKindFilter?: boolean
+  allowKindlessRelayExplore?: boolean
 }>(function NormalFeed(
   {
     subRequests,
@@ -36,7 +40,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
     onSubHeaderRefresh,
     preserveTimelineOnSubRequestsChange = false,
     mergeTimelineWhenSubRequestFiltersMatch = false,
-    feedTimelineScopeKey
+    feedTimelineScopeKey,
+    useFilterAsIs = false,
+    clientSideKindFilter = false,
+    allowKindlessRelayExplore = false
   },
   ref
 ) {
@@ -84,6 +91,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
 
   const showKindsKey = useMemo(() => JSON.stringify(showKinds), [showKinds])
 
+  const subHeaderFilterDepsKey = allowKindlessRelayExplore
+    ? 'kindless-relay-explore'
+    : `${showKindsKey}|${feedKindFilterBypass}`
+
   const tabsElement = (
     <Tabs
       value={listMode}
@@ -92,7 +103,9 @@ const NormalFeed = forwardRef<TNoteListRef, {
       options={
         <div className="flex items-center gap-1">
           {onSubHeaderRefresh != null && <RefreshButton onClick={onSubHeaderRefresh} />}
-          <KindFilter showKinds={showKinds} onShowKindsChange={handleShowKindsChange} />
+          {!allowKindlessRelayExplore && (
+            <KindFilter showKinds={showKinds} onShowKindsChange={handleShowKindsChange} />
+          )}
         </div>
       }
     />
@@ -100,11 +113,28 @@ const NormalFeed = forwardRef<TNoteListRef, {
 
   useLayoutEffect(() => {
     if (!isMainFeed || !setSubHeader) return
+    if (allowKindlessRelayExplore) {
+      setSubHeader(
+        onSubHeaderRefresh != null ? (
+          <div className="flex w-full items-center justify-end gap-1">
+            <RefreshButton onClick={onSubHeaderRefresh} />
+          </div>
+        ) : null
+      )
+      return () => setSubHeader(null)
+    }
     setSubHeader(tabsElement)
     return () => setSubHeader(null)
-  }, [isMainFeed, setSubHeader, listMode, showKindsKey, feedKindFilterBypass, onSubHeaderRefresh])
+  }, [
+    isMainFeed,
+    setSubHeader,
+    listMode,
+    subHeaderFilterDepsKey,
+    onSubHeaderRefresh,
+    allowKindlessRelayExplore
+  ])
 
-  const renderTabsInFeed = !(isMainFeed && setSubHeader)
+  const renderTabsInFeed = !(isMainFeed && setSubHeader) && !allowKindlessRelayExplore
 
   return (
     <>
@@ -118,13 +148,16 @@ const NormalFeed = forwardRef<TNoteListRef, {
           showKind1111={showKind1111}
           seeAllFeedEvents={feedKindFilterBypass}
           subRequests={subRequests}
-          hideReplies={listMode === 'posts'}
+          hideReplies={allowKindlessRelayExplore ? false : listMode === 'posts'}
           hideUntrustedNotes={hideUntrustedNotes}
           areAlgoRelays={areAlgoRelays}
           relayCapabilityReady={relayCapabilityReady}
           preserveTimelineOnSubRequestsChange={preserveTimelineOnSubRequestsChange}
           mergeTimelineWhenSubRequestFiltersMatch={mergeTimelineWhenSubRequestFiltersMatch}
           feedTimelineScopeKey={feedTimelineScopeKey}
+          useFilterAsIs={useFilterAsIs}
+          clientSideKindFilter={clientSideKindFilter}
+          allowKindlessRelayExplore={allowKindlessRelayExplore}
         />
       </div>
     </>

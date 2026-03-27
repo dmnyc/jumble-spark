@@ -412,6 +412,7 @@ export default {
     'Unknown note declared kind tag': 'Tagged kind: {{value}}',
     'Unknown note tagged pubkey': 'Tagged pubkey',
     'Unknown note tagged content': 'Content',
+    'Unknown note reference tags': 'Reference tags (e, p, q, a)',
     'Copy JSON': 'Copy JSON',
     Verse: 'Verse',
     'Notification reaction summary': 'reacted to this note.',

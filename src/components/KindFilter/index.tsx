@@ -308,11 +308,13 @@ export default function KindFilter({
         {trigger}
         <Drawer open={open} onOpenChange={setOpen}>
           <DrawerTrigger asChild></DrawerTrigger>
-          <DrawerContent className="px-4">
+          <DrawerContent className="flex max-h-[90dvh] flex-col px-4 min-h-0">
             <DrawerHeader className="sr-only">
               <DrawerTitle>Filter</DrawerTitle>
             </DrawerHeader>
-            {content}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
+              {content}
+            </div>
           </DrawerContent>
         </Drawer>
       </>
@@ -322,8 +324,15 @@ export default function KindFilter({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent className="w-96" collisionPadding={16} sideOffset={0}>
-        {content}
+      <PopoverContent
+        className="flex w-96 max-h-[min(85dvh,calc(100dvh-6rem))] flex-col gap-0 overflow-hidden p-0"
+        collisionPadding={{ top: 80, bottom: 20, left: 16, right: 16 }}
+        side="bottom"
+        align="end"
+        sideOffset={6}
+        sticky="always"
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">{content}</div>
       </PopoverContent>
     </Popover>
   )

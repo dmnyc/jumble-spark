@@ -75,6 +75,10 @@ const RelaysFeed = forwardRef<
         ? showKinds
         : [kinds.ShortTextNote]
 
+  /** One relay + user kind filter: avoid huge `kinds` REQ (many relays error with "too many kinds"). */
+  const singleRelayKindlessExplore =
+    feedInfo.feedType === 'relay' && relayUrls.length === 1 && !kindsOverride?.length
+
   const canRenderFeed =
     (feedInfo.feedType === 'relay' ||
       feedInfo.feedType === 'relays' ||
@@ -95,6 +99,9 @@ const RelaysFeed = forwardRef<
   // Hooks must run every render — never place useMemo after conditional returns.
   const subRequests = useMemo(() => {
     if (!canRenderFeed) return []
+    if (singleRelayKindlessExplore) {
+      return [{ urls: relayUrls, filter: {} }]
+    }
     return [
       {
         urls: relayUrls,
@@ -103,7 +110,7 @@ const RelaysFeed = forwardRef<
         }
       }
     ]
-  }, [canRenderFeed, relayUrls, defaultKinds, kindsOverride])
+  }, [canRenderFeed, relayUrls, defaultKinds, kindsOverride, singleRelayKindlessExplore])
 
   if (!canRenderFeed) {
     return null
@@ -123,6 +130,8 @@ const RelaysFeed = forwardRef<
       onSubHeaderRefresh={onSubHeaderRefresh}
       preserveTimelineOnSubRequestsChange
       feedTimelineScopeKey={feedTimelineScopeKey}
+      useFilterAsIs={singleRelayKindlessExplore}
+      allowKindlessRelayExplore={singleRelayKindlessExplore}
     />
   )
 })
