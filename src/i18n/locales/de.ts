@@ -727,6 +727,11 @@ export default {
     'Select All': 'Alle auswählen',
     'Clear All': 'Alle löschen',
     'Set as default filter': 'Als Standardfilter festlegen',
+    'Use filter': 'Filter nutzen',
+    'See all events': 'Alle Ereignisse',
+    'See all events hint':
+      'Feed-Anfragen ohne Kind-Filter; alle Event-Arten werden angezeigt (Relay-Limits und andere Regeln gelten weiter). Zum Testen neuer Event-Kinds.',
+    'Use filter hint': 'Nur unten ausgewählte Kinds werden angefragt und angezeigt.',
     Apply: 'Anwenden',
     Reset: 'Zurücksetzen',
     'Share something on this Relay': 'Teile etwas auf diesem Relay',

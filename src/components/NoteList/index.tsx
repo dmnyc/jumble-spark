@@ -113,6 +113,7 @@ const NoteList = forwardRef(
       showKind1OPs = true,
       showKind1Replies = true,
       showKind1111 = true,
+      seeAllFeedEvents = false,
       filterMutedNotes = true,
       hideReplies = false,
       hideUntrustedNotes = false,
@@ -181,6 +182,8 @@ const NoteList = forwardRef(
       showKind1OPs?: boolean
       showKind1Replies?: boolean
       showKind1111?: boolean
+      /** Omit REQ kinds and skip client-side kind filtering (main feed testing). Ignored when useFilterAsIs. */
+      seeAllFeedEvents?: boolean
       filterMutedNotes?: boolean
       hideReplies?: boolean
       hideUntrustedNotes?: boolean
@@ -376,13 +379,23 @@ const NoteList = forwardRef(
           kinds: showKindsKey,
           op: showKind1OPs,
           rep: showKind1Replies,
-          c1111: showKind1111
+          c1111: showKind1111,
+          seeAll: seeAllFeedEvents
         }),
-      [timelineSubscriptionKey, showKindsKey, showKind1OPs, showKind1Replies, showKind1111]
+      [
+        timelineSubscriptionKey,
+        showKindsKey,
+        showKind1OPs,
+        showKind1Replies,
+        showKind1111,
+        seeAllFeedEvents
+      ]
     )
 
     const showKindsRef = useRef(showKinds)
     showKindsRef.current = showKinds
+    const seeAllFeedEventsRef = useRef(seeAllFeedEvents)
+    seeAllFeedEventsRef.current = seeAllFeedEvents
     const useFilterAsIsRef = useRef(useFilterAsIs)
     useFilterAsIsRef.current = useFilterAsIs
     const clientSideKindFilterRef = useRef(clientSideKindFilter)
@@ -451,15 +464,17 @@ const NoteList = forwardRef(
       const idSet = new Set<string>()
 
       return events.slice(0, showCount).filter((evt) => {
-        if (!showKinds.includes(evt.kind)) return false
-        // Kind 1: show only OPs if showKind1OPs, only replies if showKind1Replies
-        if (evt.kind === kinds.ShortTextNote) {
-          const isReply = isReplyNoteEvent(evt)
-          if (isReply && !showKind1Replies) return false
-          if (!isReply && !showKind1OPs) return false
+        if (!seeAllFeedEvents) {
+          if (!showKinds.includes(evt.kind)) return false
+          // Kind 1: show only OPs if showKind1OPs, only replies if showKind1Replies
+          if (evt.kind === kinds.ShortTextNote) {
+            const isReply = isReplyNoteEvent(evt)
+            if (isReply && !showKind1Replies) return false
+            if (!isReply && !showKind1OPs) return false
+          }
+          // Kind 1111 (comments): show only if showKind1111
+          if (evt.kind === ExtendedKind.COMMENT && !showKind1111) return false
         }
-        // Kind 1111 (comments): show only if showKind1111
-        if (evt.kind === ExtendedKind.COMMENT && !showKind1111) return false
         if (shouldHideEvent(evt)) return false
 
         const id = isReplaceableEvent(evt.kind) ? getReplaceableCoordinateFromEvent(evt) : evt.id
@@ -469,7 +484,16 @@ const NoteList = forwardRef(
         idSet.add(id)
         return true
       })
-    }, [events, showCount, shouldHideEvent, showKinds, showKind1OPs, showKind1Replies, showKind1111])
+    }, [
+      events,
+      showCount,
+      shouldHideEvent,
+      showKinds,
+      showKind1OPs,
+      showKind1Replies,
+      showKind1111,
+      seeAllFeedEvents
+    ])
 
     useLayoutEffect(() => {
       if (!feedPaintSessionPendingRef.current && !feedPaintRelayPendingRef.current) return
@@ -514,13 +538,15 @@ const NoteList = forwardRef(
       const idSet = new Set<string>()
 
       return newEvents.filter((event: Event) => {
-        if (!showKinds.includes(event.kind)) return false
-        if (event.kind === kinds.ShortTextNote) {
-          const isReply = isReplyNoteEvent(event)
-          if (isReply && !showKind1Replies) return false
-          if (!isReply && !showKind1OPs) return false
+        if (!seeAllFeedEvents) {
+          if (!showKinds.includes(event.kind)) return false
+          if (event.kind === kinds.ShortTextNote) {
+            const isReply = isReplyNoteEvent(event)
+            if (isReply && !showKind1Replies) return false
+            if (!isReply && !showKind1OPs) return false
+          }
+          if (event.kind === ExtendedKind.COMMENT && !showKind1111) return false
         }
-        if (event.kind === ExtendedKind.COMMENT && !showKind1111) return false
         if (shouldHideEvent(event)) return false
 
         const id = isReplaceableEvent(event.kind)
@@ -532,7 +558,15 @@ const NoteList = forwardRef(
         idSet.add(id)
         return true
       })
-    }, [newEvents, shouldHideEvent, showKinds, showKind1OPs, showKind1Replies, showKind1111])
+    }, [
+      newEvents,
+      shouldHideEvent,
+      showKinds,
+      showKind1OPs,
+      showKind1Replies,
+      showKind1111,
+      seeAllFeedEvents
+    ])
 
     useLayoutEffect(() => {
       if (!onSpellFeedFirstPaint || spellFeedInstrumentToken === undefined) return
@@ -753,6 +787,8 @@ const NoteList = forwardRef(
 
         const defaultKinds = showKinds.length > 0 ? showKinds : [kinds.ShortTextNote]
 
+        const seeAllNoSpell = seeAllFeedEventsRef.current && !useFilterAsIsRef.current
+
         const mappedSubRequests = subRequestsRef.current.map(({ urls, filter }) => {
           const baseLimit = filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT)
           if (useFilterAsIs) {
@@ -771,6 +807,16 @@ const NoteList = forwardRef(
             }
             return { urls, filter: finalFilter }
           }
+          if (seeAllNoSpell) {
+            const { kinds: _omitKinds, ...rest } = filter
+            return {
+              urls,
+              filter: {
+                ...rest,
+                limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
+              }
+            }
+          }
           return {
             urls,
             filter: {
@@ -783,6 +829,7 @@ const NoteList = forwardRef(
 
         const filterMissingKinds = (f: Filter) => !f.kinds || f.kinds.length === 0
         const invalidFilters = mappedSubRequests.filter(({ filter: f }) => {
+          if (seeAllNoSpell) return false
           if (!filterMissingKinds(f)) return false
           if (useFilterAsIs && clientSideKindFilter && timelineFilterHasNonKindScope(f)) return false
           return true
@@ -802,6 +849,7 @@ const NoteList = forwardRef(
         }
 
         const narrowLiveBatch = (evs: Event[]) => {
+          if (seeAllNoSpell) return evs
           if (!useFilterAsIs || !clientSideKindFilter) return evs
           return evs.filter((e) => showKinds.includes(e.kind))
         }
@@ -1036,14 +1084,17 @@ const NoteList = forwardRef(
             onNew: (event: Event) => {
               if (!effectActive) return
               feedRelayReturnedAnyEventRef.current = true
-              if (!useFilterAsIs && !showKinds.includes(event.kind)) return
+              const seeAll = seeAllFeedEventsRef.current && !useFilterAsIs
+              if (!seeAll && !useFilterAsIs && !showKinds.includes(event.kind)) return
               if (clientSideKindFilter && useFilterAsIs && !showKinds.includes(event.kind)) return
-              if (event.kind === kinds.ShortTextNote) {
-                const isReply = isReplyNoteEvent(event)
-                if (isReply && !showKind1Replies) return
-                if (!isReply && !showKind1OPs) return
+              if (!seeAll) {
+                if (event.kind === kinds.ShortTextNote) {
+                  const isReply = isReplyNoteEvent(event)
+                  if (isReply && !showKind1Replies) return
+                  if (!isReply && !showKind1OPs) return
+                }
+                if (event.kind === ExtendedKind.COMMENT && !showKind1111) return
               }
-              if (event.kind === ExtendedKind.COMMENT && !showKind1111) return
               if (shouldHideEventRef.current(event)) return
               if (pubkey && event.pubkey === pubkey) {
                 // If the new event is from the current user, insert it directly into the feed
@@ -1132,6 +1183,7 @@ const NoteList = forwardRef(
       showKind1OPs,
       showKind1Replies,
       showKind1111,
+      seeAllFeedEvents,
       useFilterAsIs,
       areAlgoRelays,
       relayCapabilityReady,

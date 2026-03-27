@@ -216,13 +216,34 @@ function parseMemeFrom1063(event: NEvent): MemeMetadata | null {
   }
 }
 
-function parseMemeFromEvent(event: NEvent): MemeMetadata | null {
+export function memeMetadataFrom1063Event(event: NEvent): MemeMetadata | null {
   if (event.kind !== ExtendedKind.FILE_METADATA) return null
   return parseMemeFrom1063(event)
 }
 
-const CACHE_MAX_AGE_MS = 5 * 60 * 1000
-const MIN_MEME_CACHE_ENTRIES = 6
+/** Keep offline / flaky-relay grids usable: cache is valid for days, not minutes. */
+const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+/** Single-item lists (e.g. only your template) still cache and hydrate the picker. */
+const MIN_MEME_CACHE_ENTRIES = 1
+const MEME_CACHE_CAP = 200
+
+/**
+ * Merge new memes into IndexedDB (dedupe by normalized URL, newest wins). Call after publishing 1063.
+ */
+export async function mergeMemesIntoIdbCache(incoming: MemeMetadata[]): Promise<void> {
+  if (incoming.length === 0) return
+  const row = await indexedDb.getMemeCache()
+  const byKey = new Map<string, MemeMetadata>()
+  for (const m of row?.memes ?? []) {
+    const meta = m as MemeMetadata
+    if (meta?.url) byKey.set(normalizeMemeUrl(meta.url), meta)
+  }
+  for (const m of incoming) {
+    if (m.url) byKey.set(normalizeMemeUrl(m.url), m)
+  }
+  const merged = [...byKey.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, MEME_CACHE_CAP)
+  await indexedDb.setMemeCache(merged, Date.now())
+}
 
 const THECITADEL_FOR_FILE_METADATA =
   normalizeUrl('wss://thecitadel.nostr1.com') || 'wss://thecitadel.nostr1.com'
@@ -242,6 +263,14 @@ export async function fetchMemes(
       Date.now() - cached.cachedAt < CACHE_MAX_AGE_MS
     ) {
       return cached.memes.slice(0, limit) as MemeMetadata[]
+    }
+  }
+
+  let staleFallback: MemeMetadata[] | null = null
+  if (!searchQuery) {
+    const row = await indexedDb.getMemeCache()
+    if (row?.memes?.length) {
+      staleFallback = row.memes as MemeMetadata[]
     }
   }
 
@@ -270,15 +299,23 @@ export async function fetchMemes(
     ? dedupedUrls
     : [...dedupedUrls, THECITADEL_FOR_FILE_METADATA]
 
-  const events = await queryService.fetchEvents(
-    relays1063,
-    { kinds: [ExtendedKind.FILE_METADATA], limit: limit1063 },
-    fetchOpts
-  )
+  let events: NEvent[] = []
+  try {
+    events = await queryService.fetchEvents(
+      relays1063,
+      { kinds: [ExtendedKind.FILE_METADATA], limit: limit1063 },
+      fetchOpts
+    )
+  } catch (err) {
+    if (!searchQuery && staleFallback?.length) {
+      return staleFallback.slice(0, limit) as MemeMetadata[]
+    }
+    throw err
+  }
   const byUrl = new Map<string, { meme: MemeMetadata; priority: number }>()
 
   for (const event of events) {
-    const meme = parseMemeFromEvent(event)
+    const meme = memeMetadataFrom1063Event(event)
     if (!meme) continue
 
     if (searchQuery) {
@@ -299,10 +336,14 @@ export async function fetchMemes(
 
   const memes = Array.from(byUrl.values()).map((v) => v.meme)
   memes.sort((a, b) => b.createdAt - a.createdAt)
-  const result = memes.slice(0, limit)
+  let result = memes.slice(0, limit)
 
-  if (result.length >= MIN_MEME_CACHE_ENTRIES && !searchQuery) {
-    await indexedDb.setMemeCache(result, Date.now())
+  if (!searchQuery && result.length === 0 && staleFallback?.length) {
+    result = staleFallback.slice(0, limit)
+  }
+
+  if (result.length > 0 && !searchQuery) {
+    await mergeMemesIntoIdbCache(result)
   }
 
   return result

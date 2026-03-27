@@ -308,6 +308,8 @@ export default {
       'No GIFs found. Try searching or add your own. GIFs come from Nostr kind 1063 (NIP-94) events on GIF relays.',
     'No meme templates found. Try searching or open Meme Amigo. The grid only lists kind 1063 (NIP-94) files tagged memeamigo (not random photos from notes).':
       'No meme templates found. Try searching or open Meme Amigo. The grid only lists kind 1063 (NIP-94) files tagged memeamigo (not random photos from notes).',
+    'Failed to publish meme template for the picker':
+      'Failed to publish meme template for the picker',
     '{{name}} is not a GIF file': '{{name}} is not a GIF file',
     '{{name}} is not a JPEG, PNG, or WebP file': '{{name}} is not a JPEG, PNG, or WebP file',
     'R & W': 'R & W',
@@ -766,6 +768,11 @@ export default {
     'Select All': 'Select All',
     'Clear All': 'Clear All',
     'Set as default filter': 'Set as default filter',
+    'Use filter': 'Use filter',
+    'See all events': 'See all events',
+    'See all events hint':
+      'Feed requests omit kind filters and every kind is shown (still subject to relay limits and other feed rules). For testing new event kinds.',
+    'Use filter hint': 'Only the kinds you select below are requested and shown.',
     Apply: 'Apply',
     Reset: 'Reset',
     'Share something on this Relay': 'Share something on this Relay',

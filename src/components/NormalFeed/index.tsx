@@ -41,7 +41,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
   ref
 ) {
   const { hideUntrustedNotes } = useUserTrust()
-  const { showKinds, showKind1OPs, showKind1Replies, showKind1111 } = useKindFilter()
+  const { showKinds, showKind1OPs, showKind1Replies, showKind1111, feedKindFilterBypass } =
+    useKindFilter()
   const [listMode, setListMode] = useState<TNoteListMode>(() => {
     const storedMode = storage.getNoteListMode()
     if (isMainFeed) {
@@ -101,7 +102,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
     if (!isMainFeed || !setSubHeader) return
     setSubHeader(tabsElement)
     return () => setSubHeader(null)
-  }, [isMainFeed, setSubHeader, listMode, showKindsKey, onSubHeaderRefresh])
+  }, [isMainFeed, setSubHeader, listMode, showKindsKey, feedKindFilterBypass, onSubHeaderRefresh])
 
   const renderTabsInFeed = !(isMainFeed && setSubHeader)
 
@@ -115,6 +116,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
           showKind1OPs={showKind1OPs}
           showKind1Replies={showKind1Replies}
           showKind1111={showKind1111}
+          seeAllFeedEvents={feedKindFilterBypass}
           subRequests={subRequests}
           hideReplies={listMode === 'posts'}
           hideUntrustedNotes={hideUntrustedNotes}

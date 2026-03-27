@@ -13,11 +13,18 @@ import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { ExtendedKind, GIF_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
-import { fetchMemes, searchMemes, type MemeMetadata } from '@/services/meme.service'
+import {
+  fetchMemes,
+  mergeMemesIntoIdbCache,
+  memeMetadataFrom1063Event,
+  searchMemes,
+  type MemeMetadata
+} from '@/services/meme.service'
 import mediaUpload from '@/services/media-upload.service'
 import { ExternalLink, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 const MEMEAMIGO_URL = 'https://www.memeamigo.lol/'
 const MEMEAMIGO_SEARCH_URL = (q: string) =>
@@ -154,10 +161,18 @@ export default function MemePicker({
         seen.add(n)
         return true
       })
-      await publish(draft, { specifiedRelayUrls })
+      const published = await publish(draft, { specifiedRelayUrls })
+      const meta = memeMetadataFrom1063Event(published)
+      if (meta) {
+        await mergeMemesIntoIdbCache([meta])
+        setMemes((prev) => {
+          const next = [meta, ...prev.filter((m) => m.eventId !== meta.eventId)]
+          return next.slice(0, 50)
+        })
+      }
       setPublishDescription('')
       setQuery('')
-      await loadMemes('', true)
+      await loadMemes('', false)
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
@@ -221,6 +236,7 @@ export default function MemePicker({
           kind: ExtendedKind.FILE_METADATA,
           content: descriptionForPublish,
           tags: [
+            ['file', url, mime, 'size 0'],
             ['url', url],
             ['m', mime],
             ['t', 'memeamigo']
@@ -235,10 +251,16 @@ export default function MemePicker({
           seen.add(n)
           return true
         })
-        await publish(draft, { specifiedRelayUrls })
+        const published = await publish(draft, { specifiedRelayUrls })
+        const meta = memeMetadataFrom1063Event(published)
+        if (meta) {
+          await mergeMemesIntoIdbCache([meta])
+        }
         setPublishDescription('')
-      } catch {
-        // ignore; URL was still inserted
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : t('Failed to publish meme template for the picker')
+        )
       } finally {
         setPublishingPaste(false)
       }

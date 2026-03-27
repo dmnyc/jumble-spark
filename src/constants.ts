@@ -124,6 +124,8 @@ export const StorageKey = {
   SHOW_KIND_1_OPs: 'showKind1OPs',
   SHOW_KIND_1_REPLIES: 'showKind1Replies',
   SHOW_KIND_1111: 'showKind1111',
+  /** When true, main feed REQs omit `kinds` and the client does not filter by kind (testing). */
+  FEED_KIND_FILTER_BYPASS: 'feedKindFilterBypass',
   /** @deprecated use SHOW_KIND_1_REPLIES + SHOW_KIND_1111 */
   SHOW_REPLIES_AND_COMMENTS: 'showRepliesAndComments',
   HIDE_CONTENT_MENTIONING_MUTED_USERS: 'hideContentMentioningMutedUsers',

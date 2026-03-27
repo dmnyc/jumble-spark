@@ -51,6 +51,7 @@ const SETTINGS_KEYS = [
   StorageKey.SHOW_KIND_1_OPs,
   StorageKey.SHOW_KIND_1_REPLIES,
   StorageKey.SHOW_KIND_1111,
+  StorageKey.FEED_KIND_FILTER_BYPASS,
   StorageKey.HIDE_CONTENT_MENTIONING_MUTED_USERS,
   StorageKey.NOTIFICATION_LIST_STYLE,
   StorageKey.MEDIA_AUTO_LOAD_POLICY,
@@ -96,6 +97,8 @@ class LocalStorageService {
   private showKind1OPs: boolean = true
   private showKind1Replies: boolean = true
   private showKind1111: boolean = true
+  /** Omit kinds in feed REQ + skip client kind filtering (testing). */
+  private feedKindFilterBypass: boolean = false
   private hideContentMentioningMutedUsers: boolean = false
   private notificationListStyle: TNotificationStyle = NOTIFICATION_LIST_STYLE.DETAILED
   private mediaAutoLoadPolicy: TMediaAutoLoadPolicy = MEDIA_AUTO_LOAD_POLICY.ALWAYS
@@ -332,6 +335,9 @@ class LocalStorageService {
       this.showKind1111 = this.showKinds.includes(ExtendedKind.COMMENT)
     }
 
+    const feedKindFilterBypassStr = window.localStorage.getItem(StorageKey.FEED_KIND_FILTER_BYPASS)
+    this.feedKindFilterBypass = feedKindFilterBypassStr === 'true'
+
     this.hideContentMentioningMutedUsers =
       window.localStorage.getItem(StorageKey.HIDE_CONTENT_MENTIONING_MUTED_USERS) === 'true'
 
@@ -512,6 +518,8 @@ class LocalStorageService {
     if (showKind1RepliesStr != null) this.showKind1Replies = showKind1RepliesStr === 'true'
     const showKind1111Str = get(StorageKey.SHOW_KIND_1111)
     if (showKind1111Str != null) this.showKind1111 = showKind1111Str === 'true'
+    const feedKindFilterBypassStr = get(StorageKey.FEED_KIND_FILTER_BYPASS)
+    if (feedKindFilterBypassStr != null) this.feedKindFilterBypass = feedKindFilterBypassStr === 'true'
     this.hideContentMentioningMutedUsers = get(StorageKey.HIDE_CONTENT_MENTIONING_MUTED_USERS) === 'true'
     const notifStyle = get(StorageKey.NOTIFICATION_LIST_STYLE)
     if (notifStyle != null) this.notificationListStyle = notifStyle === NOTIFICATION_LIST_STYLE.COMPACT ? NOTIFICATION_LIST_STYLE.COMPACT : NOTIFICATION_LIST_STYLE.DETAILED
@@ -829,6 +837,15 @@ class LocalStorageService {
   setShowKind1111(value: boolean) {
     this.showKind1111 = value
     this.persistSetting(StorageKey.SHOW_KIND_1111, value.toString())
+  }
+
+  getFeedKindFilterBypass(): boolean {
+    return this.feedKindFilterBypass
+  }
+
+  setFeedKindFilterBypass(value: boolean) {
+    this.feedKindFilterBypass = value
+    this.persistSetting(StorageKey.FEED_KIND_FILTER_BYPASS, value.toString())
   }
 
   getHideContentMentioningMutedUsers() {

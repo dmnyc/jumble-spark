@@ -25,6 +25,8 @@ type TKindFilterContext = {
   showKind1OPs: boolean
   showKind1Replies: boolean
   showKind1111: boolean
+  /** When true, main feed omits REQ `kinds` and skips client-side kind filtering (testing). */
+  feedKindFilterBypass: boolean
   updateShowKinds: (
     kinds: number[],
     options?: {
@@ -38,6 +40,7 @@ type TKindFilterContext = {
   updateShowKind1OPs: (value: boolean) => void
   updateShowKind1Replies: (value: boolean) => void
   updateShowKind1111: (value: boolean) => void
+  updateFeedKindFilterBypass: (value: boolean, options?: { persist?: boolean }) => void
 }
 
 const KindFilterContext = createContext<TKindFilterContext | undefined>(undefined)
@@ -56,6 +59,7 @@ export function KindFilterProvider({ children }: { children: React.ReactNode }) 
   const storedShowKind1OPs = storage.getShowKind1OPs()
   const storedShowKind1Replies = storage.getShowKind1Replies()
   const storedShowKind1111 = storage.getShowKind1111()
+  const storedFeedKindFilterBypass = storage.getFeedKindFilterBypass()
 
   const [showKinds, setShowKindsState] = useState<number[]>(
     storedShowKinds.length > 0 ? storedShowKinds : defaultShowKinds
@@ -63,6 +67,7 @@ export function KindFilterProvider({ children }: { children: React.ReactNode }) 
   const [showKind1OPs, setShowKind1OPsState] = useState(storedShowKind1OPs)
   const [showKind1Replies, setShowKind1RepliesState] = useState(storedShowKind1Replies)
   const [showKind1111, setShowKind1111State] = useState(storedShowKind1111)
+  const [feedKindFilterBypass, setFeedKindFilterBypassState] = useState(storedFeedKindFilterBypass)
 
   const updateShowKinds = useCallback(
     (
@@ -116,18 +121,37 @@ export function KindFilterProvider({ children }: { children: React.ReactNode }) 
     setShowKindsState(next)
   }, [showKinds, showKind1OPs, showKind1Replies])
 
+  const updateFeedKindFilterBypass = useCallback((value: boolean, options?: { persist?: boolean }) => {
+    const persist = options?.persist !== false
+    if (persist) storage.setFeedKindFilterBypass(value)
+    setFeedKindFilterBypassState(value)
+  }, [])
+
   const value = useMemo(
     () => ({
       showKinds,
       showKind1OPs,
       showKind1Replies,
       showKind1111,
+      feedKindFilterBypass,
       updateShowKinds,
       updateShowKind1OPs,
       updateShowKind1Replies,
-      updateShowKind1111
+      updateShowKind1111,
+      updateFeedKindFilterBypass
     }),
-    [showKinds, showKind1OPs, showKind1Replies, showKind1111, updateShowKinds, updateShowKind1OPs, updateShowKind1Replies, updateShowKind1111]
+    [
+      showKinds,
+      showKind1OPs,
+      showKind1Replies,
+      showKind1111,
+      feedKindFilterBypass,
+      updateShowKinds,
+      updateShowKind1OPs,
+      updateShowKind1Replies,
+      updateShowKind1111,
+      updateFeedKindFilterBypass
+    ]
   )
 
   return <KindFilterContext.Provider value={value}>{children}</KindFilterContext.Provider>

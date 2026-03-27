@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Switch } from '@/components/ui/switch'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -57,13 +58,16 @@ export default function KindFilter({
     showKind1OPs: savedShowKind1OPs,
     showKind1Replies: savedShowKind1Replies,
     showKind1111: savedShowKind1111,
-    updateShowKinds
+    feedKindFilterBypass,
+    updateShowKinds,
+    updateFeedKindFilterBypass
   } = useKindFilter()
   const [open, setOpen] = useState(false)
   const [temporaryShowKinds, setTemporaryShowKinds] = useState(showKinds)
   const [temporaryShowKind1OPs, setTemporaryShowKind1OPs] = useState(savedShowKind1OPs)
   const [temporaryShowKind1Replies, setTemporaryShowKind1Replies] = useState(savedShowKind1Replies)
   const [temporaryShowKind1111, setTemporaryShowKind1111] = useState(savedShowKind1111)
+  const [temporarySeeAllEvents, setTemporarySeeAllEvents] = useState(feedKindFilterBypass)
   const [isPersistent, setIsPersistent] = useState(true)
   const isDifferentFromSaved = useMemo(
     () => !isSameKindFilter(showKinds, savedShowKinds),
@@ -74,16 +78,19 @@ export default function KindFilter({
       !isSameKindFilter(temporaryShowKinds, savedShowKinds) ||
       temporaryShowKind1OPs !== savedShowKind1OPs ||
       temporaryShowKind1Replies !== savedShowKind1Replies ||
-      temporaryShowKind1111 !== savedShowKind1111,
+      temporaryShowKind1111 !== savedShowKind1111 ||
+      temporarySeeAllEvents !== feedKindFilterBypass,
     [
       temporaryShowKinds,
       savedShowKinds,
       temporaryShowKind1OPs,
       temporaryShowKind1Replies,
       temporaryShowKind1111,
+      temporarySeeAllEvents,
       savedShowKind1OPs,
       savedShowKind1Replies,
-      savedShowKind1111
+      savedShowKind1111,
+      feedKindFilterBypass
     ]
   )
 
@@ -93,9 +100,17 @@ export default function KindFilter({
       setTemporaryShowKind1OPs(savedShowKind1OPs)
       setTemporaryShowKind1Replies(savedShowKind1Replies)
       setTemporaryShowKind1111(savedShowKind1111)
+      setTemporarySeeAllEvents(feedKindFilterBypass)
       setIsPersistent(true)
     }
-  }, [open, showKinds, savedShowKind1OPs, savedShowKind1Replies, savedShowKind1111])
+  }, [
+    open,
+    showKinds,
+    savedShowKind1OPs,
+    savedShowKind1Replies,
+    savedShowKind1111,
+    feedKindFilterBypass
+  ])
 
   const appliedShowKinds = useMemo(
     () =>
@@ -107,10 +122,18 @@ export default function KindFilter({
       ),
     [temporaryShowKinds, temporaryShowKind1OPs, temporaryShowKind1Replies, temporaryShowKind1111]
   )
-  const canApply = appliedShowKinds.length > 0
+  const canApply = temporarySeeAllEvents || appliedShowKinds.length > 0
 
   const handleApply = () => {
     if (!canApply) return
+
+    updateFeedKindFilterBypass(temporarySeeAllEvents, { persist: isPersistent })
+
+    if (temporarySeeAllEvents) {
+      setOpen(false)
+      onShowKindsChange(showKinds)
+      return
+    }
 
     const newShowKinds = appliedShowKinds
     if (!isSameKindFilter(newShowKinds, showKinds)) {
@@ -131,7 +154,8 @@ export default function KindFilter({
       size="titlebar-icon"
       className={cn(
         'relative w-fit px-2 h-8 text-xs focus:text-foreground',
-        !isDifferentFromSaved && 'text-muted-foreground'
+        !isDifferentFromSaved && !feedKindFilterBypass && 'text-muted-foreground',
+        feedKindFilterBypass && 'text-amber-600 dark:text-amber-400'
       )}
       onClick={() => {
         if (isSmallScreen) {
@@ -149,7 +173,19 @@ export default function KindFilter({
 
   const content = (
     <div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 mb-3">
+        <span className="text-sm shrink-0">{t('Use filter')}</span>
+        <Switch
+          checked={temporarySeeAllEvents}
+          onCheckedChange={setTemporarySeeAllEvents}
+          aria-label={temporarySeeAllEvents ? t('See all events') : t('Use filter')}
+        />
+        <span className="text-sm shrink-0 text-right">{t('See all events')}</span>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        {temporarySeeAllEvents ? t('See all events hint') : t('Use filter hint')}
+      </p>
+      <div className={cn('grid grid-cols-2 gap-2', temporarySeeAllEvents && 'opacity-50')}>
         {/* Posts (OPs) - kind 1 top-level only */}
         <div
           className={cn(
@@ -239,6 +275,7 @@ export default function KindFilter({
             setTemporaryShowKind1OPs(savedShowKind1OPs)
             setTemporaryShowKind1Replies(savedShowKind1Replies)
             setTemporaryShowKind1111(savedShowKind1111)
+            setTemporarySeeAllEvents(feedKindFilterBypass)
           }}
           disabled={!isTemporaryDifferentFromSaved}
         >
