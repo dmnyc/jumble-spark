@@ -54,7 +54,8 @@ const FEED_KINDS = [
   ExtendedKind.VIDEO,
   ExtendedKind.SHORT_VIDEO,
   ExtendedKind.COMMENT,
-  kinds.Repost
+  kinds.Repost,
+  ExtendedKind.GENERIC_REPOST
 ] as number[]
 
 const feedKindSet = new Set(FEED_KINDS)

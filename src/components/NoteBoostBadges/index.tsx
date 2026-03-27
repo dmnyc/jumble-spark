@@ -11,7 +11,7 @@ import UserAvatar from '../UserAvatar'
 const MAX_VISIBLE = 28
 
 /**
- * Small avatar strip of users who boosted (kind 6) the note — shown under the OP on the note page.
+ * Small avatar strip of users who boosted (kind 6 / 16) the note — shown under the OP on the note page.
  */
 export default function NoteBoostBadges({ event, className }: { event: Event; className?: string }) {
   const { t } = useTranslation()

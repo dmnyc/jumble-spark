@@ -20,6 +20,11 @@ export function isNip25ReactionKind(kind: number): boolean {
   return kind === kinds.Reaction || kind === ExtendedKind.EXTERNAL_REACTION
 }
 
+/** NIP-18: kind 6 (kind-1 repost) or kind 16 (generic repost). */
+export function isNip18RepostKind(kind: number): boolean {
+  return kind === kinds.Repost || kind === ExtendedKind.GENERIC_REPOST
+}
+
 const EVENT_EMBEDDED_NOTES_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_EMBEDDED_PUBKEYS_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_IS_REPLY_NOTE_CACHE = new LRUCache<string, boolean>({ max: 10000 })
@@ -83,12 +88,8 @@ export function isMentioningMutedUsers(event: Event, mutePubkeySet: Set<string>)
 export function getParentETag(event?: Event) {
   if (!event) return undefined
 
-  // NIP-25 reactions, NIP-18 reposts, poll responses: first hex `e` / `E` references the target note.
-  if (
-    event.kind === kinds.Reaction ||
-    event.kind === kinds.Repost ||
-    event.kind === ExtendedKind.POLL_RESPONSE
-  ) {
+  // NIP-25 reactions, NIP-18 reposts (6 / 16), poll responses: first hex `e` / `E` references the target note.
+  if (event.kind === kinds.Reaction || isNip18RepostKind(event.kind) || event.kind === ExtendedKind.POLL_RESPONSE) {
     const firstId = getFirstHexEventIdFromETags(event.tags)
     if (!firstId) return undefined
     return (
@@ -120,14 +121,15 @@ export function getParentETag(event?: Event) {
 
   if (event.kind !== kinds.ShortTextNote) return undefined
 
+  const isETag = (n: string) => n === 'e' || n === 'E'
   let tag = event.tags.find(([tagName, , , marker]) => {
-    return tagName === 'e' && marker === 'reply'
+    return isETag(tagName) && marker === 'reply'
   })
   if (!tag) {
     const embeddedEventIds = getEmbeddedNoteBech32Ids(event)
     tag = event.tags.findLast(
       ([tagName, tagValue, , marker]) =>
-        tagName === 'e' &&
+        isETag(tagName) &&
         !!tagValue &&
         marker !== 'mention' &&
         !embeddedEventIds.includes(tagValue)
@@ -191,13 +193,15 @@ export function getRootETag(event?: Event) {
 
   if (event.kind !== kinds.ShortTextNote) return undefined
 
+  const isETag = (n: string) => n === 'e' || n === 'E'
   let tag = event.tags.find(([tagName, , , marker]) => {
-    return tagName === 'e' && marker === 'root'
+    return isETag(tagName) && marker === 'root'
   })
   if (!tag) {
     const embeddedEventIds = getEmbeddedNoteBech32Ids(event)
     tag = event.tags.find(
-      ([tagName, tagValue]) => tagName === 'e' && !!tagValue && !embeddedEventIds.includes(tagValue)
+      ([tagName, tagValue]) =>
+        isETag(tagName) && !!tagValue && !embeddedEventIds.includes(tagValue)
     )
   }
   return tag

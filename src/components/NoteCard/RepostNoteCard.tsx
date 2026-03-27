@@ -1,5 +1,6 @@
+import { ExtendedKind } from '@/constants'
 import { isMentioningMutedUsers } from '@/lib/event'
-import { tagNameEquals } from '@/lib/tag'
+import { generateBech32IdFromATag, getFirstHexEventIdFromETags, tagNameEquals } from '@/lib/tag'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
 import client from '@/services/client.service'
@@ -37,7 +38,7 @@ export default function RepostNoteCard({
       try {
         const eventFromContent = event.content ? (JSON.parse(event.content) as Event) : null
         if (eventFromContent && verifyEvent(eventFromContent)) {
-          if (eventFromContent.kind === kinds.Repost) {
+          if (eventFromContent.kind === kinds.Repost || eventFromContent.kind === ExtendedKind.GENERIC_REPOST) {
             return
           }
           client.addEventToCache(eventFromContent)
@@ -52,18 +53,32 @@ export default function RepostNoteCard({
           return
         }
 
-        const [, id, relay, , pubkey] = event.tags.find(tagNameEquals('e')) ?? []
-        if (!id) {
+        const hex = getFirstHexEventIdFromETags(event.tags)
+        if (hex) {
+          const row =
+            event.tags.find((t) => (t[0] === 'e' || t[0] === 'E') && t[1] === hex) ?? []
+          const [, id, relay, , pubkey] = row
+          const targetEventId = nip19.neventEncode({
+            id,
+            relays: relay ? [relay] : [],
+            author: pubkey
+          })
+          const targetEvent = await eventService.fetchEvent(targetEventId)
+          if (targetEvent) {
+            setTargetEvent(targetEvent)
+          }
           return
         }
-        const targetEventId = nip19.neventEncode({
-          id,
-          relays: relay ? [relay] : [],
-          author: pubkey
-        })
-        const targetEvent = await eventService.fetchEvent(targetEventId)
-        if (targetEvent) {
-          setTargetEvent(targetEvent)
+
+        if (event.kind === ExtendedKind.GENERIC_REPOST) {
+          const aRow = event.tags.find(tagNameEquals('a')) ?? event.tags.find(tagNameEquals('A'))
+          const naddr = aRow ? generateBech32IdFromATag(aRow) : undefined
+          if (naddr) {
+            const ev = await eventService.fetchEvent(naddr)
+            if (ev) {
+              setTargetEvent(ev)
+            }
+          }
         }
       } catch {
         // ignore

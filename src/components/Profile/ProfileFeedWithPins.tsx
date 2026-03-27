@@ -45,8 +45,13 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
   const { showKinds, showKind1OPs, showKind1Replies, showKind1111 } = useKindFilter()
   /** Profile timelines always show reposts; global kind filter still applies to other kinds. */
   const profileTimelineShowKinds = useMemo(() => {
-    if (showKinds.includes(kinds.Repost)) return showKinds
-    return [...showKinds, kinds.Repost].sort((a, b) => a - b)
+    if (showKinds.includes(kinds.Repost) && showKinds.includes(ExtendedKind.GENERIC_REPOST)) {
+      return showKinds
+    }
+    const next = [...showKinds]
+    if (!next.includes(kinds.Repost)) next.push(kinds.Repost)
+    if (!next.includes(ExtendedKind.GENERIC_REPOST)) next.push(ExtendedKind.GENERIC_REPOST)
+    return next.sort((a, b) => a - b)
   }, [showKinds])
   const hideReplies = useHideRepliesLikeMainFeed()
   const [searchQuery, setSearchQuery] = useState('')

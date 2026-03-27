@@ -5,7 +5,7 @@ import {
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
 import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
-import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
+import { getReplaceableCoordinateFromEvent, isNip18RepostKind, isReplaceableEvent } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import {
@@ -288,6 +288,7 @@ class NoteStatsService {
   ): { nonSocial: Filter[]; social: Filter[] } {
     const reactionLimit = 300
     const interactionLimit = 80
+    const nip18RepostKinds = [kinds.Repost, ExtendedKind.GENERIC_REPOST]
 
     /** Synthetic RSS/Web parents are not on relays; `#e` on the fake id returns nothing. Use only URL-scoped filters. */
     if (event.kind === ExtendedKind.RSS_THREAD_ROOT) {
@@ -326,7 +327,7 @@ class NoteStatsService {
       {
         '#e': [event.id],
         kinds: [
-          kinds.Repost,
+          ...nip18RepostKinds,
           kinds.ShortTextNote,
           ExtendedKind.COMMENT,
           ExtendedKind.VOICE_COMMENT,
@@ -350,7 +351,7 @@ class NoteStatsService {
         {
           '#a': [replaceableCoordinate],
           kinds: [
-            kinds.Repost,
+            ...nip18RepostKinds,
             kinds.ShortTextNote,
             ExtendedKind.COMMENT,
             ExtendedKind.VOICE_COMMENT,
@@ -463,7 +464,7 @@ class NoteStatsService {
         originalEventAuthor,
         mergeOpts?.interactionTargetNoteId
       )
-    } else if (evt.kind === kinds.Repost) {
+    } else if (isNip18RepostKind(evt.kind)) {
       updatedEventId = this.addRepostByEvent(evt, originalEventAuthor, mergeOpts?.interactionTargetNoteId)
     } else if (evt.kind === kinds.Zap) {
       updatedEventId = this.addZapByEvent(evt, originalEventAuthor)
@@ -587,8 +588,32 @@ class NoteStatsService {
     return eventId
   }
 
+  private repostStatsTargetId(evt: Event, forcedTargetEventId?: string): string | undefined {
+    const forced = forcedTargetEventId?.trim()
+    if (forced) return forced
+    const hex = getFirstHexEventIdFromETags(evt.tags)
+    if (hex) return hex.toLowerCase()
+    if (evt.kind === ExtendedKind.GENERIC_REPOST) {
+      const aTag = evt.tags.find(tagNameEquals('a')) ?? evt.tags.find(tagNameEquals('A'))
+      const coord = aTag?.[1]?.trim()
+      if (coord) return coord
+      const raw = evt.content?.trim()
+      if (raw) {
+        try {
+          const embedded = JSON.parse(raw) as { id?: string }
+          if (embedded.id && /^[0-9a-f]{64}$/i.test(embedded.id)) {
+            return embedded.id.toLowerCase()
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return undefined
+  }
+
   private addRepostByEvent(evt: Event, originalEventAuthor?: string, forcedTargetEventId?: string) {
-    const eventId = forcedTargetEventId ?? getFirstHexEventIdFromETags(evt.tags)
+    const eventId = this.repostStatsTargetId(evt, forcedTargetEventId)
     if (!eventId) return
 
     const old = this.noteStatsMap.get(eventId) || {}

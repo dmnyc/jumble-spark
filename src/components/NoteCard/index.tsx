@@ -1,8 +1,8 @@
 import { Skeleton } from '@/components/ui/skeleton'
-import { isMentioningMutedUsers } from '@/lib/event'
+import { isMentioningMutedUsers, isNip18RepostKind } from '@/lib/event'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
-import { Event, kinds } from 'nostr-tools'
+import { Event } from 'nostr-tools'
 import { memo, useMemo } from 'react'
 import MainNoteCard from './MainNoteCard'
 import RepostNoteCard from './RepostNoteCard'
@@ -36,7 +36,7 @@ const NoteCard = memo(function NoteCard({
   }, [event, filterMutedNotes, mutePubkeySet])
   if (shouldHide) return null
 
-  if (event.kind === kinds.Repost) {
+  if (isNip18RepostKind(event.kind)) {
     return (
       <RepostNoteCard
         event={event}

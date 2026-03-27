@@ -20,6 +20,12 @@ function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
   const { search: _search, ...rest } = f
   return rest as Filter
 }
+
+/** Single key for `pool.seenOn` / query seen-on maps (hex ids are case-insensitive). */
+function canonicalSeenOnEventId(eventId: string): string {
+  const t = eventId.trim()
+  return /^[0-9a-f]{64}$/i.test(t) ? t.toLowerCase() : t
+}
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
@@ -2116,11 +2122,19 @@ class ClientService extends EventTarget {
   /** =========== Event =========== */
 
   getSeenEventRelays(eventId: string) {
-    return Array.from(this.pool.seenOn.get(eventId)?.values() || [])
+    const key = canonicalSeenOnEventId(eventId)
+    return Array.from(this.pool.seenOn.get(key)?.values() || [])
   }
 
-  getSeenEventRelayUrls(eventId: string) {
-    return this.getSeenEventRelays(eventId).map((relay) => relay.url)
+  /**
+   * Relays that delivered this event: {@link SimplePool.seenOn} (live subs) plus
+   * {@link QueryService}’s map for `query()` / `fetchEvents` REQs.
+   */
+  getSeenEventRelayUrls(eventId: string): string[] {
+    const key = canonicalSeenOnEventId(eventId)
+    const poolUrls = this.getSeenEventRelays(key).map((r) => normalizeUrl(r.url) || r.url)
+    const queryUrls = this.queryService.getSeenEventRelayUrls(key).map((u) => normalizeUrl(u) || u)
+    return Array.from(new Set([...poolUrls, ...queryUrls].filter(Boolean)))
   }
 
   getEventHints(eventId: string) {
@@ -2132,10 +2146,11 @@ class ClientService extends EventTarget {
   }
 
   trackEventSeenOn(eventId: string, relay: AbstractRelay) {
-    let set = this.pool.seenOn.get(eventId)
+    const key = canonicalSeenOnEventId(eventId)
+    let set = this.pool.seenOn.get(key)
     if (!set) {
       set = new Set()
-      this.pool.seenOn.set(eventId, set)
+      this.pool.seenOn.set(key, set)
     }
     set.add(relay)
   }

@@ -27,9 +27,25 @@ export default function SeenOnButton({ event }: { event: Event }) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
 
   useEffect(() => {
-    const seenOn = client.getSeenEventRelayUrls(event.id)
-    setRelays(seenOn)
-  }, [])
+    let cancelled = false
+    let attempts = 0
+    const maxAttempts = 20
+    const apply = () => {
+      const seenOn = client.getSeenEventRelayUrls(event.id)
+      if (!cancelled) setRelays(seenOn)
+      return seenOn.length > 0
+    }
+    if (apply()) return
+    const id = setInterval(() => {
+      if (cancelled) return
+      attempts++
+      if (apply() || attempts >= maxAttempts) clearInterval(id)
+    }, 500)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [event.id])
 
   const trigger = (
     <button

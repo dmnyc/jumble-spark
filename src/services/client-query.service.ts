@@ -154,18 +154,24 @@ export class QueryService {
     }
   }
 
+  private canonicalSeenOnEventId(eventId: string): string {
+    const t = eventId.trim()
+    return /^[0-9a-f]{64}$/i.test(t) ? t.toLowerCase() : t
+  }
+
   trackEventSeenOn(eventId: string, relay: AbstractRelay): void {
+    const id = this.canonicalSeenOnEventId(eventId)
     const url = relay.url
-    let set = this.eventSeenOnRelays.get(eventId)
+    let set = this.eventSeenOnRelays.get(id)
     if (!set) {
       set = new Set()
-      this.eventSeenOnRelays.set(eventId, set)
+      this.eventSeenOnRelays.set(id, set)
     }
     set.add(url)
   }
 
   getSeenEventRelayUrls(eventId: string): string[] {
-    return Array.from(this.eventSeenOnRelays.get(eventId) ?? [])
+    return Array.from(this.eventSeenOnRelays.get(this.canonicalSeenOnEventId(eventId)) ?? [])
   }
 
   /**

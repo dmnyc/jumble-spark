@@ -125,14 +125,19 @@ export function createReactionDraftEvent(event: Event, emoji: TEmoji | string = 
 // https://github.com/nostr-protocol/nips/blob/master/18.md
 export function createRepostDraftEvent(event: Event): TDraftEvent {
   const isProtected = isProtectedEvent(event)
-  const tags = [buildETag(event.id, event.pubkey), buildPTag(event.pubkey)]
+  const tags: string[][] = [buildETag(event.id, event.pubkey), buildPTag(event.pubkey)]
 
   if (isReplaceableEvent(event.kind)) {
     tags.push(buildATag(event))
   }
 
+  const useGenericRepost = event.kind !== kinds.ShortTextNote
+  if (useGenericRepost) {
+    tags.push(['k', String(event.kind)])
+  }
+
   return {
-    kind: kinds.Repost,
+    kind: useGenericRepost ? ExtendedKind.GENERIC_REPOST : kinds.Repost,
     content: isProtected ? '' : JSON.stringify(event),
     tags,
     created_at: dayjs().unix()

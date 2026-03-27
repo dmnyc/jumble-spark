@@ -211,6 +211,7 @@ class Nip89Service {
       supportedKinds: [
         kinds.ShortTextNote,
         kinds.Repost,
+        ExtendedKind.GENERIC_REPOST,
         kinds.Reaction,
         kinds.Zap,
         kinds.LongFormArticle,

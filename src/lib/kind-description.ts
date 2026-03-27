@@ -66,6 +66,8 @@ export function getKindDescription(
       return { number: 0, description: 'Profile metadata' }
     case kinds.Repost:
       return { number: 6, description: 'Repost' }
+    case ExtendedKind.GENERIC_REPOST:
+      return { number: 16, description: 'Generic repost' }
     case kinds.Reaction:
       return { number: 7, description: 'Reaction' }
     case ExtendedKind.EXTERNAL_REACTION:

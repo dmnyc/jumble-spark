@@ -318,6 +318,8 @@ export const ExtendedKind = {
   RSS_FEED_LIST: 10895,
   /** Client-only synthetic "parent" for RSS article threads; never published to relays */
   RSS_THREAD_ROOT: 99999,
+  /** NIP-18: generic repost of any event other than kind 1 (kind 6 is kind-1-only). */
+  GENERIC_REPOST: 16,
   /** NIP-25: reaction to external content (NIP-73 `k` + `i`), e.g. http(s) URLs */
   EXTERNAL_REACTION: 17,
   // NIP-89 Application Handlers
@@ -397,6 +399,7 @@ export const MAX_CALENDAR_INVITEES = 10
 export const SUPPORTED_KINDS = [
   kinds.ShortTextNote,
   kinds.Repost,
+  ExtendedKind.GENERIC_REPOST,
   ExtendedKind.PICTURE,
   ExtendedKind.VIDEO,
   ExtendedKind.SHORT_VIDEO,
@@ -435,10 +438,12 @@ export const PROFILE_FEED_KINDS = SUPPORTED_KINDS.filter(
 )
 
 /**
- * {@link PROFILE_FEED_KINDS} without reposts (kind 6). Default for the global kind filter, home feed,
+ * {@link PROFILE_FEED_KINDS} without reposts (kind 6 / 16). Default for the global kind filter, home feed,
  * and most faux spells. Reposts are still shown on profile timelines, Spells → Following, and Follows latest.
  */
-export const DEFAULT_FEED_SHOW_KINDS = PROFILE_FEED_KINDS.filter((k) => k !== kinds.Repost)
+export const DEFAULT_FEED_SHOW_KINDS = PROFILE_FEED_KINDS.filter(
+  (k) => k !== kinds.Repost && k !== ExtendedKind.GENERIC_REPOST
+)
 
 /** Order for faux-spells in the feed / spell picker. */
 export const FAUX_SPELL_ORDER = [

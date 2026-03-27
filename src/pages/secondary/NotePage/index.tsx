@@ -187,6 +187,7 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
       case 9735: // ExtendedKind.ZAP_RECEIPT
         return 'Note: Zap Receipt'
       case 6: // kinds.Repost (Nostr boost)
+      case 16: // ExtendedKind.GENERIC_REPOST (NIP-18)
         return 'Note: Boost'
       case 7: // kinds.Reaction
         return 'Note: Reaction'

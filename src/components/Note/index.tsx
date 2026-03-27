@@ -1,7 +1,13 @@
 import { useSmartNoteNavigationOptional } from '@/PageManager'
 import { ExtendedKind } from '@/constants'
 import { isRenderableNoteKind } from '@/lib/note-renderable-kinds'
-import { getHttpUrlFromITags, getParentBech32Id, isNip25ReactionKind, isNsfwEvent } from '@/lib/event'
+import {
+  getHttpUrlFromITags,
+  getParentBech32Id,
+  isNip18RepostKind,
+  isNip25ReactionKind,
+  isNsfwEvent
+} from '@/lib/event'
 import { toNote } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import {
@@ -157,7 +163,7 @@ export default function Note({
     content = <NsfwNote show={() => setShowNsfw(true)} />
   } else if (isNip25ReactionKind(event.kind)) {
     content = null
-  } else if (event.kind === kinds.Repost || event.kind === ExtendedKind.POLL_RESPONSE) {
+  } else if (isNip18RepostKind(event.kind) || event.kind === ExtendedKind.POLL_RESPONSE) {
     content = <NotificationEventCard className="mt-2" event={event} />
   } else if (event.kind === kinds.Highlights) {
     // Try to render the Highlight component with error boundary

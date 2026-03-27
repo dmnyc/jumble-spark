@@ -982,8 +982,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     if (selectedFauxSpell && isFollowFeedFauxSpellId(selectedFauxSpell)) {
       // Profile feed kinds omit boosts; show reposts as cards in this faux spell only.
       const k = kindFilterShowKinds
-      if (k.includes(nostrKinds.Repost)) return k
-      return [...k, nostrKinds.Repost].sort((a, b) => a - b)
+      const out = [...k]
+      if (!out.includes(nostrKinds.Repost)) out.push(nostrKinds.Repost)
+      if (!out.includes(ExtendedKind.GENERIC_REPOST)) out.push(ExtendedKind.GENERIC_REPOST)
+      return out.sort((a, b) => a - b)
     }
     if (selectedFauxSpell === 'followPacks') {
       return [ExtendedKind.FOLLOW_PACK]

@@ -4,7 +4,7 @@ import {
   notificationReactionSummaryKey,
   useNotificationReactionDisplay
 } from '@/hooks/useNotificationReactionDisplay'
-import { isMentioningMutedUsers, isNip25ReactionKind } from '@/lib/event'
+import { isMentioningMutedUsers, isNip18RepostKind, isNip25ReactionKind } from '@/lib/event'
 import {
   DISCUSSION_DOWNVOTE_DISPLAY,
   DISCUSSION_UPVOTE_DISPLAY
@@ -204,7 +204,7 @@ export default function ContentPreview({
     )
   }
 
-  if (event.kind === kinds.Repost) {
+  if (isNip18RepostKind(event.kind)) {
     return withKindRow(
       <div className="pointer-events-none text-sm text-muted-foreground">{t('Notification boost summary')}</div>
     )

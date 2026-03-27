@@ -471,7 +471,7 @@ export class EventService {
       const qref = getQuotedReferenceFromQTags(ev)
       add(qref?.hexId)
       add(qref?.coordinate)
-      if (ev.kind === kinds.Zap) {
+      if (ev.kind === kinds.Zap || ev.kind === kinds.Repost || ev.kind === ExtendedKind.GENERIC_REPOST) {
         add(getFirstHexEventIdFromETags(ev.tags))
       }
       if (

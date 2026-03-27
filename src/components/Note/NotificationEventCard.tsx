@@ -1,6 +1,7 @@
 import { ExtendedKind } from '@/constants'
+import { isNip18RepostKind } from '@/lib/event'
 import { cn } from '@/lib/utils'
-import { Event, kinds } from 'nostr-tools'
+import { Event } from 'nostr-tools'
 import { useTranslation } from 'react-i18next'
 
 /**
@@ -10,7 +11,7 @@ import { useTranslation } from 'react-i18next'
 export default function NotificationEventCard({ event, className }: { event: Event; className?: string }) {
   const { t } = useTranslation()
 
-  if (event.kind === kinds.Repost) {
+  if (isNip18RepostKind(event.kind)) {
     return (
       <div
         className={cn(
