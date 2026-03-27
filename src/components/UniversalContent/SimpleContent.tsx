@@ -48,7 +48,7 @@ export default function SimpleContent({
 
   return (
     <div className={cn('prose prose-sm prose-zinc max-w-none break-words dark:prose-invert w-full', className)}>
-      {renderNostrContent(parsedContent)}
+      {renderNostrContent(parsedContent, undefined, event)}
     </div>
   )
 }

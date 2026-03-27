@@ -3,9 +3,8 @@
  */
 
 import { nip19 } from 'nostr-tools'
-import { EmbeddedMention, EmbeddedNote } from '@/components/Embedded'
+import { EmbeddedMention, EmbeddedNote, HttpNostrAwareUrl } from '@/components/Embedded'
 import ImageGallery from '@/components/ImageGallery'
-import WebPreview from '@/components/WebPreview'
 import { BookstrContent } from '@/components/Bookstr/BookstrContent'
 import { cleanUrl, isImage, isMedia, isPseudoNostrHttpsUrl } from '@/lib/url'
 import { getImetaInfosFromEvent } from '@/lib/event'
@@ -19,7 +18,7 @@ import { logContentSpacing, reprString } from '@/lib/content-spacing-debug'
 
 export interface ParsedNostrContent {
   elements: Array<{
-    type: 'text' | 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'gallery' | 'url' | 'jumble-note' | 'payto'
+    type: 'text' | 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'gallery' | 'url' | 'payto'
     content: string
     bech32Id?: string
     nostrType?: 'npub' | 'nprofile' | 'nevent' | 'naddr' | 'note'
@@ -62,16 +61,13 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
   // Regex to match wikilinks: [[target]] or [[target|display text]] or [[book::...]]
   const wikilinkRegex = /\[\[([^|\]]+)(?:\|([^\]]+))?\]\]/g
   
-  // Regex to match Jumble note URLs: https://jumble.imwald.eu/notes/noteId
-  const jumbleNoteRegex = /(https:\/\/jumble\.imwald\.eu\/notes\/([a-zA-Z0-9]+))/g
-  
   // Regex to match bookstr search URLs: any URL containing book%3A%3A or book::
   // Matches the pattern and captures the search term (everything after book%3A%3A or book:: until /, ?, #, &, or end)
   const bookstrUrlRegex = /(https?:\/\/[^\s]*(?:book%3A%3A|book::)([^\/\?\#\&\s]+))/gi
   
-  // Collect all matches (nostr, URLs, hashtags, wikilinks, jumble notes, and bookstr URLs) and sort by position
+  // Collect all matches (nostr, URLs, hashtags, wikilinks, bookstr URLs) and sort by position
   const allMatches: Array<{
-    type: 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'url' | 'jumble-note' | 'payto'
+    type: 'nostr' | 'image' | 'video' | 'audio' | 'hashtag' | 'wikilink' | 'bookstr-wikilink' | 'url' | 'payto'
     match: RegExpExecArray
     start: number
     end: number
@@ -81,7 +77,6 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
     displayText?: string
     bookstrWikilink?: string
     sourceUrl?: string
-    noteId?: string
     paytoUri?: string
   }> = []
   
@@ -253,25 +248,12 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
     }
   }
   
-  // Find Jumble note URL matches
-  let jumbleNoteMatch
-  while ((jumbleNoteMatch = jumbleNoteRegex.exec(content)) !== null) {
-    allMatches.push({
-      type: 'jumble-note',
-      match: jumbleNoteMatch,
-      start: jumbleNoteMatch.index,
-      end: jumbleNoteMatch.index + jumbleNoteMatch[0].length,
-      url: jumbleNoteMatch[1],
-      noteId: jumbleNoteMatch[2]
-    })
-  }
-  
   // Sort matches by position
   allMatches.sort((a, b) => a.start - b.start)
   
   let lastIndex = 0
   
-  for (const { type, match, start, end, url, hashtag, wikilink, displayText, bookstrWikilink, sourceUrl, noteId, paytoUri } of allMatches) {
+  for (const { type, match, start, end, url, hashtag, wikilink, displayText, bookstrWikilink, sourceUrl, paytoUri } of allMatches) {
     // Add text before the match
     if (start > lastIndex) {
       const textContent = content.slice(lastIndex, start)
@@ -372,13 +354,6 @@ export function parseNostrContent(content: string, event?: Event): ParsedNostrCo
         type: 'url',
         content: match[0],
         url: url
-      })
-    } else if (type === 'jumble-note' && url && noteId) {
-      elements.push({
-        type: 'jumble-note',
-        content: match[0],
-        url: url,
-        noteId: noteId
       })
     } else if (type === 'payto' && paytoUri) {
       elements.push({
@@ -556,7 +531,11 @@ function getNostrType(bech32Id: string): 'npub' | 'nprofile' | 'nevent' | 'naddr
 /**
  * Render parsed nostr content as React elements
  */
-export function renderNostrContent(parsedContent: ParsedNostrContent, className?: string): JSX.Element {
+export function renderNostrContent(
+  parsedContent: ParsedNostrContent,
+  className?: string,
+  containingEvent?: Event
+): JSX.Element {
   return (
     <div className={className}>
       {parsedContent.elements.map((element, index) => {
@@ -671,26 +650,16 @@ export function renderNostrContent(parsedContent: ParsedNostrContent, className?
         }
         
         if (element.type === 'url' && element.url) {
-          // Use WebPreview for URLs to show OpenGraph cards
           return (
-            <WebPreview
+            <HttpNostrAwareUrl
               key={index}
               url={element.url}
-              className="mt-2"
+              renderMode="article"
+              containingEvent={containingEvent}
             />
           )
         }
-        
-        if (element.type === 'jumble-note' && element.noteId) {
-          return (
-            <EmbeddedNote
-              key={index}
-              noteId={element.noteId}
-              className="not-prose inline-block"
-            />
-          )
-        }
-        
+
         if (element.type === 'payto' && element.paytoUri) {
           return (
             <PaytoLink

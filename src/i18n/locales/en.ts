@@ -27,6 +27,7 @@ export default {
     SidebarRelays: 'Relays',
     Refresh: 'Refresh',
     'refresh.longPressHardReload': 'Long-press: reload app and restore feed cache',
+    'link.expandNostrEmbed': 'Show Nostr preview',
     Profile: 'Profile',
     Logout: 'Logout',
     Following: 'Following',

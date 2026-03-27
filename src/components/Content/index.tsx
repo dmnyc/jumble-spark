@@ -7,6 +7,7 @@ import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { cn } from '@/lib/utils'
 import { getHttpUrlFromITags } from '@/lib/event'
+import { httpUrlSkipsBottomWebPreview } from '@/lib/nostr-from-http-url'
 import { cleanUrl, isImage, isMedia, isAudio, isVideo, isPseudoNostrHttpsUrl } from '@/lib/url'
 import { TImetaInfo } from '@/types'
 import { Event } from 'nostr-tools'
@@ -17,7 +18,8 @@ import {
   EmbeddedMention,
   EmbeddedNormalUrl,
   EmbeddedNote,
-  EmbeddedWebsocketUrl
+  EmbeddedWebsocketUrl,
+  HttpNostrAwareUrl
 } from '../Embedded'
 import PaytoLink from '../PaytoLink'
 import Emoji from '../Emoji'
@@ -109,7 +111,8 @@ export default function Content({
     if (!nodes) return []
     const links: string[] = []
     const seenUrls = new Set<string>()
-    
+    const appOrigin = typeof window !== 'undefined' ? window.location.origin : null
+
     nodes.forEach((node) => {
       if (node.type === 'url') {
         const url = node.data
@@ -121,14 +124,19 @@ export default function Content({
           !isYouTubeUrl(url)
         ) {
           const cleaned = cleanUrl(url)
-          if (cleaned && !seenUrls.has(cleaned) && !(iArticleCleaned && cleaned === iArticleCleaned)) {
+          if (
+            cleaned &&
+            !seenUrls.has(cleaned) &&
+            !(iArticleCleaned && cleaned === iArticleCleaned) &&
+            !httpUrlSkipsBottomWebPreview(url, appOrigin)
+          ) {
             links.push(cleaned)
             seenUrls.add(cleaned)
           }
         }
       }
     })
-    
+
     return links
   }, [nodes, iArticleCleaned])
 
@@ -461,7 +469,14 @@ export default function Content({
           if (iArticleCleaned && cleanedUrl === iArticleCleaned) {
             return null
           }
-          return <EmbeddedNormalUrl url={node.data} key={index} />
+          return (
+            <HttpNostrAwareUrl
+              key={index}
+              url={node.data}
+              renderMode="note-content"
+              containingEvent={event}
+            />
+          )
         }
         if (node.type === 'invoice') {
           return <EmbeddedLNInvoice invoice={node.data} key={index} className="mt-2" />

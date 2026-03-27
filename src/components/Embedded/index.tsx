@@ -1,4 +1,5 @@
 export * from './EmbeddedCalendarEvent'
+export * from './HttpNostrAwareUrl'
 export * from './EmbeddedHashtag'
 export * from './EmbeddedLNInvoice'
 export * from './EmbeddedMention'

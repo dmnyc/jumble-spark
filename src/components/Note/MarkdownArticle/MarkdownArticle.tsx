@@ -32,7 +32,7 @@ import { createPortal } from 'react-dom'
 import Lightbox from 'yet-another-react-lightbox'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import CalendarEventContent from '@/components/CalendarEventContent'
-import { EmbeddedNote, EmbeddedMention } from '@/components/Embedded'
+import { EmbeddedNote, EmbeddedMention, HttpNostrAwareUrl } from '@/components/Embedded'
 import EmbeddedCitation from '@/components/EmbeddedCitation'
 import { preprocessMarkdownMediaLinks } from './preprocessMarkup'
 import { PAYTO_URI_REGEX, parsePaytoUri } from '@/lib/payto'
@@ -439,6 +439,8 @@ function parseMarkdownContent(
     fullCalendarInvite?: { naddr: string; event: Event }
     /** Cleaned URL variants: standalone markdown links matching any render as inline (OG elsewhere). */
     suppressStandaloneWebPreviewCleanedUrls?: ReadonlySet<string>
+    /** Event whose body is being rendered (embedded notes / HTTP nostr links). */
+    containingEvent?: Event
   }
 ): { nodes: React.ReactNode[]; hashtagsInContent: Set<string>; footnotes: Map<string, string>; citations: Array<{ id: string; type: string; citationId: string }> } {
   const {
@@ -452,7 +454,8 @@ function parseMarkdownContent(
     getImageIdentifier,
     emojiInfos = [],
     fullCalendarInvite,
-    suppressStandaloneWebPreviewCleanedUrls
+    suppressStandaloneWebPreviewCleanedUrls,
+    containingEvent
   } = options
   const parts: React.ReactNode[] = []
   const hashtagsInContent = new Set<string>()
@@ -1878,8 +1881,12 @@ function parseMarkdownContent(
         )
       } else {
         parts.push(
-          <div key={`webpreview-${patternIdx}`} className="my-2">
-            <WebPreview url={url} className="w-full" />
+          <div key={`http-nostr-url-${patternIdx}`} className="my-2 not-prose max-w-full">
+            <HttpNostrAwareUrl
+              url={url}
+              renderMode="article"
+              containingEvent={containingEvent}
+            />
           </div>
         )
       }
@@ -3648,6 +3655,7 @@ export default function MarkdownArticle({
       getImageIdentifier,
       emojiInfos,
       fullCalendarInvite,
+      containingEvent: event,
       suppressStandaloneWebPreviewCleanedUrls:
         webPreviewSuppressCleanedSet.size > 0 ? webPreviewSuppressCleanedSet : undefined
     })
@@ -3655,6 +3663,7 @@ export default function MarkdownArticle({
     return { nodes: result.nodes, hashtagsInContent: result.hashtagsInContent }
   }, [
     preprocessedContent,
+    event,
     event.pubkey,
     imageIndexMap,
     openLightbox,
