@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import storage from './services/local-storage.service'
+import { restoreSessionFeedSnapshotsAfterHardRefresh } from './services/session-feed-snapshot.service'
 
 declare global {
   interface Window {
@@ -47,6 +48,7 @@ async function bootstrap() {
     })()
   ])
   console.info('[jumble] Boot: mounting React (UI shell will appear; Nostr session restores next)')
+  restoreSessionFeedSnapshotsAfterHardRefresh()
   // Mark session storage as used so it's visible in DevTools; VersionUpdateBanner and NotePage also use it.
   try {
     sessionStorage.setItem(SESSION_STORAGE_KEY, String(Date.now()))

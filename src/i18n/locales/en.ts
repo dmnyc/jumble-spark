@@ -26,6 +26,7 @@ export default {
     'Account menu': 'Account menu',
     SidebarRelays: 'Relays',
     Refresh: 'Refresh',
+    'refresh.longPressHardReload': 'Long-press: reload app and restore feed cache',
     Profile: 'Profile',
     Logout: 'Logout',
     Following: 'Following',

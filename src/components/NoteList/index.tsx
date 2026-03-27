@@ -26,6 +26,7 @@ import { useZap } from '@/providers/ZapProvider'
 import client from '@/services/client.service'
 import {
   getSessionFeedSnapshot,
+  hardReloadPreservingFeedSnapshots,
   setSessionFeedSnapshot
 } from '@/services/session-feed-snapshot.service'
 import type { TFeedSubRequest, TSubRequestFilter } from '@/types'
@@ -48,6 +49,7 @@ import {
   useState
 } from 'react'
 import { CircleAlert } from 'lucide-react'
+import { useLongPressAction } from '@/hooks/use-long-press-action'
 import { useTranslation } from 'react-i18next'
 import PullToRefresh from 'react-simple-pull-to-refresh'
 import { toast } from 'sonner'
@@ -654,6 +656,8 @@ const NoteList = forwardRef(
         setRefreshCount((count) => count + 1)
       }, 500)
     }, [scrollToTop])
+
+    const emptyFeedHardReloadLongPress = useLongPressAction(hardReloadPreservingFeedSnapshots)
 
     useImperativeHandle(ref, () => ({ scrollToTop, refresh }), [scrollToTop, refresh])
 
@@ -1707,7 +1711,20 @@ const NoteList = forwardRef(
             role="status"
           >
             <p>{t('No posts loaded for this feed. Try refreshing.')}</p>
-            <Button type="button" variant="outline" size="sm" onClick={() => refresh()}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              title={t('refresh.longPressHardReload')}
+              onPointerDown={emptyFeedHardReloadLongPress.onPointerDown}
+              onPointerUp={emptyFeedHardReloadLongPress.onPointerUp}
+              onPointerLeave={emptyFeedHardReloadLongPress.onPointerLeave}
+              onPointerCancel={emptyFeedHardReloadLongPress.onPointerCancel}
+              onClick={() => {
+                if (emptyFeedHardReloadLongPress.consumeIfLongPress()) return
+                refresh()
+              }}
+            >
               {t('Refresh')}
             </Button>
           </div>

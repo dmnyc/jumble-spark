@@ -827,6 +827,38 @@ class ClientService extends EventTarget {
     })
   }
 
+  /**
+   * If every URL was session-striked, clear strikes once so reads/publishes can retry (mobile WebSocket churn).
+   */
+  clearSessionRelayStrikes(): void {
+    if (this.publishStrikeCount.size === 0) return
+    logger.info('[Relay] Session relay strikes cleared', { relayCount: this.publishStrikeCount.size })
+    this.publishStrikeCount.clear()
+  }
+
+  /**
+   * Apply strike filter; if that removes all candidates while some were provided, clear strikes **for those URLs
+   * only** and retry once. (A global clear here caused storms: e.g. NIP-65 outbox retry with 2 relays wiped strikes
+   * for every relay in the tab session.)
+   */
+  private relayUrlsAfterStrikesOrRecover(urls: string[]): string[] {
+    const unique = Array.from(new Set(urls))
+    const filtered = this.filterSessionStrikedRelays(unique)
+    if (filtered.length === 0 && unique.length > 0) {
+      let cleared = 0
+      for (const u of unique) {
+        const n = normalizeUrl(u) || u
+        if (n && this.publishStrikeCount.delete(n)) cleared += 1
+      }
+      logger.info('[Relay] Batch was all session-striked — cleared strikes for this batch only', {
+        batchUrlCount: unique.length,
+        strikeEntriesCleared: cleared
+      })
+      return this.filterSessionStrikedRelays(unique)
+    }
+    return filtered
+  }
+
   /** Record a successful publish and its latency for session-based preference when selecting random relays. */
   recordPublishSuccess(url: string, latencyMs: number) {
     const n = normalizeUrl(url) || url
@@ -957,11 +989,10 @@ class ClientService extends EventTarget {
       const n = normalizeUrl(url) || url
       if (readOnlySet.has(n)) return false
       if (isSocialKindBlockedKind(event.kind) && socialKindBlockedSet.has(n)) return false
-      const strikes = this.publishStrikeCount.get(n) ?? 0
-      if (strikes >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) return false
       return true
     })
     filtered = Array.from(new Set(filtered))
+    filtered = this.relayUrlsAfterStrikesOrRecover(filtered)
     const countAfterFiltersBeforeCap = filtered.length
     filtered = await this.capPublishRelayUrlsForPublish(
       filtered,
@@ -1583,7 +1614,7 @@ class ClientService extends EventTarget {
       const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
       relays = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
     }
-    relays = this.filterSessionStrikedRelays(relays)
+    relays = this.relayUrlsAfterStrikesOrRecover(relays)
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const that = this
@@ -2206,7 +2237,7 @@ class ClientService extends EventTarget {
       const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
       relays = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
     }
-    relays = this.filterSessionStrikedRelays(relays)
+    relays = this.relayUrlsAfterStrikesOrRecover(relays)
     const events = await this.queryService.query(relays, filter, onevent, {
       eoseTimeout,
       globalTimeout,
@@ -2234,18 +2265,20 @@ class ClientService extends EventTarget {
     if (!normalized) {
       return { events: [], connectionError: 'Invalid relay URL' }
     }
-    if (this.filterSessionStrikedRelays([normalized]).length === 0) {
+    const usableAfterStrikes = this.relayUrlsAfterStrikesOrRecover([normalized])
+    if (usableAfterStrikes.length === 0) {
       return { events: [], connectionError: 'Relay skipped this session (repeated failures)' }
     }
+    const relayForConn = usableAfterStrikes[0]!
     try {
-      await this.pool.ensureRelay(normalized, { connectionTimeout: 12_000 })
+      await this.pool.ensureRelay(relayForConn, { connectionTimeout: 12_000 })
     } catch (e) {
-      this.recordSessionRelayFailure(normalized)
+      this.recordSessionRelayFailure(relayForConn)
       const msg = e instanceof Error ? e.message : String(e)
       return { events: [], connectionError: msg }
     }
     try {
-      const events = await this.queryService.query([normalized], filter, undefined, {
+      const events = await this.queryService.query([relayForConn], filter, undefined, {
         globalTimeout: options?.globalTimeout ?? 25_000
       })
       return { events, connectionError: undefined }
