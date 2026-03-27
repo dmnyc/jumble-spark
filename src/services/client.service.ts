@@ -2538,63 +2538,26 @@ class ClientService extends EventTarget {
     const qLower = q.toLowerCase()
     const addedNpubs = new Set<string>()
     const out: string[] = []
-    
-    // Helper to add npub and update if callback provided
+
     const addNpub = (npub: string) => {
       if (addedNpubs.has(npub) || out.length >= limit) return false
       addedNpubs.add(npub)
       out.push(npub)
       return true
     }
-    
+
     const updateIfNeeded = () => {
       if (onUpdate && out.length > 0) {
         onUpdate([...out])
       }
     }
 
-    // 1. Follow-list profiles (from cache) - return immediately if found
-    if (this.pubkey && qLower.length >= 1) {
-      try {
-        const followListEvent = await this.replaceableEventService.fetchFollowListEvent(this.pubkey)
-        const followPubkeys = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
-        const toCheck = followPubkeys.slice(0, 80)
-        
-        // Use cached profiles first (fast path)
-        const profilePromises = toCheck.map(async (pubkey) => {
-          const npub = pubkeyToNpub(pubkey)
-          if (!npub) return undefined
-          
-          // Try cache first - this is synchronous from IndexedDB
-          const cachedProfile = await this.replaceableEventService.getProfileFromIndexedDB(npub)
-          if (cachedProfile) {
-            return cachedProfile
-          }
-          
-          // Fetch if not in cache (but don't wait - return cached results first)
-          return this.replaceableEventService.fetchProfile(npub)
-        })
-        
-        const profiles = await Promise.all(profilePromises)
-        const matchText = (p: TProfile) =>
-          ((p.username ?? '') + ' ' + (p.original_username ?? '') + ' ' + (p.nip05 ?? '')).toLowerCase()
-        
-        for (const p of profiles) {
-          if (!p) continue
-          const npub = p.npub || pubkeyToNpub(p.pubkey)
-          if (!npub) continue
-          if (!matchText(p).includes(qLower)) continue
-          if (addNpub(npub)) {
-            updateIfNeeded()
-          }
-          if (out.length >= limit) break
-        }
-      } catch {
-        // ignore follow-list errors; fall back to local + relay
-      }
-    }
+    const matchProfileText = (p: TProfile) =>
+      ((p.username ?? '') + ' ' + (p.original_username ?? '') + ' ' + (p.nip05 ?? '')).toLowerCase()
 
-    // 2. Local index (fast, from cache) - return immediately
+    // 1. Local index first (FlexSearch + session) — fills the @-mention list immediately.
+    //    Previously follow-list ran first and awaited up to 80 fetchProfile() calls, so the dropdown
+    //    stayed empty until those finished; @nevent / @naddr stayed instant (sync branch in suggestion.ts).
     const local = await this.searchNpubsFromLocal(q, limit)
     for (const npub of local) {
       if (addNpub(npub)) {
@@ -2603,9 +2566,42 @@ class ClientService extends EventTarget {
       if (out.length >= limit) break
     }
 
-    // Return cached results immediately (don't wait for relays)
     if (out.length >= limit) {
-      // Prime profile cache
+      out.forEach((npub) => {
+        this.replaceableEventService.fetchProfileEvent(npub).catch(() => {})
+      })
+      return out
+    }
+
+    // 2. Follow list — IndexedDB-cached profiles only (no network per follow; relay search still covers gaps)
+    if (this.pubkey && qLower.length >= 1) {
+      try {
+        const followListEvent = await this.replaceableEventService.fetchFollowListEvent(this.pubkey)
+        const followPubkeys = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
+        const toCheck = followPubkeys.slice(0, 80)
+
+        const cachedRows = await Promise.all(
+          toCheck.map(async (pubkey) => {
+            const npub = pubkeyToNpub(pubkey)
+            if (!npub) return null
+            const p = await this.replaceableEventService.getProfileFromIndexedDB(npub)
+            return p ? { npub, p } : null
+          })
+        )
+
+        for (const row of cachedRows) {
+          if (!row || out.length >= limit) break
+          if (!matchProfileText(row.p).includes(qLower)) continue
+          if (addNpub(row.npub)) {
+            updateIfNeeded()
+          }
+        }
+      } catch {
+        // ignore follow-list errors; relay search still runs
+      }
+    }
+
+    if (out.length >= limit) {
       out.forEach((npub) => {
         this.replaceableEventService.fetchProfileEvent(npub).catch(() => {})
       })
