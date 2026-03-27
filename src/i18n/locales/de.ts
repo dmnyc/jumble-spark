@@ -651,6 +651,10 @@ export default {
     'Nothing to load for this feed.': 'Für diesen Feed gibt es nichts zu laden.',
     'No posts loaded for this feed. Try refreshing.':
       'Keine Beiträge für diesen Feed geladen. Bitte aktualisieren.',
+    'Per-relay timeline results ({{count}} connections)':
+      'Ergebnis je Relay ({{count}} Verbindungen)',
+    'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.':
+      'Die Relays haben keine Ereignisse für diesen Feed geliefert. Sie können offline sein, langsam antworten oder diese Notizen nicht indexieren.',
     'Republish to ...': 'Erneut veröffentlichen zu ...',
     'All available relays': 'All available relays',
     'All active relays (monitoring list)': 'All active relays (monitoring list)',

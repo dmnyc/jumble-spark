@@ -100,24 +100,38 @@ interface RelayStatusDisplayProps {
   successCount: number
   totalCount: number
   className?: string
+  /**
+   * When `false`, hides the aggregate line. When a node, renders it instead of the default
+   * “Published to …” copy (e.g. timeline REQ outcomes).
+   */
+  aggregateSummary?: React.ReactNode | false
 }
 
 export default function RelayStatusDisplay({
   relayStatuses,
   successCount,
   totalCount,
-  className = ''
+  className = '',
+  aggregateSummary
 }: RelayStatusDisplayProps) {
   if (relayStatuses.length === 0) {
     return null
   }
 
+  const defaultSummary = (
+    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+      Published to {successCount} of {totalCount} relays
+    </div>
+  )
+
   return (
     <div className={`space-y-2 ${className}`}>
-      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-        Published to {successCount} of {totalCount} relays
-      </div>
-      
+      {aggregateSummary === false
+        ? null
+        : aggregateSummary !== undefined
+          ? aggregateSummary
+          : defaultSummary}
+
       <div className="space-y-1 max-w-full">
         {relayStatuses.map((status, index) => (
           <div

@@ -1,4 +1,16 @@
+import { URL_REGEX } from '@/constants'
 import logger from '@/lib/logger'
+
+/**
+ * A comma after the host (easy typo next to `.`) is not valid in a hostname, but `new URL()` still
+ * parses it and then serializes to a bogus `,/` before the path (e.g. `https://a.com,` → `https://a.com,/`).
+ * Strip trailing commas from the parsed hostname before further normalization.
+ */
+function stripTrailingCommasFromHostname(url: URL): void {
+  const h = url.hostname
+  if (!h.includes(',')) return
+  url.hostname = h.replace(/,+$/g, '')
+}
 
 export function isWebsocketUrl(url: string): boolean {
   return /^wss?:\/\/.+$/.test(url)
@@ -17,7 +29,8 @@ export function normalizeUrl(url: string): string {
     
     // Parse the URL first to validate it
     const p = new URL(url)
-    
+    stripTrailingCommasFromHostname(p)
+
     // Check if URL has hash fragments (these are not valid for relay URLs)
     // Note: Query parameters are allowed (e.g., filter.nostr.wine uses ?broadcast=true/false)
     const hasHashFragment = url.includes('#')
@@ -72,6 +85,7 @@ export function normalizeHttpUrl(url: string): string {
   try {
     if (url.indexOf('://') === -1) url = 'https://' + url
     const p = new URL(url)
+    stripTrailingCommasFromHostname(p)
     p.pathname = p.pathname.replace(/\/+/g, '/')
     if (p.pathname.endsWith('/')) p.pathname = p.pathname.slice(0, -1)
     if (p.protocol === 'wss:') {
@@ -307,7 +321,8 @@ export function isSafeMediaUrl(url: string): boolean {
 export function cleanUrl(url: string): string {
   try {
     const parsedUrl = new URL(url)
-    
+    stripTrailingCommasFromHostname(parsedUrl)
+
     // List of tracking parameter prefixes and exact names to remove
     const trackingParams = [
       // Google Analytics & Ads
@@ -385,4 +400,22 @@ export function cleanUrl(url: string): string {
     // If URL parsing fails, return original URL
     return url
   }
+}
+
+/**
+ * Rewrite http(s) URLs in a plain string using {@link URL_REGEX} (same boundary rules as the feed parser), then
+ * {@link cleanUrl}. Avoids greedy `https?:\\/\\/[^\\s]+`, which swallows trailing punctuation like `https://a.com, and`.
+ */
+export function rewritePlainTextHttpUrls(
+  content: string,
+  transform: (url: string) => string = cleanUrl
+): string {
+  const re = new RegExp(URL_REGEX.source, URL_REGEX.flags)
+  return content.replace(re, (match) => {
+    try {
+      return transform(match)
+    } catch {
+      return match
+    }
+  })
 }

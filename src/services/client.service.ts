@@ -63,7 +63,12 @@ import { AbstractRelay } from 'nostr-tools/abstract-relay'
 import indexedDb from './indexed-db.service'
 import nip66Service from './nip66.service'
 import { patchRelayNoticeForFetchFailures } from '@/services/relay-notice-strike'
-import { compactFilterForRelayLog, RelayPublishOpBatch, RelaySubscribeOpBatch } from '@/services/relay-operation-log.service'
+import {
+  compactFilterForRelayLog,
+  RelayOpTerminalRow,
+  RelayPublishOpBatch,
+  RelaySubscribeOpBatch
+} from '@/services/relay-operation-log.service'
 import { QueryService } from './client-query.service'
 
 /** Live timeline REQ: dead relays fail fast; EOSE caps “connected but silent” relays. */
@@ -1342,12 +1347,15 @@ class ClientService extends EventTarget {
     {
       startLogin,
       needSort = true,
-      firstRelayResultGraceMs = FIRST_RELAY_RESULT_GRACE_MS
+      firstRelayResultGraceMs = FIRST_RELAY_RESULT_GRACE_MS,
+      onRelaySubscribeWaveComplete
     }: {
       startLogin?: () => void
       needSort?: boolean
       /** Passed to each shard’s {@link ClientService._subscribeTimeline}: 2s after first event completes initial load if EOSE is slower. */
       firstRelayResultGraceMs?: number
+      /** After every timeline shard’s REQ wave has ended (per-relay EOSE / close / timeout), merged rows in shard order. */
+      onRelaySubscribeWaveComplete?: (rows: RelayOpTerminalRow[]) => void
     } = {}
   ) {
     const timelineBatchId = `tl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
@@ -1422,6 +1430,19 @@ class ClientService extends EventTarget {
       }
     }
 
+    let subscribeWaveShardsRemaining = subRequests.length
+    const subscribeWaveAcc: RelayOpTerminalRow[] = []
+    const onShardSubscribeBatchEnd =
+      onRelaySubscribeWaveComplete != null
+        ? (rows: RelayOpTerminalRow[]) => {
+            subscribeWaveAcc.push(...rows)
+            subscribeWaveShardsRemaining--
+            if (subscribeWaveShardsRemaining === 0) {
+              onRelaySubscribeWaveComplete(subscribeWaveAcc.slice())
+            }
+          }
+        : undefined
+
     const subs = await Promise.all(
       subRequests.map(({ urls, filter }, shardIndex) => {
         return this._subscribeTimeline(
@@ -1456,7 +1477,12 @@ class ClientService extends EventTarget {
             startLogin,
             needSort,
             firstRelayResultGraceMs,
-            relayReqLog: { groupId: `${timelineBatchId}:shard${shardIndex}` }
+            relayReqLog: {
+              groupId: `${timelineBatchId}:shard${shardIndex}`,
+              ...(onShardSubscribeBatchEnd
+                ? { onBatchEnd: onShardSubscribeBatchEnd }
+                : {})
+            }
           }
         )
       })
@@ -1539,7 +1565,7 @@ class ClientService extends EventTarget {
       startLogin?: () => void
       onAllClose?: (reasons: string[]) => void
     },
-    relayReqLog?: { groupId?: string }
+    relayReqLog?: { groupId?: string; onBatchEnd?: (rows: RelayOpTerminalRow[]) => void }
   ) {
     let relays = Array.from(new Set(urls))
     const filters = Array.isArray(filter) ? filter : [filter]
@@ -1581,7 +1607,10 @@ class ClientService extends EventTarget {
         reason: 'no_relays_after_filters',
         filterSummary: summarizeFiltersForRelayLog(filters)
       })
-      queueMicrotask(() => oneose?.(true))
+      queueMicrotask(() => {
+        oneose?.(true)
+        relayReqLog?.onBatchEnd?.([])
+      })
       return {
         close: () => {}
       }
@@ -1590,7 +1619,9 @@ class ClientService extends EventTarget {
     const reqGroupId =
       relayReqLog?.groupId ??
       `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-    const opBatch = new RelaySubscribeOpBatch(reqGroupId, groupedRequests)
+    const opBatch = new RelaySubscribeOpBatch(reqGroupId, groupedRequests, {
+      onBatchEnd: relayReqLog?.onBatchEnd
+    })
     opBatch.logBegin()
     const reqT0 = performance.now()
     let firstRelayResponseLogged = false
@@ -1851,7 +1882,7 @@ class ClientService extends EventTarget {
       needSort?: boolean
       firstRelayResultGraceMs?: number
       /** Correlate {@link ClientService.subscribe} logs with a timeline shard */
-      relayReqLog?: { groupId: string }
+      relayReqLog?: { groupId: string; onBatchEnd?: (rows: RelayOpTerminalRow[]) => void }
     } = {}
   ) {
     const relays = Array.from(new Set(urls))

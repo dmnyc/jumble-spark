@@ -452,10 +452,15 @@ export const FAUX_SPELL_ORDER = [
   'calendar'
 ] as const
 
+/**
+ * Trailing lookahead must not be `(?=\\.)` alone: that matches between host labels (e.g. imwald . eu).
+ * Use `\\.(?:\\s|$)` for sentence-ending dots; `,(?=/|\\s|$)` ends before a comma that is not part of a
+ * comma-separated URL segment (e.g. typo `eu,/` or `eu, `).
+ */
 export const URL_REGEX =
-  /https?:\/\/[\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*]+(?:,[^\s.][\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*,]*)*[^\s.,;:'")\]}!?，。；："'！？】）](?=\.|,\s|$|[^\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*,])/giu
+  /https?:\/\/[\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*]+(?:,[^\s.][\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*,]*)*[^\s.,;:'")\]}!?，。；："'！？】）](?=\.(?:\s|$)|,\s|,(?=\/|\s|$)|$|[^\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*,])/giu
 export const WS_URL_REGEX =
-  /wss?:\/\/[\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*]+[^\s.,;:'")\]}!?，。；："'！？】）]/giu
+  /wss?:\/\/[\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*]+[^\s.,;:'")\]}!?，。；："'！？】）](?=\.(?:\s|$)|,\s|,(?=\/|\s|$)|$|[^\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*,])/giu
 export const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
 /** @see {@link '@/lib/content-patterns'} — single source for emoji + nostr regexes */
 export {

@@ -4,7 +4,7 @@ import { transformCustomEmojisInContent } from '@/lib/draft-event'
 import { normalizeTopic } from '@/lib/discussion-topics'
 import { createFakeEvent } from '@/lib/event'
 import { randomString } from '@/lib/random'
-import { cleanUrl } from '@/lib/url'
+import { cleanUrl, rewritePlainTextHttpUrls } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import { TPollCreateData } from '@/types'
 import { kinds, nip19 } from 'nostr-tools'
@@ -48,16 +48,7 @@ export default function Preview({
   const { content: processedContent, emojiTags, highlightTags, pollTags } = useMemo(
     () => {
       // Clean tracking parameters from URLs in the preview
-      const cleanedContent = content.replace(
-        /(https?:\/\/[^\s]+)/g,
-        (url) => {
-          try {
-            return cleanUrl(url)
-          } catch {
-            return url
-          }
-        }
-      )
+      const cleanedContent = rewritePlainTextHttpUrls(content)
       const { content: processed, emojiTags: tags } = transformCustomEmojisInContent(cleanedContent)
       const customShortcodes = tags.map((t) => t[1]).filter(Boolean)
       const withNativeEmojis = replaceStandardEmojiShortcodesInContent(processed, customShortcodes)

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { cleanUrl } from '@/lib/url'
+import { rewritePlainTextHttpUrls } from '@/lib/url'
 import { Event } from 'nostr-tools'
 import { logContentSpacing, reprString } from '@/lib/content-spacing-debug'
 import { parseNostrContent, renderNostrContent } from '@/lib/nostr-parser.tsx'
@@ -20,16 +20,7 @@ export default function SimpleContent({
     const rawContent = content || event?.content || ''
     
     // Clean URLs to remove tracking parameters
-    const cleaned = rawContent.replace(
-      /(https?:\/\/[^\s]+)/g,
-      (url) => {
-        try {
-          return cleanUrl(url)
-        } catch {
-          return url
-        }
-      }
-    )
+    const cleaned = rewritePlainTextHttpUrls(rawContent)
     
     if (rawContent.includes('nostr:')) {
       logContentSpacing('SimpleContent:processedContent', {

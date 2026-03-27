@@ -53,7 +53,7 @@ function relayHostForSubscribeLog(url: string): string {
   return relayHostForPublishLog(url)
 }
 
-function humanizeSubscribeTerminalDetail(outcome: RelayOpTerminalOutcome, detail?: string): string {
+export function humanizeSubscribeTerminalDetail(outcome: RelayOpTerminalOutcome, detail?: string): string {
   const d = (detail ?? '').trim()
   if (!d) {
     if (outcome === 'eose') return 'end of stored events'
@@ -137,6 +137,42 @@ function groupTerminalsByOutcome(rows: RelayOpTerminalRow[]): Record<string, { c
 export type RelaySubscribeOpBatchOptions = {
   /** `debug` hides high-volume query REQs unless jumble-debug / VITE_DEBUG is on. */
   logLevel?: 'info' | 'debug'
+  /** Invoked once when this REQ wave finishes (same `rows` as `batch_end` / `terminals`). */
+  onBatchEnd?: (rows: RelayOpTerminalRow[]) => void
+}
+
+/** Shape compatible with `RelayStatusDisplay` / publish feedback toasts. */
+export type TimelineSubscribeRelayUiStatus = {
+  url: string
+  success: boolean
+  error?: string
+  message?: string
+}
+
+export function relayOpTerminalRowsToTimelineRelayUiStatuses(
+  rows: RelayOpTerminalRow[]
+): TimelineSubscribeRelayUiStatus[] {
+  return rows.map((row) => {
+    if (row.outcome === 'eose') {
+      return {
+        url: row.relayUrl,
+        success: true,
+        message: humanizeSubscribeTerminalDetail('eose', row.detail)
+      }
+    }
+    if (row.outcome === 'timeout') {
+      return {
+        url: row.relayUrl,
+        success: false,
+        error: humanizeSubscribeTerminalDetail('timeout', row.detail)
+      }
+    }
+    return {
+      url: row.relayUrl,
+      success: false,
+      error: humanizeSubscribeTerminalDetail('closed', row.detail)
+    }
+  })
 }
 
 export class RelaySubscribeOpBatch {
@@ -145,6 +181,7 @@ export class RelaySubscribeOpBatch {
   private readonly source: string
   private readonly grouped: GroupedRelayRow[]
   private readonly logLevel: 'info' | 'debug'
+  private readonly onBatchEnd?: (rows: RelayOpTerminalRow[]) => void
   private readonly terminal = new Map<number, RelayOpTerminalRow>()
   private endLogged = false
 
@@ -154,6 +191,7 @@ export class RelaySubscribeOpBatch {
     this.source = source
     this.grouped = grouped
     this.logLevel = options?.logLevel ?? 'info'
+    this.onBatchEnd = options?.onBatchEnd
   }
 
   private logLine(message: string, payload: Record<string, unknown>): void {
@@ -257,6 +295,8 @@ export class RelaySubscribeOpBatch {
     } else {
       logger.info(`[RelayOp] batch_end — ${headline}\n${readableSummary}`, compact)
     }
+
+    this.onBatchEnd?.(rows)
   }
 }
 

@@ -32,6 +32,11 @@ import type { TFeedSubRequest, TSubRequestFilter } from '@/types'
 import dayjs from 'dayjs'
 import { type Event, type Filter, kinds } from 'nostr-tools'
 import { decode } from 'nostr-tools/nip19'
+import RelayStatusDisplay from '@/components/RelayStatusDisplay'
+import {
+  relayOpTerminalRowsToTimelineRelayUiStatuses,
+  type RelayOpTerminalRow
+} from '@/services/relay-operation-log.service'
 import {
   forwardRef,
   useCallback,
@@ -42,6 +47,7 @@ import {
   useRef,
   useState
 } from 'react'
+import { CircleAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import PullToRefresh from 'react-simple-pull-to-refresh'
 import { toast } from 'sonner'
@@ -53,6 +59,19 @@ import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
 const LIMIT = 100 // Increased from 200 to load more events per request
 const ALGO_LIMIT = 200 // Increased from 500 for algorithm feeds
+
+/**
+ * Vite HMR replaces this module and remounts NoteList; timeline refs reset while the subscription can briefly look
+ * empty, which re-triggers the “relays returned no events” toast. Suppress briefly after each HMR cycle (dev only).
+ */
+let suppressRelayEmptyFeedToastUntilMs = 0
+if (import.meta.env.DEV && import.meta.hot) {
+  const bumpSuppressRelayEmptyFeedToast = () => {
+    suppressRelayEmptyFeedToastUntilMs = Date.now() + 6_000
+  }
+  import.meta.hot.on('vite:beforeUpdate', bumpSuppressRelayEmptyFeedToast)
+  import.meta.hot.on('vite:beforeFullReload', bumpSuppressRelayEmptyFeedToast)
+}
 const SHOW_COUNT = 20 // Increased from 10 to show more events at once, reducing scroll load frequency
 /** Hard cap after merging parallel one-shot fetches (e.g. interests = one REQ per topic). */
 const ONE_SHOT_MERGED_CAP =100
@@ -233,6 +252,18 @@ const NoteList = forwardRef(
     const feedRelayReturnedAnyEventRef = useRef(false)
     /** Dedupe {@link toast.error} when relays return nothing for a feed load. */
     const emptyRelayNoHitsToastKeyRef = useRef('')
+    /** Per-relay outcomes for the current subscribe wave (merged shards); drives empty-feed toast detail. */
+    const [feedSubscribeRelayOutcomes, setFeedSubscribeRelayOutcomes] = useState<RelayOpTerminalRow[]>([])
+    /**
+     * Bumped when {@link feedPaintLiveRelayDoneRef} becomes true so the empty-feed toast effect re-runs.
+     * (Loading clears when subscribe wires; merged EOSE arrives later.)
+     */
+    const [feedEmptyToastGateTick, setFeedEmptyToastGateTick] = useState(0)
+    /**
+     * Mirrors {@link feedPaintLiveRelayDoneRef} in React state so the list can show a skeleton until the first
+     * merged `onEvents` (rows or EOSE). {@link loading} clears when subscribe wires, which is earlier than REQ/EOSE.
+     */
+    const [feedTimelineEmptyUiReady, setFeedTimelineEmptyUiReady] = useState(false)
 
     const [feedProfileBatch, setFeedProfileBatch] = useState<{
       profiles: Map<string, TProfile>
@@ -266,6 +297,11 @@ const NoteList = forwardRef(
     const feedTimelineScopePrevRef = useRef<string | undefined>(undefined)
     /** Detect pull-to-refresh so preserve-mode feeds still clear; unrelated dep changes must not clear. */
     const timelineEffectLastRefreshCountRef = useRef(refreshCount)
+
+    useLayoutEffect(() => {
+      setFeedTimelineEmptyUiReady(false)
+      setFeedSubscribeRelayOutcomes([])
+    }, [timelineSubscriptionKey, refreshCount])
 
     useEffect(() => {
       feedProfileBatchGenRef.current += 1
@@ -753,6 +789,9 @@ const NoteList = forwardRef(
               subRequestsKey: timelineSubscriptionKey
             })
           }
+          feedPaintLiveRelayDoneRef.current = true
+          setFeedEmptyToastGateTick((n) => n + 1)
+          setFeedTimelineEmptyUiReady(true)
           setLoading(false)
           setEvents([])
           return undefined
@@ -846,6 +885,9 @@ const NoteList = forwardRef(
             }
           } finally {
             if (effectActive) {
+              feedPaintLiveRelayDoneRef.current = true
+              setFeedEmptyToastGateTick((n) => n + 1)
+              setFeedTimelineEmptyUiReady(true)
               setLoading(false)
               setHasMore(false)
               setTimelineKey(undefined)
@@ -887,6 +929,7 @@ const NoteList = forwardRef(
                   feedRelayReturnedAnyEventRef.current = true
                 }
                 const narrowed = narrowLiveBatch(batch)
+                const paintDoneBefore = feedPaintLiveRelayDoneRef.current
                 if (!feedPaintLiveRelayDoneRef.current) {
                   if (narrowed.length > 0) {
                     feedPaintLiveRelayDoneRef.current = true
@@ -908,6 +951,10 @@ const NoteList = forwardRef(
                       eosed
                     }
                   }
+                }
+                if (!paintDoneBefore && feedPaintLiveRelayDoneRef.current) {
+                  setFeedEmptyToastGateTick((n) => n + 1)
+                  setFeedTimelineEmptyUiReady(true)
                 }
                 if (batch.length > 0) {
                   if (narrowed.length > 0) {
@@ -1010,7 +1057,11 @@ const NoteList = forwardRef(
           {
             startLogin,
             needSort: !areAlgoRelays,
-            firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS
+            firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS,
+            onRelaySubscribeWaveComplete: (rows) => {
+              if (!effectActive) return
+              setFeedSubscribeRelayOutcomes(rows)
+            }
           }
           )
 
@@ -1030,6 +1081,11 @@ const NoteList = forwardRef(
           return closer
       } catch (_error) {
         setLoading(false)
+        if (effectActive) {
+          feedPaintLiveRelayDoneRef.current = true
+          setFeedEmptyToastGateTick((n) => n + 1)
+          setFeedTimelineEmptyUiReady(true)
+        }
         // Race timeout or subscribe failure: if the timeline promise later resolves, close or subs leak (relay slots + stale setEvents).
         if (timelineSubscribePromise) {
           void timelineSubscribePromise
@@ -1160,21 +1216,50 @@ const NoteList = forwardRef(
     useEffect(() => {
       if (loading || events.length > 0) return
       if (!subRequests.length) return
+      // Do not toast until merged timeline reports first paint or all shards EOSE (see subscribeTimeline
+      // `allEosed`); `loading` is cleared earlier when the subscribe promise resolves.
+      if (!feedPaintLiveRelayDoneRef.current) return
 
       const toastKey = `${timelineSubscriptionKey}|${refreshCount}`
-      const debounceMs = 1_600
+      const debounceMs = 900
       const timer = window.setTimeout(() => {
         if (loadingRef.current) return
         if (eventsRef.current.length > 0) return
         if (!subRequestsRef.current.length) return
+        if (!feedPaintLiveRelayDoneRef.current) return
         if (feedRelayReturnedAnyEventRef.current) return
+        if (Date.now() < suppressRelayEmptyFeedToastUntilMs) return
         if (emptyRelayNoHitsToastKeyRef.current === toastKey) return
         emptyRelayNoHitsToastKeyRef.current = toastKey
-        toast.error(
-          t(
-            'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.'
-          )
+        const uiStatuses = relayOpTerminalRowsToTimelineRelayUiStatuses(feedSubscribeRelayOutcomes)
+        const successCount = uiStatuses.filter((s) => s.success).length
+        const title = t(
+          'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.'
         )
+        if (uiStatuses.length === 0) {
+          toast.error(title, { duration: 8000 })
+        } else {
+          toast.error(
+            <div className="w-full min-w-0">
+              <div className="flex items-center gap-2 mb-3">
+                <CircleAlert className="w-5 h-5 text-red-500 shrink-0" />
+                <div className="font-semibold">{title}</div>
+              </div>
+              <div className="text-xs text-muted-foreground mb-2">
+                {t('Per-relay timeline results ({{count}} connections)', {
+                  count: uiStatuses.length
+                })}
+              </div>
+              <RelayStatusDisplay
+                relayStatuses={uiStatuses}
+                successCount={successCount}
+                totalCount={uiStatuses.length}
+                aggregateSummary={false}
+              />
+            </div>,
+            { duration: 12_000, className: 'max-w-lg w-full' }
+          )
+        }
       }, debounceMs)
       return () => window.clearTimeout(timer)
     }, [
@@ -1183,6 +1268,8 @@ const NoteList = forwardRef(
       subRequests.length,
       timelineSubscriptionKey,
       refreshCount,
+      feedEmptyToastGateTick,
+      feedSubscribeRelayOutcomes,
       t
     ])
     
@@ -1585,7 +1672,8 @@ const NoteList = forwardRef(
             filterMutedNotes={filterMutedNotes}
           />
         ))}
-        {events.length === 0 && loading ? (
+        {events.length === 0 &&
+        (loading || (subRequests.length > 0 && !feedTimelineEmptyUiReady)) ? (
           <div
             ref={bottomRef}
             className="min-h-[40vh] space-y-2 px-1 py-4"
@@ -1612,7 +1700,7 @@ const NoteList = forwardRef(
           </div>
         ) : events.length > 0 ? (
           <div className="text-center text-sm text-muted-foreground mt-2">{t('no more notes')}</div>
-        ) : !loading && subRequests.length > 0 ? (
+        ) : !loading && feedTimelineEmptyUiReady && subRequests.length > 0 ? (
           <div
             ref={bottomRef}
             className="mt-6 flex min-h-[35vh] flex-col items-center justify-start gap-4 px-4 text-center text-sm text-muted-foreground"

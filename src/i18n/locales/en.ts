@@ -683,6 +683,8 @@ export default {
       'No posts loaded for this feed. Try refreshing.',
     'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.':
       'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.',
+    'Per-relay timeline results ({{count}} connections)':
+      'Per-relay timeline results ({{count}} connections)',
     'Republish to ...': 'Republish to ...',
     'All available relays': 'All available relays',
     'All active relays (monitoring list)': 'All active relays (monitoring list)',

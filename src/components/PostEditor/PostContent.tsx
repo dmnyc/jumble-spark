@@ -38,7 +38,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useFeed } from '@/providers/FeedProvider'
 import { useReply } from '@/providers/ReplyProvider'
 import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
-import { normalizeUrl, cleanUrl } from '@/lib/url'
+import { normalizeUrl, rewritePlainTextHttpUrls } from '@/lib/url'
 import logger from '@/lib/logger'
 import postEditorCache from '@/services/post-editor-cache.service'
 import storage from '@/services/local-storage.service'
@@ -813,16 +813,7 @@ export default function PostContent({
 
     try {
       // Clean tracking parameters from URLs in the post content
-      const cleanedText = text.replace(
-        /(https?:\/\/[^\s]+)/g,
-        (url) => {
-          try {
-            return cleanUrl(url)
-          } catch {
-            return url
-          }
-        }
-      )
+      const cleanedText = rewritePlainTextHttpUrls(text)
       
       const draftEvent = await createDraftEvent(cleanedText)
       return JSON.stringify(draftEvent, null, 2)
@@ -864,16 +855,7 @@ export default function PostContent({
       
       try {
         // Clean tracking parameters from URLs in the post content
-        const cleanedText = text.replace(
-          /(https?:\/\/[^\s]+)/g,
-          (url) => {
-            try {
-              return cleanUrl(url)
-            } catch {
-              return url
-            }
-          }
-        )
+        const cleanedText = rewritePlainTextHttpUrls(text)
         
         // Determine relay URLs for private events
         let privateRelayUrls: string[] = []

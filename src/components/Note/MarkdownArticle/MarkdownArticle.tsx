@@ -1492,7 +1492,15 @@ function parseMarkdownContent(
               }
             })
           }
-        } else if ((pattern.type === 'markdown-link' || pattern.type === 'relay-url') && (hasTextOnSameLine || hasTextBefore)) {
+        } else if (
+          (pattern.type === 'markdown-link' || pattern.type === 'relay-url') &&
+          (hasTextOnSameLine ||
+            hasTextBefore ||
+            content.substring(pattern.end, lineEndIndex).trim().length > 0)
+        ) {
+          // Leading link/relay + text on the same line (e.g. autolink preprocess → "[url](url) rest"):
+          // merge so parseInlineMarkdown emits one <p>; otherwise we render bare <a> then <p> for the tail
+          // and the block <p> forces a visual line break.
           // Get the original pattern syntax from the content
           const patternMarkdown = content.substring(pattern.index, pattern.end)
           
