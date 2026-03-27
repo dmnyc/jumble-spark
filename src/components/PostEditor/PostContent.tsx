@@ -58,7 +58,8 @@ import {
   Mic,
   Music,
   Video,
-  Film
+  Film,
+  Laugh
 } from 'lucide-react'
 import { getMediaKindFromFile } from '@/lib/media-kind-detection'
 import { hasPrivateRelays, getPrivateRelayUrls } from '@/lib/private-relays'
@@ -75,6 +76,7 @@ import { useTranslation } from 'react-i18next'
 import { showPublishingFeedback, showSimplePublishSuccess, showPublishingError } from '@/lib/publishing-feedback'
 import EmojiPickerDialog from '../EmojiPickerDialog'
 import GifPicker from '../GifPicker'
+import MemePicker from '../MemePicker'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import Mentions, { extractMentions } from './Mentions'
 import PollEditor from './PollEditor'
@@ -2169,6 +2171,24 @@ export default function PostContent({
                   )}
                 </>
               )}
+              <GifPicker
+                onSelect={(gifUrl) => {
+                  textareaRef.current?.insertText(gifUrl)
+                }}
+              >
+                <Button type="button" variant="ghost" size="icon" title={t('Insert GIF')}>
+                  <Film className="h-4 w-4" />
+                </Button>
+              </GifPicker>
+              <MemePicker
+                onSelect={(memeUrl) => {
+                  textareaRef.current?.insertText(memeUrl)
+                }}
+              >
+                <Button type="button" variant="ghost" size="icon" title={t('Insert meme')}>
+                  <Laugh className="h-4 w-4" />
+                </Button>
+              </MemePicker>
             </>
           }
         />
@@ -2282,15 +2302,6 @@ export default function PostContent({
               <ImageUp />
             </Button>
           </Uploader>
-          <GifPicker
-            onSelect={(gifUrl) => {
-              textareaRef.current?.insertText(gifUrl)
-            }}
-          >
-            <Button type="button" variant="ghost" size="icon" title={t('Insert GIF')}>
-              <Film className="h-4 w-4" />
-            </Button>
-          </GifPicker>
           {/* I'm not sure why, but after triggering the virtual keyboard,
               opening the emoji picker drawer causes an issue,
               the emoji I tap isn't the one that gets inserted. */}

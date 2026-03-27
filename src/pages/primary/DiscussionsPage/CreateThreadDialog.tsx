@@ -18,7 +18,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Hash, X, Users, Film, Image, Zap, Settings, Book, ChevronDown, Check, Smile, Upload } from 'lucide-react'
+import { Hash, X, Users, Film, Laugh, Image, Zap, Settings, Book, ChevronDown, Check, Smile, Upload } from 'lucide-react'
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNostr } from '@/providers/NostrProvider'
@@ -34,6 +34,7 @@ import { DISCUSSION_TOPICS } from './discussionTopics'
 import PostRelaySelector from '@/components/PostEditor/PostRelaySelector'
 import PostTextarea, { type TPostTextareaHandle } from '@/components/PostEditor/PostTextarea'
 import GifPicker from '@/components/GifPicker'
+import MemePicker from '@/components/MemePicker'
 import EmojiPickerDialog from '@/components/EmojiPickerDialog'
 import Uploader from '@/components/PostEditor/Uploader'
 import { NeventPickerProvider } from '@/components/PostEditor/PostTextarea/Mention/NeventNaddrPickerDialog'
@@ -785,6 +786,14 @@ export default function CreateThreadDialog({
                       <Film className="h-4 w-4" />
                     </Button>
                   </GifPicker>
+                  <MemePicker
+                    onSelect={(memeUrl) => insertAtCursor(memeUrl + ' ')}
+                    portalContainer={pickerPortalContainer ?? undefined}
+                  >
+                    <Button type="button" variant="ghost" size="icon" title={t('Insert meme')}>
+                      <Laugh className="h-4 w-4" />
+                    </Button>
+                  </MemePicker>
                   <EmojiPickerDialog
                     portalContainer={pickerPortalContainer ?? undefined}
                     onEmojiClick={(emoji) => {

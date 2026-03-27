@@ -17,9 +17,32 @@ export interface GifMetadata {
   mimeType?: string
   width?: number
   height?: number
+  /** Nostr kind of the event this row was parsed from (1063 vs note vs comment). */
+  sourceKind: number
   eventId: string
   pubkey: string
   createdAt: number
+}
+
+/** True if the GIF bytes are served from nostr.build (or a subdomain). */
+export function isNostrBuildHostedUrl(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.toLowerCase()
+    return h === 'nostr.build' || h.endsWith('.nostr.build')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * External GIF from a note/comment: offer “archive” = publish kind 1063 + insert.
+ * Not shown for 1063 events or when the URL already points at nostr.build.
+ */
+export function gifShouldOfferNip94Archive(gif: GifMetadata): boolean {
+  if (gif.sourceKind === ExtendedKind.FILE_METADATA) return false
+  if (isNostrBuildHostedUrl(gif.url)) return false
+  if (gif.fallbackUrl?.trim() && isNostrBuildHostedUrl(gif.fallbackUrl.trim())) return false
+  return true
 }
 
 /** Normalize a GIF URL for deduplication: strip fragment and query, lowercase. */
@@ -174,6 +197,7 @@ function parseGifFromEvent(event: NEvent): GifMetadata | null {
     mimeType: mimeType || 'image/gif',
     width,
     height,
+    sourceKind: event.kind,
     eventId: event.id,
     pubkey: event.pubkey,
     createdAt: event.created_at
@@ -204,8 +228,12 @@ export async function fetchGifs(
 ): Promise<GifMetadata[]> {
   if (!forceRefresh && !searchQuery) {
     const cached = await indexedDb.getGifCache()
+    const cacheHasSourceKind =
+      cached?.gifs.length &&
+      cached.gifs.every((g) => typeof (g as GifMetadata).sourceKind === 'number')
     if (
       cached &&
+      cacheHasSourceKind &&
       cached.gifs.length >= MIN_GIF_CACHE_ENTRIES &&
       Date.now() - cached.cachedAt < CACHE_MAX_AGE_MS
     ) {

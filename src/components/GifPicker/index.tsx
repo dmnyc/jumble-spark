@@ -11,12 +11,19 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useNostr } from '@/providers/NostrProvider'
-import { ExtendedKind, GIF_RELAY_URLS } from '@/constants'
+import { ExtendedKind, FAST_WRITE_RELAY_URLS, GIF_RELAY_URLS } from '@/constants'
+import { cn } from '@/lib/utils'
 import { normalizeUrl } from '@/lib/url'
-import { fetchGifs, searchGifs, type GifMetadata } from '@/services/gif.service'
+import {
+  fetchGifs,
+  searchGifs,
+  gifShouldOfferNip94Archive,
+  type GifMetadata
+} from '@/services/gif.service'
 import mediaUpload from '@/services/media-upload.service'
-import { ExternalLink, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Download, ExternalLink, X } from 'lucide-react'
+import { kinds } from 'nostr-tools'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const GIFBUDDY_URL = 'https://www.gifbuddy.lol/'
@@ -47,6 +54,7 @@ export default function GifPicker({
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [pasteUrl, setPasteUrl] = useState('')
   const [publishingPaste, setPublishingPaste] = useState(false)
+  const [archivingEventId, setArchivingEventId] = useState<string | null>(null)
   const [publishDescription, setPublishDescription] = useState('')
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -54,6 +62,35 @@ export default function GifPicker({
 
   const userReadRelays = relayList?.read ?? []
   const userWriteRelays = relayList?.write ?? []
+
+  /** Paste / upload: GIF discovery relays + user writes (unchanged). */
+  const gifPublishRelayUrls = useMemo(() => {
+    const writeUrls = [...GIF_RELAY_URLS, ...userWriteRelays]
+    const seen = new Set<string>()
+    return writeUrls.filter((u) => {
+      const n = (normalizeUrl(u) ?? u).toLowerCase()
+      if (seen.has(n)) return false
+      seen.add(n)
+      return true
+    })
+  }, [userWriteRelays])
+
+  /** Grid pick / archive: user write relays first, then fast write relays as fallback. */
+  const gifSelectPublishRelayUrls = useMemo(() => {
+    const primary =
+      userWriteRelays.length > 0 ? userWriteRelays : [...FAST_WRITE_RELAY_URLS]
+    const extra = userWriteRelays.length > 0 ? FAST_WRITE_RELAY_URLS : []
+    const seen = new Set<string>()
+    return [...primary, ...extra]
+      .map((u) => normalizeUrl(u) || u)
+      .filter(Boolean)
+      .filter((u) => {
+        const n = u.toLowerCase()
+        if (seen.has(n)) return false
+        seen.add(n)
+        return true
+      })
+  }, [userWriteRelays])
 
   const loadGifs = useCallback(async (q: string, forceRefresh = false) => {
     setError(null)
@@ -94,11 +131,30 @@ export default function GifPicker({
     }
   }, [searchInput, open])
 
-  const handleSelect = (gif: GifMetadata) => {
-    const url = gif.fallbackUrl || gif.url
-    onSelect?.(url)
-    setOpen(false)
-  }
+  const handleSelect = useCallback(
+    (gif: GifMetadata) => {
+      const url = (gif.fallbackUrl?.trim() || gif.url).trim()
+      if (!url) return
+      onSelect?.(url)
+      setOpen(false)
+      if (!pubkey || !/^https?:\/\//i.test(url)) return
+      // Fire-and-forget: waiting on every relay can freeze the UI when relays are down.
+      void publish(
+        {
+          kind: ExtendedKind.FILE_METADATA,
+          content: '',
+          tags: [
+            ['url', url],
+            ['m', 'image/gif'],
+            ['t', 'gif']
+          ],
+          created_at: Math.floor(Date.now() / 1000)
+        },
+        { specifiedRelayUrls: gifSelectPublishRelayUrls }
+      ).catch(() => {})
+    },
+    [pubkey, onSelect, publish, gifSelectPublishRelayUrls]
+  )
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -122,15 +178,7 @@ export default function GifPicker({
         ],
         created_at: Math.floor(Date.now() / 1000)
       }
-      const writeUrls = [...GIF_RELAY_URLS, ...userWriteRelays]
-      const seen = new Set<string>()
-      const specifiedRelayUrls = writeUrls.filter((u) => {
-        const n = (normalizeUrl(u) ?? u).toLowerCase()
-        if (seen.has(n)) return false
-        seen.add(n)
-        return true
-      })
-      await publish(draft, { specifiedRelayUrls })
+      await publish(draft, { specifiedRelayUrls: gifPublishRelayUrls })
       setPublishDescription('')
       setQuery('')
       await loadGifs('', true)
@@ -195,15 +243,7 @@ export default function GifPicker({
           ],
           created_at: Math.floor(Date.now() / 1000)
         }
-        const writeUrls = [...GIF_RELAY_URLS, ...userWriteRelays]
-        const seen = new Set<string>()
-        const specifiedRelayUrls = writeUrls.filter((u) => {
-          const n = (normalizeUrl(u) ?? u).toLowerCase()
-          if (seen.has(n)) return false
-          seen.add(n)
-          return true
-        })
-        await publish(draft, { specifiedRelayUrls })
+        await publish(draft, { specifiedRelayUrls: gifPublishRelayUrls })
         setPublishDescription('')
       } catch {
         // ignore; URL was still inserted
@@ -211,7 +251,67 @@ export default function GifPicker({
         setPublishingPaste(false)
       }
     }
-  }, [pasteUrl, pubkey, onSelect, publish, userWriteRelays, descriptionForPublish])
+  }, [pasteUrl, pubkey, onSelect, publish, gifPublishRelayUrls, descriptionForPublish])
+
+  /** External GIF from a note: publish kind 1063, then insert URL and close (same relays as grid pick). */
+  const handleArchiveAndInsert = useCallback(
+    (e: React.MouseEvent, gif: GifMetadata) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (!pubkey) return
+      const url = (gif.fallbackUrl?.trim() || gif.url).trim()
+      if (!url || !/^https?:\/\//i.test(url)) return
+      setArchivingEventId(gif.eventId)
+      onSelect?.(url)
+      setOpen(false)
+      void loadGifs(query, true)
+      void publish(
+        {
+          kind: ExtendedKind.FILE_METADATA,
+          content: '',
+          tags: [
+            ['url', url],
+            ['m', 'image/gif'],
+            ['t', 'gif']
+          ],
+          created_at: Math.floor(Date.now() / 1000)
+        },
+        { specifiedRelayUrls: gifSelectPublishRelayUrls }
+      )
+        .catch(() => {})
+        .finally(() => setArchivingEventId(null))
+    },
+    [pubkey, publish, gifSelectPublishRelayUrls, onSelect, loadGifs, query]
+  )
+
+  const gifSourceKindTitle = useCallback(
+    (gif: GifMetadata) => {
+      if (gif.sourceKind === ExtendedKind.FILE_METADATA) {
+        return t(
+          'This GIF comes from kind 1063 (NIP-94 file metadata). Choosing it still publishes your own kind 1063 to your write relays (and fast write relays as fallback) so your relays index the URL.'
+        )
+      }
+      if (gif.sourceKind === kinds.ShortTextNote) {
+        return t(
+          'This GIF was found in a kind 1 note. Notes are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.'
+        )
+      }
+      if (gif.sourceKind === ExtendedKind.COMMENT) {
+        return t(
+          'This GIF was found in a kind 1111 comment. Comments are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.'
+        )
+      }
+      return t('This GIF was found in a Nostr event of kind {{kind}}.', { kind: gif.sourceKind })
+    },
+    [t]
+  )
+
+  const gifSourceKindShortLabel = (gif: GifMetadata) => {
+    if (gif.sourceKind === ExtendedKind.FILE_METADATA) return '1063'
+    if (gif.sourceKind === kinds.ShortTextNote) return '1'
+    if (gif.sourceKind === ExtendedKind.COMMENT) return '1111'
+    return String(gif.sourceKind)
+  }
 
   /** In drawer mode we constrain height and make only the GIF grid scroll so the drawer doesn't "sink" */
   const isDrawer = isSmallScreen
@@ -264,31 +364,61 @@ export default function GifPicker({
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-1 p-2">
-              {gifs.map((gif) => (
-                <button
-                  key={gif.eventId}
-                  type="button"
-                  className="rounded overflow-hidden border border-transparent hover:border-primary focus:border-primary focus:outline-none aspect-square"
-                  onClick={() => handleSelect(gif)}
-                >
-                  <img
-                    src={gif.url}
-                    alt="GIF"
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    onError={(e) => {
-                      const el = e.target as HTMLImageElement
-                      const fallback = gif.fallbackUrl?.trim()
-                      if (fallback && el.dataset.gifFallbackTried !== '1') {
-                        el.dataset.gifFallbackTried = '1'
-                        el.src = fallback
-                        return
-                      }
-                      el.style.display = 'none'
-                    }}
-                  />
-                </button>
-              ))}
+              {gifs.map((gif) => {
+                const showArchive = gifShouldOfferNip94Archive(gif) && isLoggedIn
+                return (
+                  <div key={gif.eventId} className="relative aspect-square rounded overflow-hidden">
+                    <button
+                      type="button"
+                      className={cn(
+                        'absolute inset-0 z-0 rounded overflow-hidden border border-transparent hover:border-primary focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                      )}
+                      onClick={() => handleSelect(gif)}
+                    >
+                      <img
+                        src={gif.url}
+                        alt=""
+                        className="w-full h-full object-cover pointer-events-none"
+                        loading="lazy"
+                        onError={(e) => {
+                          const el = e.target as HTMLImageElement
+                          const fallback = gif.fallbackUrl?.trim()
+                          if (fallback && el.dataset.gifFallbackTried !== '1') {
+                            el.dataset.gifFallbackTried = '1'
+                            el.src = fallback
+                            return
+                          }
+                          el.style.display = 'none'
+                        }}
+                      />
+                    </button>
+                    <span
+                      className="absolute top-1 left-1 z-10 max-w-[calc(100%-2.5rem)] truncate rounded border border-border/80 bg-background/90 px-1 py-px text-[10px] font-medium tabular-nums text-foreground backdrop-blur-sm pointer-events-none shadow-sm"
+                      title={gifSourceKindTitle(gif)}
+                    >
+                      {gifSourceKindShortLabel(gif)}
+                    </span>
+                    {showArchive && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon"
+                        className="absolute bottom-1 right-1 z-10 h-7 w-7 shadow-md"
+                        disabled={archivingEventId === gif.eventId}
+                        title={t(
+                          'Publish kind 1063 (NIP-94) for this GIF and insert the URL into your post'
+                        )}
+                        aria-label={t(
+                          'Publish kind 1063 (NIP-94) for this GIF and insert the URL into your post'
+                        )}
+                        onClick={(e) => handleArchiveAndInsert(e, gif)}
+                      >
+                        <Download className="size-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </ScrollArea>

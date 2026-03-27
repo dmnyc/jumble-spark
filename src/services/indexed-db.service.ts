@@ -1757,11 +1757,22 @@ class IndexedDbService {
   }
 
   private static readonly GIF_CACHE_KEY = 'gifList'
+  private static readonly MEME_CACHE_KEY = 'memeList'
 
   /**
    * Get cached GIF list from IndexedDB. Returns null if missing or store unavailable.
    */
-  async getGifCache(): Promise<{ gifs: { url: string; fallbackUrl?: string; eventId: string; pubkey: string; createdAt: number }[]; cachedAt: number } | null> {
+  async getGifCache(): Promise<{
+    gifs: {
+      url: string
+      fallbackUrl?: string
+      sourceKind?: number
+      eventId: string
+      pubkey: string
+      createdAt: number
+    }[]
+    cachedAt: number
+  } | null> {
     await this.initPromise
     if (!this.db || !this.db.objectStoreNames.contains(StoreNames.GIF_CACHE)) {
       return null
@@ -1773,7 +1784,17 @@ class IndexedDbService {
       request.onsuccess = () => {
         const row = request.result as { key: string; value: { gifs: unknown[]; cachedAt: number } } | undefined
         if (row?.value?.gifs && typeof row.value.cachedAt === 'number') {
-          resolve({ gifs: row.value.gifs as { url: string; fallbackUrl?: string; eventId: string; pubkey: string; createdAt: number }[], cachedAt: row.value.cachedAt })
+          resolve({
+            gifs: row.value.gifs as {
+              url: string
+              fallbackUrl?: string
+              sourceKind?: number
+              eventId: string
+              pubkey: string
+              createdAt: number
+            }[],
+            cachedAt: row.value.cachedAt
+          })
         } else {
           resolve(null)
         }
@@ -1785,7 +1806,17 @@ class IndexedDbService {
   /**
    * Write GIF list cache to IndexedDB.
    */
-  async setGifCache(gifs: { url: string; fallbackUrl?: string; eventId: string; pubkey: string; createdAt: number }[], cachedAt: number): Promise<void> {
+  async setGifCache(
+    gifs: {
+      url: string
+      fallbackUrl?: string
+      sourceKind?: number
+      eventId: string
+      pubkey: string
+      createdAt: number
+    }[],
+    cachedAt: number
+  ): Promise<void> {
     await this.initPromise
     if (!this.db || !this.db.objectStoreNames.contains(StoreNames.GIF_CACHE)) {
       return
@@ -1794,6 +1825,61 @@ class IndexedDbService {
       const transaction = this.db!.transaction(StoreNames.GIF_CACHE, 'readwrite')
       const store = transaction.objectStore(StoreNames.GIF_CACHE)
       store.put({ key: IndexedDbService.GIF_CACHE_KEY, value: { gifs, cachedAt } })
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+  }
+
+  /**
+   * Cached memes (kind 1063 `memeamigo` only). Same store as GIF cache, different key.
+   */
+  async getMemeCache(): Promise<{
+    memes: { url: string; fallbackUrl?: string; eventId: string; pubkey: string; createdAt: number }[]
+    cachedAt: number
+  } | null> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.GIF_CACHE)) {
+      return null
+    }
+    return new Promise((resolve) => {
+      const transaction = this.db!.transaction(StoreNames.GIF_CACHE, 'readonly')
+      const store = transaction.objectStore(StoreNames.GIF_CACHE)
+      const request = store.get(IndexedDbService.MEME_CACHE_KEY)
+      request.onsuccess = () => {
+        const row = request.result as
+          | { key: string; value: { memes: unknown[]; cachedAt: number } }
+          | undefined
+        if (row?.value?.memes && typeof row.value.cachedAt === 'number') {
+          resolve({
+            memes: row.value.memes as {
+              url: string
+              fallbackUrl?: string
+              eventId: string
+              pubkey: string
+              createdAt: number
+            }[],
+            cachedAt: row.value.cachedAt
+          })
+        } else {
+          resolve(null)
+        }
+      }
+      request.onerror = () => resolve(null)
+    })
+  }
+
+  async setMemeCache(
+    memes: { url: string; fallbackUrl?: string; eventId: string; pubkey: string; createdAt: number }[],
+    cachedAt: number
+  ): Promise<void> {
+    await this.initPromise
+    if (!this.db || !this.db.objectStoreNames.contains(StoreNames.GIF_CACHE)) {
+      return
+    }
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(StoreNames.GIF_CACHE, 'readwrite')
+      const store = transaction.objectStore(StoreNames.GIF_CACHE)
+      store.put({ key: IndexedDbService.MEME_CACHE_KEY, value: { memes, cachedAt } })
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error)
     })

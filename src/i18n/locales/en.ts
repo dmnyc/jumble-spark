@@ -292,16 +292,24 @@ export default {
     'Upload Image': 'Upload Image',
     'Insert emoji': 'Insert emoji',
     'Insert GIF': 'Insert GIF',
+    'Insert meme': 'Insert meme',
     'Search GIFs': 'Search GIFs',
+    'Search memes': 'Search memes',
     'Choose a GIF': 'Choose a GIF',
+    'Choose a meme': 'Choose a meme',
     'Search GifBuddy for more GIFs': 'Search GifBuddy for more GIFs',
     'Add your own GIFs': 'Add your own GIFs',
+    'Add your own meme templates': 'Add your own meme templates',
     'Description (optional, for search)': 'Description (optional, for search)',
     'e.g. happy birthday, thumbs up': 'e.g. happy birthday, thumbs up',
+    'e.g. drake, distracted boyfriend': 'e.g. drake, distracted boyfriend',
     'Uploading...': 'Uploading...',
     'No GIFs found. Try searching or add your own. GIFs come from Nostr kind 1063 (NIP-94) events on GIF relays.':
       'No GIFs found. Try searching or add your own. GIFs come from Nostr kind 1063 (NIP-94) events on GIF relays.',
+    'No meme templates found. Try searching or open Meme Amigo. The grid only lists kind 1063 (NIP-94) files tagged memeamigo (not random photos from notes).':
+      'No meme templates found. Try searching or open Meme Amigo. The grid only lists kind 1063 (NIP-94) files tagged memeamigo (not random photos from notes).',
     '{{name}} is not a GIF file': '{{name}} is not a GIF file',
+    '{{name}} is not a JPEG, PNG, or WebP file': '{{name}} is not a JPEG, PNG, or WebP file',
     'R & W': 'R & W',
     Read: 'Read',
     Write: 'Write',
@@ -1208,6 +1216,8 @@ export default {
     Insert: 'Insert',
     'Insert URL into your post and publish to Nostr GIF library (NIP-94).':
       'Insert URL into your post and publish to Nostr GIF library (NIP-94).',
+    'Insert URL into your post and publish kind 1063 (NIP-94) with hashtag memeamigo for discoverability.':
+      'Insert URL into your post and publish kind 1063 (NIP-94) with hashtag memeamigo for discoverability.',
     'Insert event or address': 'Insert event or address',
     'Insert mention': 'Insert mention',
     'Internal Citation': 'Internal Citation',
@@ -1292,6 +1302,8 @@ export default {
     'Open Timestamp': 'Open Timestamp',
     'Opens in a new tab. Copy a GIF URL there, then paste below. If this picker closed, click “Insert GIF” again to paste.':
       'Opens in a new tab. Copy a GIF URL there, then paste below. If this picker closed, click “Insert GIF” again to paste.',
+    'Opens in a new tab. Copy an image URL there, then paste below. If this picker closed, click “Insert meme” again to paste.':
+      'Opens in a new tab. Copy an image URL there, then paste below. If this picker closed, click “Insert meme” again to paste.',
     Optional: 'Optional',
     'Optional image for the event': 'Optional image for the event',
     'Optionally, add the full quote/context to show your highlight within it':
@@ -1300,6 +1312,7 @@ export default {
     'Page Range': 'Page Range',
     Pages: 'Pages',
     'Paste URL of a GIF': 'Paste URL of a GIF',
+    'Paste URL of a meme image': 'Paste URL of a meme image',
     'Paste the entire original passage that contains your highlight':
       'Paste the entire original passage that contains your highlight',
     Photo: 'Photo',
@@ -1323,6 +1336,8 @@ export default {
     'Prompt Citation Settings': 'Prompt Citation Settings',
     'Prompt Conversation Script': 'Prompt Conversation Script',
     'Proof of Work': 'Proof of Work',
+    'Publish kind 1063 (NIP-94) for this GIF and insert the URL into your post':
+      'Publish kind 1063 (NIP-94) for this GIF and insert the URL into your post',
     'Publish to Relays': 'Publish to Relays',
     'Published By': 'Published By',
     'Published In': 'Published In',
@@ -1440,6 +1455,7 @@ export default {
     'Search logs...': 'Search logs...',
     'Search notes, threads, long-form…': 'Search notes, threads, long-form…',
     'Search on GifBuddy': 'Search on GifBuddy',
+    'Search on Meme Amigo': 'Search on Meme Amigo',
     'Search posts...': 'Search posts...',
     'Search threads by title, content, tags, npub, author...':
       'Search threads by title, content, tags, npub, author...',
@@ -1496,6 +1512,13 @@ export default {
       'The main editor above should contain only the text you want to highlight. This field should contain the full quote or paragraph for context.',
     'These relays were found from your NIP-05 identifier and signer. You can add them to your relay list.':
       'These relays were found from your NIP-05 identifier and signer. You can add them to your relay list.',
+    'This GIF comes from kind 1063 (NIP-94 file metadata). Choosing it still publishes your own kind 1063 to your write relays (and fast write relays as fallback) so your relays index the URL.':
+      'This GIF comes from kind 1063 (NIP-94 file metadata). Choosing it still publishes your own kind 1063 to your write relays (and fast write relays as fallback) so your relays index the URL.',
+    'This GIF was found in a kind 1 note. Notes are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.':
+      'This GIF was found in a kind 1 note. Notes are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.',
+    'This GIF was found in a kind 1111 comment. Comments are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.':
+      'This GIF was found in a kind 1111 comment. Comments are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.',
+    'This GIF was found in a Nostr event of kind {{kind}}.': 'This GIF was found in a Nostr event of kind {{kind}}.',
     'This file could be either audio or video. Please select the correct type:':
       'This file could be either audio or video. Please select the correct type:',
     'This store does not contain replaceable events':
