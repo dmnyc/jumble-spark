@@ -225,6 +225,13 @@ function isKind1QuoteOnlyOfEaRoot(evt: NEvent, root: TRootInfo): boolean {
   return kind1QuotesThreadRoot(evt, root)
 }
 
+/** E/A roots: #q-only kind 1 + relay “reply” rows for {@link THREAD_BACKLINK_STREAM_KINDS} belong in backlinks tail, not the chronological middle. */
+function isEaThreadTailBacklinkCandidate(evt: NEvent, root: TRootInfo): boolean {
+  if (root.type !== 'E' && root.type !== 'A') return false
+  if (isKind1QuoteOnlyOfEaRoot(evt, root)) return true
+  return EA_THREAD_TAIL_REFERENCE_KINDS.has(evt.kind)
+}
+
 function ReplyNoteList({
   index,
   event,
@@ -461,7 +468,7 @@ function ReplyNoteList({
     const s = new Set(filteredQuoteEvents.map((e) => e.id))
     if (rootInfo?.type === 'E' || rootInfo?.type === 'A') {
       for (const r of replies) {
-        if (isKind1QuoteOnlyOfEaRoot(r, rootInfo)) s.add(r.id)
+        if (isEaThreadTailBacklinkCandidate(r, rootInfo)) s.add(r.id)
       }
     }
     if (rootInfo?.type === 'I') {
@@ -488,8 +495,8 @@ function ReplyNoteList({
     // E/A: zaps (sats desc) → thread replies (1 / 1111 / 1244, excluding #q-only) → tail (quotes, highlights, long-form refs)
     if (rootInfo?.type === 'E' || rootInfo?.type === 'A') {
       const { zaps, nonZaps } = partitionZapReceipts(replies)
-      const middle = nonZaps.filter((e) => !isKind1QuoteOnlyOfEaRoot(e, rootInfo))
-      const qOnlyFromReplies = nonZaps.filter((e) => isKind1QuoteOnlyOfEaRoot(e, rootInfo))
+      const middle = nonZaps.filter((e) => !isEaThreadTailBacklinkCandidate(e, rootInfo))
+      const tailFromReplies = nonZaps.filter((e) => isEaThreadTailBacklinkCandidate(e, rootInfo))
       const tailSeen = new Set<string>()
       const tail: NEvent[] = []
       const pushTail = (e: NEvent) => {
@@ -497,7 +504,7 @@ function ReplyNoteList({
         tailSeen.add(e.id)
         tail.push(e)
       }
-      for (const e of qOnlyFromReplies) pushTail(e)
+      for (const e of tailFromReplies) pushTail(e)
       for (const e of quoteOnly) pushTail(e)
       const tailSorted = partitionAndSortBacklinkTail(tail)
       return [...replyFeedZapsFirst(middle, zaps), ...tailSorted]
