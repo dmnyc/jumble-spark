@@ -446,6 +446,17 @@ const NoteList = forwardRef(
     const clientSideKindFilterRef = useRef(clientSideKindFilter)
     clientSideKindFilterRef.current = clientSideKindFilter
 
+    /**
+     * When to apply kind picker + kind-1/1111/GitRelease visibility to rows. Kindless home relay chips use a
+     * kindless REQ and narrow here via {@link clientSideKindFilter}; standalone relay explore keeps firehose.
+     */
+    const applyKindPickerInUi = useMemo(
+      () =>
+        !seeAllFeedEvents &&
+        (!allowKindlessRelayExplore || (useFilterAsIs && clientSideKindFilter)),
+      [seeAllFeedEvents, allowKindlessRelayExplore, useFilterAsIs, clientSideKindFilter]
+    )
+
     const shouldHideEvent = useCallback(
       (evt: Event) => {
         const pinnedEventHexIdSet = new Set()
@@ -509,7 +520,7 @@ const NoteList = forwardRef(
       const idSet = new Set<string>()
 
       return events.slice(0, showCount).filter((evt) => {
-        if (!seeAllFeedEvents && !allowKindlessRelayExplore) {
+        if (applyKindPickerInUi) {
           if (!showKinds.includes(evt.kind)) return false
           // Kind 1: show only OPs if showKind1OPs, only replies if showKind1Replies
           if (evt.kind === kinds.ShortTextNote) {
@@ -539,8 +550,7 @@ const NoteList = forwardRef(
       showKind1OPs,
       showKind1Replies,
       showKind1111,
-      seeAllFeedEvents,
-      allowKindlessRelayExplore
+      applyKindPickerInUi
     ])
 
     useLayoutEffect(() => {
@@ -586,7 +596,7 @@ const NoteList = forwardRef(
       const idSet = new Set<string>()
 
       return newEvents.filter((event: Event) => {
-        if (!seeAllFeedEvents && !allowKindlessRelayExplore) {
+        if (applyKindPickerInUi) {
           if (!showKinds.includes(event.kind)) return false
           if (event.kind === kinds.ShortTextNote) {
             const isReply = isReplyNoteEvent(event)
@@ -614,8 +624,7 @@ const NoteList = forwardRef(
       showKind1OPs,
       showKind1Replies,
       showKind1111,
-      seeAllFeedEvents,
-      allowKindlessRelayExplore
+      applyKindPickerInUi
     ])
 
     const feedClientMinCreatedAt = useMemo(() => {
@@ -967,8 +976,17 @@ const NoteList = forwardRef(
         }
 
         const narrowLiveBatch = (evs: Event[]) => {
-          if (seeAllFeedEventsRef.current || allowKindlessRelayExploreRef.current) return evs
-          if (!useFilterAsIs || !clientSideKindFilter) return evs
+          if (seeAllFeedEventsRef.current) return evs
+          if (
+            allowKindlessRelayExploreRef.current &&
+            !(useFilterAsIsRef.current && clientSideKindFilterRef.current)
+          ) {
+            return evs
+          }
+          if (!useFilterAsIsRef.current || !clientSideKindFilterRef.current) {
+            if (!allowKindlessRelayExploreRef.current) return evs
+            return evs
+          }
           return evs.filter((e) => showKinds.includes(e.kind))
         }
 
@@ -1004,12 +1022,7 @@ const NoteList = forwardRef(
             let merged = [...byId.values()]
               .sort((a, b) => b.created_at - a.created_at)
               .slice(0, cap)
-            if (
-              useFilterAsIs &&
-              clientSideKindFilter &&
-              !seeAllFeedEventsRef.current &&
-              !allowKindlessRelayExploreRef.current
-            ) {
+            if (useFilterAsIs && clientSideKindFilter && !seeAllFeedEventsRef.current) {
               merged = merged.filter((e) => showKinds.includes(e.kind))
             }
             if (sessionSnap?.length && !userPulledRefresh) {
@@ -1211,9 +1224,18 @@ const NoteList = forwardRef(
             onNew: (event: Event) => {
               if (!effectActive) return
               feedRelayReturnedAnyEventRef.current = true
-              if (!seeAllFeedEventsRef.current && !allowKindlessRelayExploreRef.current) {
-                if (!useFilterAsIs && !showKinds.includes(event.kind)) return
-                if (clientSideKindFilter && useFilterAsIs && !showKinds.includes(event.kind)) return
+              if (
+                !seeAllFeedEventsRef.current &&
+                (!allowKindlessRelayExploreRef.current ||
+                  (useFilterAsIsRef.current && clientSideKindFilterRef.current))
+              ) {
+                if (!useFilterAsIsRef.current && !showKinds.includes(event.kind)) return
+                if (
+                  clientSideKindFilterRef.current &&
+                  useFilterAsIsRef.current &&
+                  !showKinds.includes(event.kind)
+                )
+                  return
                 if (event.kind === kinds.ShortTextNote) {
                   const isReply = isReplyNoteEvent(event)
                   if (isReply && !showKind1Replies) return
@@ -1586,8 +1608,7 @@ const NoteList = forwardRef(
             const narrowLoadMore =
               useFilterAsIsRef.current &&
               clientSideKindFilterRef.current &&
-              !seeAllFeedEventsRef.current &&
-              !allowKindlessRelayExploreRef.current
+              !seeAllFeedEventsRef.current
             let toAppend = narrowLoadMore
               ? fetchBatch.filter((e) => showKindsRef.current.includes(e.kind))
               : fetchBatch

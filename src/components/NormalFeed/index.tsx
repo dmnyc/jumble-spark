@@ -104,9 +104,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
     [showFeedClientFilterProp, isMainFeed, allowKindlessRelayExplore, useFilterAsIs]
   )
 
-  const subHeaderFilterDepsKey = allowKindlessRelayExplore
-    ? 'kindless-relay-explore'
-    : `${showKindsKey}|${feedKindFilterBypass}`
+  /** Include kind picker deps for single-relay chips (kindless REQ + client-side kinds). */
+  const subHeaderFilterDepsKey = `${allowKindlessRelayExplore ? 'kle' : 'std'}|${showKindsKey}|${feedKindFilterBypass}`
 
   const tabsElement = (
     <Tabs
@@ -116,26 +115,15 @@ const NormalFeed = forwardRef<TNoteListRef, {
       options={
         <div className="flex items-center gap-1">
           {onSubHeaderRefresh != null && <RefreshButton onClick={onSubHeaderRefresh} />}
-          {!allowKindlessRelayExplore && (
-            <KindFilter showKinds={showKinds} onShowKindsChange={handleShowKindsChange} />
-          )}
+          <KindFilter showKinds={showKinds} onShowKindsChange={handleShowKindsChange} />
         </div>
       }
     />
   )
 
+  /** Same row for multi-relay and single-relay chips: Notes/Replies + refresh + kind picker (REQ may stay kindless for single relay; NoteList filters client-side). */
   useLayoutEffect(() => {
     if (!isMainFeed || !setSubHeader) return
-    if (allowKindlessRelayExplore) {
-      setSubHeader(
-        onSubHeaderRefresh != null ? (
-          <div className="flex w-full items-center justify-end gap-1">
-            <RefreshButton onClick={onSubHeaderRefresh} />
-          </div>
-        ) : null
-      )
-      return () => setSubHeader(null)
-    }
     setSubHeader(tabsElement)
     return () => setSubHeader(null)
   }, [
@@ -161,7 +149,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
           showKind1111={showKind1111}
           seeAllFeedEvents={feedKindFilterBypass}
           subRequests={subRequests}
-          hideReplies={allowKindlessRelayExplore ? false : listMode === 'posts'}
+          hideReplies={listMode === 'posts'}
           hideUntrustedNotes={hideUntrustedNotes}
           areAlgoRelays={areAlgoRelays}
           relayCapabilityReady={relayCapabilityReady}
