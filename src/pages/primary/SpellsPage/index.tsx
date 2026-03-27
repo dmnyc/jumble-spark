@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useKindFilter } from '@/providers/KindFilterProvider'
+import { useBookmarks } from '@/providers/BookmarksProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
@@ -169,7 +170,11 @@ function SpellSheetOptionRow({
   accountPubkey,
   labelFor,
   onPick,
-  groupedUnderAuthor = false
+  groupedUnderAuthor = false,
+  starred = false,
+  onToggleStar,
+  starTitleAdd,
+  starTitleRemove
 }: {
   spell: Event
   selected: boolean
@@ -178,32 +183,62 @@ function SpellSheetOptionRow({
   onPick: (e: Event) => void
   /** Author shown in a header above this block — hide npub under each row */
   groupedUnderAuthor?: boolean
+  starred?: boolean
+  onToggleStar?: (spell: Event) => void
+  starTitleAdd?: string
+  starTitleRemove?: string
 }) {
+  const { t } = useTranslation()
   const { primary, secondary } = spellPickerPrimaryAndSecondary(spell, accountPubkey, labelFor, {
     omitAuthorNpub: groupedUnderAuthor
   })
   return (
-    <button
-      type="button"
-      role="option"
-      aria-selected={selected}
+    <div
       className={cn(
-        'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
-        'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'flex w-full items-stretch gap-0.5 rounded-lg transition-colors',
         selected && 'bg-accent/50'
       )}
-      onClick={() => onPick(spell)}
     >
-      <span className="flex size-4 shrink-0 items-center justify-center">
-        {selected ? <Check className="size-4" aria-hidden /> : null}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col items-stretch gap-0.5">
-        <span className="truncate text-left text-sm font-medium leading-tight">{primary}</span>
-        {secondary ? (
-          <span className="truncate text-left text-xs text-muted-foreground">{secondary}</span>
-        ) : null}
-      </div>
-    </button>
+      <button
+        type="button"
+        role="option"
+        aria-selected={selected}
+        className={cn(
+          'flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors',
+          'hover:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'rounded-lg'
+        )}
+        onClick={() => onPick(spell)}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {selected ? <Check className="size-4" aria-hidden /> : null}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col items-stretch gap-0.5">
+          <span className="truncate text-left font-medium leading-tight">{primary}</span>
+          {secondary ? (
+            <span className="truncate text-left text-xs text-muted-foreground">{secondary}</span>
+          ) : null}
+        </div>
+      </button>
+      {onToggleStar ? (
+        <button
+          type="button"
+          className="flex shrink-0 items-center justify-center rounded-lg px-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title={starred ? starTitleRemove ?? t('Remove from favorites') : starTitleAdd ?? t('Add to favorites')}
+          aria-label={starred ? starTitleRemove ?? t('Remove from favorites') : starTitleAdd ?? t('Add to favorites')}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onToggleStar(spell)
+          }}
+        >
+          <Star
+            className={cn('size-4', starred && 'fill-amber-400 text-amber-500')}
+            aria-hidden
+          />
+        </button>
+      ) : null}
+    </div>
   )
 }
 
@@ -276,6 +311,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const { t } = useTranslation()
   const { navigate: navigatePrimary } = usePrimaryPage()
   const { pubkey, relayList, attemptDelete, bookmarkListEvent, interestListEvent } = useNostr()
+  const { addBookmark, removeBookmark } = useBookmarks()
   const { hideUntrustedNotifications } = useUserTrust()
   const { isSmallScreen } = useScreenSize()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
@@ -287,7 +323,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   } = useKindFilter()
   const hideRepliesFollowing = useNoteListHideReplies()
   const [spells, setSpells] = useState<Event[]>([])
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set())
+  /** Ordered spell event ids (newest star first). Drives picker order + bookmark list sync when logged in. */
+  const [favoriteSpellIds, setFavoriteSpellIds] = useState<string[]>([])
   const [selectedSpell, setSelectedSpell] = useState<Event | null>(null)
   const [selectedFauxSpell, setSelectedFauxSpell] = useState<string | null>(null)
   const [followSetListEvents, setFollowSetListEvents] = useState<Event[]>([])
@@ -361,7 +398,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       indexedDb.getSpellFavoriteIds()
     ])
     setSpells(events)
-    setFavoriteIds(new Set(ids))
+    setFavoriteSpellIds(ids)
   }, [])
 
   const refreshSpellsFeedAndCatalog = useCallback(() => {
@@ -891,14 +928,47 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     return () => removeRelayUrls(urls)
   }, [spellBrowseRelayUrlsKey, addRelayUrls, removeRelayUrls])
 
-  const toggleFavorite = useCallback(async (spellId: string) => {
-    const ids = await indexedDb.getSpellFavoriteIds()
-    const set = new Set(ids)
-    if (set.has(spellId)) set.delete(spellId)
-    else set.add(spellId)
-    await indexedDb.setSpellFavoriteIds([...set])
-    setFavoriteIds(set)
-  }, [])
+  const favoriteSpellSet = useMemo(
+    () => new Set(favoriteSpellIds.map((id) => id.toLowerCase())),
+    [favoriteSpellIds]
+  )
+
+  const toggleFavoriteSpell = useCallback(
+    async (spell: Event) => {
+      const sid = spell.id
+      const sidLower = sid.toLowerCase()
+      const ids = await indexedDb.getSpellFavoriteIds()
+      const exists = ids.some((id) => id.toLowerCase() === sidLower)
+      if (!exists) {
+        if (pubkey) {
+          try {
+            await addBookmark(spell)
+          } catch (e) {
+            logger.error('[SpellsPage] addBookmark for starred spell failed', e)
+            showPublishingError(e instanceof Error ? e : new Error(String(e)))
+            return
+          }
+        }
+        const next = [sid, ...ids.filter((id) => id.toLowerCase() !== sidLower)]
+        await indexedDb.setSpellFavoriteIds(next)
+        setFavoriteSpellIds(next)
+        return
+      }
+      if (pubkey) {
+        try {
+          await removeBookmark(spell)
+        } catch (e) {
+          logger.error('[SpellsPage] removeBookmark for starred spell failed', e)
+          showPublishingError(e instanceof Error ? e : new Error(String(e)))
+          return
+        }
+      }
+      const next = ids.filter((id) => id.toLowerCase() !== sidLower)
+      await indexedDb.setSpellFavoriteIds(next)
+      setFavoriteSpellIds(next)
+    },
+    [pubkey, addBookmark, removeBookmark]
+  )
 
   const handleDeleteSpell = useCallback(
     async (spell: Event) => {
@@ -912,7 +982,15 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       try {
         await indexedDb.deleteSpellEvent(spell.id)
         const ids = await indexedDb.getSpellFavoriteIds()
-        await indexedDb.setSpellFavoriteIds(ids.filter((id) => id !== spell.id))
+        const wasStarred = ids.some((id) => id.toLowerCase() === spell.id.toLowerCase())
+        if (pubkey && wasStarred) {
+          try {
+            await removeBookmark(spell)
+          } catch (e) {
+            logger.warn('[SpellsPage] removeBookmark after spell delete failed', e)
+          }
+        }
+        await indexedDb.setSpellFavoriteIds(ids.filter((id) => id.toLowerCase() !== spell.id.toLowerCase()))
         if (selectedSpell?.id === spell.id) setSelectedSpell(null)
         await loadSpells()
       } catch (e) {
@@ -922,8 +1000,18 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         )
       }
     },
-    [attemptDelete, loadSpells, selectedSpell?.id, t]
+    [attemptDelete, loadSpells, pubkey, removeBookmark, selectedSpell?.id, t]
   )
+
+  const starredSpellsForPicker = useMemo(() => {
+    const byId = new Map<string, Event>()
+    for (const s of spells) {
+      byId.set(s.id.toLowerCase(), s)
+    }
+    return favoriteSpellIds
+      .map((id) => byId.get(id.toLowerCase()))
+      .filter((s): s is Event => s != null)
+  }, [spells, favoriteSpellIds])
 
   const { ownSpells, followSpells, otherSpells, spellsForSelect } = useMemo(() => {
     const byName = (a: Event, b: Event) =>
@@ -935,6 +1023,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     const other: Event[] = []
 
     for (const s of spells) {
+      if (favoriteSpellSet.has(s.id.toLowerCase())) continue
       if (pubkey && s.pubkey === pubkey) own.push(s)
       else if (followSet.has(s.pubkey)) follow.push(s)
       else other.push(s)
@@ -950,7 +1039,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       otherSpells: other,
       spellsForSelect: [...own, ...follow, ...other]
     }
-  }, [spells, pubkey, contacts])
+  }, [spells, pubkey, contacts, favoriteSpellSet])
 
   const followSpellGroups = useMemo(() => groupSpellsByPubkeySorted(followSpells), [followSpells])
   const otherSpellGroups = useMemo(() => groupSpellsByPubkeySorted(otherSpells), [otherSpells])
@@ -1011,8 +1100,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   }, [selectedFauxSpell, selectedSpell?.id, showKindsTagKey, followingShowKindsKey])
 
   const spellMenuLabel = useCallback(
-    (spell: Event) => (favoriteIds.has(spell.id) ? `★ ${getSpellName(spell)}` : getSpellName(spell)),
-    [favoriteIds]
+    (spell: Event) =>
+      favoriteSpellSet.has(spell.id.toLowerCase()) ? `★ ${getSpellName(spell)}` : getSpellName(spell),
+    [favoriteSpellSet]
   )
 
   const selectedFauxSpellDisplayLabel = useMemo(() => {
@@ -1133,8 +1223,33 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       (isFollowSetSpellId(selectedFauxSpell) && followSetCatalogLoading))
   )
 
+  const spellStarAddTitle = t('Spell star add title')
+  const spellStarRemoveTitle = t('Spell star remove title')
+
   const spellPickerList = (
     <>
+      {starredSpellsForPicker.length > 0 ? (
+        <>
+          <p className="px-3 pb-1 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t('Starred spells')}
+          </p>
+          {starredSpellsForPicker.map((spell) => (
+            <SpellSheetOptionRow
+              key={spell.id}
+              spell={spell}
+              selected={selectedSpell?.id === spell.id}
+              accountPubkey={pubkey ?? undefined}
+              labelFor={(e) => getSpellName(e)}
+              onPick={pickSpell}
+              starred
+              onToggleStar={(s) => void toggleFavoriteSpell(s)}
+              starTitleAdd={spellStarAddTitle}
+              starTitleRemove={spellStarRemoveTitle}
+            />
+          ))}
+          <Separator className="my-2" />
+        </>
+      ) : null}
       {FAUX_SPELL_ORDER.flatMap((name) => {
         if (
           (name === 'notifications' ||
@@ -1235,6 +1350,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
               accountPubkey={pubkey ?? undefined}
               labelFor={spellMenuLabel}
               onPick={pickSpell}
+              starred={favoriteSpellSet.has(spell.id.toLowerCase())}
+              onToggleStar={(s) => void toggleFavoriteSpell(s)}
+              starTitleAdd={spellStarAddTitle}
+              starTitleRemove={spellStarRemoveTitle}
             />
           ))}
         </>
@@ -1259,6 +1378,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                     labelFor={spellMenuLabel}
                     onPick={pickSpell}
                     groupedUnderAuthor
+                    starred={favoriteSpellSet.has(spell.id.toLowerCase())}
+                    onToggleStar={(s) => void toggleFavoriteSpell(s)}
+                    starTitleAdd={spellStarAddTitle}
+                    starTitleRemove={spellStarRemoveTitle}
                   />
                 ))}
               </div>
@@ -1286,6 +1409,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                     labelFor={spellMenuLabel}
                     onPick={pickSpell}
                     groupedUnderAuthor
+                    starred={favoriteSpellSet.has(spell.id.toLowerCase())}
+                    onToggleStar={(s) => void toggleFavoriteSpell(s)}
+                    starTitleAdd={spellStarAddTitle}
+                    starTitleRemove={spellStarRemoveTitle}
                   />
                 ))}
               </div>
@@ -1444,14 +1571,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                       size="icon"
                       className="shrink-0"
                       title={
-                        favoriteIds.has(selectedSpell.id)
-                          ? t('Remove from favorites')
-                          : t('Add to favorites')
+                        favoriteSpellSet.has(selectedSpell.id.toLowerCase())
+                          ? t('Spell star remove title')
+                          : t('Spell star add title')
                       }
-                      onClick={() => toggleFavorite(selectedSpell.id)}
+                      onClick={() => void toggleFavoriteSpell(selectedSpell)}
                     >
                       <Star
-                        className={`size-4 ${favoriteIds.has(selectedSpell.id) ? 'fill-amber-400 text-amber-500' : ''}`}
+                        className={`size-4 ${favoriteSpellSet.has(selectedSpell.id.toLowerCase()) ? 'fill-amber-400 text-amber-500' : ''}`}
                       />
                     </Button>
                     <DropdownMenu>

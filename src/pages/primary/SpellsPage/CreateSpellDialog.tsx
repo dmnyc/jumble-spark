@@ -18,6 +18,7 @@ import {
   dedupeAppendIds,
   resolveSpellListATags
 } from '@/lib/spell-list-import'
+import { useBookmarks } from '@/providers/BookmarksProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { showPublishingError, showSimplePublishSuccess } from '@/lib/publishing-feedback'
@@ -290,6 +291,7 @@ export default function CreateSpellDialog({
 }) {
   const { t } = useTranslation()
   const { pubkey, publish, checkLogin, relayList } = useNostr()
+  const { addBookmark, removeBookmark } = useBookmarks()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const [form, setForm] = useState<TSpellDraftParams>(DEFAULT_PARAMS)
   const [saving, setSaving] = useState(false)
@@ -402,8 +404,20 @@ export default function CreateSpellDialog({
       if (replaceSpellId) {
         await indexedDb.deleteSpellEvent(replaceSpellId)
         const favs = await indexedDb.getSpellFavoriteIds()
+        const ridLower = replaceSpellId.toLowerCase()
+        const wasStarred = favs.some((id) => id.toLowerCase() === ridLower)
         if (favs.length) {
-          await indexedDb.setSpellFavoriteIds(favs.map((id) => (id === replaceSpellId ? event.id : id)))
+          await indexedDb.setSpellFavoriteIds(
+            favs.map((id) => (id.toLowerCase() === ridLower ? event.id : id))
+          )
+        }
+        if (wasStarred && spellToEdit) {
+          try {
+            await removeBookmark(spellToEdit)
+            await addBookmark(event)
+          } catch (e) {
+            logger.warn('[CreateSpellDialog] Bookmark migrate after spell edit failed', e)
+          }
         }
       }
       await indexedDb.putSpellEvent(event)
