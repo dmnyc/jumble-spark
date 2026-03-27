@@ -1548,7 +1548,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   subRequests={subRequests}
                   feedSubscriptionKey={spellFeedSubscriptionKey}
                   showKinds={showKinds}
-                  spellFetchTimeoutMs={1}
                   spellFeedInstrumentToken={spellFeedInstrumentToken}
                   onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                   timelineLoadingSafetyTimeoutMs={
@@ -1597,7 +1596,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                 subRequests={subRequests}
                 feedSubscriptionKey={spellFeedSubscriptionKey}
                 showKinds={showKinds}
-                spellFetchTimeoutMs={1}
                 spellFeedInstrumentToken={spellFeedInstrumentToken}
                 onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                 useFilterAsIs

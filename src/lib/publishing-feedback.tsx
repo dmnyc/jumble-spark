@@ -64,7 +64,12 @@ export function showPublishingFeedback(
   const { relayStatuses, successCount, totalCount } = result
 
   if (relayStatuses.length === 0) {
-    // Fallback for events without relay status tracking
+    // e.g. publishEvent with zero target relays still returns { relayStatuses: [] }; must not use success styling
+    const publishFailed = result.successCount < 1 || result.success === false
+    if (publishFailed) {
+      toast.error(message, { duration: 4000 })
+      return
+    }
     if (publishSuccessToastsEnabled()) {
       toast.success(message, { duration: 2000 })
     } else {

@@ -681,6 +681,8 @@ export default {
     'Nothing to load for this feed.': 'Nothing to load for this feed.',
     'No posts loaded for this feed. Try refreshing.':
       'No posts loaded for this feed. Try refreshing.',
+    'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.':
+      'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.',
     'Republish to ...': 'Republish to ...',
     'All available relays': 'All available relays',
     'All active relays (monitoring list)': 'All active relays (monitoring list)',

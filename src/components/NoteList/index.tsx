@@ -44,9 +44,11 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import PullToRefresh from 'react-simple-pull-to-refresh'
+import { toast } from 'sonner'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { NoteFeedProfileContext, type NoteFeedProfileContextValue } from '@/providers/NoteFeedProfileContext'
 import type { TProfile } from '@/types'
+import { Button } from '@/components/ui/button'
 import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
 const LIMIT = 100 // Increased from 200 to load more events per request
@@ -117,11 +119,6 @@ const NoteList = forwardRef(
        * relay URL set is a strict superset of the old one (which would otherwise keep stale rows).
        */
       feedTimelineScopeKey,
-      /**
-       * Spells / one-shot feeds: when the initial fetch finishes with zero rows, show explicit empty copy
-       * (see list footer). Does not end loading early — loading stays until EOSE, first events, or safety timeouts.
-       */
-      spellFetchTimeoutMs,
       /** Spells page: bumps when user picks a feed; used with {@link onSpellFeedFirstPaint}. */
       spellFeedInstrumentToken,
       /** Spells page: fired once when the filtered list first has rows after a picker change. */
@@ -181,8 +178,6 @@ const NoteList = forwardRef(
       preserveTimelineOnSubRequestsChange?: boolean
       mergeTimelineWhenSubRequestFiltersMatch?: boolean
       feedTimelineScopeKey?: string
-      /** When set (e.g. spells), use explicit empty-feed copy after load completes with no rows. */
-      spellFetchTimeoutMs?: number
       spellFeedInstrumentToken?: number
       onSpellFeedFirstPaint?: (detail: { eventCount: number; firstEventId: string }) => void
       timelineLoadingSafetyTimeoutMs?: number
@@ -234,6 +229,10 @@ const NoteList = forwardRef(
     const feedPaintRelayMetaRef = useRef<Record<string, unknown> | null>(null)
     /** First live `onEvents` paint per timeline init (rows or terminal EOSE). */
     const feedPaintLiveRelayDoneRef = useRef(false)
+    /** True if any timeline `onEvents` batch had `batch.length > 0`, or one-shot fetches returned any raw events (before UI filters). */
+    const feedRelayReturnedAnyEventRef = useRef(false)
+    /** Dedupe {@link toast.error} when relays return nothing for a feed load. */
+    const emptyRelayNoHitsToastKeyRef = useRef('')
 
     const [feedProfileBatch, setFeedProfileBatch] = useState<{
       profiles: Map<string, TProfile>
@@ -680,6 +679,7 @@ const NoteList = forwardRef(
         feedPaintRelayPendingRef.current = false
         feedPaintRelayMetaRef.current = null
         feedPaintLiveRelayDoneRef.current = false
+        feedRelayReturnedAnyEventRef.current = false
 
         // Re-subscribe with rows visible (e.g. relay URL expansion): don't flash global loading / skeleton.
         const keepRowsVisible =
@@ -781,6 +781,9 @@ const NoteList = forwardRef(
               )
             )
             if (!effectActive) return undefined
+            if (batches.some((b) => b.length > 0)) {
+              feedRelayReturnedAnyEventRef.current = true
+            }
             const byId = new Map<string, Event>()
             for (const ev of batches.flat()) {
               const prev = byId.get(ev.id)
@@ -880,6 +883,9 @@ const NoteList = forwardRef(
             {
               onEvents: (batch: Event[], eosed: boolean) => {
                 if (!effectActive) return
+                if (batch.length > 0) {
+                  feedRelayReturnedAnyEventRef.current = true
+                }
                 const narrowed = narrowLiveBatch(batch)
                 if (!feedPaintLiveRelayDoneRef.current) {
                   if (narrowed.length > 0) {
@@ -978,6 +984,7 @@ const NoteList = forwardRef(
               },
             onNew: (event: Event) => {
               if (!effectActive) return
+              feedRelayReturnedAnyEventRef.current = true
               if (!useFilterAsIs && !showKinds.includes(event.kind)) return
               if (clientSideKindFilter && useFilterAsIs && !showKinds.includes(event.kind)) return
               if (event.kind === kinds.ShortTextNote) {
@@ -1140,6 +1147,7 @@ const NoteList = forwardRef(
     const loadingRef = useRef(loading)
     const hasMoreRef = useRef(hasMore)
     const timelineKeyRef = useRef(timelineKey)
+    const blankFeedHiddenAtRef = useRef<number | null>(null)
 
     useEffect(() => {
       showCountRef.current = showCount
@@ -1148,6 +1156,35 @@ const NoteList = forwardRef(
     useEffect(() => {
       loadingRef.current = loading
     }, [loading])
+
+    useEffect(() => {
+      if (loading || events.length > 0) return
+      if (!subRequests.length) return
+
+      const toastKey = `${timelineSubscriptionKey}|${refreshCount}`
+      const debounceMs = 1_600
+      const timer = window.setTimeout(() => {
+        if (loadingRef.current) return
+        if (eventsRef.current.length > 0) return
+        if (!subRequestsRef.current.length) return
+        if (feedRelayReturnedAnyEventRef.current) return
+        if (emptyRelayNoHitsToastKeyRef.current === toastKey) return
+        emptyRelayNoHitsToastKeyRef.current = toastKey
+        toast.error(
+          t(
+            'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.'
+          )
+        )
+      }, debounceMs)
+      return () => window.clearTimeout(timer)
+    }, [
+      loading,
+      events.length,
+      subRequests.length,
+      timelineSubscriptionKey,
+      refreshCount,
+      t
+    ])
     
     useEffect(() => {
       hasMoreRef.current = hasMore
@@ -1156,6 +1193,26 @@ const NoteList = forwardRef(
     useEffect(() => {
       timelineKeyRef.current = timelineKey
     }, [timelineKey])
+
+    useEffect(() => {
+      const onVisibility = () => {
+        if (document.visibilityState === 'hidden') {
+          blankFeedHiddenAtRef.current = Date.now()
+          return
+        }
+        const hidAt = blankFeedHiddenAtRef.current
+        blankFeedHiddenAtRef.current = null
+        const hiddenMs = hidAt != null ? Date.now() - hidAt : 0
+        if (hiddenMs < 1500) return
+        if (loadingRef.current) return
+        if (eventsRef.current.length > 0) return
+        if (!subRequestsRef.current.length) return
+        logger.info('[NoteList] Blank feed — auto-retry after tab resume', { hiddenMs })
+        refresh()
+      }
+      document.addEventListener('visibilitychange', onVisibility)
+      return () => document.removeEventListener('visibilitychange', onVisibility)
+    }, [refresh])
 
     useEffect(() => {
       const options: IntersectionObserverInit = {
@@ -1555,9 +1612,16 @@ const NoteList = forwardRef(
           </div>
         ) : events.length > 0 ? (
           <div className="text-center text-sm text-muted-foreground mt-2">{t('no more notes')}</div>
-        ) : (spellFetchTimeoutMs != null && spellFetchTimeoutMs > 0) || oneShotFetch ? (
-          <div ref={bottomRef} className="mt-6 px-4 text-center text-sm text-muted-foreground">
-            {t('No posts loaded for this feed. Try refreshing.')}
+        ) : !loading && subRequests.length > 0 ? (
+          <div
+            ref={bottomRef}
+            className="mt-6 flex min-h-[35vh] flex-col items-center justify-start gap-4 px-4 text-center text-sm text-muted-foreground"
+            role="status"
+          >
+            <p>{t('No posts loaded for this feed. Try refreshing.')}</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => refresh()}>
+              {t('Refresh')}
+            </Button>
           </div>
         ) : (
           <div ref={bottomRef} className="mt-2 min-h-4" aria-hidden />
