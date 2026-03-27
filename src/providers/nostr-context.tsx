@@ -21,6 +21,8 @@ export type TNostrContext = {
   profileEvent: Event | null
   relayList: TRelayList | null
   cacheRelayListEvent: Event | null
+  /** Kind 10243 (HTTPS index relays); null if none, undefined while not loaded. */
+  httpRelayListEvent: Event | null | undefined
   followListEvent: Event | null
   muteListEvent: Event | null
   bookmarkListEvent: Event | null
@@ -51,6 +53,7 @@ export type TNostrContext = {
   checkLogin: <T>(cb?: () => T) => Promise<T | void>
   updateRelayListEvent: (relayListEvent: Event) => Promise<void>
   updateCacheRelayListEvent: (cacheRelayListEvent: Event) => Promise<void>
+  updateHttpRelayListEvent: (httpRelayListEvent: Event) => Promise<void>
   updateProfileEvent: (profileEvent: Event) => Promise<void>
   updateFollowListEvent: (followListEvent: Event) => Promise<void>
   updateMuteListEvent: (muteListEvent: Event, privateTags: string[][]) => Promise<void>

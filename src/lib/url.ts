@@ -16,6 +16,28 @@ export function isWebsocketUrl(url: string): boolean {
   return /^wss?:\/\/.+$/.test(url)
 }
 
+/** Nostr relay over HTTPS (index relay JSON API), not WebSocket. */
+export function isHttpRelayUrl(url: string): boolean {
+  const u = url.trim()
+  return /^https?:\/\/.+/i.test(u)
+}
+
+/**
+ * Normalize https/http relay base URL without converting to WebSocket.
+ * Use for kind 10243 and index-relay HTTP API calls (not for NIP-01 WS pool).
+ */
+export function normalizeHttpRelayUrl(url: string): string {
+  return normalizeHttpUrl(url)
+}
+
+/**
+ * Normalize relay URL for deduplication: WebSocket URLs via {@link normalizeUrl}, HTTPS index relays via {@link normalizeHttpRelayUrl}.
+ */
+export function normalizeAnyRelayUrl(url: string): string {
+  if (isHttpRelayUrl(url)) return normalizeHttpRelayUrl(url) || ''
+  return normalizeUrl(url) || ''
+}
+
 // copy from nostr-tools/utils
 export function normalizeUrl(url: string): string {
   try {

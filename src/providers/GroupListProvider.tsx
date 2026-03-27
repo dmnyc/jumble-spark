@@ -33,11 +33,20 @@ export function GroupListProvider({ children }: { children: React.ReactNode }) {
 
   // Build comprehensive relay list for fetching group list
   const buildComprehensiveRelayList = useCallback(async () => {
-    const myRelayList = accountPubkey ? await client.fetchRelayList(accountPubkey) : { write: [], read: [] }
+    const myRelayList = accountPubkey
+      ? await client.fetchRelayList(accountPubkey)
+      : {
+          write: [],
+          read: [],
+          originalRelays: [],
+          httpRead: [],
+          httpWrite: [],
+          httpOriginalRelays: []
+        }
     const favoritesTier = getFavoritesFeedRelayUrls(favoriteRelays ?? [], blockedRelays)
     return buildPrioritizedReadRelayUrls({
-      userReadRelays: myRelayList.read ?? [],
-      userWriteRelays: myRelayList.write ?? [],
+      userReadRelays: [...(myRelayList.httpRead ?? []), ...(myRelayList.read ?? [])],
+      userWriteRelays: [...(myRelayList.httpWrite ?? []), ...(myRelayList.write ?? [])],
       favoriteRelays: favoritesTier,
       blockedRelays,
       applySocialKindBlockedFilter: false

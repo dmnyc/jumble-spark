@@ -3,17 +3,19 @@ import { ExtendedKind, FAST_WRITE_RELAY_URLS, RANDOM_PUBLISH_RELAY_COUNT } from 
 import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
 import client from '@/services/client.service'
 import { eventService } from '@/services/client.service'
-import { normalizeUrl, isLocalNetworkUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl, normalizeUrl, isLocalNetworkUrl } from '@/lib/url'
 import { TRelaySet, TRelayList } from '@/types'
 import logger from '@/lib/logger'
 import indexedDb from '@/services/indexed-db.service'
-import { getRelayListFromEvent } from '@/lib/event-metadata'
+import { getHttpRelayListFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import nip66Service from '@/services/nip66.service'
 import storage from '@/services/local-storage.service'
 
 export interface RelaySelectionContext {
   // User's own relays
   userWriteRelays: string[]
+  /** Kind 10243 write/both targets (HTTPS index relays); labeled "HTTP" in the picker. */
+  userHttpWriteRelays?: string[]
   userReadRelays: string[]
   favoriteRelays: string[]
   blockedRelays: string[]
@@ -34,6 +36,7 @@ export interface RelaySelectionContext {
 export type RelaySourceType =
   | 'local'
   | 'relay_list'
+  | 'http_relay_list'
   | 'client_default'
   | 'open_from'
   | 'favorite'
@@ -108,7 +111,7 @@ class RelaySelectionService {
 
     const addRelay = (url: string, type: RelaySourceType) => {
       if (!url) return
-      const normalized = normalizeUrl(url)
+      const normalized = normalizeAnyRelayUrl(url)
       if (normalized && !seen.has(normalized)) {
         seen.add(normalized)
         order.push({ url: normalized, type })
@@ -116,6 +119,9 @@ class RelaySelectionService {
         logger.warn('Skipping invalid relay URL', { url })
       }
     }
+
+    const userHttpWrites = context.userHttpWriteRelays ?? []
+    userHttpWrites.forEach((url) => addRelay(url, 'http_relay_list'))
 
     // User's write relays (or fallback = client default)
     const userRelays = userWriteRelays.length > 0 ? userWriteRelays : FAST_WRITE_RELAY_URLS
@@ -191,28 +197,37 @@ class RelaySelectionService {
    */
   private async getCachedRelayList(pubkey: string): Promise<TRelayList | null> {
     try {
-      // Get both kind 10002 (relay list) and kind 10432 (cache relays) from IndexedDB
-      const [relayListEvent, cacheRelayListEvent] = await Promise.all([
+      // Get kind 10002, 10432, and 10243 from IndexedDB
+      const [relayListEvent, cacheRelayListEvent, httpRelayListEvent] = await Promise.all([
         indexedDb.getReplaceableEvent(pubkey, kinds.RelayList),
-        indexedDb.getReplaceableEvent(pubkey, ExtendedKind.CACHE_RELAYS)
+        indexedDb.getReplaceableEvent(pubkey, ExtendedKind.CACHE_RELAYS),
+        indexedDb.getReplaceableEvent(pubkey, ExtendedKind.HTTP_RELAY_LIST)
       ])
 
+      const mergeKind10243 = (list: TRelayList): TRelayList => {
+        const h = getHttpRelayListFromEvent(httpRelayListEvent ?? undefined)
+        return { ...list, httpRead: h.httpRead, httpWrite: h.httpWrite, httpOriginalRelays: h.httpOriginalRelays }
+      }
+
       let relayList: TRelayList
-      
+
       // If no cached relay list event, fetch from relays (which will also cache it)
       if (!relayListEvent) {
         try {
           relayList = await client.fetchRelayList(pubkey) // Keep using client for relay list merging
         } catch (error) {
           logger.warn('Failed to fetch relay list from relays', { error, pubkey })
-          relayList = {
+          relayList = mergeKind10243({
             write: [],
             read: [],
-            originalRelays: []
-          }
+            originalRelays: [],
+            httpRead: [],
+            httpWrite: [],
+            httpOriginalRelays: []
+          })
         }
       } else {
-        relayList = getRelayListFromEvent(relayListEvent)
+        relayList = mergeKind10243(getRelayListFromEvent(relayListEvent))
       }
 
       // Merge cache relays (kind 10432) into the relay list
@@ -245,7 +260,10 @@ class RelaySelectionService {
         return {
           write: Array.from(new Set(mergedWrite)),
           read: Array.from(new Set(mergedRead)),
-          originalRelays: Array.from(mergedOriginalRelays.values())
+          originalRelays: Array.from(mergedOriginalRelays.values()),
+          httpRead: relayList.httpRead,
+          httpWrite: relayList.httpWrite,
+          httpOriginalRelays: relayList.httpOriginalRelays
         }
       }
 
@@ -810,10 +828,8 @@ class RelaySelectionService {
       return relays
     }
 
-    // Helper function to safely normalize URLs
     const safeNormalize = (url: string): string => {
-      const normalized = normalizeUrl(url)
-      return normalized || url
+      return normalizeAnyRelayUrl(url) || url
     }
 
     const normalizedBlocked = blockedRelays.map(safeNormalize)

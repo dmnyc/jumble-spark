@@ -5,7 +5,7 @@ import {
   SOCIAL_KIND_BLOCKED_RELAY_URLS
 } from '@/constants'
 import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
-import { simplifyUrl, isLocalNetworkUrl, normalizeUrl } from '@/lib/url'
+import { simplifyUrl, isLocalNetworkUrl, normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -151,6 +151,7 @@ export default function PostRelaySelector({
         
         const result = await relaySelectionService.selectRelays({
           userWriteRelays,
+          userHttpWriteRelays: relayList?.httpWrite ?? [],
           userReadRelays: relayList?.read || [],
           favoriteRelays: memoizedFavoriteRelays,
           blockedRelays: memoizedBlockedRelays,
@@ -256,6 +257,7 @@ export default function PostRelaySelector({
           
           const result = await relaySelectionService.selectRelays({
             userWriteRelays,
+            userHttpWriteRelays: relayList?.httpWrite ?? [],
             userReadRelays: relayList?.read || [],
             favoriteRelays: memoizedFavoriteRelays,
             blockedRelays: memoizedBlockedRelays,
@@ -325,8 +327,12 @@ export default function PostRelaySelector({
   // Update parent component with selected relays
   useEffect(() => {
     // An event is "protected" if we have selected relays that aren't the default user write relays
-    const userWriteRelays = relayList?.write || []
-    const isProtectedEvent = selectedRelayUrls.length > 0 && !selectedRelayUrls.every(url => userWriteRelays.includes(url))
+    const defaultUserWriteRelays = [...(relayList?.httpWrite ?? []), ...(relayList?.write || [])]
+    const normW = (u: string) => normalizeAnyRelayUrl(u) || u
+    const defaultNorm = new Set(defaultUserWriteRelays.map(normW))
+    const isProtectedEvent =
+      selectedRelayUrls.length > 0 &&
+      !selectedRelayUrls.every((url) => defaultNorm.has(normW(url)))
     setIsProtectedEvent(isProtectedEvent)
     setAdditionalRelayUrls(selectedRelayUrls)
   }, [selectedRelayUrls, relayList, setIsProtectedEvent, setAdditionalRelayUrls])

@@ -1,3 +1,4 @@
+import HttpRelaysSetting from '@/components/HttpRelaysSetting'
 import MailboxSetting from '@/components/MailboxSetting'
 import FavoriteRelaysSetting from '@/components/FavoriteRelaysSetting'
 import SessionRelaysTab from '@/components/SessionRelaysTab'
@@ -17,6 +18,9 @@ const RelaySettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?:
 
   useEffect(() => {
     switch (window.location.hash) {
+      case '#http-relays':
+        setTabValue('http-relays')
+        break
       case '#mailbox':
         setTabValue('mailbox')
         break
@@ -49,6 +53,7 @@ const RelaySettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?:
         <TabsList className="flex-col sm:flex-row h-auto sm:h-9">
           <TabsTrigger value="favorite-relays" className="w-full sm:w-auto">{t('Favorite Relays')}</TabsTrigger>
           <TabsTrigger value="mailbox" className="w-full sm:w-auto">{t('Read & Write Relays')}</TabsTrigger>
+          <TabsTrigger value="http-relays" className="w-full sm:w-auto">{t('HTTP relays')}</TabsTrigger>
           <TabsTrigger value="session-relays" className="w-full sm:w-auto">{t('Session relays')}</TabsTrigger>
         </TabsList>
         <TabsContent value="favorite-relays">
@@ -56,6 +61,9 @@ const RelaySettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?:
         </TabsContent>
         <TabsContent value="mailbox">
           <MailboxSetting />
+        </TabsContent>
+        <TabsContent value="http-relays">
+          <HttpRelaysSetting />
         </TabsContent>
         <TabsContent value="session-relays">
           <SessionRelaysTab />

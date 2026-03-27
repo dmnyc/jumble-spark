@@ -1,6 +1,6 @@
 import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
 import { buildPrioritizedReadRelayUrls, buildPrioritizedWriteRelayUrls } from '@/lib/relay-url-priority'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl } from '@/lib/url'
 import client from '@/services/client.service'
 
 /**
@@ -16,20 +16,20 @@ export async function buildAccountListRelayUrlsForMerge(options: {
   const myRelayList = await client.fetchRelayList(accountPubkey)
   const favoritesTier = getFavoritesFeedRelayUrls(favoriteRelays ?? [], blockedRelays)
   const read = buildPrioritizedReadRelayUrls({
-    userReadRelays: myRelayList.read ?? [],
-    userWriteRelays: myRelayList.write ?? [],
+    userReadRelays: [...(myRelayList.httpRead ?? []), ...(myRelayList.read ?? [])],
+    userWriteRelays: [...(myRelayList.httpWrite ?? []), ...(myRelayList.write ?? [])],
     favoriteRelays: favoritesTier,
     blockedRelays,
     maxRelays: 100,
     applySocialKindBlockedFilter: false
   })
   const write = buildPrioritizedWriteRelayUrls({
-    userWriteRelays: myRelayList.write ?? [],
+    userWriteRelays: [...(myRelayList.httpWrite ?? []), ...(myRelayList.write ?? [])],
     favoriteRelays: favoritesTier,
     blockedRelays,
     maxRelays: 100,
     applySocialKindBlockedFilter: false
   })
   const merged = [...read, ...write]
-  return [...new Set(merged.map((u) => normalizeUrl(u) || u).filter(Boolean))]
+  return [...new Set(merged.map((u) => normalizeAnyRelayUrl(u) || u).filter(Boolean))]
 }

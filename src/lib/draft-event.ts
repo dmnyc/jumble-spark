@@ -643,6 +643,16 @@ export function createRelayListDraftEvent(mailboxRelays: TMailboxRelay[]): TDraf
   }
 }
 
+/** Kind 10243 — empty `tags` is a valid “cleared” list (publish to replace). */
+export function createHttpRelayListDraftEvent(mailboxRelays: TMailboxRelay[]): TDraftEvent {
+  return {
+    kind: ExtendedKind.HTTP_RELAY_LIST,
+    content: '',
+    tags: mailboxRelays.map(({ url, scope }) => buildRTag(url, scope)),
+    created_at: dayjs().unix()
+  }
+}
+
 /** NIP-A7 spell (kind 777) draft params from Create Spell form. */
 export type TSpellDraftParams = {
   cmd: 'REQ' | 'COUNT'
@@ -953,7 +963,11 @@ export async function createPollDraftEvent(
     relays.forEach((relay) => tags.push(buildRelayTag(relay)))
   } else {
     const relayList = await client.fetchRelayList(author)
-    relayList.read.slice(0, 4).forEach((relay) => {
+    const readHints = [
+      ...(relayList.httpRead || []).slice(0, 4),
+      ...(relayList.read || []).slice(0, 4)
+    ].slice(0, 4)
+    readHints.forEach((relay) => {
       tags.push(buildRelayTag(relay))
     })
   }

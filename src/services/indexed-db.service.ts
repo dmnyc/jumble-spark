@@ -30,6 +30,8 @@ export const StoreNames = {
   FAVORITE_RELAYS: 'favoriteRelays',
   BLOCKED_RELAYS_EVENTS: 'blockedRelaysEvents',
   CACHE_RELAYS_EVENTS: 'cacheRelaysEvents',
+  /** Kind 10243 HTTPS index relay list (replaceable by pubkey). */
+  HTTP_RELAY_LIST_EVENTS: 'httpRelayListEvents',
   RSS_FEED_LIST_EVENTS: 'rssFeedListEvents',
   RSS_FEED_ITEMS: 'rssFeedItems',
   RELAY_SETS: 'relaySets',
@@ -56,7 +58,7 @@ export const StoreNames = {
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 30
+const DB_VERSION = 31
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -855,6 +857,8 @@ class IndexedDbService {
         return StoreNames.BLOCKED_RELAYS_EVENTS
       case ExtendedKind.CACHE_RELAYS:
         return StoreNames.CACHE_RELAYS_EVENTS
+      case ExtendedKind.HTTP_RELAY_LIST:
+        return StoreNames.HTTP_RELAY_LIST_EVENTS
       case ExtendedKind.RSS_FEED_LIST:
         return StoreNames.RSS_FEED_LIST_EVENTS
       case kinds.UserEmojiList:
@@ -1484,6 +1488,7 @@ class IndexedDbService {
     if (storeName === StoreNames.FAVORITE_RELAYS) return ExtendedKind.FAVORITE_RELAYS
     if (storeName === StoreNames.BLOCKED_RELAYS_EVENTS) return ExtendedKind.BLOCKED_RELAYS
       if (storeName === StoreNames.CACHE_RELAYS_EVENTS) return ExtendedKind.CACHE_RELAYS
+      if (storeName === StoreNames.HTTP_RELAY_LIST_EVENTS) return ExtendedKind.HTTP_RELAY_LIST
       if (storeName === StoreNames.RSS_FEED_LIST_EVENTS) return ExtendedKind.RSS_FEED_LIST
       if (storeName === StoreNames.USER_EMOJI_LIST_EVENTS) return kinds.UserEmojiList
       if (storeName === StoreNames.EMOJI_SET_EVENTS) return kinds.Emojisets
@@ -1506,6 +1511,7 @@ class IndexedDbService {
       kind === ExtendedKind.FAVORITE_RELAYS ||
       kind === ExtendedKind.BLOCKED_RELAYS ||
       kind === ExtendedKind.CACHE_RELAYS ||
+      kind === ExtendedKind.HTTP_RELAY_LIST ||
       kind === ExtendedKind.BLOSSOM_SERVER_LIST ||
       kind === ExtendedKind.RSS_FEED_LIST
     )

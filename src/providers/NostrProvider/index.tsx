@@ -19,9 +19,9 @@ import {
   createRelayListDraftEvent
 } from '@/lib/draft-event'
 import { getLatestEvent, minePow } from '@/lib/event'
-import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
+import { getHttpRelayListFromEvent, getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeHttpRelayUrl, normalizeUrl } from '@/lib/url'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import client from '@/services/client.service'
@@ -139,6 +139,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   const [profileEvent, setProfileEvent] = useState<Event | null>(null)
   const [relayList, setRelayList] = useState<TRelayList | null>(null)
   const [cacheRelayListEvent, setCacheRelayListEvent] = useState<Event | null>(null)
+  const [httpRelayListEvent, setHttpRelayListEvent] = useState<Event | null | undefined>(undefined)
   const [followListEvent, setFollowListEvent] = useState<Event | null>(null)
   const [muteListEvent, setMuteListEvent] = useState<Event | null>(null)
   const [bookmarkListEvent, setBookmarkListEvent] = useState<Event | null>(null)
@@ -214,6 +215,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         setMuteListEvent(null)
         setBookmarkListEvent(null)
         setRssFeedListEvent(null)
+        setCacheRelayListEvent(null)
+        setHttpRelayListEvent(undefined)
         return undefined
       }
 
@@ -232,6 +235,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         setMuteListEvent(null)
         setBookmarkListEvent(null)
         setRssFeedListEvent(null)
+        setHttpRelayListEvent(undefined)
       }
 
       hydrationGenForThisRun = accountHydrationGenerationRef.current += 1
@@ -268,7 +272,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         storedUserEmojiListEvent,
         storedRssFeedListEvent,
         storedInterestListEvent,
-        storedBlossomServerListEvent
+        storedBlossomServerListEvent,
+        storedHttpRelayListEvent
       ] = await Promise.all([
         indexedDb.getReplaceableEvent(account.pubkey, kinds.RelayList),
         indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.CACHE_RELAYS),
@@ -281,7 +286,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         indexedDb.getReplaceableEvent(account.pubkey, kinds.UserEmojiList),
         indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.RSS_FEED_LIST),
         indexedDb.getReplaceableEvent(account.pubkey, INTEREST_LIST_KIND),
-        indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.BLOSSOM_SERVER_LIST)
+        indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.BLOSSOM_SERVER_LIST),
+        indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.HTTP_RELAY_LIST)
       ])
       
       // Extract blocked relays from event
@@ -302,35 +308,49 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       
       // Set initial relay list from stored events (will be updated with merged list later)
       // Merge cache relays even at initial load so cache relays are available immediately
-      if (!userForcedAccountNetworkHydrate && (storedRelayListEvent || storedCacheRelayListEvent)) {
-        const baseRelayList = storedRelayListEvent 
+      if (
+        !userForcedAccountNetworkHydrate &&
+        (storedRelayListEvent || storedCacheRelayListEvent || storedHttpRelayListEvent)
+      ) {
+        const emptyHttp = {
+          httpRead: [] as string[],
+          httpWrite: [] as string[],
+          httpOriginalRelays: [] as TMailboxRelay[]
+        }
+        let baseRelayList: TRelayList = storedRelayListEvent
           ? getRelayListFromEvent(storedRelayListEvent, blockedRelays)
-          : { write: [], read: [], originalRelays: [] }
-        
-        // Merge cache relays if available
+          : { write: [], read: [], originalRelays: [], ...emptyHttp }
+        const httpSlice = getHttpRelayListFromEvent(storedHttpRelayListEvent, blockedRelays)
+        baseRelayList = {
+          ...baseRelayList,
+          httpRead: httpSlice.httpRead,
+          httpWrite: httpSlice.httpWrite,
+          httpOriginalRelays: httpSlice.httpOriginalRelays
+        }
+
         if (storedCacheRelayListEvent) {
           const cacheRelayList = getRelayListFromEvent(storedCacheRelayListEvent)
-          
-          // Merge read relays - cache relays first, then others (for offline priority)
+
           const mergedRead = [...cacheRelayList.read, ...baseRelayList.read]
           const mergedWrite = [...cacheRelayList.write, ...baseRelayList.write]
           const mergedOriginalRelays = new Map<string, TMailboxRelay>()
-          
-          // Add cache relay original relays first (prioritized)
-          cacheRelayList.originalRelays.forEach(relay => {
+
+          cacheRelayList.originalRelays.forEach((relay) => {
             mergedOriginalRelays.set(relay.url, relay)
           })
-          // Then add regular relay original relays
-          baseRelayList.originalRelays.forEach(relay => {
+          baseRelayList.originalRelays.forEach((relay) => {
             if (!mergedOriginalRelays.has(relay.url)) {
               mergedOriginalRelays.set(relay.url, relay)
             }
           })
-          
+
           setRelayList({
             write: Array.from(new Set(mergedWrite)),
             read: Array.from(new Set(mergedRead)),
-            originalRelays: Array.from(mergedOriginalRelays.values())
+            originalRelays: Array.from(mergedOriginalRelays.values()),
+            httpRead: baseRelayList.httpRead,
+            httpWrite: baseRelayList.httpWrite,
+            httpOriginalRelays: baseRelayList.httpOriginalRelays
           })
         } else {
           setRelayList(baseRelayList)
@@ -369,6 +389,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         if (storedBlossomServerListEvent) {
           void client.updateBlossomServerListEventCache(storedBlossomServerListEvent)
         }
+        setHttpRelayListEvent(storedHttpRelayListEvent ?? null)
       }
 
       const lastNetworkHydrateAt = storage.getAccountNetworkHydrateAt(account.pubkey)
@@ -434,7 +455,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
           logger.debug('[NostrProvider] RSS feed list cache is fresh, using cached value')
         }
 
-        const [relayListEvents, cacheRelayListEvents] = await Promise.all([
+        const [relayListEvents, cacheRelayListEvents, httpRelayListEvents] = await Promise.all([
         queryService.fetchEvents(FAST_READ_RELAY_URLS, {
           kinds: [kinds.RelayList],
           authors: [account.pubkey]
@@ -442,11 +463,16 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         queryService.fetchEvents(FAST_READ_RELAY_URLS, {
           kinds: [ExtendedKind.CACHE_RELAYS],
           authors: [account.pubkey]
+        }),
+        queryService.fetchEvents(FAST_READ_RELAY_URLS, {
+          kinds: [ExtendedKind.HTTP_RELAY_LIST],
+          authors: [account.pubkey],
+          limit: 1
         })
       ])
       const relayListEvent = getLatestEvent(relayListEvents) ?? storedRelayListEvent
       const cacheRelayListEvent = getLatestEvent(cacheRelayListEvents) ?? storedCacheRelayListEvent
-      const relayList = getRelayListFromEvent(relayListEvent, blockedRelays)
+      const httpRelayListEventFetched = getLatestEvent(httpRelayListEvents) ?? storedHttpRelayListEvent ?? null
       if (relayListEvent) {
         client.updateRelayListCache(relayListEvent)
         await indexedDb.putReplaceableEvent(relayListEvent)
@@ -457,12 +483,21 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       } else {
         setCacheRelayListEvent(null)
       }
-      // Fetch updated relay list (which merges both 10002 and 10432)
+      if (httpRelayListEventFetched) {
+        await indexedDb.putReplaceableEvent(httpRelayListEventFetched)
+        setHttpRelayListEvent(httpRelayListEventFetched)
+      } else {
+        setHttpRelayListEvent(null)
+      }
+      // Fetch updated relay list (merges 10002, 10432, 10243)
       const mergedRelayList = await client.fetchRelayList(account.pubkey) // Keep using client for relay list merging
       setRelayList(mergedRelayList)
 
       const normalizedRelays = [
-        ...relayList.write.map((url: string) => normalizeUrl(url) || url),
+        ...mergedRelayList.write.map((url: string) => normalizeUrl(url) || url),
+        ...mergedRelayList.read.map((url: string) => normalizeUrl(url) || url),
+        ...mergedRelayList.httpRead.map((url: string) => normalizeHttpRelayUrl(url) || url),
+        ...mergedRelayList.httpWrite.map((url: string) => normalizeHttpRelayUrl(url) || url),
         ...FAST_WRITE_RELAY_URLS.map((url: string) => normalizeUrl(url) || url),
         ...PROFILE_FETCH_RELAY_URLS.map((url: string) => normalizeUrl(url) || url)
       ]
@@ -1289,6 +1324,16 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     // This ensures kind 10002 and 10432 remain separate and are only merged when publishing/using
   }
 
+  const updateHttpRelayListEvent = async (httpRelayEvent: Event) => {
+    await indexedDb.putReplaceableEvent(httpRelayEvent)
+    if (account?.pubkey) {
+      client.clearRelayListCache(account.pubkey)
+    }
+    setHttpRelayListEvent(httpRelayEvent)
+    const mergedRelayList = await client.fetchRelayList(account?.pubkey || '')
+    setRelayList(mergedRelayList)
+  }
+
   const updateProfileEvent = async (profileEvent: Event) => {
     const newProfileEvent = await indexedDb.putReplaceableEvent(profileEvent)
     setProfileEvent(newProfileEvent)
@@ -1364,6 +1409,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         profileEvent,
         relayList,
         cacheRelayListEvent,
+        httpRelayListEvent,
         followListEvent,
         muteListEvent,
         bookmarkListEvent,
@@ -1394,6 +1440,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         signEvent,
         updateRelayListEvent,
         updateCacheRelayListEvent,
+        updateHttpRelayListEvent,
         updateProfileEvent,
         updateFollowListEvent,
         updateMuteListEvent,

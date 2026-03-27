@@ -8,8 +8,9 @@ import {
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
+import { queryIndexRelay } from '@/lib/index-relay-http'
 import logger from '@/lib/logger'
-import { normalizeUrl } from '@/lib/url'
+import { isHttpRelayUrl, normalizeHttpRelayUrl, normalizeUrl } from '@/lib/url'
 import { RelaySubscribeOpBatch } from '@/services/relay-operation-log.service'
 import { patchRelayNoticeForFetchFailures } from '@/services/relay-notice-strike'
 import type { Filter, Event as NEvent } from 'nostr-tools'
@@ -216,8 +217,19 @@ export class QueryService {
             ? FIRST_RELAY_RESULT_GRACE_MS
             : null
 
+    const httpRelayBases = Array.from(
+      new Set(
+        urls
+          .filter((u) => isHttpRelayUrl(u))
+          .map((u) => normalizeHttpRelayUrl(u) || u)
+          .filter(Boolean)
+      )
+    )
+    const wsQueryUrls = urls.filter((u) => !isHttpRelayUrl(u))
+
     return await new Promise<NEvent[]>((resolve) => {
       const events: NEvent[] = []
+      const abortHttp = new AbortController()
       let resolveTimeout: ReturnType<typeof setTimeout> | null = null
       let firstResultGraceTimeoutId: ReturnType<typeof setTimeout> | null = null
       let feedFirstResultGraceTimeoutId: ReturnType<typeof setTimeout> | null = null
@@ -227,6 +239,33 @@ export class QueryService {
       let resolved = false
       let firstResultTime: number | null = null
       let globalTimeoutId: ReturnType<typeof setTimeout> | null = null
+      let queryFinalizing = false
+
+      const httpInflight =
+        httpRelayBases.length === 0
+          ? Promise.resolve()
+          : Promise.allSettled(
+              httpRelayBases.map(async (base) => {
+                try {
+                  const evts = await queryIndexRelay(base, filter, { signal: abortHttp.signal })
+                  for (const evt of evts) {
+                    if (resolved) return
+                    eventCount++
+                    onevent?.(evt)
+                    events.push(evt)
+                    if (!shouldDropEventOnIngest(evt)) {
+                      this.onQueryResultIngest?.([evt])
+                    }
+                    if (firstResultTime === null) {
+                      firstResultTime = Date.now()
+                    }
+                  }
+                } catch (e) {
+                  if ((e as Error).name === 'AbortError') return
+                  logger.warn('[QueryService] HTTP index relay query failed', { base, error: e })
+                }
+              })
+            ).then(() => {})
 
       const resolveReplaceableRaceEvents = (): NEvent[] => {
         if (events.length === 0) return events
@@ -258,24 +297,27 @@ export class QueryService {
       }
 
       const resolveWithEvents = () => {
-        if (resolved) return
-        resolved = true
-        if (resolveTimeout) clearTimeout(resolveTimeout)
-        if (firstResultGraceTimeoutId) clearTimeout(firstResultGraceTimeoutId)
-        if (feedFirstResultGraceTimeoutId) clearTimeout(feedFirstResultGraceTimeoutId)
-        if (replaceableRaceTimeoutId) clearTimeout(replaceableRaceTimeoutId)
-        if (globalTimeoutId) clearTimeout(globalTimeoutId)
-        
-        sub.close()
-        
-        const resolvedList =
-          replaceableRace && events.length > 0 ? resolveReplaceableRaceEvents() : events
-        // Session cache already updated per-event in onevent; avoid duplicate ingest + waiter churn.
-        resolve(resolvedList)
+        if (resolved || queryFinalizing) return
+        queryFinalizing = true
+        void httpInflight.finally(() => {
+          if (resolved) return
+          resolved = true
+          if (resolveTimeout) clearTimeout(resolveTimeout)
+          if (firstResultGraceTimeoutId) clearTimeout(firstResultGraceTimeoutId)
+          if (feedFirstResultGraceTimeoutId) clearTimeout(feedFirstResultGraceTimeoutId)
+          if (replaceableRaceTimeoutId) clearTimeout(replaceableRaceTimeoutId)
+          if (globalTimeoutId) clearTimeout(globalTimeoutId)
+
+          sub.close()
+
+          const resolvedList =
+            replaceableRace && events.length > 0 ? resolveReplaceableRaceEvents() : events
+          resolve(resolvedList)
+        })
       }
 
-      const sub = this.subscribe(
-        urls,
+      const wsSub = this.subscribe(
+        wsQueryUrls,
         filter,
         {
         onevent: (evt) => {
@@ -369,7 +411,14 @@ export class QueryService {
       },
         { source: options?.relayOpSource ?? 'QueryService.query', logLevel: 'debug' }
       )
-      
+
+      const sub = {
+        close: () => {
+          abortHttp.abort()
+          wsSub.close()
+        }
+      }
+
       globalTimeoutId = setTimeout(() => resolveWithEvents(), globalTimeout)
     })
   }
@@ -399,6 +448,8 @@ export class QueryService {
         return !this.shouldSkipRelayForSession!(n)
       })
     }
+
+    relays = relays.filter((url) => !isHttpRelayUrl(url))
 
     if (relays.length === 0) {
       queueMicrotask(() => callbacks.oneose?.(true))

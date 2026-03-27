@@ -523,6 +523,13 @@ export default {
       'Fügt {{n}} zufällige öffentliche Relays aus der NIP-66-Liveliness-Liste hinzu (bevorzugt solche, deren Monitor eine Write-RTT gemeldet hat). Bei AN standardmäßig ausgewählt; bei AUS in der Liste, aber nicht angehakt.',
     relayType_local: 'Lokal',
     relayType_relay_list: 'Relay-Liste',
+    relayType_http_relay_list: 'HTTP',
+    'HTTP relays': 'HTTP-Relays',
+    httpRelaysDescription:
+      'HTTPS-Index-Relays (z. B. REST /api/events/filter). Gleiche Lese-/Schreib-/beides-Rollen wie Mailbox-Relays; gespeichert als Kind 10243. Liste leeren und speichern, um eine leere Liste zu veröffentlichen.',
+    'HTTP relays saved': 'HTTP-Relays gespeichert',
+    'Failed to save HTTP relay list': 'HTTP-Relay-Liste konnte nicht gespeichert werden',
+    'HTTP relays must start with https:// or http://': 'HTTP-Relays müssen mit https:// oder http:// beginnen',
     relayType_client_default: 'Client-Standard',
     relayType_open_from: 'Aktueller Feed',
     relayType_favorite: 'Favorit',

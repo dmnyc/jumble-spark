@@ -5,7 +5,7 @@ import {
   MAX_PUBLISH_RELAYS,
   MAX_REQ_RELAY_URLS
 } from '@/constants'
-import { isLocalNetworkUrl, normalizeUrl } from '@/lib/url'
+import { isLocalNetworkUrl, normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 
 export { MAX_REQ_RELAY_URLS }
 
@@ -13,7 +13,7 @@ export function dedupeNormalizeRelayUrlsOrdered(urls: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const u of urls) {
-    const n = normalizeUrl(u) || u
+    const n = normalizeAnyRelayUrl(u) || u.trim()
     if (!n || seen.has(n)) continue
     seen.add(n)
     out.push(n)
@@ -26,9 +26,9 @@ export function relayUrlsLocalsFirst(urls: string[]): string[] {
   const local: string[] = []
   const remote: string[] = []
   for (const u of urls) {
-    const n = normalizeUrl(u) || u
+    const n = normalizeAnyRelayUrl(u) || u.trim()
     if (!n) continue
-    if (isLocalNetworkUrl(n)) local.push(n)
+    if (isLocalNetworkUrl(u) || isLocalNetworkUrl(n)) local.push(n)
     else remote.push(n)
   }
   return dedupeNormalizeRelayUrlsOrdered([...local, ...remote])

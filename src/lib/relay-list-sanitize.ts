@@ -1,4 +1,4 @@
-import { isLocalNetworkUrl, normalizeUrl } from '@/lib/url'
+import { isHttpRelayUrl, isLocalNetworkUrl, normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import type { TRelayList } from '@/types'
 
 /**
@@ -8,12 +8,15 @@ import type { TRelayList } from '@/types'
  */
 export function stripLocalNetworkRelaysFromRelayList(list: TRelayList): TRelayList {
   const keepUrl = (u: string): boolean => {
-    const n = normalizeUrl(u) || u
-    return Boolean(n && !isLocalNetworkUrl(n))
+    const n = isHttpRelayUrl(u) ? normalizeAnyRelayUrl(u) || u : normalizeUrl(u) || u
+    return Boolean(n && !isLocalNetworkUrl(isHttpRelayUrl(u) ? u : n))
   }
   return {
     write: list.write.filter(keepUrl),
     read: list.read.filter(keepUrl),
-    originalRelays: list.originalRelays.filter((r) => keepUrl(r.url))
+    originalRelays: list.originalRelays.filter((r) => keepUrl(r.url)),
+    httpWrite: (list.httpWrite ?? []).filter(keepUrl),
+    httpRead: (list.httpRead ?? []).filter(keepUrl),
+    httpOriginalRelays: (list.httpOriginalRelays ?? []).filter((r) => keepUrl(r.url))
   }
 }

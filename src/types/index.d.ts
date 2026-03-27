@@ -55,6 +55,10 @@ export type TRelayList = {
   write: string[]
   read: string[]
   originalRelays: TMailboxRelay[]
+  /** Kind 10243 — index relays (https://…); read/write/both same as NIP-65 `r` tags. */
+  httpRead: string[]
+  httpWrite: string[]
+  httpOriginalRelays: TMailboxRelay[]
 }
 
 export type TRelayInfo = {

@@ -309,6 +309,8 @@ export const ExtendedKind = {
   BLOCKED_RELAYS: 10006,
   BLOSSOM_SERVER_LIST: 10063,
   CACHE_RELAYS: 10432,
+  /** HTTPS index-relay list (same `r` tag semantics as kind 10002; URLs are http/https). */
+  HTTP_RELAY_LIST: 10243,
   RELAY_REVIEW: 31987,
   GROUP_METADATA: 39000,
   GROUP_LIST: 10009, // NIP-51 Group List

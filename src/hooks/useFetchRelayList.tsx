@@ -7,7 +7,10 @@ export function useFetchRelayList(pubkey?: string | null) {
   const [relayList, setRelayList] = useState<TRelayList>({
     write: [],
     read: [],
-    originalRelays: []
+    originalRelays: [],
+    httpRead: [],
+    httpWrite: [],
+    httpOriginalRelays: []
   })
   const [isFetching, setIsFetching] = useState(true)
 

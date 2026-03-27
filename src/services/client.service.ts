@@ -27,7 +27,7 @@ function canonicalSeenOnEventId(eventId: string): string {
   return /^[0-9a-f]{64}$/i.test(t) ? t.toLowerCase() : t
 }
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
-import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
+import { getHttpRelayListFromEvent, getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { buildDeletionRelayUrls, dispatchTombstonesUpdated } from '@/lib/tombstone-events'
 import { hexPubkeysEqual, isValidPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib/pubkey'
@@ -38,8 +38,9 @@ import {
   mergeRelayPriorityLayers,
   relayUrlsLocalsFirst
 } from '@/lib/relay-url-priority'
+import { publishEventToIndexRelay } from '@/lib/index-relay-http'
 import { stripLocalNetworkRelaysFromRelayList } from '@/lib/relay-list-sanitize'
-import { isLocalNetworkUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
+import { isHttpRelayUrl, isLocalNetworkUrl, normalizeAnyRelayUrl, normalizeHttpRelayUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import { isSafari } from '@/lib/utils'
 import {
   ISigner,
@@ -332,11 +333,11 @@ class ClientService extends EventTarget {
    * Normalize, dedupe, then cap at {@link MAX_PUBLISH_RELAYS}.
    */
   private filterPublishingRelays(relays: string[], event: NEvent): string[] {
-    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeAnyRelayUrl(u) || u))
     const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
     return dedupeNormalizeRelayUrlsOrdered(
       relays.filter((url) => {
-        const n = normalizeUrl(url) || url
+        const n = normalizeAnyRelayUrl(url) || url
         if (readOnlySet.has(n)) return false
         if (isSocialKindBlockedKind(event.kind) && socialKindBlockedSet.has(n)) return false
         return true
@@ -348,9 +349,13 @@ class ClientService extends EventTarget {
   private async getUserOutboxRelayUrlsForPublish(event: NEvent): Promise<string[]> {
     try {
       const relayList = await this.fetchRelayList(event.pubkey)
-      const raw = dedupeNormalizeRelayUrlsOrdered(
-        (relayList?.write ?? []).map((u) => normalizeUrl(u) || u).filter((u): u is string => !!u)
-      )
+      const wsOut = (relayList?.write ?? [])
+        .map((u) => normalizeUrl(u) || u)
+        .filter((u): u is string => !!u)
+      const httpOut = (relayList?.httpWrite ?? [])
+        .map((u) => normalizeHttpRelayUrl(u) || u)
+        .filter((u): u is string => !!u)
+      const raw = dedupeNormalizeRelayUrlsOrdered([...httpOut, ...wsOut])
       return this.filterPublishingRelays(raw, event)
     } catch {
       return []
@@ -362,7 +367,7 @@ class ClientService extends EventTarget {
     userOutboxUrls: string[],
     relayStatuses: { url: string; success: boolean; error?: string }[]
   ): Promise<void> {
-    const norm = (u: string) => normalizeUrl(u) || u
+    const norm = (u: string) => normalizeAnyRelayUrl(u) || u
     const hadSuccess = new Set<string>()
     for (const r of relayStatuses) {
       if (r.success) hadSuccess.add(norm(r.url))
@@ -626,7 +631,14 @@ class ClientService extends EventTarget {
             pubkey: event.pubkey,
             error: err instanceof Error ? err.message : String(err)
           })
-          spellRelayList = { write: [], read: [], originalRelays: [] }
+          spellRelayList = {
+            write: [],
+            read: [],
+            originalRelays: [],
+            httpRead: [],
+            httpWrite: [],
+            httpOriginalRelays: []
+          }
         }
         const normalizedWrite = dedupeNormalizeRelayUrlsOrdered(
           (spellRelayList?.write ?? [])
@@ -717,7 +729,14 @@ class ClientService extends EventTarget {
           pubkey: event.pubkey,
           error: err instanceof Error ? err.message : String(err)
         })
-        relayList = { write: [], read: [], originalRelays: [] }
+        relayList = {
+          write: [],
+          read: [],
+          originalRelays: [],
+          httpRead: [],
+          httpWrite: [],
+          httpOriginalRelays: []
+        }
       }
       if (
         event.kind === kinds.RelayList ||
@@ -983,10 +1002,10 @@ class ClientService extends EventTarget {
           : relayUrls
     }
 
-    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeAnyRelayUrl(u) || u))
     const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
     let filtered = mergedRelayUrls.filter((url) => {
-      const n = normalizeUrl(url) || url
+      const n = normalizeAnyRelayUrl(url) || url
       if (readOnlySet.has(n)) return false
       if (isSocialKindBlockedKind(event.kind) && socialKindBlockedSet.has(n)) return false
       return true
@@ -1036,6 +1055,7 @@ class ClientService extends EventTarget {
     }
     if (
       event.kind === kinds.RelayList ||
+      event.kind === ExtendedKind.HTTP_RELAY_LIST ||
       event.kind === ExtendedKind.FAVORITE_RELAYS ||
       event.kind === kinds.Relaysets
     ) {
@@ -1147,10 +1167,25 @@ class ClientService extends EventTarget {
           }, connectionTimeout + publishTimeout + 2_000) // Add 2s buffer
           
           try {
+            if (isHttpRelayUrl(url)) {
+              const base = normalizeHttpRelayUrl(url) || url
+              logger.debug(`[PublishEvent] Publishing to HTTP index relay`, { url: base })
+              await Promise.race([
+                publishEventToIndexRelay(base, event),
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error(`HTTP publish timeout after ${publishTimeout}ms`)), publishTimeout)
+                )
+              ])
+              that.recordPublishSuccess(url, Date.now() - startMs)
+              successCount++
+              relayStatuses.push({ url, success: true })
+              return
+            }
+
             // For local relays, add a connection timeout
             let relay: Relay
             logger.debug(`[PublishEvent] Ensuring relay connection`, { url, isLocal, connectionTimeout })
-            
+
             const connectionPromise = isLocal
               ? Promise.race([
                   this.pool.ensureRelay(url),
@@ -1164,7 +1199,7 @@ class ClientService extends EventTarget {
                     setTimeout(() => reject(new Error('Remote relay connection timeout')), connectionTimeout)
                   )
                 ])
-            
+
             relay = await connectionPromise
             logger.debug(`[PublishEvent] Relay connected`, { url })
             const relayKeyPub = normalizeUrl(url) || url
@@ -2772,10 +2807,17 @@ class ClientService extends EventTarget {
     const storedCacheRelayEvents = await Promise.all(
       pubkeys.map(pubkey => indexedDb.getReplaceableEvent(pubkey, ExtendedKind.CACHE_RELAYS))
     )
-    
+    const storedHttpRelayEvents = await Promise.all(
+      pubkeys.map(pubkey => indexedDb.getReplaceableEvent(pubkey, ExtendedKind.HTTP_RELAY_LIST))
+    )
+
     // Then fetch from relays (will update cache if newer)
     const relayEvents = await this.replaceableEventService.fetchReplaceableEventsFromProfileFetchRelays(pubkeys, kinds.RelayList)
-    
+    const httpRelayEvents = await this.replaceableEventService.fetchReplaceableEventsFromProfileFetchRelays(
+      pubkeys,
+      ExtendedKind.HTTP_RELAY_LIST
+    )
+
     // Fetch cache relays from multiple sources: FAST_READ_RELAY_URLS, PROFILE_RELAY_URLS, and user's inboxes/outboxes
     const cacheRelayEvents = await this.fetchCacheRelayEventsFromMultipleSources(pubkeys, relayEvents, storedRelayEvents)
 
@@ -2786,26 +2828,44 @@ class ClientService extends EventTarget {
       // Use stored cache relay event if available (for offline), otherwise use fetched one
       const storedCacheEvent = storedCacheRelayEvents[index]
       const cacheEvent = cacheRelayEvents[index] || storedCacheEvent
-      
+
+      const httpRelayEvent = httpRelayEvents[index] || storedHttpRelayEvents[index]
+
       // Use stored relay event if no network event (for offline), otherwise use fetched one
       const storedRelayEvent = storedRelayEvents[index]
       const relayEvent = relayEvents[index] || storedRelayEvent
-      
+
+      const emptyHttp = { httpRead: [] as string[], httpWrite: [] as string[], httpOriginalRelays: [] as TMailboxRelay[] }
+
+      const mergeKind10243 = (list: TRelayList): TRelayList => {
+        if (!httpRelayEvent) {
+          return {
+            ...list,
+            httpRead: list.httpRead ?? [],
+            httpWrite: list.httpWrite ?? [],
+            httpOriginalRelays: list.httpOriginalRelays ?? []
+          }
+        }
+        const h = getHttpRelayListFromEvent(httpRelayEvent)
+        return { ...list, httpRead: h.httpRead, httpWrite: h.httpWrite, httpOriginalRelays: h.httpOriginalRelays }
+      }
+
       const relayList = relayEvent ? getRelayListFromEvent(relayEvent) : {
         write: [],
         read: [],
-        originalRelays: []
+        originalRelays: [],
+        ...emptyHttp
       }
-      
+
       // Merge kind 10432 (cache relays) only for the logged-in user — never use someone else's local relays.
       if (isOwnRelayList && cacheEvent) {
         const cacheRelayList = getRelayListFromEvent(cacheEvent)
-        
+
         // Merge read relays - cache relays first, then others (for offline priority)
         const mergedRead = [...cacheRelayList.read, ...relayList.read]
         const mergedWrite = [...cacheRelayList.write, ...relayList.write]
         const mergedOriginalRelays = new Map<string, TMailboxRelay>()
-        
+
         // Add cache relay original relays first (prioritized)
         cacheRelayList.originalRelays.forEach(relay => {
           mergedOriginalRelays.set(relay.url, relay)
@@ -2816,37 +2876,40 @@ class ClientService extends EventTarget {
             mergedOriginalRelays.set(relay.url, relay)
           }
         })
-        
+
         // Deduplicate while preserving order (cache relays first)
-        return {
+        return mergeKind10243({
           write: Array.from(new Set(mergedWrite)),
           read: Array.from(new Set(mergedRead)),
-          originalRelays: Array.from(mergedOriginalRelays.values())
-        }
+          originalRelays: Array.from(mergedOriginalRelays.values()),
+          ...emptyHttp
+        })
       }
-      
+
       // If no merged cache path, return original relay list or default (with own cache as fallback only)
       if (!relayEvent) {
         if (isOwnRelayList && storedCacheEvent) {
           const cacheRelayList = getRelayListFromEvent(storedCacheEvent)
-          return {
+          return mergeKind10243({
             write: cacheRelayList.write.length > 0 ? cacheRelayList.write : PROFILE_FETCH_RELAY_URLS,
             read: cacheRelayList.read.length > 0 ? cacheRelayList.read : PROFILE_FETCH_RELAY_URLS,
-            originalRelays: cacheRelayList.originalRelays
-          }
+            originalRelays: cacheRelayList.originalRelays,
+            ...emptyHttp
+          })
         }
-        return {
+        return mergeKind10243({
           write: PROFILE_FETCH_RELAY_URLS,
           read: PROFILE_FETCH_RELAY_URLS,
-          originalRelays: []
-        }
-      }
-      
-      if (!isOwnRelayList) {
-        return stripLocalNetworkRelaysFromRelayList(relayList)
+          originalRelays: [],
+          ...emptyHttp
+        })
       }
 
-      return relayList
+      if (!isOwnRelayList) {
+        return mergeKind10243(stripLocalNetworkRelaysFromRelayList(relayList))
+      }
+
+      return mergeKind10243(relayList)
     })
   }
 

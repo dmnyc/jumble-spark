@@ -1,22 +1,33 @@
 import { FAST_READ_RELAY_URLS, POLL_TYPE } from '@/constants'
-import { TEmoji, TPollType, TRelayList, TRelaySet, TPaymentInfo, TProfile } from '@/types'
+import { TEmoji, TMailboxRelay, TPollType, TRelayList, TRelaySet, TPaymentInfo, TProfile } from '@/types'
 import { Event, kinds } from 'nostr-tools'
 import { buildATag } from './draft-event'
 import { getReplaceableEventIdentifier } from './event'
 import { getAmountFromInvoice, getLightningAddressFromProfile } from './lightning'
 import { formatPubkey, pubkeyToNpub } from './pubkey'
 import { generateBech32IdFromATag, generateBech32IdFromETag, tagNameEquals } from './tag'
-import { isWebsocketUrl, normalizeHttpUrl, normalizeUrl } from './url'
+import { isHttpRelayUrl, isWebsocketUrl, normalizeHttpRelayUrl, normalizeHttpUrl, normalizeUrl } from './url'
 import { isTorBrowser } from './utils'
 import logger from '@/lib/logger'
 
+const emptyHttpRelayListFields = {
+  httpRead: [] as string[],
+  httpWrite: [] as string[],
+  httpOriginalRelays: [] as TMailboxRelay[]
+}
+
 export function getRelayListFromEvent(event?: Event | null, blockedRelays?: string[]) {
   if (!event) {
-    return { write: FAST_READ_RELAY_URLS, read: FAST_READ_RELAY_URLS, originalRelays: [] }
+    return {
+      write: FAST_READ_RELAY_URLS,
+      read: FAST_READ_RELAY_URLS,
+      originalRelays: [],
+      ...emptyHttpRelayListFields
+    }
   }
 
   const torBrowserDetected = isTorBrowser()
-  const relayList = { write: [], read: [], originalRelays: [] } as TRelayList
+  const relayList = { write: [], read: [], originalRelays: [] } as Pick<TRelayList, 'write' | 'read' | 'originalRelays'>
   
   // Normalize blocked relays for comparison
   const normalizedBlockedRelays = (blockedRelays || []).map(url => normalizeUrl(url) || url)
@@ -53,7 +64,53 @@ export function getRelayListFromEvent(event?: Event | null, blockedRelays?: stri
   return {
     write: relayList.write.length && relayList.write.length <= 8 ? relayList.write : FAST_READ_RELAY_URLS,
     read: relayList.read.length && relayList.write.length <= 8 ? relayList.read : FAST_READ_RELAY_URLS,
-    originalRelays: relayList.originalRelays
+    originalRelays: relayList.originalRelays,
+    ...emptyHttpRelayListFields
+  }
+}
+
+/** Kind 10243: `r` tags with http(s) URLs only; same read/write/both semantics as NIP-65. */
+export function getHttpRelayListFromEvent(event?: Event | null, blockedRelays?: string[]) {
+  const out = {
+    httpRead: [] as string[],
+    httpWrite: [] as string[],
+    httpOriginalRelays: [] as TMailboxRelay[]
+  }
+  if (!event) return out
+
+  const torBrowserDetected = isTorBrowser()
+  const normalizedBlockedRelays = (blockedRelays || []).map((url) => normalizeUrl(url) || url)
+
+  event.tags.filter(tagNameEquals('r')).forEach(([, url, type]) => {
+    if (!url || typeof url !== 'string' || url.trim() === '') return
+    if (!isHttpRelayUrl(url)) return
+
+    const normalizedUrl = normalizeHttpRelayUrl(url)
+    if (!normalizedUrl) return
+
+    const asWs = normalizeUrl(url)
+    if (asWs && normalizedBlockedRelays.includes(asWs)) return
+    if (normalizedBlockedRelays.includes(normalizedUrl)) return
+
+    const scope = type === 'read' ? 'read' : type === 'write' ? 'write' : 'both'
+    out.httpOriginalRelays.push({ url: normalizedUrl, scope })
+
+    if ((normalizedUrl.includes('.onion') || normalizedUrl.endsWith('.onion/')) && !torBrowserDetected) return
+
+    if (type === 'write') {
+      out.httpWrite.push(normalizedUrl)
+    } else if (type === 'read') {
+      out.httpRead.push(normalizedUrl)
+    } else {
+      out.httpWrite.push(normalizedUrl)
+      out.httpRead.push(normalizedUrl)
+    }
+  })
+
+  return {
+    httpRead: Array.from(new Set(out.httpRead)),
+    httpWrite: Array.from(new Set(out.httpWrite)),
+    httpOriginalRelays: out.httpOriginalRelays
   }
 }
 

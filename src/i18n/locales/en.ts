@@ -546,6 +546,13 @@ export default {
       'Adds {{n}} random public relays from the NIP-66 lively list (preferring monitors that reported a write RTT) to the publish relay list. When ON, they are selected by default; when OFF, they appear in the list but are unchecked so you can optionally include them.',
     relayType_local: 'Local',
     relayType_relay_list: 'Relay list',
+    relayType_http_relay_list: 'HTTP',
+    'HTTP relays': 'HTTP relays',
+    httpRelaysDescription:
+      'HTTPS index relays (e.g. REST /api/events/filter). Same read/write/both roles as mailbox relays; stored as kind 10243. Clear the list and save to publish an empty list.',
+    'HTTP relays saved': 'HTTP relays saved',
+    'Failed to save HTTP relay list': 'Failed to save HTTP relay list',
+    'HTTP relays must start with https:// or http://': 'HTTP relays must start with https:// or http://',
     relayType_client_default: 'Client default',
     relayType_open_from: 'Current feed',
     relayType_favorite: 'Favorite',
