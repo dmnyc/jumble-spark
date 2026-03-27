@@ -450,7 +450,7 @@ export default function Note({
             )}
           </div>
         </div>
-        <NoteKindLabel kind={event.kind} size={size} className="mt-1" />
+        <NoteKindLabel kind={event.kind} event={event} size={size} className="mt-1" />
         {webReactionParentUrl ? (
           <div className="mt-2 not-prose max-w-full" data-parent-note-preview>
             <WebPreview url={webReactionParentUrl} className="w-full" />

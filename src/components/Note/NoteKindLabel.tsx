@@ -1,18 +1,22 @@
 import { cn } from '@/lib/utils'
 import { getKindDescription } from '@/lib/kind-description'
+import type { Event } from 'nostr-tools'
 import { useTranslation } from 'react-i18next'
 
 export default function NoteKindLabel({
   kind,
+  event,
   className,
   size = 'normal'
 }: {
   kind: number
+  /** When set, kind 1 can show “Quote Note” for NIP-18 `q`-only notes. */
+  event?: Event
   className?: string
   size?: 'normal' | 'small'
 }) {
   const { t } = useTranslation()
-  const { description } = getKindDescription(kind)
+  const { description } = getKindDescription(kind, event)
 
   return (
     <p

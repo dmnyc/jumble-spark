@@ -7,6 +7,7 @@ import {
 } from '@/lib/rss-article'
 import {
   eventReferencesEventId,
+  getParentATag,
   getParentETag,
   getReplaceableCoordinateFromEvent,
   getRootATag,
@@ -15,7 +16,8 @@ import {
   isMentioningMutedUsers,
   isNip25ReactionKind,
   isReplaceableEvent,
-  isReplyNoteEvent
+  isReplyNoteEvent,
+  kind1QuotesThreadRoot
 } from '@/lib/event'
 import logger from '@/lib/logger'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
@@ -79,6 +81,29 @@ function sortZapReceiptsBySatsDesc(zaps: NEvent[]) {
 
 function replyFeedZapsFirst(sortedNonZapReplies: NEvent[], zaps: NEvent[]) {
   return [...sortZapReceiptsBySatsDesc(zaps), ...sortedNonZapReplies]
+}
+
+/** Shown after thread replies for E/A roots (quote stream + kind 1 #q-only). */
+const EA_THREAD_TAIL_REFERENCE_KINDS = new Set<number>([
+  kinds.Highlights,
+  kinds.LongFormArticle,
+  ExtendedKind.WIKI_ARTICLE,
+  ExtendedKind.WIKI_ARTICLE_MARKDOWN,
+  ExtendedKind.PUBLICATION_CONTENT
+])
+
+/** Web (NIP-22) thread: tail = reference-style rows + URL-scoped reactions (same block order as E/A). */
+const WEB_THREAD_EXTRA_TAIL_KINDS = new Set<number>([kinds.Reaction, ExtendedKind.EXTERNAL_REACTION])
+
+function isWebThreadTailKind(kind: number): boolean {
+  return EA_THREAD_TAIL_REFERENCE_KINDS.has(kind) || WEB_THREAD_EXTRA_TAIL_KINDS.has(kind)
+}
+
+function isKind1QuoteOnlyOfEaRoot(evt: NEvent, root: TRootInfo): boolean {
+  if (root.type === 'I') return false
+  if (evt.kind !== kinds.ShortTextNote) return false
+  if (getParentETag(evt) || getParentATag(evt)) return false
+  return kind1QuotesThreadRoot(evt, root)
 }
 
 function ReplyNoteList({
@@ -296,8 +321,21 @@ function ReplyNoteList({
   ])
 
   const replyIdSet = useMemo(() => new Set(replies.map((r) => r.id)), [replies])
-  /** Events that quote the note (from useQuoteEvents) — render with quote styling and without embedded quote. */
-  const quoteIdSet = useMemo(() => new Set(quoteEvents.map((e) => e.id)), [quoteEvents])
+  /** Render with quote card chrome (tail stream + kind 1 #q-only of E/A root). */
+  const quoteUiIdSet = useMemo(() => {
+    const s = new Set(quoteEvents.map((e) => e.id))
+    if (rootInfo?.type === 'E' || rootInfo?.type === 'A') {
+      for (const r of replies) {
+        if (isKind1QuoteOnlyOfEaRoot(r, rootInfo)) s.add(r.id)
+      }
+    }
+    if (rootInfo?.type === 'I') {
+      for (const r of replies) {
+        if (EA_THREAD_TAIL_REFERENCE_KINDS.has(r.kind)) s.add(r.id)
+      }
+    }
+    return s
+  }, [quoteEvents, replies, rootInfo])
   const mergedFeed = useMemo(() => {
     /** Quotes + time-sorted feeds must not interleave zap receipts chronologically */
     const zapsThenTimeSorted = (merged: NEvent[], direction: 'asc' | 'desc') => {
@@ -309,7 +347,45 @@ function ReplyNoteList({
     }
 
     if (!showQuotes) return replies
+
     const quoteOnly = quoteEvents.filter((e) => !replyIdSet.has(e.id))
+
+    // E/A: zaps (sats desc) → thread replies (1 / 1111 / 1244, excluding #q-only) → tail (quotes, highlights, long-form refs)
+    if (rootInfo?.type === 'E' || rootInfo?.type === 'A') {
+      const { zaps, nonZaps } = partitionZapReceipts(replies)
+      const middle = nonZaps.filter((e) => !isKind1QuoteOnlyOfEaRoot(e, rootInfo))
+      const qOnlyFromReplies = nonZaps.filter((e) => isKind1QuoteOnlyOfEaRoot(e, rootInfo))
+      const tailSeen = new Set<string>()
+      const tail: NEvent[] = []
+      const pushTail = (e: NEvent) => {
+        if (tailSeen.has(e.id)) return
+        tailSeen.add(e.id)
+        tail.push(e)
+      }
+      for (const e of qOnlyFromReplies) pushTail(e)
+      for (const e of quoteOnly) pushTail(e)
+      tail.sort((a, b) => b.created_at - a.created_at)
+      return [...replyFeedZapsFirst(middle, zaps), ...tail]
+    }
+
+    // Web article / URL thread (NIP-22): same zaps → middle → tail layout as E/A
+    if (rootInfo?.type === 'I') {
+      const { zaps, nonZaps } = partitionZapReceipts(replies)
+      const middle = nonZaps.filter((e) => !isWebThreadTailKind(e.kind))
+      const tailFromReplies = nonZaps.filter((e) => isWebThreadTailKind(e.kind))
+      const tailSeen = new Set<string>()
+      const tail: NEvent[] = []
+      const pushTail = (e: NEvent) => {
+        if (tailSeen.has(e.id)) return
+        tailSeen.add(e.id)
+        tail.push(e)
+      }
+      for (const e of tailFromReplies) pushTail(e)
+      for (const e of quoteOnly) pushTail(e)
+      tail.sort((a, b) => b.created_at - a.created_at)
+      return [...replyFeedZapsFirst(middle, zaps), ...tail]
+    }
+
     const merged = [...replies, ...quoteOnly]
     if (sort === 'oldest') return zapsThenTimeSorted(merged, 'asc')
     if (sort === 'newest') return zapsThenTimeSorted(merged, 'desc')
@@ -321,7 +397,7 @@ function ReplyNoteList({
       return [...sortedReplies, ...sortedQuotes]
     }
     return zapsThenTimeSorted(merged, 'desc')
-  }, [replies, quoteEvents, showQuotes, sort, replyIdSet])
+  }, [replies, quoteEvents, showQuotes, sort, replyIdSet, rootInfo])
 
   const [timelineKey] = useState<string | undefined>(undefined)
   const [until, setUntil] = useState<number | undefined>(undefined)
@@ -468,10 +544,8 @@ function ReplyNoteList({
     const handleEventPublished = (data: Event) => {
       const ce = data as CustomEvent<NEvent>
       const evt = ce.detail
-      if (!evt || !isReplyNoteEvent(evt)) return
-      if (eventReplyMatchesThreadRoot(evt, rootInfo)) {
-        onNewReply(evt)
-      }
+      if (!evt || !eventReplyMatchesThreadRoot(evt, rootInfo)) return
+      onNewReply(evt)
     }
 
     client.addEventListener('newEvent', handleEventPublished)
@@ -577,6 +651,20 @@ function ReplyNoteList({
                 limit: LIMIT
               }
             )
+            const qVals = Array.from(
+              new Set(
+                [rootInfo.eventId, rootInfo.id]
+                  .map((x) => (typeof x === 'string' ? x.trim() : ''))
+                  .filter(Boolean)
+              )
+            )
+            if (qVals.length > 0) {
+              filters.push({
+                '#q': qVals,
+                kinds: [kinds.ShortTextNote],
+                limit: LIMIT
+              })
+            }
             if (rootInfo.relay) {
               finalRelayUrls.push(rootInfo.relay)
             }
@@ -593,7 +681,9 @@ function ReplyNoteList({
           const regularReplies = allReplies.filter((evt) =>
             rootInfo.type === 'I'
               ? isRssArticleUrlThreadInteraction(evt, rootInfo.id)
-              : isReplyNoteEvent(evt)
+              : isReplyNoteEvent(evt) ||
+                  ((rootInfo.type === 'E' || rootInfo.type === 'A') &&
+                    kind1QuotesThreadRoot(evt, rootInfo))
           )
           
           // Store in cache (this merges with existing cached replies)
@@ -679,13 +769,19 @@ function ReplyNoteList({
 
     setLoading(true)
     const events = await client.loadMoreTimeline(timelineKey, until, LIMIT)
-    const olderEvents = events.filter((evt) => isReplyNoteEvent(evt))
+    const olderEvents = events.filter(
+      (evt) =>
+        isReplyNoteEvent(evt) ||
+        ((rootInfo?.type === 'E' || rootInfo?.type === 'A') &&
+          rootInfo &&
+          kind1QuotesThreadRoot(evt, rootInfo))
+    )
     if (olderEvents.length > 0) {
       addReplies(olderEvents)
     }
     setUntil(events.length ? events[events.length - 1].created_at - 1 : undefined)
     setLoading(false)
-  }, [loading, until, timelineKey])
+  }, [loading, until, timelineKey, rootInfo?.type, rootInfo?.id])
 
   const highlightReply = useCallback((eventId: string, scrollTo = true) => {
     if (scrollTo) {
@@ -716,7 +812,7 @@ function ReplyNoteList({
       )}
       <div>
         {mergedFeed.slice(0, showCount).map((item) => {
-          const isQuote = quoteIdSet.has(item.id)
+          const isQuote = quoteUiIdSet.has(item.id)
           // Don't filter by trust until trust data is loaded - prevents replies from
           // vanishing when wotSet is still empty (all non-self appear untrusted)
           if (isTrustLoaded && hideUntrustedInteractions && !isUserTrusted(item.pubkey)) {
@@ -739,9 +835,11 @@ function ReplyNoteList({
             const quoteLabel =
               item.kind === kinds.Highlights
                 ? t('highlighted this note')
-                : item.kind === kinds.LongFormArticle
-                  ? t('cited in article')
-                  : t('quoted this note')
+                : item.kind === kinds.ShortTextNote
+                  ? t('quoted this note')
+                  : EA_THREAD_TAIL_REFERENCE_KINDS.has(item.kind)
+                    ? t('cited in article')
+                    : t('quoted this note')
             const hideQuotedNote = eventReferencesEventId(item, event)
             return (
               <SuppressEmbeddedNoteContext.Provider

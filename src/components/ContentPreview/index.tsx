@@ -106,7 +106,7 @@ export default function ContentPreview({
 
   const withKindRow = (node: React.ReactNode) => (
     <div className={cn('flex min-w-0 flex-col gap-1', previewOuter)}>
-      <NoteKindLabel kind={event.kind} size="small" />
+      <NoteKindLabel kind={event.kind} event={event} size="small" />
       <div className={cn('min-w-0', previewBody)}>{node}</div>
     </div>
   )
@@ -127,7 +127,7 @@ export default function ContentPreview({
   if (event.kind === ExtendedKind.DISCUSSION) {
     return (
       <div className={cn('flex min-w-0 flex-col gap-1', previewOuter)}>
-        <NoteKindLabel kind={event.kind} size="small" />
+        <NoteKindLabel kind={event.kind} event={event} size="small" />
         <div className={cn('min-w-0', previewBody)}>
           <DiscussionNote event={event} size="small" />
         </div>

@@ -1,4 +1,4 @@
-import { getRootATag, getRootEventHexId } from '@/lib/event'
+import { getRootATag, getRootEventHexId, kind1QuotesThreadRoot } from '@/lib/event'
 import {
   canonicalizeRssArticleUrl,
   getArticleUrlFromCommentITags,
@@ -29,7 +29,8 @@ export function eventReplyMatchesThreadRoot(evt: Event, root: TThreadRootRef): b
     if (coord === root.id) return true
     const rootHex = getRootEventHexId(evt)
     if (rootHex && (rootHex === root.eventId || rootHex === root.id)) return true
-    return false
+    return kind1QuotesThreadRoot(evt, root)
   }
-  return getRootEventHexId(evt) === root.id
+  if (getRootEventHexId(evt) === root.id) return true
+  return kind1QuotesThreadRoot(evt, root)
 }

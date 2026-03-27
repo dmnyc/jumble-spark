@@ -6,7 +6,7 @@ import {
 import {
   getParentATag,
   getParentETag,
-  getQuotedEventHexIdFromQTags,
+  getQuotedReferenceFromQTags,
   getRootATag,
   getRootETag,
   isNip25ReactionKind
@@ -80,11 +80,12 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
         newReplyEventMap.set(parentId, [...(newReplyEventMap.get(parentId) || []), reply])
       }
 
-      // Quote-only notes (#q, no e-tags): still index under the quoted event id.
+      // Quote-only notes (#q, no e-tags): index under quoted hex id and/or replaceable coordinate.
       if (!rootId && !parentId) {
-        const qid = getQuotedEventHexIdFromQTags(reply)
-        if (qid) {
-          newReplyEventMap.set(qid, [...(newReplyEventMap.get(qid) || []), reply])
+        const qref = getQuotedReferenceFromQTags(reply)
+        const keys = new Set([qref?.hexId, qref?.coordinate].filter(Boolean) as string[])
+        for (const key of keys) {
+          newReplyEventMap.set(key, [...(newReplyEventMap.get(key) || []), reply])
         }
       }
     })

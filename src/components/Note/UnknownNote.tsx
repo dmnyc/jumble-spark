@@ -161,7 +161,7 @@ export default function UnknownNote({
       .join(' ')
   }
 
-  const kindLabel = getKindDescription(event.kind)
+  const kindLabel = getKindDescription(event.kind, event)
   const contentRaw = event.content?.trim() ?? ''
 
   const elevated = useMemo(() => extractElevatedTags(event.tags), [event.tags])
@@ -226,7 +226,9 @@ export default function UnknownNote({
 
         <div>
           <h3 className="text-base font-semibold leading-tight text-foreground">{headline}</h3>
-          {!omitKindLabel ? <NoteKindLabel kind={event.kind} size="small" className="mt-1" /> : null}
+          {!omitKindLabel ? (
+            <NoteKindLabel kind={event.kind} event={event} size="small" className="mt-1" />
+          ) : null}
           {elevated.title?.trim() && !omitKindLabel ? (
             <p className="mt-0.5 text-xs text-muted-foreground">
               <span className="text-foreground/80">{kindLabel.description}</span>

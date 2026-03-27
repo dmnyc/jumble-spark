@@ -3,12 +3,13 @@ import logger from '@/lib/logger'
 import {
   getParentATag,
   getParentETag,
-  getQuotedEventHexIdFromQTags,
+  getQuotedReferenceFromQTags,
   getRootATag,
   getRootETag,
   isNip25ReactionKind,
   isReplyNoteEvent,
-  isReplaceableEvent
+  isReplaceableEvent,
+  kind1QuotesThreadRoot
 } from '@/lib/event'
 import { getFirstHexEventIdFromETags } from '@/lib/tag'
 import type { Event as NEvent, Filter } from 'nostr-tools'
@@ -443,7 +444,9 @@ export class EventService {
    * Reply-shaped events already in the session LRU for this thread (notes, kind 1111, voice comments, zaps),
    * found by BFS over e/E/q and (for `a`-root threads) a-tag links. Merges with relay fetches via ReplyProvider.
    */
-  getSessionThreadInteractionEvents(root: { type: 'E' | 'A' | 'I'; id: string }): NEvent[] {
+  getSessionThreadInteractionEvents(
+    root: { type: 'E'; id: string } | { type: 'A'; id: string; eventId: string } | { type: 'I'; id: string }
+  ): NEvent[] {
     if (root.type === 'I') return []
 
     const threadKeys = new Set<string>()
@@ -453,6 +456,8 @@ export class EventService {
       threadKeys.add(id)
     } else {
       threadKeys.add(root.id.trim().toLowerCase())
+      const aid = root.eventId.trim().toLowerCase()
+      if (/^[0-9a-f]{64}$/.test(aid)) threadKeys.add(aid)
     }
 
     const linkRefs = (ev: NEvent): string[] => {
@@ -463,7 +468,9 @@ export class EventService {
       }
       add(getParentETag(ev)?.[1])
       add(getRootETag(ev)?.[1])
-      add(getQuotedEventHexIdFromQTags(ev))
+      const qref = getQuotedReferenceFromQTags(ev)
+      add(qref?.hexId)
+      add(qref?.coordinate)
       if (ev.kind === kinds.Zap) {
         add(getFirstHexEventIdFromETags(ev.tags))
       }
@@ -493,7 +500,9 @@ export class EventService {
       let added = 0
       for (const [, ev] of this.sessionEventCache.entries()) {
         if (shouldDropEventOnIngest(ev)) continue
-        if (!isReplyNoteEvent(ev)) continue
+        const threadishKind1Quote =
+          (root.type === 'E' || root.type === 'A') && kind1QuotesThreadRoot(ev, root)
+        if (!isReplyNoteEvent(ev) && !threadishKind1Quote) continue
         if (isNip25ReactionKind(ev.kind)) continue
         if (seen.has(ev.id)) continue
         if (!linkRefs(ev).some((id) => threadKeys.has(id))) continue

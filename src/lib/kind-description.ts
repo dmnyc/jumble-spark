@@ -1,14 +1,28 @@
 import { ExtendedKind } from '@/constants'
+import { getParentATag, getParentETag, getQuotedReferenceFromQTags } from '@/lib/event'
+import type { Event } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
 
 /**
  * Get the description for a given kind number
  * @param kind - The kind number
+ * @param event - When set, refines kind 1 (e.g. NIP-18 quote without thread parent → "Quote Note")
  * @returns An object with the kind number and description
  */
-export function getKindDescription(kind: number): { number: number; description: string } {
+export function getKindDescription(
+  kind: number,
+  event?: Event
+): { number: number; description: string } {
   switch (kind) {
     case kinds.ShortTextNote:
+      if (
+        event &&
+        getQuotedReferenceFromQTags(event) &&
+        !getParentETag(event) &&
+        !getParentATag(event)
+      ) {
+        return { number: 1, description: 'Quote Note' }
+      }
       return { number: 1, description: 'Short Text Note' }
     case ExtendedKind.COMMENT:
       return { number: 1111, description: 'Comment' }

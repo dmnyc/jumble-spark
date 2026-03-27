@@ -1,5 +1,6 @@
 import {
   E_TAG_FILTER_BLOCKED_RELAY_URLS,
+  ExtendedKind,
   FAST_READ_RELAY_URLS,
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
@@ -14,6 +15,15 @@ import { useEffect, useRef, useState } from 'react'
 
 const LIMIT = 100
 const INITIAL_QUOTE_LOAD_TIMEOUT_MS = 12_000
+
+/** Kinds that reference the OP via #e / #a in the quote shard (with highlights). */
+const QUOTE_STREAM_REFERENCE_KINDS: number[] = [
+  kinds.Highlights,
+  kinds.LongFormArticle,
+  ExtendedKind.WIKI_ARTICLE,
+  ExtendedKind.WIKI_ARTICLE_MARKDOWN,
+  ExtendedKind.PUBLICATION_CONTENT
+]
 
 /** Fetches events that quote or reference the given event (#q, #e, #a tags). */
 export function useQuoteEvents(event: Event | null, enabled: boolean) {
@@ -94,7 +104,7 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
             urls: finalRelayUrls,
             filter: {
               '#e': [filterQeId],
-              kinds: [kinds.Highlights, kinds.LongFormArticle],
+              kinds: [...QUOTE_STREAM_REFERENCE_KINDS],
               limit: LIMIT
             }
           },
@@ -102,7 +112,7 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
             urls: finalRelayUrls,
             filter: {
               '#a': [eventCoordinate],
-              kinds: [kinds.Highlights, kinds.LongFormArticle],
+              kinds: [...QUOTE_STREAM_REFERENCE_KINDS],
               limit: LIMIT
             }
           }

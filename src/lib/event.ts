@@ -24,7 +24,7 @@ const EVENT_EMBEDDED_NOTES_CACHE = new LRUCache<string, string[]>({ max: 10000 }
 const EVENT_EMBEDDED_PUBKEYS_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_IS_REPLY_NOTE_CACHE = new LRUCache<string, boolean>({ max: 10000 })
 /** Bump when isReplyNoteEvent logic changes so cached booleans are not stale. */
-const IS_REPLY_NOTE_CACHE_KEY_SUFFIX = ':v2'
+const IS_REPLY_NOTE_CACHE_KEY_SUFFIX = ':v3'
 
 export function isNsfwEvent(event: Event) {
   return event.tags.some(
@@ -49,20 +49,10 @@ export function isReplyNoteEvent(event: Event) {
   const cache = EVENT_IS_REPLY_NOTE_CACHE.get(cacheKey)
   if (cache !== undefined) return cache
 
-  // Include #q (quote) — many clients omit e-tags on quote-only notes; they still belong in the thread.
-  const isReply =
-    !!getParentETag(event) ||
-    !!getParentATag(event) ||
-    !!getQuotedEventHexIdFromQTags(event)
+  // NIP-18 `q` without `e`/`a` is a quote note (top-level for OP vs reply filters), not a thread reply.
+  const isReply = !!getParentETag(event) || !!getParentATag(event)
   EVENT_IS_REPLY_NOTE_CACHE.set(cacheKey, isReply)
   return isReply
-}
-
-/** First hex event id from `q` / `Q` tags (NIP-18 quote). */
-export function getQuotedEventHexIdFromQTags(event: Event): string | undefined {
-  const q = event.tags.find((t) => t[0] === 'q' || t[0] === 'Q')?.[1]
-  if (q && /^[0-9a-f]{64}$/i.test(q)) return q.toLowerCase()
-  return undefined
 }
 
 export function isReplaceableEvent(kind: number) {
@@ -248,20 +238,28 @@ export function eventReferencesEventId(
       ? getReplaceableCoordinateFromEvent(targetEvent)
       : undefined
 
+  const qRef = getQuotedReferenceFromQTags(event)
+
   if (targetHexId) {
     const rootId = getRootETag(event)?.[1]?.toLowerCase()
     if (rootId === targetHexId) return true
     const parentId = getParentETag(event)?.[1]?.toLowerCase()
     if (parentId === targetHexId) return true
-    const qTag = event.tags.find((t) => t[0] === 'q' || t[0] === 'Q')?.[1]?.toLowerCase()
-    if (qTag === targetHexId) return true
+    if (qRef?.hexId === targetHexId) return true
     const eTags = event.tags.filter((t) => t[0] === 'e' || t[0] === 'E')
     if (eTags.some((t) => t[1]?.toLowerCase() === targetHexId)) return true
   }
 
   if (targetCoordinate) {
+    const targetCoordNorm = normalizeReplaceableCoordinateString(targetCoordinate)
     const aTags = event.tags.filter((t) => t[0] === 'a' || t[0] === 'A')
-    if (aTags.some((t) => t[1]?.toLowerCase() === targetCoordinate.toLowerCase())) return true
+    if (aTags.some((t) => normalizeReplaceableCoordinateString(t[1] ?? '') === targetCoordNorm)) return true
+    if (
+      qRef?.coordinate &&
+      normalizeReplaceableCoordinateString(qRef.coordinate) === targetCoordNorm
+    ) {
+      return true
+    }
   }
 
   return false
@@ -286,6 +284,113 @@ export function getReplaceableCoordinate(kind: number, pubkey: string, d: string
 export function getReplaceableCoordinateFromEvent(event: Event) {
   const d = event.tags.find(tagNameEquals('d'))?.[1] ?? ''
   return getReplaceableCoordinate(event.kind, event.pubkey, d)
+}
+
+/** Normalize `kind:pubkey:d` for comparisons (lowercase pubkey; preserve d). */
+export function normalizeReplaceableCoordinateString(coord: string): string {
+  const m = /^(\d+):([0-9a-f]{64}):(.*)$/i.exec(coord.trim())
+  if (!m) return coord.trim().toLowerCase()
+  return getReplaceableCoordinate(Number(m[1]), m[2].toLowerCase(), m[3])
+}
+
+function stripNostrUriScheme(s: string): string {
+  const t = s.trim()
+  if (t.toLowerCase().startsWith('nostr:')) return t.slice(6).trim()
+  return t
+}
+
+/**
+ * NIP-10 / NIP-18: `q` tag value is `<event-id>` or `<event-address>` (coordinate), or NIP-19 bech32.
+ */
+export function parseQTagReferenceValue(
+  raw: string | undefined | null
+): { hexId?: string; coordinate?: string } | undefined {
+  if (raw == null) return undefined
+  const s0 = stripNostrUriScheme(raw)
+  if (!s0) return undefined
+
+  if (/^[0-9a-f]{64}$/i.test(s0)) {
+    return { hexId: s0.toLowerCase() }
+  }
+
+  const coordMatch = /^(\d+):([0-9a-f]{64}):(.*)$/i.exec(s0)
+  if (coordMatch) {
+    return {
+      coordinate: getReplaceableCoordinate(
+        Number(coordMatch[1]),
+        coordMatch[2].toLowerCase(),
+        coordMatch[3]
+      )
+    }
+  }
+
+  if (/^n(?:ote|event|addr)1/i.test(s0)) {
+    try {
+      const { type, data } = nip19.decode(s0)
+      if (type === 'note') {
+        const id = typeof data === 'string' ? data : (data as { id?: string }).id
+        if (id && /^[0-9a-f]{64}$/i.test(id)) return { hexId: id.toLowerCase() }
+      }
+      if (type === 'nevent') {
+        const id = (data as { id: string }).id
+        if (id && /^[0-9a-f]{64}$/i.test(id)) return { hexId: id.toLowerCase() }
+      }
+      if (type === 'naddr') {
+        const d = data as { kind: number; pubkey: string; identifier: string }
+        return {
+          coordinate: getReplaceableCoordinate(
+            d.kind,
+            d.pubkey.toLowerCase(),
+            d.identifier ?? ''
+          )
+        }
+      }
+    } catch {
+      /* invalid bech32 */
+    }
+  }
+
+  return undefined
+}
+
+/** Parsed first `q` / `Q` tag on the event (NIP-10). */
+export function getQuotedReferenceFromQTags(event: Event): {
+  hexId?: string
+  coordinate?: string
+} | undefined {
+  const q = event.tags.find((t) => t[0] === 'q' || t[0] === 'Q')?.[1]
+  return parseQTagReferenceValue(q)
+}
+
+/** Hex id from `q` when the reference resolves to a fixed id (not coordinate-only). */
+export function getQuotedEventHexIdFromQTags(event: Event): string | undefined {
+  return getQuotedReferenceFromQTags(event)?.hexId
+}
+
+/** Kind 1 whose `q` points at this hex id (legacy helper). */
+export function kind1QuotesEventHexId(event: Event, hexId: string): boolean {
+  if (event.kind !== kinds.ShortTextNote) return false
+  const ref = getQuotedReferenceFromQTags(event)
+  return !!ref?.hexId && ref.hexId === hexId.trim().toLowerCase()
+}
+
+/** Kind 1 quote-of-root: match `q` hex and/or replaceable coordinate (and bech32 decoding). */
+export function kind1QuotesThreadRoot(
+  event: Event,
+  root: { type: 'E'; id: string } | { type: 'A'; id: string; eventId: string }
+): boolean {
+  if (event.kind !== kinds.ShortTextNote) return false
+  const ref = getQuotedReferenceFromQTags(event)
+  if (!ref || (!ref.hexId && !ref.coordinate)) return false
+  if (root.type === 'E') {
+    const rid = root.id.trim().toLowerCase()
+    return !!ref.hexId && ref.hexId === rid
+  }
+  const eid = root.eventId.trim().toLowerCase()
+  const coordNorm = normalizeReplaceableCoordinateString(root.id)
+  if (ref.hexId && ref.hexId === eid) return true
+  if (ref.coordinate && normalizeReplaceableCoordinateString(ref.coordinate) === coordNorm) return true
+  return false
 }
 
 /** Whether an event matches a tombstone key from IndexedDB (e-tag id, a-tag coordinate, or k-tag kind:pubkey). */
