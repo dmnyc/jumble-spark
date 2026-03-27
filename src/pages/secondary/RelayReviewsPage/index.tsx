@@ -5,6 +5,7 @@ import { FAST_READ_RELAY_URLS, ExtendedKind } from '@/constants'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
+import type { TFeedSubRequest } from '@/types'
 import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import NotFoundPage from '../NotFoundPage'
@@ -25,9 +26,24 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
   }, [hideTitlebar, registerPrimaryPanelRefresh, bumpFeed])
 
   const normalizedUrl = useMemo(() => (url ? normalizeUrl(url) : undefined), [url])
+  /** Stable identity for session feed snapshot (decoupled from FAST_READ_RELAY_URLS JSON churn). */
+  const relayReviewsFeedSubscriptionKey = useMemo(
+    () =>
+      normalizedUrl ? `relay-reviews:v1|${normalizedUrl}|k=${ExtendedKind.RELAY_REVIEW}` : '',
+    [normalizedUrl]
+  )
+  const reviewsSubRequests = useMemo<TFeedSubRequest[]>(() => {
+    if (!normalizedUrl) return []
+    return [
+      {
+        urls: [normalizedUrl, ...FAST_READ_RELAY_URLS],
+        filter: { '#d': [normalizedUrl] }
+      }
+    ]
+  }, [normalizedUrl])
   const title = useMemo(
     () => (url ? t('Reviews for {{relay}}', { relay: simplifyUrl(url) }) : undefined),
-    [url]
+    [url, t]
   )
 
   if (!normalizedUrl) {
@@ -45,12 +61,8 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
       <NoteList
         ref={feedRef}
         showKinds={[ExtendedKind.RELAY_REVIEW]}
-        subRequests={[
-          {
-            urls: [normalizedUrl, ...FAST_READ_RELAY_URLS],
-            filter: { '#d': [normalizedUrl] }
-          }
-        ]}
+        subRequests={reviewsSubRequests}
+        feedSubscriptionKey={relayReviewsFeedSubscriptionKey}
       />
     </SecondaryPageLayout>
   )

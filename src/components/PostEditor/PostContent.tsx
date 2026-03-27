@@ -1688,6 +1688,8 @@ export default function PostContent({
             return t('New Hardcopy Citation')
           } else if (determinedKind === ExtendedKind.CITATION_PROMPT) {
             return t('New Prompt Citation')
+          } else if (determinedKind === ExtendedKind.GIT_RELEASE) {
+            return t('New Repository Release')
           } else {
             return t('New Note')
           }
@@ -1782,14 +1784,24 @@ export default function PostContent({
       )}
       
       {/* Citation metadata fields */}
-      {(isCitationInternal || isCitationExternal || isCitationHardcopy || isCitationPrompt) && (
+      {(isCitationInternal ||
+        isCitationExternal ||
+        isCitationHardcopy ||
+        isCitationPrompt ||
+        isGitRelease) && (
         <div className="p-4 border rounded-lg bg-muted/30">
           <div className="text-sm font-medium mb-3">
-            {isCitationInternal && t('Internal Citation Settings')}
-            {isCitationExternal && t('External Citation Settings')}
-            {isCitationHardcopy && t('Hardcopy Citation Settings')}
-            {isCitationPrompt && t('Prompt Citation Settings')}
+            {isGitRelease
+              ? t('Repository release')
+              : isCitationInternal
+                ? t('Internal Citation Settings')
+                : isCitationExternal
+                  ? t('External Citation Settings')
+                  : isCitationHardcopy
+                    ? t('Hardcopy Citation Settings')
+                    : t('Prompt Citation Settings')}
           </div>
+          {(isCitationInternal || isCitationExternal || isCitationHardcopy || isCitationPrompt) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           
           {/* Prompt Citation specific fields - shown first if prompt */}
@@ -2125,6 +2137,115 @@ export default function PostContent({
             </>
           )}
           </div>
+          )}
+          {isGitRelease && (
+            <div
+              className={cn(
+                'mt-4 grid grid-cols-1 gap-3 md:grid-cols-2',
+                (isCitationInternal ||
+                  isCitationExternal ||
+                  isCitationHardcopy ||
+                  isCitationPrompt) &&
+                  'border-t border-border pt-4'
+              )}
+            >
+              <p className="text-xs text-muted-foreground md:col-span-2">
+                {t('Release notes use the editor below (optional).')}
+              </p>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="release-repo-owner" className="text-sm font-medium">
+                  {t('Repository owner (npub or hex)')} <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="release-repo-owner"
+                  value={releaseRepoOwnerInput}
+                  onChange={(e) => setReleaseRepoOwnerInput(e.target.value)}
+                  placeholder="npub1…"
+                  className={
+                    releaseRepoOwnerInput.trim() && !parseRepoOwnerPubkeyInput(releaseRepoOwnerInput)
+                      ? 'border-destructive'
+                      : ''
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="release-repo-id" className="text-sm font-medium">
+                  {t('Repository id (d-tag)')} <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="release-repo-id"
+                  value={releaseRepoId}
+                  onChange={(e) => setReleaseRepoId(e.target.value)}
+                  placeholder={t('e.g. my-repo')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="release-tag-name" className="text-sm font-medium">
+                  {t('Git tag name')} <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="release-tag-name"
+                  value={releaseTagName}
+                  onChange={(e) => setReleaseTagName(e.target.value)}
+                  placeholder="v1.0.0"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="release-tag-hash" className="text-sm font-medium">
+                  {t('Tag target (40-char commit hash)')} <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="release-tag-hash"
+                  value={releaseTagHash}
+                  onChange={(e) => setReleaseTagHash(e.target.value.trim())}
+                  placeholder={t('40-character hex SHA-1')}
+                  className={
+                    releaseTagHash.trim() && !/^[0-9a-f]{40}$/i.test(releaseTagHash.trim())
+                      ? 'border-destructive'
+                      : ''
+                  }
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="release-title" className="text-sm font-medium">
+                  {t('Release title')}
+                </Label>
+                <Input
+                  id="release-title"
+                  value={releaseTitle}
+                  onChange={(e) => setReleaseTitle(e.target.value)}
+                  placeholder={t('Optional display title')}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="release-download-url" className="text-sm font-medium">
+                  {t('Download URL')}
+                </Label>
+                <Input
+                  id="release-download-url"
+                  value={releaseDownloadUrl}
+                  onChange={(e) => setReleaseDownloadUrl(e.target.value)}
+                  placeholder={t('https://…')}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-6 md:col-span-2">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={releaseDraft}
+                    onCheckedChange={(v) => setReleaseDraft(v === true)}
+                  />
+                  {t('Draft release')}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={releasePrerelease}
+                    onCheckedChange={(v) => setReleasePrerelease(v === true)}
+                  />
+                  {t('Pre-release')}
+                </label>
+              </div>
+            </div>
+          )}
         </div>
       )}
       
@@ -2242,39 +2363,52 @@ export default function PostContent({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
-                  {/* Citation dropdown - only show if has private relays */}
-                  {hasPrivateRelaysAvailable && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title={t('Create Citation')}
-                          className={
-                            isCitationInternal || isCitationExternal || isCitationHardcopy || isCitationPrompt
-                              ? 'bg-accent'
-                              : ''
-                          }
-                        >
-                          <Quote className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => handleCitationToggle('internal')}>
-                          {t('Internal Citation')}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleCitationToggle('external')}>
-                          {t('External Citation')}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleCitationToggle('hardcopy')}>
-                          {t('Hardcopy Citation')}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleCitationToggle('prompt')}>
-                          {t('Prompt Citation')}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
+                  {/* Citations (private relays) + repository release */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title={t('Create Citation')}
+                        className={
+                          isCitationInternal ||
+                          isCitationExternal ||
+                          isCitationHardcopy ||
+                          isCitationPrompt ||
+                          isGitRelease
+                            ? 'bg-accent'
+                            : ''
+                        }
+                      >
+                        <Quote className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      {hasPrivateRelaysAvailable ? (
+                        <>
+                          <DropdownMenuItem onClick={() => handleCitationToggle('internal')}>
+                            {t('Internal Citation')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleCitationToggle('external')}>
+                            {t('External Citation')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleCitationToggle('hardcopy')}>
+                            {t('Hardcopy Citation')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleCitationToggle('prompt')}>
+                            {t('Prompt Citation')}
+                          </DropdownMenuItem>
+                        </>
+                      ) : (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground max-w-[14rem]">
+                          {t('Citations require private relays (NIP-65).')}
+                        </div>
+                      )}
+                      <DropdownMenuItem onClick={handleGitReleaseFromMenu}>
+                        {t('Repository release')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </>
               )}
               <GifPicker

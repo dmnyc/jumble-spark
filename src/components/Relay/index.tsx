@@ -84,6 +84,7 @@ const Relay = forwardRef<TNoteListRef, { url?: string; className?: string }>(fun
         ]}
         useFilterAsIs
         allowKindlessRelayExplore
+        showFeedClientFilter
       />
     </div>
   )

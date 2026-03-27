@@ -30,6 +30,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
   useFilterAsIs?: boolean
   clientSideKindFilter?: boolean
   allowKindlessRelayExplore?: boolean
+  /**
+   * Client-side 🔍 feed filter. When omitted: hidden on main following, shown on relay explore and non-main feeds.
+   */
+  showFeedClientFilter?: boolean
 }>(function NormalFeed(
   {
     subRequests,
@@ -43,7 +47,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
     feedTimelineScopeKey,
     useFilterAsIs = false,
     clientSideKindFilter = false,
-    allowKindlessRelayExplore = false
+    allowKindlessRelayExplore = false,
+    showFeedClientFilter: showFeedClientFilterProp
   },
   ref
 ) {
@@ -90,6 +95,14 @@ const NormalFeed = forwardRef<TNoteListRef, {
   }
 
   const showKindsKey = useMemo(() => JSON.stringify(showKinds), [showKinds])
+
+  /** Relay detail + kindless home chip use {@link useFilterAsIs}; include it so the 🔍 row is not dropped if only one flag is set. */
+  const showFeedClientFilter = useMemo(
+    () =>
+      showFeedClientFilterProp ??
+      (!isMainFeed || allowKindlessRelayExplore || useFilterAsIs),
+    [showFeedClientFilterProp, isMainFeed, allowKindlessRelayExplore, useFilterAsIs]
+  )
 
   const subHeaderFilterDepsKey = allowKindlessRelayExplore
     ? 'kindless-relay-explore'
@@ -158,6 +171,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
           useFilterAsIs={useFilterAsIs}
           clientSideKindFilter={clientSideKindFilter}
           allowKindlessRelayExplore={allowKindlessRelayExplore}
+          showFeedClientFilter={showFeedClientFilter}
         />
       </div>
     </>

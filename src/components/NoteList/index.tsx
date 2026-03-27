@@ -57,6 +57,16 @@ import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { NoteFeedProfileContext, type NoteFeedProfileContextValue } from '@/providers/NoteFeedProfileContext'
 import type { TProfile } from '@/types'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 
 const LIMIT = 100 // Increased from 200 to load more events per request
@@ -79,6 +89,9 @@ if (import.meta.env.DEV && import.meta.hot) {
 const SHOW_COUNT = 20 // Increased from 10 to show more events at once, reducing scroll load frequency
 /** Hard cap after merging parallel one-shot fetches (e.g. interests = one REQ per topic). */
 const ONE_SHOT_MERGED_CAP =100
+/** Client-side feed time window units (Day.js `.subtract` names). */
+type TFeedClientTimeUnit = 'minute' | 'day' | 'week' | 'month' | 'year'
+
 /** Short debounce: batch rapid timeline updates without delaying first paint on feeds like notifications. */
 const FEED_PROFILE_BATCH_DEBOUNCE_MS = 50
 /** Larger chunks + parallel fetches below — sequential 36-pubkey rounds made notification avatars lag. */
@@ -183,7 +196,12 @@ const NoteList = forwardRef(
       /** Initial visible rows and each “reveal more” step when scrolling cached events (default first {@link SHOW_COUNT}, then 2× per step). */
       revealBatchSize,
       /** When set with {@link oneShotFetch}, logs fetch + filter diagnostics to the console (e.g. faux spells). */
-      oneShotDebugLabel
+      oneShotDebugLabel,
+      /**
+       * When true (default), show the 🔍 client-side filter bar (search / from me / time window).
+       * Set false on feeds where it should stay hidden (e.g. main following).
+       */
+      showFeedClientFilter = true
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -222,6 +240,7 @@ const NoteList = forwardRef(
       oneShotGlobalTimeoutMs?: number
       oneShotEoseTimeoutMs?: number
       oneShotFirstRelayGraceMs?: number | false
+      showFeedClientFilter?: boolean
     },
     ref
   ) => {
@@ -240,6 +259,11 @@ const NoteList = forwardRef(
     const [timelineKey, setTimelineKey] = useState<string | undefined>(undefined)
     const [refreshCount, setRefreshCount] = useState(0)
     const [showCount, setShowCount] = useState(SHOW_COUNT)
+    const [feedClientFilterOpen, setFeedClientFilterOpen] = useState(false)
+    const [feedClientSearch, setFeedClientSearch] = useState('')
+    const [feedClientFromMeOnly, setFeedClientFromMeOnly] = useState(false)
+    const [feedClientTimeAmount, setFeedClientTimeAmount] = useState('')
+    const [feedClientTimeUnit, setFeedClientTimeUnit] = useState<TFeedClientTimeUnit>('day')
     const supportTouch = useMemo(() => isTouchDevice(), [])
     const bottomRef = useRef<HTMLDivElement | null>(null)
     const topRef = useRef<HTMLDivElement | null>(null)
@@ -593,6 +617,63 @@ const NoteList = forwardRef(
       seeAllFeedEvents,
       allowKindlessRelayExplore
     ])
+
+    const feedClientMinCreatedAt = useMemo(() => {
+      const raw = feedClientTimeAmount.trim()
+      const n = parseInt(raw, 10)
+      if (!Number.isFinite(n) || n < 1) return null
+      return dayjs().subtract(n, feedClientTimeUnit).unix()
+    }, [feedClientTimeAmount, feedClientTimeUnit])
+
+    const applyClientFeedFilter = useCallback(
+      (evts: Event[]) => {
+        let rows = evts
+        if (feedClientFromMeOnly && pubkey) {
+          const p = pubkey.toLowerCase()
+          rows = rows.filter((e) => e.pubkey.toLowerCase() === p)
+        }
+        if (feedClientMinCreatedAt !== null) {
+          rows = rows.filter((e) => e.created_at >= feedClientMinCreatedAt)
+        }
+        const q = feedClientSearch.trim().toLowerCase()
+        if (q) {
+          rows = rows.filter((e) => {
+            if (e.content?.toLowerCase().includes(q)) return true
+            for (const tag of e.tags) {
+              for (const cell of tag) {
+                if (typeof cell === 'string' && cell.toLowerCase().includes(q)) return true
+              }
+            }
+            return false
+          })
+        }
+        return rows
+      },
+      [feedClientFromMeOnly, pubkey, feedClientMinCreatedAt, feedClientSearch]
+    )
+
+    const clientFilteredEvents = useMemo(
+      () =>
+        showFeedClientFilter ? applyClientFeedFilter(filteredEvents) : filteredEvents,
+      [showFeedClientFilter, applyClientFeedFilter, filteredEvents]
+    )
+
+    const clientFilteredNewEvents = useMemo(
+      () =>
+        showFeedClientFilter ? applyClientFeedFilter(filteredNewEvents) : filteredNewEvents,
+      [showFeedClientFilter, applyClientFeedFilter, filteredNewEvents]
+    )
+
+    const feedClientFilterActive = useMemo(
+      () =>
+        !!(
+          showFeedClientFilter &&
+          (feedClientSearch.trim() ||
+            feedClientFromMeOnly ||
+            feedClientMinCreatedAt !== null)
+        ),
+      [showFeedClientFilter, feedClientSearch, feedClientFromMeOnly, feedClientMinCreatedAt]
+    )
 
     useLayoutEffect(() => {
       if (!onSpellFeedFirstPaint || spellFeedInstrumentToken === undefined) return
@@ -1658,7 +1739,7 @@ const NoteList = forwardRef(
       
       // Debounce embedded event prefetching by 400ms to reduce frequency during rapid scrolling
       prefetchEmbeddedEventsTimeoutRef.current = setTimeout(() => {
-        const visibleTargets = mergePrefetchTargetsFromEvents(filteredEvents.slice(0, 40))
+        const visibleTargets = mergePrefetchTargetsFromEvents(clientFilteredEvents.slice(0, 40))
         const upcomingTargets = mergePrefetchTargetsFromEvents(events.slice(0, 80))
         const hexIds = Array.from(
           new Set([...visibleTargets.hexIds, ...upcomingTargets.hexIds])
@@ -1702,7 +1783,7 @@ const NoteList = forwardRef(
           prefetchEmbeddedEventsTimeoutRef.current = null
         }
       }
-    }, [filteredEvents, events, mergePrefetchTargetsFromEvents])
+    }, [clientFilteredEvents, events, mergePrefetchTargetsFromEvents])
     
     // Also prefetch when loading more events (scrolling down)
     // Throttled to reduce frequency during rapid scrolling
@@ -1765,9 +1846,100 @@ const NoteList = forwardRef(
       }, 0)
     }
 
+    const feedClientFilterBar = (
+      <div className="sticky top-0 z-20 border-b border-border/80 bg-background/95 px-1 py-1 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="shrink-0 text-lg leading-none"
+            aria-expanded={feedClientFilterOpen}
+            aria-controls="feed-client-filter-panel"
+            aria-label={t('Feed filter')}
+            title={t('Feed filter')}
+            onClick={() => setFeedClientFilterOpen((o) => !o)}
+          >
+            <span aria-hidden>🔍</span>
+          </Button>
+        </div>
+        {feedClientFilterOpen ? (
+          <div id="feed-client-filter-panel" className="space-y-3 border-t border-border/60 py-3">
+            <div className="space-y-2">
+              <Label htmlFor="feed-client-search" className="text-sm font-medium">
+                {t('Search loaded posts')}
+              </Label>
+              <Input
+                id="feed-client-search"
+                value={feedClientSearch}
+                onChange={(e) => setFeedClientSearch(e.target.value)}
+                placeholder={t('Filter loaded posts placeholder')}
+                autoComplete="off"
+                className="w-full"
+              />
+            </div>
+            {pubkey ? (
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  checked={feedClientFromMeOnly}
+                  onCheckedChange={(v) => setFeedClientFromMeOnly(v === true)}
+                />
+                {t('From me only')}
+              </label>
+            ) : null}
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="grid min-w-0 flex-1 gap-1.5 sm:max-w-[10rem]">
+                <Label htmlFor="feed-client-time-n" className="text-sm font-medium">
+                  {t('Within the last')}
+                </Label>
+                <Input
+                  id="feed-client-time-n"
+                  inputMode="numeric"
+                  min={1}
+                  value={feedClientTimeAmount}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    if (v === '' || /^\d+$/.test(v)) setFeedClientTimeAmount(v)
+                  }}
+                  placeholder="1"
+                  className="w-full"
+                />
+              </div>
+              <div className="grid min-w-0 gap-1.5 sm:w-40">
+                <Label htmlFor="feed-client-time-unit" className="text-sm font-medium">
+                  {t('Time unit')}
+                </Label>
+                <Select
+                  value={feedClientTimeUnit}
+                  onValueChange={(v) => setFeedClientTimeUnit(v as TFeedClientTimeUnit)}
+                >
+                  <SelectTrigger id="feed-client-time-unit" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="minute">{t('Minutes')}</SelectItem>
+                    <SelectItem value="day">{t('Days')}</SelectItem>
+                    <SelectItem value="week">{t('Weeks')}</SelectItem>
+                    <SelectItem value="month">{t('Months')}</SelectItem>
+                    <SelectItem value="year">{t('Years')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">{t('Feed filter client-side hint')}</p>
+          </div>
+        ) : null}
+      </div>
+    )
+
     const list = (
       <div className="min-h-screen">
-        {filteredEvents.map((event) => (
+        {feedClientFilterActive && filteredEvents.length > 0 && clientFilteredEvents.length === 0 ? (
+          <div className="px-2 py-8 text-center text-sm text-muted-foreground">
+            {t('No loaded posts match your filters.')}
+          </div>
+        ) : null}
+        {clientFilteredEvents.map((event) => (
           <NoteCard
             key={event.id}
             className="w-full"
@@ -1845,15 +2017,21 @@ const NoteList = forwardRef(
               }}
               pullingContent=""
             >
-              {list}
+              <div>
+                {showFeedClientFilter ? feedClientFilterBar : null}
+                {list}
+              </div>
             </PullToRefresh>
           ) : (
-            list
+            <div>
+              {showFeedClientFilter ? feedClientFilterBar : null}
+              {list}
+            </div>
           )}
         </NoteFeedProfileContext.Provider>
         <div className="h-40" />
-        {filteredNewEvents.length > 0 && (
-          <NewNotesButton newEvents={filteredNewEvents} onClick={showNewEvents} />
+        {clientFilteredNewEvents.length > 0 && (
+          <NewNotesButton newEvents={clientFilteredNewEvents} onClick={showNewEvents} />
         )}
       </div>
     )

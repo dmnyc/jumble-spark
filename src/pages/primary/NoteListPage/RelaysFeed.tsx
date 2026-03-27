@@ -132,6 +132,7 @@ const RelaysFeed = forwardRef<
       feedTimelineScopeKey={feedTimelineScopeKey}
       useFilterAsIs={singleRelayKindlessExplore}
       allowKindlessRelayExplore={singleRelayKindlessExplore}
+      showFeedClientFilter
     />
   )
 })
