@@ -16,7 +16,6 @@ import {
   EmbeddedHashtag,
   EmbeddedLNInvoice,
   EmbeddedMention,
-  EmbeddedNormalUrl,
   EmbeddedNote,
   EmbeddedWebsocketUrl,
   HttpNostrAwareUrl
