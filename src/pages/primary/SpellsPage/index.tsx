@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useKindFilter } from '@/providers/KindFilterProvider'
-import { useBookmarks } from '@/providers/BookmarksProvider'
+import { useBookmarks } from '@/providers/bookmarks-context'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
@@ -1676,6 +1676,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   ref={spellFeedListRef}
                   subRequests={subRequests}
                   feedSubscriptionKey={spellFeedSubscriptionKey}
+                  hostPrimaryPageName="spells"
                   showKinds={showKinds}
                   spellFeedInstrumentToken={spellFeedInstrumentToken}
                   onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
@@ -1724,6 +1725,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                 ref={spellFeedListRef}
                 subRequests={subRequests}
                 feedSubscriptionKey={spellFeedSubscriptionKey}
+                hostPrimaryPageName="spells"
                 showKinds={showKinds}
                 spellFeedInstrumentToken={spellFeedInstrumentToken}
                 onSpellFeedFirstPaint={handleSpellFeedFirstPaint}

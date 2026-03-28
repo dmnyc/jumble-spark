@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
 import { useMuteListOptional } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { Event, kinds } from 'nostr-tools'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -78,7 +79,7 @@ export default function ContentPreview({
   const contentPolicy = useContentPolicyOptional()
   const hideContentMentioningMutedUsers = contentPolicy?.hideContentMentioningMutedUsers ?? false
   const isMuted = useMemo(
-    () => (event ? mutePubkeySet.has(event.pubkey) : false),
+    () => (event ? muteSetHas(mutePubkeySet, event.pubkey) : false),
     [mutePubkeySet, event]
   )
   const isMentioningMuted = useMemo(

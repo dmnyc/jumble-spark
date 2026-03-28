@@ -1,4 +1,5 @@
 import { CALENDAR_EVENT_KINDS, ExtendedKind } from '@/constants'
+import { muteSetHas } from '@/lib/mute-set'
 import { EMBEDDED_EVENT_REGEX, EMBEDDED_MENTION_REGEX, NOSTR_EMBEDDED_NOTE_REGEX } from '@/lib/content-patterns'
 import { cleanUrl } from '@/lib/url'
 import client from '@/services/client.service'
@@ -83,7 +84,7 @@ export function isProtectedEvent(event: Event) {
 
 export function isMentioningMutedUsers(event: Event, mutePubkeySet: Set<string>) {
   for (const [tagName, pubkey] of event.tags) {
-    if (tagName === 'p' && mutePubkeySet.has(pubkey)) {
+    if (tagName === 'p' && muteSetHas(mutePubkeySet, pubkey)) {
       return true
     }
   }

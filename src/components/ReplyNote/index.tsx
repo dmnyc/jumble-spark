@@ -18,6 +18,7 @@ import { toNote } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { Event, kinds } from 'nostr-tools'
 import { useMemo, useState } from 'react'
@@ -74,7 +75,7 @@ export default function ReplyNote({
     if (showMuted) {
       return true
     }
-    if (mutePubkeySet.has(event.pubkey)) {
+    if (muteSetHas(mutePubkeySet, event.pubkey)) {
       return false
     }
     if (hideContentMentioningMutedUsers && isMentioningMutedUsers(event, mutePubkeySet)) {

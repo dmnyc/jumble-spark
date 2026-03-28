@@ -20,6 +20,7 @@ import { isTouchDevice } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { useZap } from '@/providers/ZapProvider'
@@ -52,14 +53,19 @@ import { CircleAlert } from 'lucide-react'
 import { useLongPressAction } from '@/hooks/use-long-press-action'
 import { useTranslation } from 'react-i18next'
 import PullToRefresh from 'react-simple-pull-to-refresh'
+import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
+import { formatPubkey, inviteInputToHexPubkey, pubkeyToNpub } from '@/lib/pubkey'
+import { usePrimaryPageOptional } from '@/contexts/primary-page-context'
+import type { TPrimaryPageName } from '@/PageManager'
 import { NoteFeedProfileContext, type NoteFeedProfileContextValue } from '@/providers/NoteFeedProfileContext'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
+import { buildFeedFullSearchRelayUrls } from '@/lib/feed-full-search-relays'
 import type { TProfile } from '@/types'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import {
   Select,
   SelectContent,
@@ -89,8 +95,13 @@ if (import.meta.env.DEV && import.meta.hot) {
 const SHOW_COUNT = 20 // Increased from 10 to show more events at once, reducing scroll load frequency
 /** Hard cap after merging parallel one-shot fetches (e.g. interests = one REQ per topic). */
 const ONE_SHOT_MERGED_CAP =100
+/** Max events kept after merging parallel full-search REQ results across relays. */
+const FEED_FULL_SEARCH_MERGE_CAP = 400
 /** Client-side feed time window units (Day.js `.subtract` names). */
 type TFeedClientTimeUnit = 'minute' | 'day' | 'week' | 'month' | 'year'
+
+/** Client-side “who wrote this” filter on already-loaded posts. */
+type TFeedClientAuthorMode = 'everyone' | 'me' | 'npub'
 
 /** Short debounce: batch rapid timeline updates without delaying first paint on feeds like notifications. */
 const FEED_PROFILE_BATCH_DEBOUNCE_MS = 50
@@ -120,6 +131,71 @@ function timelineFilterHasNonKindScope(f: Filter): boolean {
     (Array.isArray(f['#e']) && f['#e']!.length > 0) ||
     (typeof search === 'string' && search.trim().length > 0)
   )
+}
+
+/** REQ filter for the first subrequest, matching {@link NoteList} timeline mapping (for full relay search). */
+function buildNoteListMappedFilterForFullSearch(
+  req: TFeedSubRequest,
+  options: {
+    showKinds: number[]
+    useFilterAsIs: boolean
+    allowKindlessRelayExplore: boolean
+    clientSideKindFilter: boolean
+    seeAllFeedEvents: boolean
+    areAlgoRelays: boolean
+  }
+): Filter | null {
+  const { urls, filter } = req
+  const defaultKinds = options.showKinds.length > 0 ? options.showKinds : [kinds.ShortTextNote]
+  const baseLimit = filter.limit ?? (options.areAlgoRelays ? ALGO_LIMIT : LIMIT)
+  const seeAllNoSpell = options.seeAllFeedEvents && !options.useFilterAsIs
+  let f: Filter
+
+  if (options.useFilterAsIs) {
+    const hasKindsInRequest = Array.isArray(filter.kinds) && filter.kinds.length > 0
+    if (options.allowKindlessRelayExplore && urls.length === 1 && !hasKindsInRequest) {
+      const finalFilter: Filter = {
+        ...filter,
+        limit: filter.limit ?? RELAY_EXPLORE_LIMIT
+      }
+      delete finalFilter.kinds
+      f = finalFilter
+    } else {
+      const finalFilter: Filter = { ...filter, limit: baseLimit }
+      if (options.clientSideKindFilter) {
+        if (hasKindsInRequest) {
+          finalFilter.kinds = filter.kinds
+        } else {
+          delete finalFilter.kinds
+        }
+      } else if (hasKindsInRequest) {
+        finalFilter.kinds = filter.kinds
+      } else {
+        finalFilter.kinds = defaultKinds
+      }
+      f = finalFilter
+    }
+  } else if (seeAllNoSpell) {
+    const { kinds: _omitKinds, ...rest } = filter
+    f = {
+      ...rest,
+      limit: options.areAlgoRelays ? ALGO_LIMIT : LIMIT
+    }
+  } else {
+    f = {
+      ...filter,
+      kinds: defaultKinds,
+      limit: options.areAlgoRelays ? ALGO_LIMIT : LIMIT
+    }
+  }
+
+  if (seeAllNoSpell) return f
+
+  const missingKinds = !f.kinds || f.kinds.length === 0
+  if (!missingKinds) return f
+  if (options.useFilterAsIs && options.clientSideKindFilter && timelineFilterHasNonKindScope(f)) return f
+  if (options.useFilterAsIs && options.allowKindlessRelayExplore && urls.length === 1) return f
+  return null
 }
 
 const NoteList = forwardRef(
@@ -201,7 +277,17 @@ const NoteList = forwardRef(
        * When true (default), show the 🔍 client-side filter bar (search / from me / time window).
        * Set false on feeds where it should stay hidden (e.g. main following).
        */
-      showFeedClientFilter = true
+      showFeedClientFilter = true,
+      /**
+       * When set, clear 🔍 filter + full-search results whenever this primary tab is not visible (other tabs stay
+       * mounted with `hidden`) or when the in-page feed identity changes — see {@link feedClientFilterScopeKey}.
+       */
+      hostPrimaryPageName,
+      /**
+       * When {@link NormalFeed} renders Notes/Replies + kind row, it passes the slot element so the 🔍 control
+       * sits on that row instead of an extra bar above the list. Omitted on spells / standalone NoteList.
+       */
+      feedClientFilterTabRowHost
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -241,6 +327,8 @@ const NoteList = forwardRef(
       oneShotEoseTimeoutMs?: number
       oneShotFirstRelayGraceMs?: number | false
       showFeedClientFilter?: boolean
+      hostPrimaryPageName?: TPrimaryPageName
+      feedClientFilterTabRowHost?: HTMLElement | null
     },
     ref
   ) => {
@@ -251,8 +339,13 @@ const NoteList = forwardRef(
     const { hideContentMentioningMutedUsers } = useContentPolicy()
     const { isEventDeleted } = useDeletedEvent()
     const { zapReplyThreshold } = useZap()
+    const { favoriteRelays, blockedRelays } = useFavoriteRelays()
     const [events, setEvents] = useState<Event[]>([])
     const eventsRef = useRef<Event[]>([])
+    const [feedFullSearchEvents, setFeedFullSearchEvents] = useState<Event[] | null>(null)
+    const [feedFullSearchLoading, setFeedFullSearchLoading] = useState(false)
+    const feedFullSearchEventsRef = useRef<Event[] | null>(null)
+    const displayTimelineSourceRef = useRef<Event[]>([])
     const [newEvents, setNewEvents] = useState<Event[]>([])
     const [hasMore, setHasMore] = useState<boolean>(true)
     const [loading, setLoading] = useState(true)
@@ -261,10 +354,21 @@ const NoteList = forwardRef(
     const [showCount, setShowCount] = useState(SHOW_COUNT)
     const [feedClientFilterOpen, setFeedClientFilterOpen] = useState(false)
     const [feedClientSearch, setFeedClientSearch] = useState('')
-    const [feedClientFromMeOnly, setFeedClientFromMeOnly] = useState(false)
+    const [feedClientAuthorMode, setFeedClientAuthorMode] = useState<TFeedClientAuthorMode>('everyone')
+    const [feedClientAuthorNpubInput, setFeedClientAuthorNpubInput] = useState('')
     const [feedClientTimeAmount, setFeedClientTimeAmount] = useState('')
     const [feedClientTimeUnit, setFeedClientTimeUnit] = useState<TFeedClientTimeUnit>('day')
     const supportTouch = useMemo(() => isTouchDevice(), [])
+
+    const timelineEventsForFilter = feedFullSearchEvents ?? events
+
+    useEffect(() => {
+      feedFullSearchEventsRef.current = feedFullSearchEvents
+    }, [feedFullSearchEvents])
+
+    useEffect(() => {
+      displayTimelineSourceRef.current = timelineEventsForFilter
+    }, [timelineEventsForFilter])
     const bottomRef = useRef<HTMLDivElement | null>(null)
     const topRef = useRef<HTMLDivElement | null>(null)
     const spellFeedFirstPaintLoggedKeyRef = useRef('')
@@ -330,6 +434,52 @@ const NoteList = forwardRef(
       )
     }, [subRequests])
 
+    /** Feed identity for scoping client filter state (timeline key minus unrelated churn where possible). */
+    const feedClientFilterScopeKey = useMemo(
+      () => feedTimelineScopeKey ?? feedSubscriptionKey ?? subRequestsKey,
+      [feedTimelineScopeKey, feedSubscriptionKey, subRequestsKey]
+    )
+
+    const primaryPageCtx = usePrimaryPageOptional()
+    const primaryPageCurrent = primaryPageCtx?.current ?? null
+
+    /** Clears text/author/time/full-search; does not change panel open state. */
+    const clearFeedClientSearchCriteria = useCallback(() => {
+      setFeedClientSearch('')
+      setFeedClientAuthorMode('everyone')
+      setFeedClientAuthorNpubInput('')
+      setFeedClientTimeAmount('')
+      setFeedClientTimeUnit('day')
+      setFeedFullSearchEvents(null)
+      setFeedFullSearchLoading(false)
+    }, [])
+
+    const resetFeedClientFilterState = useCallback(() => {
+      clearFeedClientSearchCriteria()
+      setFeedClientFilterOpen(false)
+    }, [clearFeedClientSearchCriteria])
+
+    const onToggleFeedClientFilterPanel = useCallback(() => {
+      setFeedClientFilterOpen((wasOpen) => {
+        if (wasOpen) {
+          clearFeedClientSearchCriteria()
+          return false
+        }
+        return true
+      })
+    }, [clearFeedClientSearchCriteria])
+
+    useEffect(() => {
+      resetFeedClientFilterState()
+    }, [feedClientFilterScopeKey, resetFeedClientFilterState])
+
+    useEffect(() => {
+      if (hostPrimaryPageName === undefined) return
+      if (primaryPageCurrent !== hostPrimaryPageName) {
+        resetFeedClientFilterState()
+      }
+    }, [hostPrimaryPageName, primaryPageCurrent, resetFeedClientFilterState])
+
     const timelineSubscriptionKey = feedSubscriptionKey ?? subRequestsKey
     const prevSubRequestsKeyForTimelineRef = useRef<string | null>(null)
     const feedTimelineScopePrevRef = useRef<string | undefined>(undefined)
@@ -367,7 +517,7 @@ const NoteList = forwardRef(
           }
         }
       }
-      for (const e of events) {
+      for (const e of timelineEventsForFilter) {
         addPk(e.pubkey)
         addPkFromEventTags(e)
       }
@@ -388,7 +538,7 @@ const NoteList = forwardRef(
         if (!changed) return prev
         return { ...prev, pending, version: prev.version + 1 }
       })
-    }, [events, newEvents])
+    }, [timelineEventsForFilter, newEvents])
 
     const subRequestsRef = useRef(subRequests)
     subRequestsRef.current = subRequests
@@ -475,7 +625,7 @@ const NoteList = forwardRef(
         if (isEventDeleted(evt)) return true
         if (hideReplies && isReplyNoteEvent(evt)) return true
         if (hideUntrustedNotes && !isUserTrusted(evt.pubkey)) return true
-        if (filterMutedNotes && mutePubkeySet.has(evt.pubkey)) return true
+        if (filterMutedNotes && muteSetHas(mutePubkeySet, evt.pubkey)) return true
         if (
           filterMutedNotes &&
           hideContentMentioningMutedUsers &&
@@ -501,8 +651,10 @@ const NoteList = forwardRef(
         return false
       },
       [
+        filterMutedNotes,
         hideReplies,
         hideUntrustedNotes,
+        hideContentMentioningMutedUsers,
         mutePubkeySet,
         pinnedEventIds,
         isEventDeleted,
@@ -519,7 +671,7 @@ const NoteList = forwardRef(
     const filteredEvents = useMemo(() => {
       const idSet = new Set<string>()
 
-      return events.slice(0, showCount).filter((evt) => {
+      return timelineEventsForFilter.slice(0, showCount).filter((evt) => {
         if (applyKindPickerInUi) {
           if (!showKinds.includes(evt.kind)) return false
           // Kind 1: show only OPs if showKind1OPs, only replies if showKind1Replies
@@ -543,7 +695,7 @@ const NoteList = forwardRef(
         return true
       })
     }, [
-      events,
+      timelineEventsForFilter,
       showCount,
       shouldHideEvent,
       showKinds,
@@ -593,6 +745,8 @@ const NoteList = forwardRef(
     ])
 
     const filteredNewEvents = useMemo(() => {
+      if (feedFullSearchEvents !== null) return []
+
       const idSet = new Set<string>()
 
       return newEvents.filter((event: Event) => {
@@ -618,6 +772,7 @@ const NoteList = forwardRef(
         return true
       })
     }, [
+      feedFullSearchEvents,
       newEvents,
       shouldHideEvent,
       showKinds,
@@ -634,12 +789,31 @@ const NoteList = forwardRef(
       return dayjs().subtract(n, feedClientTimeUnit).unix()
     }, [feedClientTimeAmount, feedClientTimeUnit])
 
+    const filterAuthorHexForRelayBootstrap = useMemo(() => {
+      if (feedClientAuthorMode === 'me' && pubkey) return pubkey
+      if (feedClientAuthorMode === 'npub') {
+        return inviteInputToHexPubkey(feedClientAuthorNpubInput)
+      }
+      return null
+    }, [feedClientAuthorMode, feedClientAuthorNpubInput, pubkey])
+
     const applyClientFeedFilter = useCallback(
       (evts: Event[]) => {
         let rows = evts
-        if (feedClientFromMeOnly && pubkey) {
+        if (feedClientAuthorMode === 'me' && pubkey) {
           const p = pubkey.toLowerCase()
           rows = rows.filter((e) => e.pubkey.toLowerCase() === p)
+        } else if (feedClientAuthorMode === 'npub') {
+          const raw = feedClientAuthorNpubInput.trim()
+          if (raw) {
+            const pk = inviteInputToHexPubkey(feedClientAuthorNpubInput)
+            if (pk) {
+              const pl = pk.toLowerCase()
+              rows = rows.filter((e) => e.pubkey.toLowerCase() === pl)
+            } else {
+              rows = []
+            }
+          }
         }
         if (feedClientMinCreatedAt !== null) {
           rows = rows.filter((e) => e.created_at >= feedClientMinCreatedAt)
@@ -658,7 +832,13 @@ const NoteList = forwardRef(
         }
         return rows
       },
-      [feedClientFromMeOnly, pubkey, feedClientMinCreatedAt, feedClientSearch]
+      [
+        feedClientAuthorMode,
+        feedClientAuthorNpubInput,
+        pubkey,
+        feedClientMinCreatedAt,
+        feedClientSearch
+      ]
     )
 
     const clientFilteredEvents = useMemo(
@@ -678,10 +858,18 @@ const NoteList = forwardRef(
         !!(
           showFeedClientFilter &&
           (feedClientSearch.trim() ||
-            feedClientFromMeOnly ||
+            (feedClientAuthorMode === 'me' && !!pubkey) ||
+            (feedClientAuthorMode === 'npub' && feedClientAuthorNpubInput.trim() !== '') ||
             feedClientMinCreatedAt !== null)
         ),
-      [showFeedClientFilter, feedClientSearch, feedClientFromMeOnly, feedClientMinCreatedAt]
+      [
+        showFeedClientFilter,
+        feedClientSearch,
+        feedClientAuthorMode,
+        feedClientAuthorNpubInput,
+        pubkey,
+        feedClientMinCreatedAt
+      ]
     )
 
     useLayoutEffect(() => {
@@ -723,7 +911,7 @@ const NoteList = forwardRef(
             }
           }
         }
-        for (const e of events) {
+        for (const e of timelineEventsForFilter) {
           addPk(e.pubkey)
           addPkFromEventTags(e)
         }
@@ -792,7 +980,7 @@ const NoteList = forwardRef(
         })()
       }, FEED_PROFILE_BATCH_DEBOUNCE_MS)
       return () => window.clearTimeout(handle)
-    }, [events, newEvents])
+    }, [timelineEventsForFilter, newEvents])
 
     const scrollToTop = useCallback((behavior: ScrollBehavior = 'instant') => {
       setTimeout(() => {
@@ -806,6 +994,117 @@ const NoteList = forwardRef(
         setRefreshCount((count) => count + 1)
       }, 500)
     }, [scrollToTop])
+
+    const onPerformFeedFullSearch = useCallback(async () => {
+      if (!showFeedClientFilter) return
+      const reqs = subRequestsRef.current
+      if (!reqs.length) {
+        toast.error(t('Feed full search invalid feed'))
+        return
+      }
+      const hasSearch = feedClientSearch.trim().length > 0
+      const hasTime = feedClientMinCreatedAt !== null
+      let hasAuthor = false
+      if (feedClientAuthorMode === 'me' && pubkey) hasAuthor = true
+      if (feedClientAuthorMode === 'npub' && inviteInputToHexPubkey(feedClientAuthorNpubInput)) {
+        hasAuthor = true
+      }
+      if (!hasSearch && !hasTime && !hasAuthor) {
+        toast.error(t('Feed full search need constraint'))
+        return
+      }
+
+      const base = buildNoteListMappedFilterForFullSearch(reqs[0]!, {
+        showKinds,
+        useFilterAsIs,
+        allowKindlessRelayExplore,
+        clientSideKindFilter,
+        seeAllFeedEvents,
+        areAlgoRelays
+      })
+      if (!base) {
+        toast.error(t('Feed full search invalid feed'))
+        return
+      }
+
+      const finalFilter: Filter = { ...base }
+      if (hasSearch) {
+        finalFilter.search = feedClientSearch.trim()
+      }
+      if (feedClientAuthorMode === 'me' && pubkey) {
+        finalFilter.authors = [pubkey]
+      } else if (feedClientAuthorMode === 'npub') {
+        const pk = inviteInputToHexPubkey(feedClientAuthorNpubInput)
+        if (pk) finalFilter.authors = [pk]
+      }
+      if (feedClientMinCreatedAt !== null) {
+        finalFilter.since = Math.max(
+          feedClientMinCreatedAt,
+          typeof finalFilter.since === 'number' ? finalFilter.since : 0
+        )
+      }
+
+      const hasRelayScope =
+        timelineFilterHasNonKindScope(finalFilter) ||
+        (typeof finalFilter.since === 'number' && finalFilter.since > 0) ||
+        (Array.isArray(finalFilter.kinds) && finalFilter.kinds.length > 0)
+      if (!hasRelayScope) {
+        toast.error(t('Feed full search need constraint'))
+        return
+      }
+
+      setFeedFullSearchLoading(true)
+      try {
+        const relayUrls = await buildFeedFullSearchRelayUrls({
+          viewerPubkey: pubkey ?? null,
+          filterAuthorHex: filterAuthorHexForRelayBootstrap,
+          favoriteRelays,
+          blockedRelays
+        })
+        if (relayUrls.length === 0) {
+          toast.error(t('Feed full search invalid feed'))
+          return
+        }
+        const raw = await client.fetchEvents(relayUrls, finalFilter, {
+          cache: true,
+          globalTimeout: 22_000,
+          eoseTimeout: 3500,
+          firstRelayResultGraceMs: false
+        })
+        const merged = mergeEventBatchesById([], raw, FEED_FULL_SEARCH_MERGE_CAP)
+        setFeedFullSearchEvents(merged)
+        setShowCount(revealBatchSize ?? SHOW_COUNT)
+        scrollToTop()
+      } catch (e) {
+        logger.warn('[NoteList] Feed full search failed', { error: e })
+        toast.error(t('Feed full search failed'))
+      } finally {
+        setFeedFullSearchLoading(false)
+      }
+    }, [
+      showFeedClientFilter,
+      feedClientSearch,
+      feedClientMinCreatedAt,
+      feedClientAuthorMode,
+      feedClientAuthorNpubInput,
+      pubkey,
+      filterAuthorHexForRelayBootstrap,
+      favoriteRelays,
+      blockedRelays,
+      showKinds,
+      useFilterAsIs,
+      allowKindlessRelayExplore,
+      clientSideKindFilter,
+      seeAllFeedEvents,
+      areAlgoRelays,
+      revealBatchSize,
+      scrollToTop,
+      t
+    ])
+
+    const onClearFeedFullSearch = useCallback(() => {
+      setFeedFullSearchEvents(null)
+    }, [])
 
     const emptyFeedHardReloadLongPress = useLongPressAction(hardReloadPreservingFeedSnapshots)
 
@@ -1513,7 +1812,7 @@ const NoteList = forwardRef(
       }
 
       const loadMore = async (): Promise<void> => {
-        const currentEvents = eventsRef.current
+        const currentEvents = displayTimelineSourceRef.current
         const currentShowCount = showCountRef.current
         const currentLoading = loadingRef.current
         const currentHasMore = hasMoreRef.current
@@ -1541,6 +1840,8 @@ const NoteList = forwardRef(
             // This ensures we keep loading when filtering is aggressive
           }
         }
+
+        if (feedFullSearchEventsRef.current !== null) return
 
         const canLoadFromTimeline = !!currentTimelineKey && currentHasMore
         if (currentLoading || (!canLoadFromTimeline && currentShowCount >= currentEvents.length)) return
@@ -1867,8 +2168,16 @@ const NoteList = forwardRef(
       }, 0)
     }
 
-    const feedClientFilterBar = (
-      <div className="sticky top-0 z-20 border-b border-border/80 bg-background/95 px-1 py-1 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    const useFeedFilterTabRowPortal =
+      showFeedClientFilter && typeof feedClientFilterTabRowHost !== 'undefined'
+
+    const feedClientFilterPanelSurfaceClass =
+      useFeedFilterTabRowPortal && feedClientFilterTabRowHost
+        ? 'mt-1 space-y-3 w-full min-w-[min(100vw-2rem,22rem)] max-w-md rounded-md border border-border bg-background px-3 py-3 shadow-md'
+        : 'space-y-3 border-t border-border/60 py-3'
+
+    const feedClientFilterChrome = (
+      <>
         <div className="flex items-center gap-1">
           <Button
             type="button"
@@ -1879,13 +2188,13 @@ const NoteList = forwardRef(
             aria-controls="feed-client-filter-panel"
             aria-label={t('Feed filter')}
             title={t('Feed filter')}
-            onClick={() => setFeedClientFilterOpen((o) => !o)}
+            onClick={onToggleFeedClientFilterPanel}
           >
             <span aria-hidden>🔍</span>
           </Button>
         </div>
         {feedClientFilterOpen ? (
-          <div id="feed-client-filter-panel" className="space-y-3 border-t border-border/60 py-3">
+          <div id="feed-client-filter-panel" className={feedClientFilterPanelSurfaceClass}>
             <div className="space-y-2">
               <Label htmlFor="feed-client-search" className="text-sm font-medium">
                 {t('Search loaded posts')}
@@ -1899,15 +2208,53 @@ const NoteList = forwardRef(
                 className="w-full"
               />
             </div>
-            {pubkey ? (
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <Checkbox
-                  checked={feedClientFromMeOnly}
-                  onCheckedChange={(v) => setFeedClientFromMeOnly(v === true)}
-                />
-                {t('From me only')}
-              </label>
-            ) : null}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">{t('Feed filter author')}</Label>
+              <RadioGroup
+                value={feedClientAuthorMode}
+                onValueChange={(v) => setFeedClientAuthorMode(v as TFeedClientAuthorMode)}
+                className="grid gap-2"
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <RadioGroupItem value="everyone" id="feed-client-author-everyone" />
+                  <span>{t('Feed filter author everyone')}</span>
+                </label>
+                <label
+                  className={`flex cursor-pointer items-center gap-2 text-sm ${!pubkey ? 'cursor-not-allowed opacity-60' : ''}`}
+                  title={!pubkey ? t('Feed filter author me needs login') : undefined}
+                >
+                  <RadioGroupItem value="me" id="feed-client-author-me" disabled={!pubkey} />
+                  <span>{t('Feed filter author me')}</span>
+                </label>
+                <div className="space-y-1.5">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <RadioGroupItem value="npub" id="feed-client-author-npub" />
+                    <span>{t('Feed filter author npub')}</span>
+                  </label>
+                  {feedClientAuthorMode === 'npub' ? (
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pl-6">
+                      <span className="text-sm text-muted-foreground">
+                        {t('Feed filter author npub from prefix')}
+                      </span>
+                      <Input
+                        id="feed-client-author-npub-input"
+                        value={feedClientAuthorNpubInput}
+                        onChange={(e) => setFeedClientAuthorNpubInput(e.target.value)}
+                        placeholder={t('Feed filter author npub placeholder')}
+                        autoComplete="off"
+                        className="min-w-[12rem] flex-1"
+                        aria-invalid={
+                          feedClientAuthorNpubInput.trim() !== '' &&
+                          !inviteInputToHexPubkey(feedClientAuthorNpubInput)
+                            ? true
+                            : undefined
+                        }
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </RadioGroup>
+            </div>
             <div className="flex flex-wrap items-end gap-2">
               <div className="grid min-w-0 flex-1 gap-1.5 sm:max-w-[10rem]">
                 <Label htmlFor="feed-client-time-n" className="text-sm font-medium">
@@ -1948,16 +2295,59 @@ const NoteList = forwardRef(
               </div>
             </div>
             <p className="text-xs text-muted-foreground">{t('Feed filter client-side hint')}</p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={feedFullSearchLoading}
+                onClick={() => void onPerformFeedFullSearch()}
+              >
+                {feedFullSearchLoading ? t('Feed full search running') : t('Feed full search')}
+              </Button>
+              {feedFullSearchEvents !== null ? (
+                <Button type="button" variant="outline" size="sm" onClick={onClearFeedFullSearch}>
+                  {t('Feed full search clear')}
+                </Button>
+              ) : null}
+            </div>
+            {feedFullSearchEvents !== null ? (
+              <p className="text-xs text-muted-foreground">{t('Feed full search active hint')}</p>
+            ) : null}
           </div>
         ) : null}
+      </>
+    )
+
+    const feedClientFilterBarEmbedded = (
+      <div className="sticky top-0 z-20 border-b border-border/80 bg-background/95 px-1 py-1 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        {feedClientFilterChrome}
       </div>
     )
+
+    const feedClientFilterBar =
+      useFeedFilterTabRowPortal && feedClientFilterTabRowHost
+        ? createPortal(
+            <div className="flex flex-col items-end gap-0">{feedClientFilterChrome}</div>,
+            feedClientFilterTabRowHost
+          )
+        : useFeedFilterTabRowPortal && !feedClientFilterTabRowHost
+          ? null
+          : feedClientFilterBarEmbedded
+
+    const listSourceEvents = timelineEventsForFilter
+    const feedFullSearchActive = feedFullSearchEvents !== null
 
     const list = (
       <div className="min-h-screen">
         {feedClientFilterActive && filteredEvents.length > 0 && clientFilteredEvents.length === 0 ? (
           <div className="px-2 py-8 text-center text-sm text-muted-foreground">
             {t('No loaded posts match your filters.')}
+          </div>
+        ) : null}
+        {feedFullSearchActive && listSourceEvents.length === 0 && !feedFullSearchLoading ? (
+          <div className="px-2 py-8 text-center text-sm text-muted-foreground">
+            {t('Feed full search empty')}
           </div>
         ) : null}
         {clientFilteredEvents.map((event) => (
@@ -1968,7 +2358,8 @@ const NoteList = forwardRef(
             filterMutedNotes={filterMutedNotes}
           />
         ))}
-        {events.length === 0 &&
+        {listSourceEvents.length === 0 &&
+        !feedFullSearchActive &&
         (loading || (subRequests.length > 0 && !feedTimelineEmptyUiReady)) ? (
           <div
             ref={bottomRef}
@@ -1981,7 +2372,8 @@ const NoteList = forwardRef(
               <NoteCardLoadingSkeleton key={i} />
             ))}
           </div>
-        ) : events.length > 0 && hasMore ? (
+        ) : listSourceEvents.length > 0 &&
+          (feedFullSearchActive ? showCount < listSourceEvents.length : hasMore) ? (
           <div
             ref={bottomRef}
             className={
@@ -1994,9 +2386,13 @@ const NoteList = forwardRef(
           >
             {loading ? <NoteCardLoadingSkeleton /> : null}
           </div>
-        ) : events.length > 0 ? (
+        ) : listSourceEvents.length > 0 ? (
           <div className="text-center text-sm text-muted-foreground mt-2">{t('no more notes')}</div>
-        ) : !loading && feedTimelineEmptyUiReady && subRequests.length > 0 ? (
+        ) : listSourceEvents.length === 0 &&
+          !feedFullSearchActive &&
+          !loading &&
+          feedTimelineEmptyUiReady &&
+          subRequests.length > 0 ? (
           <div
             ref={bottomRef}
             className="mt-6 flex min-h-[35vh] flex-col items-center justify-start gap-4 px-4 text-center text-sm text-muted-foreground"

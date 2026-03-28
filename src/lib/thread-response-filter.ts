@@ -1,4 +1,5 @@
 import { isMentioningMutedUsers } from '@/lib/event'
+import { muteSetHas } from '@/lib/mute-set'
 import { normalizeUrl } from '@/lib/url'
 import type { Event } from 'nostr-tools'
 
@@ -18,7 +19,7 @@ export function shouldHideThreadResponseEvent(
   mutePubkeySet: Set<string>,
   hideContentMentioningMutedUsers: boolean | undefined
 ): boolean {
-  if (mutePubkeySet.has(evt.pubkey)) return true
+  if (muteSetHas(mutePubkeySet, evt.pubkey)) return true
   if (hideContentMentioningMutedUsers === true && isMentioningMutedUsers(evt, mutePubkeySet)) return true
   return false
 }

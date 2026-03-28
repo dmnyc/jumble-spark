@@ -1,7 +1,7 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { NostrContext } from '@/providers/nostr-context'
-import { useBookmarksOptional } from '@/providers/BookmarksProvider'
+import { useBookmarksOptional } from '@/providers/bookmarks-context'
 import { BookmarkIcon } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useContext, useMemo, useState } from 'react'

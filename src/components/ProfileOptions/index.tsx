@@ -10,6 +10,7 @@ import { buildHiveTalkJoinUrl, roomIdForPubkeys } from '@/lib/hivetalk'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { normalizeUrl } from '@/lib/url'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
@@ -78,7 +79,7 @@ export default function ProfileOptions({
     fetchEvent()
   }, [pubkey, profileEvent])
   
-  const isMuted = useMemo(() => mutePubkeySet.has(pubkey), [mutePubkeySet, pubkey])
+  const isMuted = useMemo(() => muteSetHas(mutePubkeySet, pubkey), [mutePubkeySet, pubkey])
   const displayName = profile?.username ?? (accountPubkey ? formatPubkey(accountPubkey) : 'jumble')
 
   /** All available relays: current feed, favorites, relay sets, defaults (FAST_READ, FAST_WRITE). */

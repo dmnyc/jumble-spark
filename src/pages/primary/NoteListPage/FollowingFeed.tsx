@@ -90,6 +90,7 @@ const FollowingFeed = forwardRef<
       setSubHeader={setSubHeader}
       onSubHeaderRefresh={onSubHeaderRefresh}
       showFeedClientFilter={false}
+      hostPrimaryPageName="feed"
     />
   )
 })

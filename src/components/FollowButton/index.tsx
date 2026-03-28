@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFollowListOptional } from '@/providers/FollowListProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -28,7 +29,7 @@ export default function FollowButton({ pubkey }: { pubkey: string }) {
 
   const followings = followList?.followings ?? []
   const isFollowing = useMemo(() => followings.includes(pubkey), [followings, pubkey])
-  const isMuted = useMemo(() => mutePubkeySet.has(pubkey), [mutePubkeySet, pubkey])
+  const isMuted = useMemo(() => muteSetHas(mutePubkeySet, pubkey), [mutePubkeySet, pubkey])
 
   if (!followList || !accountPubkey || (pubkey && pubkey === accountPubkey)) return null
 

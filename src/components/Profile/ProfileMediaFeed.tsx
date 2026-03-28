@@ -123,6 +123,7 @@ const ProfileMediaFeed = forwardRef<TNoteListRef, { pubkey: string }>(({ pubkey 
         ref={ref}
         subRequests={subRequests}
         feedSubscriptionKey={feedSubscriptionKey}
+        hostPrimaryPageName="profile"
         showKinds={showKinds}
         useFilterAsIs
         /**

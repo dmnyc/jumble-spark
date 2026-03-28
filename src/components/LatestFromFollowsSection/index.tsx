@@ -20,6 +20,7 @@ import { useSecondaryPage } from '@/PageManager'
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { queryService, replaceableEventService } from '@/services/client.service'
@@ -167,7 +168,7 @@ export default function LatestFromFollowsSection({
       if (!feedKindSet.has(e.kind)) return false
       if (isEventDeleted(e)) return false
       if (shouldFilterEvent(e)) return false
-      if (mutePubkeySet.has(e.pubkey)) return false
+      if (muteSetHas(mutePubkeySet, e.pubkey)) return false
       if (hideUntrustedNotes && !isUserTrusted(e.pubkey)) return false
       return true
     },

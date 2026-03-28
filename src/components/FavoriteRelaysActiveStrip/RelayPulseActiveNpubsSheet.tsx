@@ -15,6 +15,7 @@ import {
   truncateAbout
 } from '@/lib/relay-pulse-nip05'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useFavoriteRelaysActivity } from '@/providers/favorite-relays-activity-context'
 import { SecondaryPageLink } from '@/PageManager'
 import type { Event } from 'nostr-tools'
@@ -133,14 +134,14 @@ export function RelayPulseActiveNpubsSheet() {
   const followWithProfile = useMemo(
     () =>
       followPubkeys.filter(
-        (pk) => profileKind0ByPubkey[pk] && !mutePubkeySet.has(pk)
+        (pk) => profileKind0ByPubkey[pk] && !muteSetHas(mutePubkeySet, pk)
       ),
     [followPubkeys, profileKind0ByPubkey, mutePubkeySet]
   )
   const othersWithProfile = useMemo(
     () =>
       otherPubkeys.filter(
-        (pk) => profileKind0ByPubkey[pk] && !mutePubkeySet.has(pk)
+        (pk) => profileKind0ByPubkey[pk] && !muteSetHas(mutePubkeySet, pk)
       ),
     [otherPubkeys, profileKind0ByPubkey, mutePubkeySet]
   )

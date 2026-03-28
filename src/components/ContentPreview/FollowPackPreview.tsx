@@ -5,6 +5,7 @@ import logger from '@/lib/logger'
 import { cn } from '@/lib/utils'
 import { useFollowListOptional } from '@/providers/FollowListProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
 import { Event } from 'nostr-tools'
 import { Users } from 'lucide-react'
@@ -67,7 +68,7 @@ export default function FollowPackPreview({
 
   const followingSet = useMemo(() => new Set(followings), [followings])
   const availablePubkeys = useMemo(
-    () => packPubkeys.filter((p) => !mutePubkeySet.has(p)),
+    () => packPubkeys.filter((p) => !muteSetHas(mutePubkeySet, p)),
     [packPubkeys, mutePubkeySet]
   )
   const alreadyFollowingAll =
@@ -83,9 +84,9 @@ export default function FollowPackPreview({
       }
       if (!followList) return
       const { follow } = followList
-      const toFollow = packPubkeys.filter((p) => !followingSet.has(p) && !mutePubkeySet.has(p))
+      const toFollow = packPubkeys.filter((p) => !followingSet.has(p) && !muteSetHas(mutePubkeySet, p))
       if (toFollow.length === 0) {
-        const mutedCount = packPubkeys.filter((p) => mutePubkeySet.has(p) && !followingSet.has(p)).length
+        const mutedCount = packPubkeys.filter((p) => muteSetHas(mutePubkeySet, p) && !followingSet.has(p)).length
         if (mutedCount > 0) {
           toast.info(t('All available members are already followed or muted'))
         } else {

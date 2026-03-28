@@ -134,6 +134,7 @@ const RelaysFeed = forwardRef<
       allowKindlessRelayExplore={singleRelayKindlessExplore}
       clientSideKindFilter={singleRelayKindlessExplore}
       showFeedClientFilter
+      hostPrimaryPageName="feed"
     />
   )
 })

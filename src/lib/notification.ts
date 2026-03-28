@@ -2,6 +2,7 @@ import { kinds, NostrEvent } from 'nostr-tools'
 import { ExtendedKind } from '@/constants'
 import { hexPubkeysEqual } from '@/lib/pubkey'
 import { isMentioningMutedUsers } from './event'
+import { muteSetHas } from './mute-set'
 import { tagNameEquals } from './tag'
 
 export function notificationFilter(
@@ -21,7 +22,7 @@ export function notificationFilter(
   }
 ): boolean {
   if (
-    mutePubkeySet.has(event.pubkey) ||
+    muteSetHas(mutePubkeySet, event.pubkey) ||
     (hideContentMentioningMutedUsers && isMentioningMutedUsers(event, mutePubkeySet)) ||
     (hideUntrustedNotifications && !isUserTrusted(event.pubkey))
   ) {

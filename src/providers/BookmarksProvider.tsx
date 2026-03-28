@@ -4,29 +4,11 @@ import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/eve
 import { fetchLatestReplaceableListEvent } from '@/lib/replaceable-list-latest'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
-import { kinds } from 'nostr-tools'
-import { Event } from 'nostr-tools'
-import { createContext, useCallback, useContext } from 'react'
+import { Event, kinds } from 'nostr-tools'
+import { useCallback } from 'react'
+import { BookmarksContext } from '@/providers/bookmarks-context'
 import { useNostr } from './NostrProvider'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
-
-type TBookmarksContext = {
-  addBookmark: (event: Event) => Promise<void>
-  removeBookmark: (event: Event) => Promise<void>
-}
-
-const BookmarksContext = createContext<TBookmarksContext | undefined>(undefined)
-
-export const useBookmarks = () => {
-  const context = useContext(BookmarksContext)
-  if (!context) {
-    throw new Error('useBookmarks must be used within a BookmarksProvider')
-  }
-  return context
-}
-
-/** Returns undefined when outside BookmarksProvider (e.g. embedded notes in createRoot trees). */
-export const useBookmarksOptional = () => useContext(BookmarksContext)
 
 export function BookmarksProvider({ children }: { children: React.ReactNode }) {
   const { pubkey: accountPubkey, publish, updateBookmarkListEvent } = useNostr()
@@ -70,7 +52,7 @@ export function BookmarksProvider({ children }: { children: React.ReactNode }) {
     )
 
     logger.component('BookmarksProvider', 'Publishing to comprehensive relays', { count: comprehensiveRelays.length })
-    
+
     const newBookmarkEvent = await publish(newBookmarkDraftEvent, {
       specifiedRelayUrls: comprehensiveRelays
     })
@@ -99,7 +81,7 @@ export function BookmarksProvider({ children }: { children: React.ReactNode }) {
     const newBookmarkDraftEvent = createBookmarkDraftEvent(newTags, bookmarkListEvent.content)
 
     logger.component('BookmarksProvider', 'Publishing to comprehensive relays', { count: comprehensiveRelays.length })
-    
+
     const newBookmarkEvent = await publish(newBookmarkDraftEvent, {
       specifiedRelayUrls: comprehensiveRelays
     })

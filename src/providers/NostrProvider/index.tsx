@@ -1349,11 +1349,15 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }
 
   const updateMuteListEvent = async (muteListEvent: Event, privateTags: string[][]) => {
-    const newMuteListEvent = await indexedDb.putReplaceableEvent(muteListEvent)
-    if (newMuteListEvent.id !== muteListEvent.id) return
-
-    await indexedDb.putMuteDecryptedTags(muteListEvent.id, privateTags)
-    setMuteListEvent(muteListEvent)
+    const storedWinner = await indexedDb.putReplaceableEvent(muteListEvent)
+    if (storedWinner.id === muteListEvent.id) {
+      await indexedDb.putMuteDecryptedTags(muteListEvent.id, privateTags)
+      setMuteListEvent(muteListEvent)
+      return
+    }
+    // IndexedDB kept a different replaceable winner (e.g. higher created_at). Sync UI to storage
+    // so feeds do not keep showing notes that should be hidden while state still pointed at the losing event.
+    setMuteListEvent(storedWinner)
   }
 
   const updateBookmarkListEvent = async (bookmarkListEvent: Event) => {

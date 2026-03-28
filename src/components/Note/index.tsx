@@ -23,6 +23,7 @@ import logger from '@/lib/logger'
 import client from '@/services/client.service'
 import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
 import { useMuteListOptional } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useScreenSizeOptional } from '@/providers/ScreenSizeProvider'
 import type { HighlightData } from '@/components/PostEditor/HighlightEditor'
 import { Event, kinds } from 'nostr-tools'
@@ -159,7 +160,7 @@ export default function Note({
   if (!isRenderableNoteKind(event.kind)) {
     logger.debug('Note component - rendering UnknownNote for unsupported kind:', event.kind)
     content = <UnknownNote className="mt-2" event={event} omitKindLabel />
-  } else if (mutePubkeySet.has(event.pubkey) && !showMuted) {
+  } else if (muteSetHas(mutePubkeySet, event.pubkey) && !showMuted) {
     content = <MutedNote show={() => setShowMuted(true)} />
   } else if (!defaultShowNsfw && isNsfwEvent(event) && !showNsfw) {
     content = <NsfwNote show={() => setShowNsfw(true)} />

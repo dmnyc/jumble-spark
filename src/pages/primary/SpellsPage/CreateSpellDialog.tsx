@@ -18,7 +18,7 @@ import {
   dedupeAppendIds,
   resolveSpellListATags
 } from '@/lib/spell-list-import'
-import { useBookmarks } from '@/providers/BookmarksProvider'
+import { useBookmarks } from '@/providers/bookmarks-context'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { showPublishingError, showSimplePublishSuccess } from '@/lib/publishing-feedback'

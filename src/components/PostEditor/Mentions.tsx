@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
 import { eventService } from '@/services/client.service'
 import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
@@ -46,7 +47,7 @@ export default function Mentions({
             pubkeys
               .filter((p) => potentialMentions.includes(p))
               .concat(
-                potentialMentions.filter((p) => mutePubkeySet.has(p) && p !== _parentEventPubkey)
+                potentialMentions.filter((p) => muteSetHas(mutePubkeySet, p) && p !== _parentEventPubkey)
               )
           )
         )

@@ -2,6 +2,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { isMentioningMutedUsers, isNip18RepostKind } from '@/lib/event'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { Event } from 'nostr-tools'
 import { memo, useMemo } from 'react'
 import MainNoteCard from './MainNoteCard'
@@ -26,7 +27,7 @@ const NoteCard = memo(function NoteCard({
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
   const shouldHide = useMemo(() => {
-    if (filterMutedNotes && mutePubkeySet.has(event.pubkey)) {
+    if (filterMutedNotes && muteSetHas(mutePubkeySet, event.pubkey)) {
       return true
     }
     if (hideContentMentioningMutedUsers && isMentioningMutedUsers(event, mutePubkeySet)) {

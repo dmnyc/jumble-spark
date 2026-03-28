@@ -33,7 +33,7 @@ const RelayPage = forwardRef<TPageRef, { url?: string }>(({ url }, ref) => {
       ref={layoutRef}
     >
       <div className="min-w-0 pt-2">
-        <Relay ref={feedRef} url={normalizedUrl} />
+        <Relay ref={feedRef} url={normalizedUrl} hostPrimaryPageName="relay" />
       </div>
     </PrimaryPageLayout>
   )

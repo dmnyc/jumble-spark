@@ -4,8 +4,10 @@ import Tabs, { TabDefinition } from '@/components/Tabs'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import storage from '@/services/local-storage.service'
+import type { TPrimaryPageName } from '@/PageManager'
 import { TFeedSubRequest, TNoteListMode } from '@/types'
-import { forwardRef, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { cn } from '@/lib/utils'
+import { forwardRef, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import KindFilter from '../KindFilter'
 
 const NormalFeed = forwardRef<TNoteListRef, {
@@ -34,6 +36,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
    * Client-side 🔍 feed filter. When omitted: hidden on main following, shown on relay explore and non-main feeds.
    */
   showFeedClientFilter?: boolean
+  /** When set, {@link NoteList} clears 🔍 filters when another primary tab is shown (mounted-but-hidden pages). */
+  hostPrimaryPageName?: TPrimaryPageName
 }>(function NormalFeed(
   {
     subRequests,
@@ -48,7 +52,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
     useFilterAsIs = false,
     clientSideKindFilter = false,
     allowKindlessRelayExplore = false,
-    showFeedClientFilter: showFeedClientFilterProp
+    showFeedClientFilter: showFeedClientFilterProp,
+    hostPrimaryPageName
   },
   ref
 ) {
@@ -67,6 +72,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
   })
   const internalNoteListRef = useRef<TNoteListRef>(null)
   const noteListRef = ref || internalNoteListRef
+  const [feedFilterTabRowHost, setFeedFilterTabRowHost] = useState<HTMLDivElement | null>(null)
+  const onFeedFilterTabRowSlotRef = useCallback((node: HTMLDivElement | null) => {
+    setFeedFilterTabRowHost(node)
+  }, [])
 
   const tabs = useMemo(
     (): TabDefinition[] => [
@@ -76,23 +85,26 @@ const NormalFeed = forwardRef<TNoteListRef, {
     []
   )
 
-  const handleListModeChange = (mode: TNoteListMode | string) => {
-    const noteListMode = mode as TNoteListMode
-    setListMode(noteListMode)
-    if (isMainFeed) {
-      storage.setNoteListMode(noteListMode)
-      window.dispatchEvent(new CustomEvent('noteListModeChanged'))
-    }
-    if (noteListRef && typeof noteListRef !== 'function') {
-      noteListRef.current?.scrollToTop('smooth')
-    }
-  }
+  const handleListModeChange = useCallback(
+    (mode: TNoteListMode | string) => {
+      const noteListMode = mode as TNoteListMode
+      setListMode(noteListMode)
+      if (isMainFeed) {
+        storage.setNoteListMode(noteListMode)
+        window.dispatchEvent(new CustomEvent('noteListModeChanged'))
+      }
+      if (noteListRef && typeof noteListRef !== 'function') {
+        noteListRef.current?.scrollToTop('smooth')
+      }
+    },
+    [isMainFeed, noteListRef]
+  )
 
-  const handleShowKindsChange = (_newShowKinds: number[]) => {
+  const handleShowKindsChange = useCallback((_newShowKinds: number[]) => {
     if (noteListRef && typeof noteListRef !== 'function') {
       noteListRef.current?.scrollToTop()
     }
-  }
+  }, [noteListRef])
 
   const showKindsKey = useMemo(() => JSON.stringify(showKinds), [showKinds])
 
@@ -107,24 +119,51 @@ const NormalFeed = forwardRef<TNoteListRef, {
   /** Include kind picker deps for single-relay chips (kindless REQ + client-side kinds). */
   const subHeaderFilterDepsKey = `${allowKindlessRelayExplore ? 'kle' : 'std'}|${showKindsKey}|${feedKindFilterBypass}`
 
-  const tabsElement = (
-    <Tabs
-      value={listMode}
-      tabs={tabs}
-      onTabChange={(tab) => handleListModeChange(tab)}
-      options={
-        <div className="flex items-center gap-1">
-          {onSubHeaderRefresh != null && <RefreshButton onClick={onSubHeaderRefresh} />}
-          <KindFilter showKinds={showKinds} onShowKindsChange={handleShowKindsChange} />
-        </div>
-      }
-    />
+  const tabsElement = useMemo(
+    () => (
+      <Tabs
+        value={listMode}
+        tabs={tabs}
+        onTabChange={handleListModeChange}
+        options={
+          <div className="flex items-center gap-1">
+            {onSubHeaderRefresh != null && <RefreshButton onClick={onSubHeaderRefresh} />}
+            <KindFilter showKinds={showKinds} onShowKindsChange={handleShowKindsChange} />
+          </div>
+        }
+      />
+    ),
+    [
+      listMode,
+      tabs,
+      handleListModeChange,
+      showKinds,
+      onSubHeaderRefresh,
+      handleShowKindsChange
+    ]
   )
+
+  const renderTabsInFeed = !(isMainFeed && setSubHeader) && !allowKindlessRelayExplore
+
+  const mergeFilterWithTabsRow =
+    showFeedClientFilter && ((isMainFeed && !!setSubHeader) || renderTabsInFeed)
 
   /** Same row for multi-relay and single-relay chips: Notes/Replies + refresh + kind picker (REQ may stay kindless for single relay; NoteList filters client-side). */
   useLayoutEffect(() => {
     if (!isMainFeed || !setSubHeader) return
-    setSubHeader(tabsElement)
+    if (mergeFilterWithTabsRow) {
+      setSubHeader(
+        <div className="flex w-full min-w-0 flex-wrap items-end gap-x-2 gap-y-1 border-b border-border/80 bg-background/95 pb-1.5 pt-0.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="min-w-0 flex-1">{tabsElement}</div>
+          <div
+            ref={onFeedFilterTabRowSlotRef}
+            className="flex shrink-0 flex-col items-end justify-center self-center"
+          />
+        </div>
+      )
+    } else {
+      setSubHeader(tabsElement)
+    }
     return () => setSubHeader(null)
   }, [
     isMainFeed,
@@ -132,15 +171,31 @@ const NormalFeed = forwardRef<TNoteListRef, {
     listMode,
     subHeaderFilterDepsKey,
     onSubHeaderRefresh,
-    allowKindlessRelayExplore
+    allowKindlessRelayExplore,
+    mergeFilterWithTabsRow,
+    tabsElement,
+    onFeedFilterTabRowSlotRef
   ])
-
-  const renderTabsInFeed = !(isMainFeed && setSubHeader) && !allowKindlessRelayExplore
 
   return (
     <>
-      {renderTabsInFeed && tabsElement}
-      <div className="min-w-0 pt-2">
+      {renderTabsInFeed &&
+        (mergeFilterWithTabsRow ? (
+          <div className="sticky top-0 z-20 border-b border-border/80 bg-background/95 pb-1.5 pt-0.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <div className="flex w-full min-w-0 flex-wrap items-end gap-x-2 gap-y-1">
+              <div className="min-w-0 flex-1">{tabsElement}</div>
+              <div
+                ref={onFeedFilterTabRowSlotRef}
+                className="flex shrink-0 flex-col items-end justify-center self-center"
+              />
+            </div>
+          </div>
+        ) : (
+          tabsElement
+        ))}
+      <div
+        className={cn('min-w-0', mergeFilterWithTabsRow && renderTabsInFeed ? 'pt-0' : 'pt-2')}
+      >
         <NoteList
           ref={noteListRef}
           showKinds={showKinds}
@@ -160,6 +215,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
           clientSideKindFilter={clientSideKindFilter}
           allowKindlessRelayExplore={allowKindlessRelayExplore}
           showFeedClientFilter={showFeedClientFilter}
+          hostPrimaryPageName={hostPrimaryPageName}
+          feedClientFilterTabRowHost={mergeFilterWithTabsRow ? feedFilterTabRowHost : undefined}
         />
       </div>
     </>

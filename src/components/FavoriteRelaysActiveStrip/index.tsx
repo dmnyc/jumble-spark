@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useFavoriteRelaysActivity } from '@/providers/favorite-relays-activity-context'
 import { RelayPulseActiveNpubsOpenButton } from './RelayPulseActiveNpubsSheet'
 import type { TFunction } from 'i18next'
@@ -231,14 +232,14 @@ export function FavoriteRelaysActiveStripMobileBar({ className }: { className?: 
   const followPubkeysForAvatars = useMemo(
     () =>
       followPubkeys.filter(
-        (pk) => profileKind0ByPubkey[pk] && !mutePubkeySet.has(pk)
+        (pk) => profileKind0ByPubkey[pk] && !muteSetHas(mutePubkeySet, pk)
       ),
     [followPubkeys, profileKind0ByPubkey, mutePubkeySet]
   )
   const otherPubkeysForAvatars = useMemo(
     () =>
       otherPubkeys.filter(
-        (pk) => profileKind0ByPubkey[pk] && !mutePubkeySet.has(pk)
+        (pk) => profileKind0ByPubkey[pk] && !muteSetHas(mutePubkeySet, pk)
       ),
     [otherPubkeys, profileKind0ByPubkey, mutePubkeySet]
   )
@@ -338,14 +339,14 @@ export function FavoriteRelaysActiveStripSidebar({ className }: { className?: st
   const followPubkeysForAvatars = useMemo(
     () =>
       followPubkeys.filter(
-        (pk) => profileKind0ByPubkey[pk] && !mutePubkeySet.has(pk)
+        (pk) => profileKind0ByPubkey[pk] && !muteSetHas(mutePubkeySet, pk)
       ),
     [followPubkeys, profileKind0ByPubkey, mutePubkeySet]
   )
   const otherPubkeysForAvatars = useMemo(
     () =>
       otherPubkeys.filter(
-        (pk) => profileKind0ByPubkey[pk] && !mutePubkeySet.has(pk)
+        (pk) => profileKind0ByPubkey[pk] && !muteSetHas(mutePubkeySet, pk)
       ),
     [otherPubkeys, profileKind0ByPubkey, mutePubkeySet]
   )

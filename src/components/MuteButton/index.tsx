@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { BellOff } from 'lucide-react'
@@ -22,7 +23,7 @@ export default function MuteButton({ pubkey }: { pubkey: string }) {
   const { mutePubkeySet, changing, mutePubkeyPrivately, mutePubkeyPublicly, unmutePubkey } =
     useMuteList()
   const [updating, setUpdating] = useState(false)
-  const isMuted = useMemo(() => mutePubkeySet.has(pubkey), [mutePubkeySet, pubkey])
+  const isMuted = useMemo(() => muteSetHas(mutePubkeySet, pubkey), [mutePubkeySet, pubkey])
 
   if (!accountPubkey || (pubkey && pubkey === accountPubkey)) return null
 

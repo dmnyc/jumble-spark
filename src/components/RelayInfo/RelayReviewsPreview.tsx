@@ -14,6 +14,7 @@ import { toRelayReviews } from '@/lib/link'
 import { normalizeUrl } from '@/lib/url'
 import { cn, isTouchDevice } from '@/lib/utils'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { queryService } from '@/services/client.service'
@@ -54,7 +55,7 @@ export default function RelayReviewsPreview({ relayUrl }: { relayUrl: string }) 
 
   const ingestReviewEvent = useCallback(
     (evt: NostrEvent) => {
-      if (mutePubkeySet.has(evt.pubkey)) return
+      if (muteSetHas(mutePubkeySet, evt.pubkey)) return
       if (hideUntrustedNotes && !isUserTrusted(evt.pubkey)) return
       const stars = getStarsFromRelayReviewEvent(evt)
       if (!stars) return

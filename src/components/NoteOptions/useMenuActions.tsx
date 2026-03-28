@@ -16,6 +16,7 @@ import { generateBech32IdFromATag } from '@/lib/tag'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
+import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
 import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import client from '@/services/client.service'
@@ -128,7 +129,7 @@ export function useMenuActions({
     })
   }, [])
   const { mutePubkeyPublicly, mutePubkeyPrivately, unmutePubkey, mutePubkeySet } = useMuteList()
-  const isMuted = useMemo(() => mutePubkeySet.has(event.pubkey), [mutePubkeySet, event])
+  const isMuted = useMemo(() => muteSetHas(mutePubkeySet, event.pubkey), [mutePubkeySet, event])
   
   // Check if event is pinned
   const [isPinned, setIsPinned] = useState(false)

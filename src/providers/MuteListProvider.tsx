@@ -19,6 +19,19 @@ import { z } from 'zod'
 import { useNostr } from './NostrProvider'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
 import logger from '@/lib/logger'
+import { muteSetHas } from '@/lib/mute-set'
+
+/**
+ * Decryption failures are common and usually benign (npub-only session, extension declined NIP-04,
+ * legacy/other-client ciphertext, corrupted relay copy). Log at most once per event id per load.
+ */
+const muteListPrivateSectionIssueLogged = new Set<string>()
+
+function logMuteListPrivateIssueOnce(eventId: string, message: string, detail?: Record<string, unknown>) {
+  if (muteListPrivateSectionIssueLogged.has(eventId)) return
+  muteListPrivateSectionIssueLogged.add(eventId)
+  logger.warn(message, { eventId, ...detail })
+}
 
 export function MuteListProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
@@ -33,15 +46,22 @@ export function MuteListProvider({ children }: { children: ReactNode }) {
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const [tags, setTags] = useState<string[][]>([])
   const [privateTags, setPrivateTags] = useState<string[][]>([])
-  const publicMutePubkeySet = useMemo(() => new Set(getPubkeysFromPTags(tags)), [tags])
+  const publicMutePubkeySet = useMemo(
+    () => new Set(getPubkeysFromPTags(tags).map((p) => p.toLowerCase())),
+    [tags]
+  )
   const privateMutePubkeySet = useMemo(
-    () => new Set(getPubkeysFromPTags(privateTags)),
+    () => new Set(getPubkeysFromPTags(privateTags).map((p) => p.toLowerCase())),
     [privateTags]
   )
   const mutePubkeySet = useMemo(() => {
     return new Set([...Array.from(privateMutePubkeySet), ...Array.from(publicMutePubkeySet)])
   }, [publicMutePubkeySet, privateMutePubkeySet])
   const [changing, setChanging] = useState(false)
+
+  useEffect(() => {
+    muteListPrivateSectionIssueLogged.clear()
+  }, [accountPubkey])
 
   const getPrivateTags = async (muteListEvent: Event) => {
     if (!muteListEvent.content) return []
@@ -50,16 +70,40 @@ export function MuteListProvider({ children }: { children: ReactNode }) {
 
     if (storedDecryptedTags) {
       return storedDecryptedTags
-    } else {
-      try {
-        const plainText = await nip04Decrypt(muteListEvent.pubkey, muteListEvent.content)
-        const privateTags = z.array(z.array(z.string())).parse(JSON.parse(plainText))
-        await indexedDb.putMuteDecryptedTags(muteListEvent.id, privateTags)
-        return privateTags
-      } catch (error) {
-        logger.error('Failed to decrypt mute list content', { error, eventId: muteListEvent.id })
-        return []
-      }
+    }
+
+    let plainText: string
+    try {
+      plainText = await nip04Decrypt(muteListEvent.pubkey, muteListEvent.content)
+    } catch (error) {
+      logMuteListPrivateIssueOnce(
+        muteListEvent.id,
+        'Mute list private section could not be decrypted (public mutes still apply). Use a signing-capable login for private mutes.',
+        { cause: error instanceof Error ? error.message : String(error) }
+      )
+      return []
+    }
+
+    if (!plainText.trim()) {
+      logMuteListPrivateIssueOnce(
+        muteListEvent.id,
+        'Mute list has ciphertext but decryption returned empty (e.g. read-only / npub-only login). Public mutes still apply.',
+        undefined
+      )
+      return []
+    }
+
+    try {
+      const privateTags = z.array(z.array(z.string())).parse(JSON.parse(plainText))
+      await indexedDb.putMuteDecryptedTags(muteListEvent.id, privateTags)
+      return privateTags
+    } catch (error) {
+      logMuteListPrivateIssueOnce(
+        muteListEvent.id,
+        'Mute list decrypted but private payload was not valid JSON (public mutes still apply).',
+        { cause: error instanceof Error ? error.message : String(error) }
+      )
+      return []
     }
   }
 
@@ -86,8 +130,8 @@ export function MuteListProvider({ children }: { children: ReactNode }) {
 
   const getMuteType = useCallback(
     (pubkey: string): 'public' | 'private' | null => {
-      if (publicMutePubkeySet.has(pubkey)) return 'public'
-      if (privateMutePubkeySet.has(pubkey)) return 'private'
+      if (muteSetHas(publicMutePubkeySet, pubkey)) return 'public'
+      if (muteSetHas(privateMutePubkeySet, pubkey)) return 'private'
       return null
     },
     [publicMutePubkeySet, privateMutePubkeySet]

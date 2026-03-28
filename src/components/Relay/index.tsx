@@ -3,16 +3,17 @@ import type { TNoteListRef } from '@/components/NoteList'
 import RelayInfo from '@/components/RelayInfo'
 import SearchInput from '@/components/SearchInput'
 import { useFetchRelayInfo } from '@/hooks'
+import type { TPrimaryPageName } from '@/PageManager'
 import { normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import NotFound from '../NotFound'
 
-const Relay = forwardRef<TNoteListRef, { url?: string; className?: string }>(function Relay(
-  { url, className },
-  ref
-) {
+const Relay = forwardRef<
+  TNoteListRef,
+  { url?: string; className?: string; hostPrimaryPageName?: TPrimaryPageName }
+>(function Relay({ url, className, hostPrimaryPageName }, ref) {
   const { t } = useTranslation()
   const { addRelayUrls, removeRelayUrls } = useCurrentRelays()
   const normalizedUrl = useMemo(() => (url ? normalizeUrl(url) : undefined), [url])
@@ -85,6 +86,7 @@ const Relay = forwardRef<TNoteListRef, { url?: string; className?: string }>(fun
         useFilterAsIs
         allowKindlessRelayExplore
         showFeedClientFilter
+        hostPrimaryPageName={hostPrimaryPageName}
       />
     </div>
   )
