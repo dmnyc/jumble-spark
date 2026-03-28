@@ -46,8 +46,16 @@ export const MAX_CONCURRENT_RELAY_CONNECTIONS = 10
 /**
  * Max concurrent live REQ subscriptions on a single relay. Some relays enforce ≤10 SUBs; stay under
  * the advertised cap to avoid "too many subscriptions" NOTICEs when other clients or shards overlap.
+ * Use 7 so overlapping timeline waves / auth resubscribe still stay below 10.
  */
-export const MAX_CONCURRENT_SUBS_PER_RELAY = 9
+export const MAX_CONCURRENT_SUBS_PER_RELAY = 7
+
+/**
+ * How many timeline shards may open relay subscriptions at once. Each shard sends one REQ per relay
+ * in its list; with 6 shards in parallel a popular relay can see 6+ SUBs from this app alone, and a
+ * second feed wave (remount / strict mode) pushes past strict relay caps (e.g. nostr.sovbit.host ≤10).
+ */
+export const TIMELINE_SHARD_SUBSCRIBE_CONCURRENCY = 2
 
 /** Max relays to publish each event to (outboxes first, then targets' inboxes, then extras). */
 export const MAX_PUBLISH_RELAYS = 20
@@ -216,7 +224,8 @@ export const SOCIAL_KIND_BLOCKED_RELAY_URLS = [
   'wss://aggr.nostr.land',
   'wss://search.nos.today',
   'wss://trending.nostr.wine',
-  'wss://sendit.nosflare.com'
+  'wss://sendit.nosflare.com',
+  'wss://relay.nip46.com'
 ]
 
 /** Relays that reject #e (and similar) tag filters; skip for reply/quote/stats fetches. */

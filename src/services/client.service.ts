@@ -7,6 +7,7 @@ import {
   relayFilterIncludesSocialKindBlockedKind,
   SOCIAL_KIND_BLOCKED_RELAY_URLS,
   MAX_PUBLISH_RELAYS,
+  TIMELINE_SHARD_SUBSCRIBE_CONCURRENCY,
   OUTBOX_PUBLISH_RETRY_DELAY_MS,
   NIP66_DISCOVERY_RELAY_URLS,
   PROFILE_FETCH_RELAY_URLS,
@@ -120,6 +121,27 @@ import { ReplaceableEventService } from './client-replaceable-events.service'
 import { MacroService, createBookstrService } from './client-macro.service'
 
 type TTimelineRef = [string, number]
+
+/** Run async work on each item with at most `concurrency` tasks in flight; results match `items` order. */
+async function mapPoolWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const c = Math.max(1, Math.min(concurrency, items.length))
+  const results = new Array<R>(items.length)
+  let next = 0
+  const worker = async () => {
+    while (true) {
+      const i = next++
+      if (i >= items.length) break
+      results[i] = await fn(items[i]!, i)
+    }
+  }
+  await Promise.all(Array.from({ length: c }, () => worker()))
+  return results
+}
 
 class ClientService extends EventTarget {
   static instance: ClientService
@@ -1537,9 +1559,11 @@ class ClientService extends EventTarget {
           }
         : undefined
 
-    const subs = await Promise.all(
-      subRequests.map(({ urls, filter }, shardIndex) => {
-        return this._subscribeTimeline(
+    const subs = await mapPoolWithConcurrency(
+      subRequests,
+      TIMELINE_SHARD_SUBSCRIBE_CONCURRENCY,
+      ({ urls, filter }, shardIndex) =>
+        this._subscribeTimeline(
           urls,
           filter,
           {
@@ -1579,7 +1603,6 @@ class ClientService extends EventTarget {
             }
           }
         )
-      })
     )
 
     const key = this.generateMultipleTimelinesKey(subRequests)

@@ -30,10 +30,12 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
 } from 'react'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { KeyboardShortcutsHelpProvider } from '@/components/KeyboardShortcutsHelp'
 import {
@@ -250,21 +252,6 @@ function buildRssArticleUrl(articleUrl: string, currentPage: TPrimaryPageName | 
 }
 
 /** True for secondary routes that show an RSS / web article in the panel (contextual or bare). */
-function secondaryUrlIsRssArticle(url: string): boolean {
-  let path = url.split('?')[0].split('#')[0]
-  try {
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-      path = new URL(path).pathname
-    }
-  } catch {
-    /* keep path */
-  }
-  return (
-    /^\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/rss-item\/[^/?#]+/.test(path) ||
-    /^\/rss-item\/[^/?#]+/.test(path)
-  )
-}
-
 function replaceHistoryWithPrimaryPageUrl(
   page: TPrimaryPageName,
   props?: { spell?: string } | Record<string, unknown> | null
@@ -876,12 +863,22 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     }
   ])
   const [secondaryStack, setSecondaryStack] = useState<TStackItem[]>([])
+  /** Latest stack for popstate / pop() — avoids stale length when history and React state race. */
+  const secondaryStackRef = useRef<TStackItem[]>([])
+  useLayoutEffect(() => {
+    secondaryStackRef.current = secondaryStack
+  }, [secondaryStack])
   const [primaryNoteView, setPrimaryNoteViewState] = useState<ReactNode | null>(null)
   const [primaryViewType, setPrimaryViewType] = useState<'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null>(null)
   const [savedPrimaryPage, setSavedPrimaryPage] = useState<TPrimaryPageName | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerNoteId, setDrawerNoteId] = useState<string | null>(null)
   const [panelMode, setPanelMode] = useState<'single' | 'double'>(() => storage.getPanelMode())
+  /** Latest primary page for async callbacks (drawer-close timer) without resubscribing effects on every primary change. */
+  const currentPrimaryPageRef = useRef<TPrimaryPageName>(currentPrimaryPage)
+  useLayoutEffect(() => {
+    currentPrimaryPageRef.current = currentPrimaryPage
+  }, [currentPrimaryPage])
   const navigationCounterRef = useRef(0)
   const primaryPanelRefreshRef = useRef<(() => void) | null>(null)
   const registerPrimaryPanelRefresh = useCallback((fn: (() => void) | null) => {
@@ -973,9 +970,39 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   const closeDrawer = useCallback(() => {
     if (!drawerOpen) return // Already closed
     setDrawerOpen(false)
-    // Don't clear noteId here - let onOpenChange handle it when animation completes
+    // Don't clear noteId here — scheduled in the drawer-close effect after the sheet animation.
   }, [drawerOpen])
   const ignorePopStateRef = useRef(false)
+  /** Avoid duplicating history entries when drawer/mode deps re-run the PageManager effect. */
+  const historySeedDoneRef = useRef(false)
+  /** When set before closing the note drawer, replaceState uses this URL instead of buildPrimaryPageUrl (popstate edge cases). */
+  const pendingDrawerCloseUrlRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const useDrawer = isSmallScreen || panelMode === 'single'
+    if (!useDrawer || drawerOpen || !drawerNoteId) return
+
+    const timer = window.setTimeout(() => {
+      const pending = pendingDrawerCloseUrlRef.current
+      pendingDrawerCloseUrlRef.current = null
+      if (pending) {
+        window.history.replaceState(null, '', pending)
+      } else {
+        const page = currentPrimaryPageRef.current
+        replaceHistoryWithPrimaryPageUrl(
+          page,
+          primaryPagePropsRef.current.get(page) as { spell?: string } | undefined
+        )
+      }
+      setDrawerNoteId(null)
+      setDrawerInitialEvent(null)
+    }, 350)
+
+    return () => {
+      window.clearTimeout(timer)
+      pendingDrawerCloseUrlRef.current = null
+    }
+  }, [drawerOpen, drawerNoteId, isSmallScreen, panelMode])
 
   // Handle browser back button for primary note view
   useEffect(() => {
@@ -996,6 +1023,8 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   }, [primaryNoteView, drawerOpen])
 
   useEffect(() => {
+    if (!historySeedDoneRef.current) {
+      historySeedDoneRef.current = true
     if (['/npub1', '/nprofile1'].some((prefix) => window.location.pathname.startsWith(prefix))) {
       window.history.replaceState(
         null,
@@ -1039,12 +1068,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           const pushNoteUrlOnStack = (noteUrl: string) => {
             setSecondaryStack((prevStack) => {
               if (isCurrentPage(prevStack, noteUrl)) return prevStack
-              const { newStack, newItem } = pushNewPageToStack(
-                prevStack,
-                noteUrl,
-                maxStackSize,
-                window.history.state?.index
-              )
+              const { newStack, newItem } = pushNewPageToStack(prevStack, noteUrl, maxStackSize)
               if (newItem) {
                 window.history.replaceState({ index: newItem.index, url: noteUrl }, '', noteUrl)
               }
@@ -1131,12 +1155,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           setSecondaryStack((prevStack) => {
             if (isCurrentPage(prevStack, contextualRssUrl)) return prevStack
 
-            const { newStack, newItem } = pushNewPageToStack(
-              prevStack,
-              contextualRssUrl,
-              maxStackSize,
-              window.history.state?.index
-            )
+            const { newStack, newItem } = pushNewPageToStack(prevStack, contextualRssUrl, maxStackSize)
             if (newItem) {
               window.history.replaceState({ index: newItem.index, url: contextualRssUrl }, '', contextualRssUrl)
             }
@@ -1194,12 +1213,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       setSecondaryStack((prevStack) => {
         if (isCurrentPage(prevStack, url)) return prevStack
 
-        const { newStack, newItem } = pushNewPageToStack(
-          prevStack,
-          url,
-          maxStackSize,
-          window.history.state?.index
-        )
+        const { newStack, newItem } = pushNewPageToStack(prevStack, url, maxStackSize)
         if (newItem) {
           window.history.replaceState({ index: newItem.index, url }, '', url)
         }
@@ -1275,6 +1289,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         // which is handled elsewhere
       }
     }
+    }
 
     const onPopState = (e: PopStateEvent) => {
       if (ignorePopStateRef.current) {
@@ -1282,11 +1297,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         return
       }
 
-      const closeModal = modalManager.pop()
-      if (closeModal) {
-        ignorePopStateRef.current = true
-        window.history.forward()
-        return
+      // If the side panel has frames, this popstate is almost certainly stack navigation — do not let
+      // modalManager steal it (history.forward + return), which leaves the URL changed and the panel stale.
+      if (secondaryStackRef.current.length === 0) {
+        const closeModal = modalManager.pop()
+        if (closeModal) {
+          ignorePopStateRef.current = true
+          window.history.forward()
+          return
+        }
       }
 
       let state = e.state as { index: number; url: string } | null
@@ -1337,16 +1356,6 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       // Only in single-pane mode or mobile
       if (!noteIdToShow && drawerOpen && (isSmallScreen || panelMode === 'single')) {
         setDrawerOpen(false)
-        setTimeout(() => {
-          setDrawerNoteId(null)
-          setDrawerInitialEvent(null)
-          // Restore URL to current primary page
-          const pageUrl = buildPrimaryPageUrl(
-            currentPrimaryPage,
-            primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
-          )
-          window.history.replaceState(null, '', pageUrl)
-        }, 350)
       }
 
       setSecondaryStack((pre) => {
@@ -1389,8 +1398,44 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           return newStack
         }
 
-        if (state.index === currentIndex) {
-          return pre
+        if (state.index === currentIndex && currentItem) {
+          const historyState = state
+          const urlMatches =
+            currentItem.url === historyState.url ||
+            secondaryPanelUrlsMatch(currentItem.url, historyState.url)
+          if (urlMatches) {
+            return pre
+          }
+          const j = pre.findIndex(
+            (item) =>
+              item.index === historyState.index &&
+              (item.url === historyState.url ||
+                secondaryPanelUrlsMatch(item.url, historyState.url))
+          )
+          if (j >= 0) {
+            const sliced = pre.slice(0, j + 1)
+            const nt = sliced[sliced.length - 1]
+            if (nt && !nt.component) {
+              const { component, ref } = findAndCreateComponent(nt.url, nt.index)
+              if (component) {
+                nt.component = component
+                nt.ref = ref
+              }
+            }
+            return sliced
+          }
+          const built = findAndCreateComponent(historyState.url, historyState.index)
+          if (built.component) {
+            return [
+              {
+                index: historyState.index,
+                url: historyState.url,
+                component: built.component,
+                ref: built.ref
+              }
+            ]
+          }
+          return syncSecondaryStackWhenPopStateStateIsNull(pre, historyState.url)
         }
 
         // Go back
@@ -1415,15 +1460,8 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           if (isPrimaryPage) {
             // On mobile or single-pane: if drawer is open, close it
             if (drawerOpen && (isSmallScreen || panelMode === 'single')) {
+              pendingDrawerCloseUrlRef.current = restoredPrimaryBrowserUrl(pathname, state!.url)
               setDrawerOpen(false)
-              const historyUrl = state!.url
-              setTimeout(() => {
-                setDrawerNoteId(null)
-                setDrawerInitialEvent(null)
-                // Ensure URL matches the primary page (preserve /spells?spell=)
-                const pageUrl = restoredPrimaryBrowserUrl(pathname, historyUrl)
-                window.history.replaceState(null, '', pageUrl)
-              }, 350)
             }
             return []
           }
@@ -1435,9 +1473,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
             const noteId = noteUrlMatch[noteUrlMatch.length - 1].split('?')[0].split('#')[0]
             if (noteId) {
               if (isSmallScreen || panelMode === 'single') {
-                // Single-pane mode or mobile: open in drawer
+                // Single-pane / mobile: align stack with history (returning `pre` left stale UI).
                 openDrawer(noteId)
-                return pre
+                const built = findAndCreateComponent(state.url, state.index)
+                if (built.component) {
+                  return [
+                    { index: state.index, url: state.url, component: built.component, ref: built.ref }
+                  ]
+                }
+                return syncSecondaryStackWhenPopStateStateIsNull(pre, state.url)
               }
               // Double-pane mode: continue with stack creation
             }
@@ -1507,7 +1551,14 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     return () => {
       window.removeEventListener('popstate', onPopState)
     }
-  }, [isSmallScreen, openDrawer, closeDrawer, panelMode, drawerOpen])
+  }, [
+    isSmallScreen,
+    openDrawer,
+    closeDrawer,
+    panelMode,
+    drawerOpen,
+    drawerNoteId /* keep in sync while drawer stays open (quote→note); stale id broke Back in single-pane */
+  ])
 
   // Listen for tab state changes from components
   useEffect(() => {
@@ -1656,17 +1707,19 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   }
 
   const popSecondaryPage = () => {
+    const stackLen = secondaryStackRef.current.length
+
     // In double-pane mode, never open drawer - just pop from stack
     if (panelMode === 'double' && !isSmallScreen) {
-      if (secondaryStack.length === 1) {
-        const closingUrl = secondaryStack[secondaryStack.length - 1]?.url ?? ''
-        setSecondaryStack([])
-        if (secondaryUrlIsRssArticle(closingUrl)) {
-          replaceHistoryWithPrimaryPageUrl(
-            currentPrimaryPage,
-            primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
-          )
-        }
+      if (stackLen === 1) {
+        flushSync(() => {
+          setSecondaryStack([])
+        })
+        secondaryStackRef.current = []
+        replaceHistoryWithPrimaryPageUrl(
+          currentPrimaryPage,
+          primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
+        )
 
         const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
 
@@ -1678,44 +1731,36 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           }))
           currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
         }
-      } else if (secondaryStack.length > 1) {
+      } else if (stackLen > 1) {
         // Must use real history navigation: replaceState + slice desyncs URL from the session stack
         // (e.g. note → highlight → Back: bar shows the article but the panel still shows the highlight).
         // popstate applies {@link onPopState} so stack and URL stay aligned with pushState indices.
         window.history.back()
       } else {
-        // Just go back in history - popstate will handle stack update
-        window.history.go(-1)
+        // Stack empty but user hit back/close: align URL to primary without history.go(-1), which
+        // changes the address bar but does not run our stack sync (panel/URL desync + double-click).
+        replaceHistoryWithPrimaryPageUrl(
+          currentPrimaryPage,
+          primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
+        )
       }
       return
     }
     
     // Single-pane mode or mobile: check if drawer is open and stack is empty - close drawer instead
-    if (drawerOpen && secondaryStack.length === 0) {
+    if (drawerOpen && stackLen === 0) {
       // Close drawer and reveal the background page
       setDrawerOpen(false)
-      setTimeout(() => {
-        setDrawerNoteId(null)
-        setDrawerInitialEvent(null)
-      }, 350)
       return
     }
     
     // On mobile or single-pane: if stack has 1 item and drawer is open, close drawer and clear stack
-    if ((isSmallScreen || panelMode === 'single') && secondaryStack.length === 1 && drawerOpen) {
-      const closingUrl = secondaryStack[secondaryStack.length - 1]?.url ?? ''
+    if ((isSmallScreen || panelMode === 'single') && stackLen === 1 && drawerOpen) {
       setDrawerOpen(false)
-      setTimeout(() => {
-        setDrawerNoteId(null)
-        setDrawerInitialEvent(null)
-        if (secondaryUrlIsRssArticle(closingUrl)) {
-          replaceHistoryWithPrimaryPageUrl(
-            currentPrimaryPage,
-            primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
-          )
-        }
-      }, 350)
-      setSecondaryStack([])
+      flushSync(() => {
+        setSecondaryStack([])
+      })
+      secondaryStackRef.current = []
 
       const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
 
@@ -1729,15 +1774,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       return
     }
     
-    if (secondaryStack.length === 1) {
-      const closingUrl = secondaryStack[secondaryStack.length - 1]?.url ?? ''
-      setSecondaryStack([])
-      if (secondaryUrlIsRssArticle(closingUrl)) {
-        replaceHistoryWithPrimaryPageUrl(
-          currentPrimaryPage,
-          primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
-        )
-      }
+    if (stackLen === 1) {
+      flushSync(() => {
+        setSecondaryStack([])
+      })
+      secondaryStackRef.current = []
+      replaceHistoryWithPrimaryPageUrl(
+        currentPrimaryPage,
+        primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
+      )
 
       const savedFeedState = savedFeedStateRef.current.get(currentPrimaryPage)
 
@@ -1748,21 +1793,24 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         }))
         currentTabStateRef.current.set(currentPrimaryPage, savedFeedState.tab)
       }
-    } else if (secondaryStack.length > 1) {
+    } else if (stackLen > 1) {
       // Same as double-pane: let popstate shrink the stack so it matches history.
       window.history.back()
     } else {
-      window.history.go(-1)
+      replaceHistoryWithPrimaryPageUrl(
+        currentPrimaryPage,
+        primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
+      )
     }
   }
 
   const clearSecondaryPages = () => {
-    if (secondaryStack.length === 0) return
-    // Capture the length before clearing
-    const stackLength = secondaryStack.length
-    // Clear the state immediately for instant navigation
-    setSecondaryStack([])
-    // Also update browser history to keep it in sync
+    if (secondaryStackRef.current.length === 0) return
+    const stackLength = secondaryStackRef.current.length
+    flushSync(() => {
+      setSecondaryStack([])
+    })
+    secondaryStackRef.current = []
     window.history.go(-stackLength)
   }
 
@@ -1873,23 +1921,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               <NoteDrawer
                 open={drawerOpen}
                 initialEvent={drawerInitialEvent}
-                onOpenChange={(open) => {
-                  setDrawerOpen(open)
-                  // Only clear noteId when Sheet is fully closed (after animation completes)
-                  // Use 350ms to ensure animation is fully done (animation is 300ms)
-                  if (!open) {
-                    // Restore URL to current primary page
-                    const pageUrl = buildPrimaryPageUrl(
-                      currentPrimaryPage,
-                      primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
-                    )
-                    window.history.replaceState(null, '', pageUrl)
-                    setTimeout(() => {
-                      setDrawerNoteId(null)
-                      setDrawerInitialEvent(null)
-                    }, 350)
-                  }
-                }}
+                onOpenChange={setDrawerOpen}
                 noteId={drawerNoteId}
               />
             )}
@@ -2007,30 +2039,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               <NoteDrawer
                 open={drawerOpen}
                 initialEvent={drawerInitialEvent}
-                onOpenChange={(open) => {
-                  setDrawerOpen(open)
-                  // Only clear noteId when Sheet is fully closed (after animation completes)
-                  // Use 350ms to ensure animation is fully done (animation is 300ms)
-                  if (!open) {
-                    // Restore URL to current primary page
-                    const pageUrl = buildPrimaryPageUrl(
-                      currentPrimaryPage,
-                      primaryPagePropsRef.current.get(currentPrimaryPage) as { spell?: string } | undefined
-                    )
-                    window.history.replaceState(null, '', pageUrl)
-                    setTimeout(() => {
-                      setDrawerNoteId(null)
-                      setDrawerInitialEvent(null)
-                    }, 350)
-                  }
-                }}
+                onOpenChange={setDrawerOpen}
                 noteId={drawerNoteId}
               />
             )}
             {/* Generic drawer for secondary stack in single-pane mode (for relay pages, etc.) */}
             {panelMode === 'single' && !isSmallScreen && secondaryStack.length > 0 && !drawerOpen && (
-              <Sheet 
-                open={true} 
+              <Sheet
+                open={true}
+                registerWithModalManager={false}
                 onOpenChange={(open) => {
                   if (!open) {
                     // Close drawer and go back

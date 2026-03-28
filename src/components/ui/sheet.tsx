@@ -7,11 +7,28 @@ import { randomString } from '@/lib/random'
 import { cn } from '@/lib/utils'
 import modalManager from '@/services/modal-manager.service'
 
-const Sheet = ({ children, open, onOpenChange, ...props }: SheetPrimitive.DialogProps) => {
+type SheetProps = SheetPrimitive.DialogProps & {
+  /**
+   * When true (default), the sheet registers with {@link modalManager} so the global popstate
+   * handler can close it on browser back. Disable for overlays that are driven by the same
+   * history stack as the SPA (e.g. note drawer); otherwise back pops the modal first and fights
+   * {@link PageManager}'s secondary navigation.
+   */
+  registerWithModalManager?: boolean
+}
+
+const Sheet = ({
+  children,
+  open,
+  onOpenChange,
+  registerWithModalManager = true,
+  ...props
+}: SheetProps) => {
   const [innerOpen, setInnerOpen] = React.useState(open ?? false)
   const id = React.useMemo(() => `sheet-${randomString()}`, [])
 
   React.useEffect(() => {
+    if (!registerWithModalManager) return
     if (open) {
       modalManager.register(id, () => {
         onOpenChange?.(false)
@@ -19,9 +36,10 @@ const Sheet = ({ children, open, onOpenChange, ...props }: SheetPrimitive.Dialog
     } else {
       modalManager.unregister(id)
     }
-  }, [open])
+  }, [open, registerWithModalManager])
 
   React.useEffect(() => {
+    if (!registerWithModalManager) return
     if (open !== undefined) {
       return
     }
@@ -33,7 +51,7 @@ const Sheet = ({ children, open, onOpenChange, ...props }: SheetPrimitive.Dialog
     } else {
       modalManager.unregister(id)
     }
-  }, [innerOpen])
+  }, [innerOpen, open, registerWithModalManager])
 
   return (
     <SheetPrimitive.Root

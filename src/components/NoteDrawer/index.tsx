@@ -44,7 +44,7 @@ export default function NoteDrawer({ open, onOpenChange, noteId, initialEvent }:
   if (!displayNoteId) return null
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={onOpenChange} registerWithModalManager={false}>
       <SheetContent side="right" className="w-full sm:max-w-[1042px] overflow-y-auto p-0">
         <div className="min-h-full">
           <NotePage

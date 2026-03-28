@@ -383,6 +383,8 @@ const NoteList = forwardRef(
      * That stacks subscriptions on strict relays (e.g. ≤10 subs) and triggers rejections / rate limits.
      */
     const timelineEstablishedCloserRef = useRef<(() => void) | null>(null)
+    /** Bumps on each timeline effect run so Strict Mode / fast remount does not stack subscribeTimeline waves. */
+    const timelineEffectGenerationRef = useRef(0)
     /** Session snapshot was written to state; log once after commit (see feed-paint layout effect). */
     const feedPaintSessionPendingRef = useRef(false)
     /** Relay / one-shot data was written to state; log once after commit. */
@@ -1111,6 +1113,9 @@ const NoteList = forwardRef(
     useImperativeHandle(ref, () => ({ scrollToTop, refresh }), [scrollToTop, refresh])
 
     useEffect(() => {
+      const effectGen = ++timelineEffectGenerationRef.current
+      const timelineEffectStale = () => effectGen !== timelineEffectGenerationRef.current
+
       timelineEstablishedCloserRef.current?.()
       timelineEstablishedCloserRef.current = null
 
@@ -1164,6 +1169,7 @@ const NoteList = forwardRef(
       let effectActive = true
 
       async function init() {
+        if (timelineEffectStale()) return undefined
         feedPaintSessionPendingRef.current = false
         feedPaintRelayPendingRef.current = false
         feedPaintRelayMetaRef.current = null
@@ -1292,6 +1298,7 @@ const NoteList = forwardRef(
         if (oneShotFetch) {
           setHasMore(false)
           try {
+            if (timelineEffectStale()) return undefined
             const firstRelayGraceResolved =
               oneShotFirstRelayGraceMs === undefined
                 ? FIRST_RELAY_RESULT_GRACE_MS
@@ -1306,7 +1313,7 @@ const NoteList = forwardRef(
                 })
               )
             )
-            if (!effectActive) return undefined
+            if (!effectActive || timelineEffectStale()) return undefined
             if (batches.some((b) => b.length > 0)) {
               feedRelayReturnedAnyEventRef.current = true
             }
@@ -1397,6 +1404,7 @@ const NoteList = forwardRef(
           | undefined
 
         try {
+          if (timelineEffectStale()) return undefined
           // Opening many relay subs can exceed 2s on spell feeds; a short race
           // rejects, the catch closes the late subscription, and the list stays empty after refresh.
           const timeoutPromise = new Promise<never>((_, reject) => {
@@ -1569,7 +1577,7 @@ const NoteList = forwardRef(
           )
 
           const result = await Promise.race([timelineSubscribePromise, timeoutPromise])
-          if (!effectActive) {
+          if (!effectActive || timelineEffectStale()) {
             result.closer()
             return undefined
           }
