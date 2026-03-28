@@ -122,7 +122,15 @@ export function createReactionDraftEvent(event: Event, emoji: TEmoji | string = 
   }
 }
 
-// https://github.com/nostr-protocol/nips/blob/master/18.md
+/**
+ * NIP-18 boost / repost.
+ * - Kind **6** (`kinds.Repost`): only for reposting **kind 1** (short notes).
+ * - Kind **16** (`ExtendedKind.GENERIC_REPOST`): for every other kind — e.g. zaps (9735), reactions (7),
+ *   comments (1111), long-form, etc. Requires a **`k`** tag with the stringified target kind.
+ * So boosting a zap receipt always creates **kind 16** with `k` = `"9735"`.
+ *
+ * @see https://github.com/nostr-protocol/nips/blob/master/18.md
+ */
 export function createRepostDraftEvent(event: Event): TDraftEvent {
   const isProtected = isProtectedEvent(event)
   const tags: string[][] = [buildETag(event.id, event.pubkey), buildPTag(event.pubkey)]

@@ -17,8 +17,43 @@ import client from '@/services/client.service'
 import type { Event } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
 
-/** Reply whose direct parent is a zap receipt for this thread root (hex id). */
-function replyParentIsZapToRootHex(reply: Event, rootHexLower: string): boolean {
+const THREAD_PARENT_WALK_MAX = 14
+
+/**
+ * Whether a note (hex id) sits in the thread under `rootHexLower`: it is the root, declares that root,
+ * or we can reach the root by walking `e` parents in the session cache.
+ */
+function hexNoteParticipatesInThread(noteHexLower: string, rootHexLower: string): boolean {
+  const root = rootHexLower.trim().toLowerCase()
+  const start = noteHexLower.trim().toLowerCase()
+  if (!/^[0-9a-f]{64}$/i.test(start)) return false
+  if (start === root) return true
+
+  const seen = new Set<string>()
+  let curId: string | undefined = start
+
+  for (let hop = 0; hop < THREAD_PARENT_WALK_MAX && curId; hop++) {
+    const k = curId.toLowerCase()
+    if (seen.has(k)) return false
+    seen.add(k)
+    if (k === root) return true
+
+    const ev = client.peekSessionCachedEvent(k)
+    if (!ev) return false
+    if (ev.id.toLowerCase() === root) return true
+
+    const declaredRoot = getRootEventHexId(ev)?.toLowerCase()
+    if (declaredRoot === root) return true
+
+    const parent = getParentEventHexId(ev)?.toLowerCase()
+    if (!parent || !/^[0-9a-f]{64}$/i.test(parent)) return false
+    curId = parent
+  }
+  return false
+}
+
+/** Reply whose direct parent is a zap receipt whose zapped note is in this thread (OP or nested under OP). */
+function replyParentIsZapToThreadHex(reply: Event, rootHexLower: string): boolean {
   const parentHex = getParentEventHexId(reply)
   if (!parentHex || !/^[0-9a-f]{64}$/i.test(parentHex)) return false
   const pl = parentHex.toLowerCase()
@@ -26,11 +61,8 @@ function replyParentIsZapToRootHex(reply: Event, rootHexLower: string): boolean 
   const parentEv = client.peekSessionCachedEvent(pl)
   if (!parentEv || parentEv.kind !== kinds.Zap) return false
   const zapped = getZapInfoFromEvent(parentEv)?.originalEventId
-  return (
-    !!zapped &&
-    /^[0-9a-f]{64}$/i.test(zapped) &&
-    zapped.toLowerCase() === rootHexLower
-  )
+  if (!zapped || !/^[0-9a-f]{64}$/i.test(zapped)) return false
+  return hexNoteParticipatesInThread(zapped.toLowerCase(), rootHexLower)
 }
 
 function reactionTargetNoteHex(reaction: Event): string | undefined {
@@ -41,15 +73,17 @@ function reactionTargetNoteHex(reaction: Event): string | undefined {
   return undefined
 }
 
-/** Reply whose direct parent is a NIP-25 / kind-17 reaction to this thread root note. */
-function replyParentIsReactionToRootHex(reply: Event, rootHexLower: string): boolean {
+/** Reply whose direct parent is a reaction to some note in this thread (OP or a nested reply under OP). */
+function replyParentIsReactionToThreadHex(reply: Event, rootHexLower: string): boolean {
   const parentHex = getParentEventHexId(reply)
   if (!parentHex || !/^[0-9a-f]{64}$/i.test(parentHex)) return false
   const pl = parentHex.toLowerCase()
   if (pl === rootHexLower) return false
   const parentEv = client.peekSessionCachedEvent(pl)
   if (!parentEv || !isNip25ReactionKind(parentEv.kind)) return false
-  return reactionTargetNoteHex(parentEv) === rootHexLower
+  const targetHex = reactionTargetNoteHex(parentEv)
+  if (!targetHex) return false
+  return hexNoteParticipatesInThread(targetHex, rootHexLower)
 }
 
 /** Matches `ReplyNoteList` / discussion thread root shapes. */
@@ -79,8 +113,8 @@ export function eventReplyMatchesThreadRoot(evt: Event, root: TThreadRootRef): b
   const rid = root.id.trim().toLowerCase()
   const evtRootHex = getRootEventHexId(evt)?.toLowerCase()
   if (evtRootHex === rid) return true
-  if (replyParentIsZapToRootHex(evt, rid)) return true
-  if (replyParentIsReactionToRootHex(evt, rid)) return true
+  if (replyParentIsZapToThreadHex(evt, rid)) return true
+  if (replyParentIsReactionToThreadHex(evt, rid)) return true
   return kind1QuotesThreadRoot(evt, root)
 }
 

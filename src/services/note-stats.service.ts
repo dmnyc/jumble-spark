@@ -593,26 +593,31 @@ class NoteStatsService {
     return eventId
   }
 
+  /** Target id for repost stats: `e` first (NIP-18 for both kind 6 and 16), then embedded JSON, then `a` (generic only). */
   private repostStatsTargetId(evt: Event, forcedTargetEventId?: string): string | undefined {
     const forced = forcedTargetEventId?.trim()
     if (forced) return forced
+    if (!isNip18RepostKind(evt.kind)) return undefined
+
     const hex = getFirstHexEventIdFromETags(evt.tags)
     if (hex) return hex.toLowerCase()
+
+    const raw = evt.content?.trim()
+    if (raw) {
+      try {
+        const embedded = JSON.parse(raw) as { id?: string }
+        if (embedded.id && /^[0-9a-f]{64}$/i.test(embedded.id)) {
+          return embedded.id.toLowerCase()
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     if (evt.kind === ExtendedKind.GENERIC_REPOST) {
       const aTag = evt.tags.find(tagNameEquals('a')) ?? evt.tags.find(tagNameEquals('A'))
       const coord = aTag?.[1]?.trim()
       if (coord) return coord
-      const raw = evt.content?.trim()
-      if (raw) {
-        try {
-          const embedded = JSON.parse(raw) as { id?: string }
-          if (embedded.id && /^[0-9a-f]{64}$/i.test(embedded.id)) {
-            return embedded.id.toLowerCase()
-          }
-        } catch {
-          /* ignore */
-        }
-      }
     }
     return undefined
   }

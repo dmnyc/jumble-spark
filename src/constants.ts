@@ -327,7 +327,10 @@ export const ExtendedKind = {
   RSS_FEED_LIST: 10895,
   /** Client-only synthetic "parent" for RSS article threads; never published to relays */
   RSS_THREAD_ROOT: 99999,
-  /** NIP-18: generic repost of any event other than kind 1 (kind 6 is kind-1-only). */
+  /**
+   * NIP-18: generic repost (kind 16) for any event **except** kind 1 — zaps (9735), reactions, comments, etc.
+   * Kind **6** (`kinds.Repost` from nostr-tools) is only for reposting kind 1. See `createRepostDraftEvent`.
+   */
   GENERIC_REPOST: 16,
   /** NIP-25: reaction to external content (NIP-73 `k` + `i`), e.g. http(s) URLs */
   EXTERNAL_REACTION: 17,
