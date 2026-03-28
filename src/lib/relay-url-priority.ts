@@ -35,7 +35,9 @@ export function relayUrlsLocalsFirst(urls: string[]): string[] {
 }
 
 function blockedNormSet(blockedRelays: string[] | undefined): Set<string> {
-  return new Set((blockedRelays ?? []).map((b) => normalizeUrl(b) || b).filter(Boolean))
+  return new Set(
+    (blockedRelays ?? []).map((b) => normalizeAnyRelayUrl(b) || b.trim()).filter(Boolean)
+  )
 }
 
 let socialKindBlockedNormCache: Set<string> | undefined
@@ -70,7 +72,8 @@ export function mergeRelayPriorityLayers(
   const out: string[] = []
   for (const layer of layers) {
     for (const u of layer) {
-      const n = normalizeUrl(u) || u
+      // Must not use {@link normalizeUrl}: it turns http(s) index relays into ws(s), which then hit the WS pool.
+      const n = normalizeAnyRelayUrl(u) || u.trim()
       if (!n || blocked.has(n) || socialBlocked.has(n) || seen.has(n)) continue
       seen.add(n)
       out.push(n)
@@ -100,7 +103,10 @@ export function buildReadRelayPriorityLayers(opts: {
   favoriteRelays: string[]
 }): string[][] {
   const userWrite = opts.userWriteRelays ?? []
-  const writeLocals = userWrite.filter((u) => isLocalNetworkUrl(normalizeUrl(u) || u))
+  const writeLocals = userWrite.filter((u) => {
+    const n = normalizeAnyRelayUrl(u) || u.trim()
+    return n && isLocalNetworkUrl(n)
+  })
   const userReadOrdered = relayUrlsLocalsFirst(opts.userReadRelays)
   const tier1 = dedupeNormalizeRelayUrlsOrdered([...writeLocals, ...userReadOrdered])
   const tier2 = dedupeNormalizeRelayUrlsOrdered(opts.authorWriteRelays ?? [])

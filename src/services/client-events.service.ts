@@ -21,6 +21,7 @@ import type { QueryService } from './client-query.service'
 import client from './client.service'
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
+import { normalizeUrl } from '@/lib/url'
 
 /**
  * Build comprehensive relay list for event-by-id fetch: user's inboxes (+ cache), relay hints,
@@ -448,6 +449,28 @@ export class EventService {
       if (matches) out.push(event)
     }
     return out
+  }
+
+  /**
+   * WebSocket relay URLs from `e`-tag position 3 on session-cached events that reference this hex id.
+   * Reactions often carry the publisher’s relay hint; without it, note-stats may miss kind 7 that never reached index relays.
+   */
+  getSessionRelayHintsForHexTarget(targetHexId: string): string[] {
+    const id = targetHexId.trim().toLowerCase()
+    if (!/^[0-9a-f]{64}$/.test(id)) return []
+    const hints = new Set<string>()
+    for (const [, event] of this.sessionEventCache.entries()) {
+      if (shouldDropEventOnIngest(event)) continue
+      for (const t of event.tags) {
+        if (t[0] !== 'e' && t[0] !== 'E') continue
+        if (t[1]?.toLowerCase() !== id) continue
+        const raw = t[2]?.trim()
+        if (!raw) continue
+        const n = normalizeUrl(raw)
+        if (n) hints.add(n)
+      }
+    }
+    return [...hints]
   }
 
   /**

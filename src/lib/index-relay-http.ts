@@ -1,6 +1,10 @@
 /**
  * HTTP JSON API for index-style relays (e.g. gc_index_relay: POST /api/events/filter, POST /api/events).
  * @see gc_index_relay lib/gc_index_relay_web/router.ex
+ *
+ * **Local dev:** loopback bases (`http://localhost:*` / `http://127.0.0.1:*`) are automatically fetched via
+ * the Vite same-origin proxy `/dev-index-relay` → `VITE_DEV_INDEX_RELAY_TARGET` (default in `vite.config.ts`).
+ * Production and remote HTTPS relays are unchanged; those need CORS on the relay or a real reverse proxy.
  */
 import logger from '@/lib/logger'
 import { normalizeHttpRelayUrl } from '@/lib/url'
@@ -9,6 +13,24 @@ import { verifyEvent } from 'nostr-tools'
 
 function trimSlash(base: string): string {
   return base.replace(/\/+$/, '')
+}
+
+/**
+ * Avoid browser CORS in dev: `http://localhost:1122/api/...` becomes same-origin `…/dev-index-relay/api/…`
+ * and Vite forwards to the real relay (see `vite.config.ts`).
+ */
+function devProxyLoopbackIndexRelayBase(normalizedBase: string): string {
+  if (import.meta.env.PROD || typeof window === 'undefined') return normalizedBase
+  let u: URL
+  try {
+    u = new URL(normalizedBase)
+  } catch {
+    return normalizedBase
+  }
+  if (u.protocol !== 'http:') return normalizedBase
+  const h = u.hostname
+  if (h !== 'localhost' && h !== '127.0.0.1') return normalizedBase
+  return `${window.location.origin}/dev-index-relay`
 }
 
 export function indexRelayFilterUrl(baseUrl: string): string {
@@ -42,12 +64,64 @@ export function nostrFilterToIndexRelayBody(f: Filter): Record<string, unknown> 
 const INDEX_RELAY_HTTP_WARN_COOLDOWN_MS = 5000
 const lastIndexRelayHttpWarnAtByEndpoint = new Map<string, number>()
 
+const DEV_INDEX_RELAY_TRANSPORT_HINT_MS = 60_000
+let lastDevIndexRelayTransportHintAt = 0
+
 function warnIndexRelayHttpThrottled(endpoint: string, message: string, meta: Record<string, unknown>) {
   const now = Date.now()
   const prev = lastIndexRelayHttpWarnAtByEndpoint.get(endpoint) ?? 0
   if (now - prev < INDEX_RELAY_HTTP_WARN_COOLDOWN_MS) return
   lastIndexRelayHttpWarnAtByEndpoint.set(endpoint, now)
   logger.warn(message, meta)
+}
+
+/** True when the relay cannot be reached (down, DNS, browser blocked, etc.). Not HTTP 4xx/5xx from a live server. */
+export function isIndexRelayTransportFailure(err: unknown): boolean {
+  if (err == null || typeof err !== 'object') return false
+  const e = err as Error & { name?: string; cause?: unknown }
+  if (e.name === 'AbortError') return false
+  if (e instanceof TypeError) {
+    const m = e.message || ''
+    if (/failed to fetch|load failed|networkerror when attempting to fetch resource/i.test(m)) return true
+  }
+  const msg = String((e as Error).message || err)
+  if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ERR_CONNECTION|network request failed|fetch failed/i.test(msg)) return true
+  if (e.cause != null && isIndexRelayTransportFailure(e.cause)) return true
+  return false
+}
+
+export class IndexRelayTransportError extends Error {
+  constructor(cause?: unknown) {
+    super('Index relay unreachable')
+    this.name = 'IndexRelayTransportError'
+    if (cause !== undefined) (this as Error & { cause?: unknown }).cause = cause
+  }
+}
+
+function isDevViteIndexRelayProxyPath(endpoint: string): boolean {
+  return import.meta.env.DEV && endpoint.includes('/dev-index-relay')
+}
+
+function maybeLogDevIndexRelayUnreachableHint(): void {
+  if (import.meta.env.PROD || typeof window === 'undefined') return
+  const now = Date.now()
+  if (now - lastDevIndexRelayTransportHintAt < DEV_INDEX_RELAY_TRANSPORT_HINT_MS) return
+  lastDevIndexRelayTransportHintAt = now
+  logger.info(
+    'HTTP index relay is unreachable in dev. Start the relay, or set VITE_DEV_INDEX_RELAY_TARGET if it is not on the default URL.'
+  )
+}
+
+function handleFilterTransportFailure(endpoint: string, err?: unknown): void {
+  if (import.meta.env.DEV && isDevViteIndexRelayProxyPath(endpoint)) {
+    logger.debug('[IndexRelayHttp] filter unreachable', { endpoint })
+    maybeLogDevIndexRelayUnreachableHint()
+    return
+  }
+  warnIndexRelayHttpThrottled(endpoint, '[IndexRelayHttp] filter request error', {
+    endpoint,
+    error: err ?? 'unreachable'
+  })
 }
 
 function rawToVerifiedEvent(raw: Record<string, unknown>): NEvent | null {
@@ -87,7 +161,7 @@ export async function queryIndexRelay(
   filter: Filter | Filter[],
   options?: { signal?: AbortSignal; onHardFailure?: () => void }
 ): Promise<NEvent[]> {
-  const base = normalizeHttpRelayUrl(baseUrl) || baseUrl
+  const base = devProxyLoopbackIndexRelayBase(normalizeHttpRelayUrl(baseUrl) || baseUrl)
   const endpoint = indexRelayFilterUrl(base)
   const filters = Array.isArray(filter) ? filter : [filter]
   const out: NEvent[] = []
@@ -107,10 +181,14 @@ export async function queryIndexRelay(
       })
       if (!res.ok) {
         sawHardFailure = true
-        warnIndexRelayHttpThrottled(endpoint, '[IndexRelayHttp] filter request failed', {
-          endpoint,
-          status: res.status
-        })
+        if (isDevViteIndexRelayProxyPath(endpoint) && res.status === 500) {
+          handleFilterTransportFailure(endpoint, `HTTP ${res.status}`)
+        } else {
+          warnIndexRelayHttpThrottled(endpoint, '[IndexRelayHttp] filter request failed', {
+            endpoint,
+            status: res.status
+          })
+        }
         continue
       }
       const json = (await res.json()) as { data?: unknown }
@@ -127,7 +205,11 @@ export async function queryIndexRelay(
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e
       sawHardFailure = true
-      warnIndexRelayHttpThrottled(endpoint, '[IndexRelayHttp] filter request error', { endpoint, error: e })
+      if (isIndexRelayTransportFailure(e)) {
+        handleFilterTransportFailure(endpoint, e)
+      } else {
+        warnIndexRelayHttpThrottled(endpoint, '[IndexRelayHttp] filter request error', { endpoint, error: e })
+      }
     }
   }
   if (sawHardFailure && out.length === 0 && filters.length > 0) {
@@ -146,29 +228,41 @@ export async function publishEventToIndexRelay(
   event: NEvent,
   options?: { signal?: AbortSignal }
 ): Promise<void> {
-  const base = normalizeHttpRelayUrl(baseUrl) || baseUrl
+  const base = devProxyLoopbackIndexRelayBase(normalizeHttpRelayUrl(baseUrl) || baseUrl)
   const endpoint = indexRelayPublishUrl(base)
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      event: {
-        id: event.id,
-        pubkey: event.pubkey,
-        created_at: event.created_at,
-        kind: event.kind,
-        tags: event.tags,
-        content: event.content,
-        sig: event.sig
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        event: {
+          id: event.id,
+          pubkey: event.pubkey,
+          created_at: event.created_at,
+          kind: event.kind,
+          tags: event.tags,
+          content: event.content,
+          sig: event.sig
+        }
+      }),
+      signal: options?.signal
+    })
+    if (!res.ok) {
+      if (isDevViteIndexRelayProxyPath(endpoint) && res.status === 500) {
+        throw new IndexRelayTransportError()
       }
-    }),
-    signal: options?.signal
-  })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ''}`)
+      const text = await res.text().catch(() => '')
+      throw new Error(`HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ''}`)
+    }
+  } catch (e) {
+    if (e instanceof IndexRelayTransportError) throw e
+    if ((e as Error).name === 'AbortError') throw e
+    if (isIndexRelayTransportFailure(e)) {
+      throw new IndexRelayTransportError(e)
+    }
+    throw e
   }
 }

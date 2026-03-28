@@ -8,7 +8,7 @@ import {
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
-import { queryIndexRelay } from '@/lib/index-relay-http'
+import { isIndexRelayTransportFailure, queryIndexRelay } from '@/lib/index-relay-http'
 import logger from '@/lib/logger'
 import { isHttpRelayUrl, normalizeHttpRelayUrl, normalizeUrl } from '@/lib/url'
 import { RelaySubscribeOpBatch } from '@/services/relay-operation-log.service'
@@ -265,7 +265,11 @@ export class QueryService {
                   }
                 } catch (e) {
                   if ((e as Error).name === 'AbortError') return
-                  logger.warn('[QueryService] HTTP index relay query failed', { base, error: e })
+                  if (isIndexRelayTransportFailure(e)) {
+                    logger.debug('[QueryService] HTTP index relay unreachable', { base, error: e })
+                  } else {
+                    logger.warn('[QueryService] HTTP index relay query failed', { base, error: e })
+                  }
                 }
               })
             ).then(() => {})

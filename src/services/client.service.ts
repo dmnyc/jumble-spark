@@ -39,7 +39,11 @@ import {
   mergeRelayPriorityLayers,
   relayUrlsLocalsFirst
 } from '@/lib/relay-url-priority'
-import { publishEventToIndexRelay } from '@/lib/index-relay-http'
+import {
+  IndexRelayTransportError,
+  isIndexRelayTransportFailure,
+  publishEventToIndexRelay
+} from '@/lib/index-relay-http'
 import { stripLocalNetworkRelaysFromRelayList } from '@/lib/relay-list-sanitize'
 import { isHttpRelayUrl, isLocalNetworkUrl, normalizeAnyRelayUrl, normalizeHttpRelayUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import { isSafari } from '@/lib/utils'
@@ -1308,12 +1312,25 @@ class ClientService extends EventTarget {
               )
             ])
           } catch (error) {
-            logger.error(`[PublishEvent] Connection or setup failed`, { url, error: error instanceof Error ? error.message : String(error) })
+            const softHttpDown =
+              isHttpRelayUrl(url) &&
+              (error instanceof IndexRelayTransportError || isIndexRelayTransportFailure(error))
+            if (softHttpDown) {
+              logger.debug('[PublishEvent] HTTP index relay unreachable', {
+                url,
+                error: error instanceof Error ? error.message : String(error)
+              })
+            } else {
+              logger.error(`[PublishEvent] Connection or setup failed`, {
+                url,
+                error: error instanceof Error ? error.message : String(error)
+              })
+            }
             errors.push({ url, error })
-            relayStatuses.push({ 
-              url, 
-              success: false, 
-              error: error instanceof Error ? error.message : 'Connection failed' 
+            relayStatuses.push({
+              url,
+              success: false,
+              error: error instanceof Error ? error.message : 'Connection failed'
             })
             that.recordSessionRelayFailure(url)
           } finally {

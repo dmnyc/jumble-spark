@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react'
 import { execSync } from 'child_process'
 import path from 'path'
 import type { Plugin } from 'vite'
+import { loadEnv } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { VitePWA } from 'vite-plugin-pwa'
 import packageJson from './package.json'
@@ -44,29 +45,76 @@ function fullReloadOnProvidersAndPages(): Plugin {
   }
 }
 
-// https://vite.dev/config/
-export default defineConfig({
-  base: '/',
-  define: {
-    'import.meta.env.GIT_COMMIT': getGitHash(),
-    'import.meta.env.APP_VERSION': getAppVersion()
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src')
-    }
-  },
-  server: {
-    // OG/link preview uses `/sites/?url=…`. Without this, Vite serves `index.html` and WebService parses the app shell.
-    // Run the scraper on 8090 per PROXY_SETUP.md, or rely on allorigins fallback in dev (web.service.ts).
-    proxy: {
-      '/sites': {
-        target: 'http://127.0.0.1:8090',
-        changeOrigin: true
+/**
+ * Default proxy logs one multiline error + stack per failed request when the index relay is down.
+ * Throttle to one hint: match `/api/events` paths (dev-index-relay), not other proxies like `/sites`.
+ */
+function quietDevIndexRelayProxyErrors(devIndexRelayTarget: string): Plugin {
+  let lastSuppressedLog = 0
+  const COOLDOWN_MS = 60_000
+
+  return {
+    name: 'quiet-dev-index-relay-proxy-errors',
+    apply: 'serve',
+    configResolved(config) {
+      const prevError = config.logger.error.bind(config.logger)
+      config.logger.error = (msg, options) => {
+        const text = typeof msg === 'string' ? msg : ''
+        if (
+          text.includes('http proxy error') &&
+          text.includes('ECONNREFUSED') &&
+          text.includes('/api/events')
+        ) {
+          const now = Date.now()
+          if (now - lastSuppressedLog >= COOLDOWN_MS) {
+            lastSuppressedLog = now
+            config.logger.warn(
+              `[vite] Dev index relay not reachable (${devIndexRelayTarget}). Start it or set VITE_DEV_INDEX_RELAY_TARGET. Suppressing duplicate proxy errors for ${COOLDOWN_MS / 1000}s.`
+            )
+          }
+          return
+        }
+        prevError(msg, options)
       }
     }
-  },
-  build: {
+  }
+}
+
+// https://vite.dev/config/
+export default defineConfig(({ mode }) => {
+  // `.env.local` is not on `process.env` when this file is evaluated unless we load it.
+  const env = loadEnv(mode, process.cwd(), '')
+  const devIndexRelayTarget =
+    env.VITE_DEV_INDEX_RELAY_TARGET?.trim() || 'http://127.0.0.1:1122'
+
+  return {
+    base: '/',
+    define: {
+      'import.meta.env.GIT_COMMIT': getGitHash(),
+      'import.meta.env.APP_VERSION': getAppVersion()
+    },
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src')
+      }
+    },
+    server: {
+      // OG/link preview uses `/sites/?url=…`. Without this, Vite serves `index.html` and WebService parses the app shell.
+      // Run the scraper on 8090 per PROXY_SETUP.md, or rely on allorigins fallback in dev (web.service.ts).
+      proxy: {
+        '/sites': {
+          target: 'http://127.0.0.1:8090',
+          changeOrigin: true
+        },
+        // Loopback HTTP index relay: `import.meta.env.DEV` rewrites kind 10243 URLs through this path.
+        '/dev-index-relay': {
+          target: devIndexRelayTarget,
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/dev-index-relay/, '') || '/'
+        }
+      }
+    },
+    build: {
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -203,6 +251,7 @@ export default defineConfig({
   plugins: [
     react(),
     fullReloadOnProvidersAndPages(),
+    quietDevIndexRelayProxyErrors(devIndexRelayTarget),
     VitePWA({
       registerType: 'autoUpdate',
       // Use public/manifest.webmanifest and index.html <link> only; avoid duplicate manifest link in build
@@ -286,4 +335,5 @@ export default defineConfig({
       }
     })
   ]
+  }
 })

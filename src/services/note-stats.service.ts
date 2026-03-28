@@ -240,7 +240,8 @@ class NoteStatsService {
   }
 
   /**
-   * Build relay list for note stats: SEARCHABLE + FAST_READ + optional user favorites + seen relays + author NIP-65 read (slice 10).
+   * Build relay list for note stats: SEARCHABLE + FAST_READ + optional user favorites + seen relays +
+   * `e`-tag hints on the note + hints from session-cached referrers + author NIP-65 read (slice 10).
    * Excludes E_TAG_FILTER_BLOCKED_RELAY_URLS (stats use #e filters).
    */
   private async buildNoteStatsRelayList(event: Event, favoriteRelays?: string[] | null): Promise<string[]> {
@@ -268,7 +269,17 @@ class NoteStatsService {
     // 4. Relay(s) where the event was seen
     client.getSeenEventRelayUrls(event.id).forEach(add)
 
-    // 5. Author's inboxes (read relays from kind 10002)
+    // 5. NIP-10 `e`-tag relay hints on the note itself (often where replies/reactions to it were published)
+    for (const t of event.tags) {
+      if ((t[0] === 'e' || t[0] === 'E') && t[2]?.trim()) {
+        add(t[2])
+      }
+    }
+
+    // 6. Session cache (e.g. notifications): events that reference this id with a relay hint
+    client.eventService.getSessionRelayHintsForHexTarget(event.id).forEach(add)
+
+    // 7. Author's inboxes (read relays from kind 10002)
     try {
       const relayList = await Promise.race([
         client.fetchRelayList(event.pubkey),
