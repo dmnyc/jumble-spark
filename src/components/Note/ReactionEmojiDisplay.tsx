@@ -21,8 +21,8 @@ export default function ReactionEmojiDisplay({
   className?: string
   /** Truncate long reaction text beyond this length */
   maxRawLength?: number
-  /** Compact row (notification list at-a-glance) */
-  variant?: 'default' | 'compact'
+  /** Compact row (notification list); `thread` matches reply-list density */
+  variant?: 'default' | 'compact' | 'thread'
 }) {
   const sync = useMemo(
     () => resolveReactionEmojiSync(event, maxRawLength),
@@ -69,10 +69,17 @@ export default function ReactionEmojiDisplay({
         emoji={value}
         classNames={{
           img:
-            variant === 'compact'
-              ? 'size-4 max-h-[1em] w-auto rounded-sm'
-              : 'size-7 max-h-[1.5em] w-auto rounded-sm',
-          text: variant === 'compact' ? 'text-base leading-none' : 'text-2xl leading-none'
+            variant === 'thread'
+              ? 'size-3.5 max-h-[1em] w-auto rounded-sm opacity-90'
+              : variant === 'compact'
+                ? 'size-4 max-h-[1em] w-auto rounded-sm'
+                : 'size-7 max-h-[1.5em] w-auto rounded-sm',
+          text:
+            variant === 'thread'
+              ? 'text-sm leading-none'
+              : variant === 'compact'
+                ? 'text-base leading-none'
+                : 'text-2xl leading-none'
         }}
       />
     </span>

@@ -270,8 +270,6 @@ export const SEARCHABLE_RELAY_URLS = [
   'wss://relay.wikifreedia.xyz',
   'wss://nostr.einundzwanzig.space',
   'wss://nostrelites.org',
-  'wss://relay.nsec.app',
-  'wss://bucket.coracle.social',
   'wss://spatia-arcana.com',
   'wss://nostr-pub.wellorder.net',
   'wss://pyramid.fiatjaf.com/',

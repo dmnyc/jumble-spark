@@ -46,8 +46,10 @@ export default function Zap({
     return (
       <div
         className={cn(
-          'text-sm text-muted-foreground rounded-lg border border-border bg-muted/20',
-          variant === 'compact' ? 'px-3 py-2' : 'p-4',
+          'text-sm text-muted-foreground',
+          variant === 'compact'
+            ? 'py-0.5'
+            : 'rounded-lg border border-border bg-muted/20 p-4',
           className
         )}
       >
@@ -89,27 +91,25 @@ export default function Zap({
 
   if (variant === 'compact') {
     return (
-      <div
-        className={cn(
-          'rounded-md border-l-2 border-primary/50 bg-primary/[0.06] pl-3 pr-2 py-2 text-sm text-foreground dark:bg-primary/[0.08]',
-          className
-        )}
-      >
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <ZapIcon className="size-4 shrink-0 text-primary" strokeWidth={2} aria-hidden />
-          <span className="font-semibold tabular-nums text-foreground">{formatAmount(amount)}</span>
-          <span className="text-muted-foreground">{t('sats')}</span>
+      <div className={cn('text-sm text-muted-foreground', className)}>
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          <ZapIcon className="size-3.5 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
+          <span className="tabular-nums font-medium text-foreground/90">{formatAmount(amount)}</span>
+          <span>{t('sats')}</span>
           {recipientPubkey && recipientPubkey !== senderPubkey && (
-            <span className="text-muted-foreground text-xs">
-              <span className="text-foreground/80">{t('zapped')}</span>{' '}
-              <Username userId={recipientPubkey} className="inline font-medium text-foreground" />
+            <span className="text-xs">
+              <span>{t('zapped')}</span>{' '}
+              <Username
+                userId={recipientPubkey}
+                className="inline font-medium text-foreground/85 hover:text-foreground"
+              />
             </span>
           )}
           {(isEventZap || isProfileZap) && (
             <button
               type="button"
               onClick={openZapTarget}
-              className="text-xs font-medium text-primary hover:underline"
+              className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
             >
               {isEventZap
                 ? t('Zapped note')
@@ -120,7 +120,7 @@ export default function Zap({
           )}
         </div>
         {comment ? (
-          <p className="mt-2 text-sm leading-snug text-foreground/90 whitespace-pre-wrap break-words">
+          <p className="mt-1.5 pl-5 text-sm leading-snug text-muted-foreground whitespace-pre-wrap break-words">
             {comment}
           </p>
         ) : null}

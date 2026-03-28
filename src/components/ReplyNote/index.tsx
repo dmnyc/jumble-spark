@@ -15,6 +15,7 @@ import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { isMentioningMutedUsers, isNip25ReactionKind } from '@/lib/event'
 import { getWebExternalReactionTargetUrl } from '@/lib/rss-article'
 import { toNote } from '@/lib/link'
+import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -126,14 +127,23 @@ export default function ReplyNote({
                 <NoteOptions event={event} className="shrink-0 [&_svg]:size-5" />
               </div>
             </div>
-            <NoteKindLabel kind={event.kind} event={event} size="small" className="mt-0.5" />
+            <NoteKindLabel
+              kind={event.kind}
+              event={event}
+              size="small"
+              className={cn(
+                'mt-0.5',
+                (isNip25ReactionKind(event.kind) || event.kind === kinds.Zap) && 'opacity-60'
+              )}
+            />
             {webReactionParentUrl ? (
-              <div className="mt-2 not-prose max-w-full" data-parent-note-preview>
+              <div className="mt-1.5 not-prose max-w-full" data-parent-note-preview>
                 <WebPreview url={webReactionParentUrl} className="w-full" />
               </div>
             ) : parentEventId ? (
               <ParentNotePreview
-                className="mt-2"
+                appearance="subtle"
+                className="mt-1.5"
                 eventId={parentEventId}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -143,24 +153,24 @@ export default function ReplyNote({
             ) : null}
             {show ? (
               isNip25ReactionKind(event.kind) ? (
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground">
                   {reactionDisplay.status === 'pending' ? (
-                    <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
+                    <Skeleton className="size-3.5 shrink-0 rounded-sm" aria-hidden />
                   ) : reactionDisplay.status === 'vote_up' ? (
-                    <span className="text-base leading-none" aria-hidden>
+                    <span className="text-sm leading-none opacity-90" aria-hidden>
                       {DISCUSSION_UPVOTE_DISPLAY}
                     </span>
                   ) : reactionDisplay.status === 'vote_down' ? (
-                    <span className="text-base leading-none" aria-hidden>
+                    <span className="text-sm leading-none opacity-90" aria-hidden>
                       {DISCUSSION_DOWNVOTE_DISPLAY}
                     </span>
                   ) : (
-                    <ReactionEmojiDisplay event={event} variant="compact" maxRawLength={64} />
+                    <ReactionEmojiDisplay event={event} variant="thread" maxRawLength={64} />
                   )}
-                  <span>{t(notificationReactionSummaryKey(reactionDisplay))}</span>
+                  <span className="text-foreground/85">{t(notificationReactionSummaryKey(reactionDisplay))}</span>
                 </div>
               ) : event.kind === kinds.Zap ? (
-                <Zap className="mt-2" event={event} omitSenderHeading variant="compact" />
+                <Zap className="mt-1.5" event={event} omitSenderHeading variant="compact" />
               ) : (
                 <MarkdownArticle
                   className="mt-2"

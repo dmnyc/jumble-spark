@@ -11,6 +11,7 @@ import {
   getRootETag,
   isNip25ReactionKind
 } from '@/lib/event'
+import { getFirstHexEventIdFromETags } from '@/lib/tag'
 import client from '@/services/client.service'
 import { Event, kinds } from 'nostr-tools'
 import { createContext, useCallback, useContext, useState } from 'react'
@@ -40,7 +41,16 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
     const newReplyEventMap = new Map<string, Event[]>()
     replies.forEach((reply) => {
       if (newReplyIdSet.has(reply.id)) return
-      if (isNip25ReactionKind(reply.kind)) return
+      if (isNip25ReactionKind(reply.kind)) {
+        newReplyIdSet.add(reply.id)
+        client.addEventToCache(reply)
+        const targetHex = getFirstHexEventIdFromETags(reply.tags)
+        if (targetHex && /^[0-9a-f]{64}$/i.test(targetHex)) {
+          const key = targetHex.toLowerCase()
+          newReplyEventMap.set(key, [...(newReplyEventMap.get(key) || []), reply])
+        }
+        return
+      }
       newReplyIdSet.add(reply.id)
       client.addEventToCache(reply)
 

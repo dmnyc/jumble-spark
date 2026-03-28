@@ -5,7 +5,12 @@ import {
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
 import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
-import { getReplaceableCoordinateFromEvent, isNip18RepostKind, isReplaceableEvent } from '@/lib/event'
+import {
+  getParentEventHexId,
+  getReplaceableCoordinateFromEvent,
+  isNip18RepostKind,
+  isReplaceableEvent
+} from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import {
@@ -667,23 +672,11 @@ class NoteStatsService {
           }
         }
       } else if (evt.kind === kinds.ShortTextNote) {
-        const parentETag = evt.tags.find(([tagName, , , marker]) => {
-          return tagName === 'e' && (marker === 'reply' || marker === 'root')
-        })
-        if (parentETag) {
-          originalEventId = parentETag[1]
-        } else {
-          const lastETag = evt.tags.findLast(
-            ([tagName, tagValue, , marker]) =>
-              tagName === 'e' &&
-              !!tagValue &&
-              marker !== 'mention'
-          )
-          if (lastETag) {
-            originalEventId = lastETag[1]
-          }
+        // Prefer NIP-10 reply parent (matches getParentETag), not the first of reply|root in tag order.
+        const parentHex = getParentEventHexId(evt)
+        if (parentHex && /^[0-9a-f]{64}$/i.test(parentHex)) {
+          originalEventId = parentHex.toLowerCase()
         }
-
         if (!originalEventId) {
           const aTag = evt.tags.find(tagNameEquals('a'))
           if (aTag) {

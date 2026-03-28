@@ -512,8 +512,8 @@ export class EventService {
         if (shouldDropEventOnIngest(ev)) continue
         const threadishKind1Quote =
           (root.type === 'E' || root.type === 'A') && kind1QuotesThreadRoot(ev, root)
-        if (!isReplyNoteEvent(ev) && !threadishKind1Quote) continue
-        if (isNip25ReactionKind(ev.kind)) continue
+        if (!isReplyNoteEvent(ev) && !threadishKind1Quote && !isNip25ReactionKind(ev.kind))
+          continue
         if (seen.has(ev.id)) continue
         if (!linkRefs(ev).some((id) => threadKeys.has(id))) continue
         out.push(ev)

@@ -31,6 +31,7 @@ import ApplicationHandlerRecommendation from '../ApplicationHandlerRecommendatio
 import FollowPackPreview from './FollowPackPreview'
 import ReactionEmojiDisplay from '../Note/ReactionEmojiDisplay'
 import NoteKindLabel from '../Note/NoteKindLabel'
+import Zap from '../Note/Zap'
 import GitRepublicEventCard from '../Note/GitRepublicEventCard'
 
 /** Inert event so hooks can run before `event` is defined. */
@@ -62,10 +63,13 @@ function splitPreviewLayoutClasses(className?: string) {
 
 export default function ContentPreview({
   event,
-  className
+  className,
+  /** Inline parent lines (e.g. reply thread): zap receipts match compact thread styling. */
+  previewDensity
 }: {
   event?: Event
   className?: string
+  previewDensity?: 'default' | 'compact'
 }) {
   const { t } = useTranslation()
   const reactionDisplay = useNotificationReactionDisplay(event ?? CONTENT_PREVIEW_HOOK_PLACEHOLDER)
@@ -168,7 +172,18 @@ export default function ContentPreview({
     return withKindRow(<LiveEventPreview event={event} />)
   }
 
-  if (event.kind === ExtendedKind.ZAP_REQUEST || event.kind === ExtendedKind.ZAP_RECEIPT) {
+  if (event.kind === ExtendedKind.ZAP_REQUEST) {
+    return withKindRow(<ZapPreview event={event} />)
+  }
+
+  if (event.kind === ExtendedKind.ZAP_RECEIPT || event.kind === kinds.Zap) {
+    if (previewDensity === 'compact') {
+      return (
+        <div className={cn('min-w-0', previewOuter)}>
+          <Zap event={event} variant="compact" omitSenderHeading className={previewBody} />
+        </div>
+      )
+    }
     return withKindRow(<ZapPreview event={event} />)
   }
 

@@ -13,11 +13,14 @@ import logger from '@/lib/logger'
 export default function ParentNotePreview({
   eventId,
   className,
-  onClick
+  onClick,
+  /** Inline hint without pill background (e.g. reply thread rows). */
+  appearance = 'default'
 }: {
   eventId: string
   className?: string
   onClick?: React.MouseEventHandler<HTMLDivElement> | undefined
+  appearance?: 'default' | 'subtle'
 }) {
   const { t } = useTranslation()
   const { event, isFetching } = useFetchEvent(eventId)
@@ -66,18 +69,17 @@ export default function ParentNotePreview({
   const finalEvent = event || fallbackEvent
   const finalIsFetching = isFetching || isFetchingFallback
 
+  const shellClass =
+    appearance === 'subtle'
+      ? 'flex gap-1.5 items-center text-xs w-full max-w-full text-muted-foreground'
+      : 'flex gap-1 items-center text-sm rounded-full px-2 bg-muted w-fit max-w-full text-muted-foreground'
+
   if (finalIsFetching) {
     return (
-      <div
-        data-parent-note-preview
-        className={cn(
-          'flex gap-1 items-center text-sm rounded-full px-2 bg-muted w-44 max-w-full text-muted-foreground',
-          className
-        )}
-      >
+      <div data-parent-note-preview className={cn(shellClass, appearance === 'subtle' && 'w-full', className)}>
         <div className="shrink-0">{t('reply to')}</div>
         <Skeleton className="w-4 h-4 rounded-full" />
-        <div className="py-1 flex-1">
+        <div className={cn('flex-1 min-w-0', appearance === 'subtle' ? 'py-0' : 'py-1')}>
           <Skeleton className="h-3" />
         </div>
       </div>
@@ -99,7 +101,7 @@ export default function ParentNotePreview({
     <div
       data-parent-note-preview
       className={cn(
-        'flex gap-1 items-center text-sm rounded-full px-2 bg-muted w-fit max-w-full text-muted-foreground',
+        shellClass,
         (finalEvent || (!finalEvent && !finalIsFetching)) && 'hover:text-foreground cursor-pointer',
         className
       )}
@@ -108,7 +110,11 @@ export default function ParentNotePreview({
       <div className="shrink-0">{t('reply to')}</div>
       {finalEvent && <UserAvatar className="shrink-0" userId={finalEvent.pubkey} size="tiny" />}
       <div className="truncate flex-1 min-w-0">
-        <ContentPreview className="pointer-events-none" event={finalEvent} />
+        <ContentPreview
+          className="pointer-events-none"
+          event={finalEvent}
+          previewDensity={appearance === 'subtle' ? 'compact' : 'default'}
+        />
       </div>
     </div>
   )

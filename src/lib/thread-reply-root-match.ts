@@ -3,15 +3,54 @@ import {
   getQuotedEventHexIdFromQTags,
   getRootATag,
   getRootEventHexId,
+  isNip25ReactionKind,
   kind1QuotesThreadRoot
 } from '@/lib/event'
+import { getZapInfoFromEvent } from '@/lib/event-metadata'
+import { getFirstHexEventIdFromETags } from '@/lib/tag'
 import {
   canonicalizeRssArticleUrl,
   getArticleUrlFromCommentITags,
   getHighlightSourceHttpUrl
 } from '@/lib/rss-article'
+import client from '@/services/client.service'
 import type { Event } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
+
+/** Reply whose direct parent is a zap receipt for this thread root (hex id). */
+function replyParentIsZapToRootHex(reply: Event, rootHexLower: string): boolean {
+  const parentHex = getParentEventHexId(reply)
+  if (!parentHex || !/^[0-9a-f]{64}$/i.test(parentHex)) return false
+  const pl = parentHex.toLowerCase()
+  if (pl === rootHexLower) return false
+  const parentEv = client.peekSessionCachedEvent(pl)
+  if (!parentEv || parentEv.kind !== kinds.Zap) return false
+  const zapped = getZapInfoFromEvent(parentEv)?.originalEventId
+  return (
+    !!zapped &&
+    /^[0-9a-f]{64}$/i.test(zapped) &&
+    zapped.toLowerCase() === rootHexLower
+  )
+}
+
+function reactionTargetNoteHex(reaction: Event): string | undefined {
+  const fromParent = getParentEventHexId(reaction)
+  if (fromParent && /^[0-9a-f]{64}$/i.test(fromParent)) return fromParent.toLowerCase()
+  const first = getFirstHexEventIdFromETags(reaction.tags)
+  if (first && /^[0-9a-f]{64}$/i.test(first)) return first.toLowerCase()
+  return undefined
+}
+
+/** Reply whose direct parent is a NIP-25 / kind-17 reaction to this thread root note. */
+function replyParentIsReactionToRootHex(reply: Event, rootHexLower: string): boolean {
+  const parentHex = getParentEventHexId(reply)
+  if (!parentHex || !/^[0-9a-f]{64}$/i.test(parentHex)) return false
+  const pl = parentHex.toLowerCase()
+  if (pl === rootHexLower) return false
+  const parentEv = client.peekSessionCachedEvent(pl)
+  if (!parentEv || !isNip25ReactionKind(parentEv.kind)) return false
+  return reactionTargetNoteHex(parentEv) === rootHexLower
+}
 
 /** Matches `ReplyNoteList` / discussion thread root shapes. */
 export type TThreadRootRef =
@@ -37,7 +76,11 @@ export function eventReplyMatchesThreadRoot(evt: Event, root: TThreadRootRef): b
     if (rootHex && (rootHex === root.eventId || rootHex === root.id)) return true
     return kind1QuotesThreadRoot(evt, root)
   }
-  if (getRootEventHexId(evt) === root.id) return true
+  const rid = root.id.trim().toLowerCase()
+  const evtRootHex = getRootEventHexId(evt)?.toLowerCase()
+  if (evtRootHex === rid) return true
+  if (replyParentIsZapToRootHex(evt, rid)) return true
+  if (replyParentIsReactionToRootHex(evt, rid)) return true
   return kind1QuotesThreadRoot(evt, root)
 }
 

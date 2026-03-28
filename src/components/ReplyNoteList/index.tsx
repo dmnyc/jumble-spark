@@ -382,9 +382,8 @@ function ReplyNoteList({
         replyEvents.push(evt)
       })
       
-      // Prevent infinite loops by tracking processed event IDs
+      // Include reactions (and every other kind) so BFS can find notes keyed under reaction / zap ids.
       const newParentEventKeys = events
-        .filter((evt) => !isNip25ReactionKind(evt.kind))
         .map((evt) => evt.id)
         .filter((id) => !processedEventIds.has(id))
       
