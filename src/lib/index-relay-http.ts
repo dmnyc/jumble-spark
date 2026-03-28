@@ -39,6 +39,17 @@ export function nostrFilterToIndexRelayBody(f: Filter): Record<string, unknown> 
   return body
 }
 
+const INDEX_RELAY_HTTP_WARN_COOLDOWN_MS = 5000
+const lastIndexRelayHttpWarnAtByEndpoint = new Map<string, number>()
+
+function warnIndexRelayHttpThrottled(endpoint: string, message: string, meta: Record<string, unknown>) {
+  const now = Date.now()
+  const prev = lastIndexRelayHttpWarnAtByEndpoint.get(endpoint) ?? 0
+  if (now - prev < INDEX_RELAY_HTTP_WARN_COOLDOWN_MS) return
+  lastIndexRelayHttpWarnAtByEndpoint.set(endpoint, now)
+  logger.warn(message, meta)
+}
+
 function rawToVerifiedEvent(raw: Record<string, unknown>): NEvent | null {
   try {
     const id = raw.id
@@ -68,17 +79,20 @@ function rawToVerifiedEvent(raw: Record<string, unknown>): NEvent | null {
 
 /**
  * Query one HTTP index relay. Runs one POST per filter when given an array.
+ * When every filter attempt fails (HTTP error or network) and no events are returned,
+ * {@link options.onHardFailure} runs once (used for session strike parity with WebSocket relays).
  */
 export async function queryIndexRelay(
   baseUrl: string,
   filter: Filter | Filter[],
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal; onHardFailure?: () => void }
 ): Promise<NEvent[]> {
   const base = normalizeHttpRelayUrl(baseUrl) || baseUrl
   const endpoint = indexRelayFilterUrl(base)
   const filters = Array.isArray(filter) ? filter : [filter]
   const out: NEvent[] = []
   const seen = new Set<string>()
+  let sawHardFailure = false
   for (const f of filters) {
     const body = nostrFilterToIndexRelayBody(filterForIndexRelay(f))
     try {
@@ -92,7 +106,11 @@ export async function queryIndexRelay(
         signal: options?.signal
       })
       if (!res.ok) {
-        logger.warn('[IndexRelayHttp] filter request failed', { endpoint, status: res.status })
+        sawHardFailure = true
+        warnIndexRelayHttpThrottled(endpoint, '[IndexRelayHttp] filter request failed', {
+          endpoint,
+          status: res.status
+        })
         continue
       }
       const json = (await res.json()) as { data?: unknown }
@@ -108,8 +126,12 @@ export async function queryIndexRelay(
       }
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e
-      logger.warn('[IndexRelayHttp] filter request error', { endpoint, error: e })
+      sawHardFailure = true
+      warnIndexRelayHttpThrottled(endpoint, '[IndexRelayHttp] filter request error', { endpoint, error: e })
     }
+  }
+  if (sawHardFailure && out.length === 0 && filters.length > 0) {
+    options?.onHardFailure?.()
   }
   return out
 }

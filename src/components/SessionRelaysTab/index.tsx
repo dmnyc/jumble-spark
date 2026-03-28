@@ -1,7 +1,7 @@
 import client from '@/services/client.service'
 import { useTranslation } from 'react-i18next'
 import { useCallback, useEffect, useState } from 'react'
-import { RefreshCw, CheckCircle2, XCircle, Zap } from 'lucide-react'
+import { RefreshCw, CheckCircle2, XCircle, Zap, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type SessionDebug = {
@@ -28,6 +28,11 @@ export default function SessionRelaysTab() {
   }, [refresh])
 
   if (debug === null) return null
+
+  const clearStrikeForUrl = (url: string) => {
+    client.clearSessionRelayStrikeForUrl(url)
+    refresh()
+  }
 
   const formatUrl = (url: string) => {
     try {
@@ -79,13 +84,26 @@ export default function SessionRelaysTab() {
         <p className="text-muted-foreground text-xs">
           {t('Session relays preset striked hint')}
         </p>
-        <ul className="rounded-lg border bg-muted/30 p-3 space-y-1 text-sm font-mono">
+        <ul className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
           {debug.presetStriked.length === 0 ? (
             <li className="text-muted-foreground">{t('None')}</li>
           ) : (
             debug.presetStriked.map((url) => (
-              <li key={url} className="truncate" title={url}>
-                {formatUrl(url)}
+              <li key={url} className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate font-mono" title={url}>
+                  {formatUrl(url)}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 gap-1 px-2 text-xs"
+                  title={t('Session relays clear strike hint')}
+                  onClick={() => clearStrikeForUrl(url)}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                  {t('Session relays clear strike')}
+                </Button>
               </li>
             ))
           )}
@@ -123,10 +141,23 @@ export default function SessionRelaysTab() {
           <h3 className="text-sm font-medium text-muted-foreground">
             {t('Session relays all striked')}
           </h3>
-          <ul className="rounded-lg border bg-muted/30 p-3 space-y-1 text-sm font-mono text-muted-foreground">
+          <ul className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
             {debug.strikedUrls.map((url) => (
-              <li key={url} className="truncate" title={url}>
-                {formatUrl(url)}
+              <li key={url} className="flex items-center justify-between gap-2 text-muted-foreground">
+                <span className="min-w-0 truncate font-mono" title={url}>
+                  {formatUrl(url)}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 gap-1 px-2 text-xs text-foreground"
+                  title={t('Session relays clear strike hint')}
+                  onClick={() => clearStrikeForUrl(url)}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                  {t('Session relays clear strike')}
+                </Button>
               </li>
             ))}
           </ul>

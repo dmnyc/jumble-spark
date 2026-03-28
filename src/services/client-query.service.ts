@@ -224,7 +224,7 @@ export class QueryService {
           .map((u) => normalizeHttpRelayUrl(u) || u)
           .filter(Boolean)
       )
-    )
+    ).filter((base) => !this.shouldSkipRelayForSession?.(base))
     const wsQueryUrls = urls.filter((u) => !isHttpRelayUrl(u))
 
     return await new Promise<NEvent[]>((resolve) => {
@@ -247,7 +247,10 @@ export class QueryService {
           : Promise.allSettled(
               httpRelayBases.map(async (base) => {
                 try {
-                  const evts = await queryIndexRelay(base, filter, { signal: abortHttp.signal })
+                  const evts = await queryIndexRelay(base, filter, {
+                    signal: abortHttp.signal,
+                    onHardFailure: () => this.onRelayConnectionFailure?.(base)
+                  })
                   for (const evt of evts) {
                     if (resolved) return
                     eventCount++

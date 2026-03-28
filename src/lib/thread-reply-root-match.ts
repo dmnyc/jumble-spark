@@ -4,7 +4,8 @@ import {
   getRootATag,
   getRootEventHexId,
   isNip25ReactionKind,
-  kind1QuotesThreadRoot
+  kind1QuotesThreadRoot,
+  resolveDeclaredThreadRootEventHex
 } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { getFirstHexEventIdFromETags } from '@/lib/tag'
@@ -113,6 +114,7 @@ export function eventReplyMatchesThreadRoot(evt: Event, root: TThreadRootRef): b
   const rid = root.id.trim().toLowerCase()
   const evtRootHex = getRootEventHexId(evt)?.toLowerCase()
   if (evtRootHex === rid) return true
+  if (evtRootHex && resolveDeclaredThreadRootEventHex(evtRootHex) === rid) return true
   if (replyParentIsZapToThreadHex(evt, rid)) return true
   if (replyParentIsReactionToThreadHex(evt, rid)) return true
   return kind1QuotesThreadRoot(evt, root)

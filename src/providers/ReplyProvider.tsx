@@ -9,7 +9,8 @@ import {
   getQuotedReferenceFromQTags,
   getRootATag,
   getRootETag,
-  isNip25ReactionKind
+  isNip25ReactionKind,
+  resolveDeclaredThreadRootEventHex
 } from '@/lib/event'
 import { getFirstHexEventIdFromETags } from '@/lib/tag'
 import client from '@/services/client.service'
@@ -57,7 +58,9 @@ export function ReplyProvider({ children }: { children: React.ReactNode }) {
       let rootId: string | undefined
       const rootETag = getRootETag(reply)
       if (rootETag) {
-        rootId = rootETag[1]?.toLowerCase?.() ?? rootETag[1]
+        const raw = rootETag[1]?.toLowerCase?.() ?? rootETag[1]
+        rootId =
+          raw && /^[0-9a-f]{64}$/i.test(raw) ? resolveDeclaredThreadRootEventHex(raw) : raw
       } else {
         const rootATag = getRootATag(reply)
         if (rootATag) {

@@ -2,10 +2,12 @@ import {
   ExtendedKind,
   isSocialKindBlockedKind,
   MAX_PUBLISH_RELAYS,
+  READ_ONLY_RELAY_URLS,
   SOCIAL_KIND_BLOCKED_RELAY_URLS
 } from '@/constants'
 import { NOSTR_URI_FOR_REPLY_PUBKEYS_REGEX } from '@/lib/content-patterns'
-import { simplifyUrl, isLocalNetworkUrl, normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
+import { dedupeNormalizeRelayUrlsOrdered } from '@/lib/relay-url-priority'
+import { simplifyUrl, isLocalNetworkUrl, normalizeAnyRelayUrl, normalizeHttpRelayUrl, normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -44,6 +46,16 @@ export default function PostRelaySelector({
   mentions?: string[]
 }) {
   const { t } = useTranslation()
+  /** Subtitle + trigger must match {@link selectedRelayUrls} (service description ignored: cache relays are merged in after). */
+  const describeRelaySelection = useCallback(
+    (urls: string[]) => {
+      const n = urls.length
+      if (n === 0) return t('No relays selected')
+      if (n === 1) return simplifyUrl(urls[0])
+      return t('{{count}} relays', { count: n })
+    },
+    [t]
+  )
   const { isSmallScreen } = useScreenSize()
   useCurrentRelays() // Keep this hook call for any side effects
   const { relaySets, favoriteRelays, blockedRelays } = useFavoriteRelays()
@@ -79,6 +91,62 @@ export default function PostRelaySelector({
     
     return false
   }, [_parentEvent])
+
+  /**
+   * Same merge order as {@link ClientService.publishEvent}: NIP-65 write list first, then relays checked here,
+   * then cap at {@link MAX_PUBLISH_RELAYS}. Drives the cap hint so users see reserved “prepended” slots.
+   */
+  const publishCapPreview = useMemo(() => {
+    const applySocialOutboxFilter =
+      !isPublicMessage &&
+      (_parentEvent == null ||
+        isDiscussionReply ||
+        (_parentEvent != null && isSocialKindBlockedKind(_parentEvent.kind)))
+
+    const wsOut = (relayList?.write ?? [])
+      .map((u) => normalizeUrl(u) || u)
+      .filter((u): u is string => !!u)
+    const httpOut = (relayList?.httpWrite ?? [])
+      .map((u) => normalizeHttpRelayUrl(u) || u)
+      .filter((u): u is string => !!u)
+    let outbox = dedupeNormalizeRelayUrlsOrdered([...httpOut, ...wsOut])
+    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeAnyRelayUrl(u) || u))
+    const socialBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    outbox = dedupeNormalizeRelayUrlsOrdered(
+      outbox.filter((url) => {
+        const n = normalizeAnyRelayUrl(url) || url
+        if (readOnlySet.has(n)) return false
+        if (applySocialOutboxFilter && socialBlockedSet.has(n)) return false
+        return true
+      })
+    )
+
+    const merged = dedupeNormalizeRelayUrlsOrdered([...outbox, ...selectedRelayUrls])
+    const capped = merged.slice(0, MAX_PUBLISH_RELAYS)
+    const outboxNormSet = new Set(outbox)
+    const outboxSlotsInPublish = capped.filter((u) => outboxNormSet.has(u)).length
+    const selectedNorm = selectedRelayUrls.map((u) => normalizeAnyRelayUrl(u) || u)
+    const selectedContacted = selectedNorm.filter((u) => capped.includes(u)).length
+
+    const showCapHint =
+      merged.length > MAX_PUBLISH_RELAYS ||
+      selectedRelayUrls.length >= MAX_PUBLISH_RELAYS ||
+      selectedContacted < selectedRelayUrls.length
+
+    return {
+      outboxSlotsInPublish,
+      selectedContacted,
+      selectedTotal: selectedRelayUrls.length,
+      showCapHint
+    }
+  }, [
+    relayList?.write,
+    relayList?.httpWrite,
+    selectedRelayUrls,
+    isPublicMessage,
+    _parentEvent,
+    isDiscussionReply
+  ])
 
   /**
    * Relay selection only cares about nostr:… mentions in the draft (see relay-selection.service).
@@ -179,7 +247,7 @@ export default function PostRelaySelector({
           const cacheRelays = result.selectableRelays.filter(url => isLocalNetworkUrl(url))
           const selectedWithCache = Array.from(new Set([...result.selectedRelays, ...cacheRelays]))
           setSelectedRelayUrls(selectedWithCache)
-          setDescription(result.description)
+          setDescription(describeRelaySelection(selectedWithCache))
           // Reset manual selection flag if relays changed
           if (selectableRelaysChanged && hasManualSelection) {
             setHasManualSelection(false)
@@ -191,7 +259,7 @@ export default function PostRelaySelector({
         setSelectableRelays([])
         if (!hasManualSelection) {
           setSelectedRelayUrls([])
-          setDescription('No relays selected')
+          setDescription(t('No relays selected'))
         }
       } finally {
         setIsLoading(false)
@@ -210,7 +278,9 @@ export default function PostRelaySelector({
     relayList,
     isDiscussionReply,
     contentRelaySignature,
-    mentions
+    mentions,
+    describeRelaySelection,
+    t
   ])
 
   // Separate effect for mention changes in non-discussion replies
@@ -285,7 +355,7 @@ export default function PostRelaySelector({
             const cacheRelays = result.selectableRelays.filter(url => isLocalNetworkUrl(url))
             const selectedWithCache = Array.from(new Set([...result.selectedRelays, ...cacheRelays]))
             setSelectedRelayUrls(selectedWithCache)
-            setDescription(result.description)
+            setDescription(describeRelaySelection(selectedWithCache))
             // Reset manual selection flag if relays changed
             if (selectableRelaysChanged && hasManualSelection) {
               setHasManualSelection(false)
@@ -313,16 +383,16 @@ export default function PostRelaySelector({
     relayList,
     memoizedOpenFrom,
     previousSelectableCount,
-    hasManualSelection
+    hasManualSelection,
+    describeRelaySelection
   ])
 
   // Update description when selected relays change due to manual selection
   useEffect(() => {
     if (hasManualSelection && !isLoading) {
-      const count = selectedRelayUrls.length
-      setDescription(count === 0 ? 'No relays selected' : count === 1 ? simplifyUrl(selectedRelayUrls[0]) : `${count} relays`)
+      setDescription(describeRelaySelection(selectedRelayUrls))
     }
-  }, [selectedRelayUrls, hasManualSelection, isLoading])
+  }, [selectedRelayUrls, hasManualSelection, isLoading, describeRelaySelection])
 
   // Update parent component with selected relays
   useEffect(() => {
@@ -428,6 +498,27 @@ export default function PostRelaySelector({
     return t('{{count}} relays', { count: selectedRelayUrls.length })
   }, [selectedRelayUrls, isLoading, t])
 
+  const capHintEl =
+    publishCapPreview.showCapHint &&
+    (publishCapPreview.outboxSlotsInPublish > 0 ? (
+      <span className="text-xs text-amber-600 dark:text-amber-500">
+        {t('Publish relay cap hint with outbox first', {
+          max: MAX_PUBLISH_RELAYS,
+          reservedSlots: publishCapPreview.outboxSlotsInPublish,
+          selected: publishCapPreview.selectedTotal,
+          selectedContacted: publishCapPreview.selectedContacted
+        })}
+      </span>
+    ) : (
+      <span className="text-xs text-amber-600 dark:text-amber-500">
+        {t('Publish relay cap hint', {
+          max: MAX_PUBLISH_RELAYS,
+          selected: publishCapPreview.selectedTotal,
+          selectedContacted: publishCapPreview.selectedContacted
+        })}
+      </span>
+    ))
+
   if (isSmallScreen) {
     return (
       <div className="flex items-center gap-2">
@@ -452,14 +543,7 @@ export default function PostRelaySelector({
                 <div className="flex flex-col min-w-0 flex-1 gap-1">
                   <span className="text-lg font-medium">{t('Select relays')}</span>
                   <span className="text-sm text-muted-foreground truncate">{description}</span>
-                  {selectedRelayUrls.length >= MAX_PUBLISH_RELAYS && (
-                    <span className="text-xs text-amber-600 dark:text-amber-500">
-                      {t('Publish relay cap hint', {
-                        max: MAX_PUBLISH_RELAYS,
-                        selected: selectedRelayUrls.length
-                      })}
-                    </span>
-                  )}
+                  {capHintEl}
                 </div>
               </div>
               <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden p-4">
@@ -495,14 +579,7 @@ export default function PostRelaySelector({
               <span className="text-sm font-medium">{t('Select relays')}</span>
               <span className="text-xs text-muted-foreground truncate">{description}</span>
             </div>
-            {selectedRelayUrls.length >= MAX_PUBLISH_RELAYS && (
-              <span className="text-xs text-amber-600 dark:text-amber-500">
-                {t('Publish relay cap hint', {
-                  max: MAX_PUBLISH_RELAYS,
-                  selected: selectedRelayUrls.length
-                })}
-              </span>
-            )}
+            {capHintEl}
           </div>
           <div className="max-h-[35vh] min-h-0 overflow-y-scroll overflow-x-hidden p-3">
             {content}

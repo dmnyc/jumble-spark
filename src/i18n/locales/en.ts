@@ -572,6 +572,9 @@ export default {
     'Session relays scored random hint':
       'Relays that have accepted at least one publish this session; used to prefer faster relays when picking random relays. Sorted by average latency.',
     'Session relays all striked': 'All striked relays (any source)',
+    'Session relays clear strike': 'Allow again',
+    'Session relays clear strike hint':
+      'Remove this relay from the session block list; it will be used again until new connection failures.',
     successes: 'successes',
     None: 'None',
     'Cache & offline storage': 'Cache & offline storage',
@@ -1542,7 +1545,9 @@ export default {
     'Select group...': 'Select group...',
     'Select relays': 'Select relays',
     'Publish relay cap hint':
-      'At most {{max}} relays are contacted per publish. Your outboxes are merged in first, then priority order; session-blocked relays are skipped. You selected {{selected}} — lower-priority checks are not sent. See console [PublishEvent] for the exact list.',
+      'At most {{max}} relays are contacted per publish. Of the {{selected}} relay(s) you checked here, {{selectedContacted}} will be contacted; lower-priority checks are skipped first if you exceed the cap. Session-blocked relays are skipped. See console [PublishEvent] for the exact list.',
+    'Publish relay cap hint with outbox first':
+      'At most {{max}} relays per publish. Your NIP-65 write relay(s) use {{reservedSlots}} of those slots first (merged ahead of this picker; they may also appear checked below). Of the {{selected}} relay(s) you checked here, {{selectedContacted}} will be contacted. Session-blocked relays are skipped. See console [PublishEvent] for the exact list.',
     'Select the group where you want to create this discussion.':
       'Select the group where you want to create this discussion.',
     'Select topic...': 'Select topic...',

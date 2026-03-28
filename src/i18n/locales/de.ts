@@ -549,6 +549,9 @@ export default {
     'Session relays scored random hint':
       'Relays, die in dieser Session mindestens ein Publish angenommen haben; werden beim Auswählen von Zufallsrelays bevorzugt. Sortiert nach durchschnittlicher Latenz.',
     'Session relays all striked': 'Alle gestrichenen Relays (alle Quellen)',
+    'Session relays clear strike': 'Wieder zulassen',
+    'Session relays clear strike hint':
+      'Relay aus der Session-Sperrliste nehmen; es wird wieder genutzt, bis neue Verbindungsfehler auftreten.',
     successes: 'Erfolge',
     None: 'Keine',
     'Cache & offline storage': 'Cache & Offline-Speicher',
@@ -1463,7 +1466,9 @@ export default {
     'Select group...': 'Select group...',
     'Select relays': 'Select relays',
     'Publish relay cap hint':
-      'Pro Veröffentlichung werden höchstens {{max}} Relais angesprochen. Deine Outbox-Relais werden zuerst eingereiht, danach Priorität; wegen Fehlern übersprungene Relais entfallen. Du hast {{selected}} gewählt — der Rest wird nicht gesendet. Die genaue Liste steht in der Konsole unter [PublishEvent].',
+      'Pro Veröffentlichung werden höchstens {{max}} Relais angesprochen. Von den {{selected}} hier angehakten Relais werden {{selectedContacted}} tatsächlich kontaktiert; bei Überschreitung des Limits entfallen zuerst die niedrigere Priorität. Relais mit Session-Sperre werden übersprungen. Die genaue Liste steht in der Konsole unter [PublishEvent].',
+    'Publish relay cap hint with outbox first':
+      'Pro Veröffentlichung höchstens {{max}} Relais. Deine NIP-65-Schreib-Relais belegen zuerst {{reservedSlots}} Plätze (vor dieser Auswahl zusammengeführt; können unten auch angehakt sein). Von den {{selected}} angehakten Relais werden {{selectedContacted}} kontaktiert. Session-gesperrte Relais entfallen. Details in der Konsole unter [PublishEvent].',
     'Select the group where you want to create this discussion.':
       'Select the group where you want to create this discussion.',
     'Select topic...': 'Select topic...',

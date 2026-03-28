@@ -50,7 +50,7 @@ export const MAX_CONCURRENT_RELAY_CONNECTIONS = 10
 export const MAX_CONCURRENT_SUBS_PER_RELAY = 9
 
 /** Max relays to publish each event to (outboxes first, then targets' inboxes, then extras). */
-export const MAX_PUBLISH_RELAYS = MAX_CONCURRENT_RELAY_CONNECTIONS
+export const MAX_PUBLISH_RELAYS = 20
 
 /** After a publish wave, failed NIP-65 write (outbox) relays are retried once after this delay. */
 export const OUTBOX_PUBLISH_RETRY_DELAY_MS = 5000

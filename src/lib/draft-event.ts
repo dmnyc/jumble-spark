@@ -22,7 +22,8 @@ import {
   getReplaceableCoordinateFromEvent,
   getRootETag,
   isProtectedEvent,
-  isReplaceableEvent
+  isReplaceableEvent,
+  resolveDeclaredThreadRootEventHex
 } from './event'
 import {
   canonicalizeRssArticleUrl,
@@ -1112,15 +1113,26 @@ async function extractRelatedEventIds(content: string, parentEvent?: Event) {
     if (_rootETag) {
       parentETag = buildETagWithMarker(parentEvent.id, parentEvent.pubkey, '', 'reply')
 
-      const [, rootEventHexId, hint, , rootEventPubkey] = _rootETag
-      if (rootEventPubkey) {
-        rootETag = buildETagWithMarker(rootEventHexId, rootEventPubkey, hint, 'root')
-      } else {
+      const [, rootEventHexId, hint, , rootEventPubkeyFromTag] = _rootETag
+      const canonicalRootHex = resolveDeclaredThreadRootEventHex(rootEventHexId)
+
+      let rootEvent = client.peekSessionCachedEvent(canonicalRootHex)
+      if (!rootEvent) {
+        rootEvent = await eventService.fetchEvent(canonicalRootHex)
+      }
+      if (!rootEvent) {
         const rootEventId = generateBech32IdFromETag(_rootETag)
-        const rootEvent = rootEventId ? await eventService.fetchEvent(rootEventId) : undefined
-        rootETag = rootEvent
-          ? buildETagWithMarker(rootEvent.id, rootEvent.pubkey, hint, 'root')
-          : buildETagWithMarker(rootEventHexId, rootEventPubkey, hint, 'root')
+        rootEvent = rootEventId ? await eventService.fetchEvent(rootEventId) : undefined
+      }
+      if (rootEvent) {
+        rootETag = buildETagWithMarker(rootEvent.id, rootEvent.pubkey, hint, 'root')
+      } else {
+        rootETag = buildETagWithMarker(
+          canonicalRootHex,
+          rootEventPubkeyFromTag ?? '',
+          hint,
+          'root'
+        )
       }
     } else {
       // reply to root event

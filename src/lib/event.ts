@@ -31,6 +31,39 @@ export function isNip56ReportEvent(event: Pick<Event, 'kind'>): boolean {
   return event.kind === kinds.Report || event.kind === ExtendedKind.REPORT
 }
 
+/** `e` / `E` tags for NIP-10-style thread links (kinds 1, 11, 1111, …). */
+function listThreadLinkETags(event: Event): string[][] {
+  return event.tags.filter(([n]) => n === 'e' || n === 'E')
+}
+
+/**
+ * Parent `e` for kind 1111 / voice comment: prefer `reply` marker, else last `e` when multiple
+ * (NIP-10 root-then-reply), else first. Avoids treating the thread root as the parent when clients omit uppercase `E`.
+ */
+function getParentETagCommentOrDiscussion(event: Event): string[] | undefined {
+  const isETag = (n: string) => n === 'e' || n === 'E'
+  const byMarker = event.tags.find(([tagName, , , marker]) => isETag(tagName) && marker === 'reply')
+  if (byMarker) return byMarker
+  const etags = listThreadLinkETags(event)
+  if (etags.length >= 2) return etags[etags.length - 1]
+  return etags[0]
+}
+
+/**
+ * Root `e` for kind 1111 / voice comment: prefer `root` marker, else uppercase `E` (Jumble / NIP-22),
+ * else first `e` when multiple (NIP-10 root-before-reply), else single `e`.
+ */
+function getRootETagCommentOrDiscussion(event: Event): string[] | undefined {
+  const isETag = (n: string) => n === 'e' || n === 'E'
+  const byMarker = event.tags.find(([tagName, , , marker]) => isETag(tagName) && marker === 'root')
+  if (byMarker) return byMarker
+  const upperE = event.tags.find(tagNameEquals('E'))
+  if (upperE) return upperE
+  const etags = listThreadLinkETags(event)
+  if (etags.length >= 2) return etags[0]
+  return etags[0]
+}
+
 const EVENT_EMBEDDED_NOTES_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_EMBEDDED_PUBKEYS_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_IS_REPLY_NOTE_CACHE = new LRUCache<string, boolean>({ max: 10000 })
@@ -105,10 +138,10 @@ export function getParentETag(event?: Event) {
   }
 
   if (event.kind === ExtendedKind.COMMENT || event.kind === ExtendedKind.VOICE_COMMENT) {
-    return event.tags.find(tagNameEquals('e')) ?? event.tags.find(tagNameEquals('E'))
+    return getParentETagCommentOrDiscussion(event)
   }
 
-  // Handle DISCUSSION events (kind 11) - they use e tag for parent reference
+  // Kind 11: keep first `e` / `E` (thread shape differs from NIP-10 comment chains).
   if (event.kind === ExtendedKind.DISCUSSION) {
     return event.tags.find(tagNameEquals('e')) ?? event.tags.find(tagNameEquals('E'))
   }
@@ -179,10 +212,9 @@ export function getRootETag(event?: Event) {
   if (!event) return undefined
 
   if (event.kind === ExtendedKind.COMMENT || event.kind === ExtendedKind.VOICE_COMMENT) {
-    return event.tags.find(tagNameEquals('E'))
+    return getRootETagCommentOrDiscussion(event)
   }
 
-  // Handle DISCUSSION events (kind 11) - they use E tag for root reference
   if (event.kind === ExtendedKind.DISCUSSION) {
     return event.tags.find(tagNameEquals('E'))
   }
@@ -230,6 +262,62 @@ export function getRootATag(event?: Event) {
 export function getRootEventHexId(event?: Event) {
   const tag = getRootETag(event)
   return tag?.[1]
+}
+
+const RESOLVE_DECLARED_THREAD_ROOT_MAX_HOPS = 14
+
+/** Zapped **note** id from a kind 9735 receipt (`e` / `E` hex). Kept here to avoid importing event-metadata (cycles). */
+function zapReceiptTargetNoteHexFromEvent(ev: Event): string | undefined {
+  if (ev.kind !== kinds.Zap) return undefined
+  for (const t of ev.tags) {
+    if ((t[0] === 'e' || t[0] === 'E') && t[1] && /^[0-9a-f]{64}$/i.test(t[1])) {
+      return t[1].toLowerCase()
+    }
+  }
+  return undefined
+}
+
+/**
+ * Clients that reply from a notification often emit a single `e` tag whose **id is a reaction** (kind 7 / 17)
+ * or **zap receipt** (kind 9735) but the marker is still `root` — they never saw the real OP. Walk
+ * reaction / zap → target note → further NIP-10 `e` roots (session cache) until stable, for thread UI and child `root` tags.
+ */
+export function resolveDeclaredThreadRootEventHex(startHexId: string): string {
+  let cur = startHexId.trim().toLowerCase()
+  if (!/^[0-9a-f]{64}$/i.test(cur)) return cur
+  const seen = new Set<string>()
+  for (let hop = 0; hop < RESOLVE_DECLARED_THREAD_ROOT_MAX_HOPS; hop++) {
+    if (seen.has(cur)) return cur
+    seen.add(cur)
+    const ev = client.peekSessionCachedEvent(cur)
+    if (!ev) return cur
+    if (isNip25ReactionKind(ev.kind)) {
+      const fromParent = getParentEventHexId(ev)?.toLowerCase()
+      let next: string | undefined
+      if (fromParent && /^[0-9a-f]{64}$/i.test(fromParent)) {
+        next = fromParent
+      } else {
+        const first = getFirstHexEventIdFromETags(ev.tags)
+        next = first && /^[0-9a-f]{64}$/i.test(first) ? first.toLowerCase() : undefined
+      }
+      if (!next || next === cur) return cur
+      cur = next
+      continue
+    }
+    if (ev.kind === kinds.Zap) {
+      const next = zapReceiptTargetNoteHexFromEvent(ev)
+      if (!next || next === cur) return cur
+      cur = next
+      continue
+    }
+    const r = getRootEventHexId(ev)?.toLowerCase()
+    if (r && r !== cur && /^[0-9a-f]{64}$/i.test(r)) {
+      cur = r
+      continue
+    }
+    return cur
+  }
+  return cur
 }
 
 /** True if event references target as root, parent, or quoted (#q, #a) — used to hide redundant preview when showing quotes of current note. */

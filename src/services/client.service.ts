@@ -176,10 +176,14 @@ class ClientService extends EventTarget {
 
     // Initialize sub-services
     this.queryService = new QueryService(this.pool, {
-      shouldSkipRelayForSession: (normalizedUrl) =>
-        (this.publishStrikeCount.get(normalizedUrl) ?? 0) >=
-        ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD,
-      onRelayConnectionFailure: (normalizedUrl) => this.recordSessionRelayFailure(normalizedUrl),
+      shouldSkipRelayForSession: (url) => {
+        const key = normalizeAnyRelayUrl(url) || url
+        return (
+          (this.publishStrikeCount.get(key) ?? 0) >=
+          ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD
+        )
+      },
+      onRelayConnectionFailure: (url) => this.recordSessionRelayFailure(url),
       onRelayNoticeStrike: (normalizedUrl, noticeMessage) =>
         this.recordRelayNoticeFetchFailure(normalizedUrl, noticeMessage)
     })
@@ -747,7 +751,7 @@ class ClientService extends EventTarget {
           hasRelayList: !!relayList,
           writeRelayCount: relayList?.write?.length ?? 0,
           readRelayCount: relayList?.read?.length ?? 0,
-          writeRelays: relayList?.write?.slice(0, 10) ?? []
+          writeRelays: relayList?.write?.slice(0, MAX_PUBLISH_RELAYS) ?? []
         })
       }
       const userWritesOrdered = dedupeNormalizeRelayUrlsOrdered(
@@ -809,7 +813,7 @@ class ClientService extends EventTarget {
   /** One failed publish or subscribe connection per normalized URL (accumulates until {@link SESSION_RELAY_FAILURE_STRIKE_THRESHOLD}). */
   /** NOTICE "failed to fetch events" (relay DB/backend) — same session strike as a failed connection. */
   private recordRelayNoticeFetchFailure(url: string, noticeMessage: string) {
-    const n = normalizeUrl(url) || url
+    const n = normalizeAnyRelayUrl(url) || url
     if (!n) return
     const prev = this.publishStrikeCount.get(n) ?? 0
     if (prev >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) {
@@ -823,7 +827,7 @@ class ClientService extends EventTarget {
   }
 
   private recordSessionRelayFailure(url: string) {
-    const n = normalizeUrl(url) || url
+    const n = normalizeAnyRelayUrl(url) || url
     if (!n) return
     const prev = this.publishStrikeCount.get(n) ?? 0
     if (prev >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) {
@@ -841,7 +845,7 @@ class ClientService extends EventTarget {
 
   private filterSessionStrikedRelays(urls: string[]): string[] {
     return urls.filter((u) => {
-      const n = normalizeUrl(u) || u
+      const n = normalizeAnyRelayUrl(u) || u
       return (this.publishStrikeCount.get(n) ?? 0) < ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD
     })
   }
@@ -856,6 +860,20 @@ class ClientService extends EventTarget {
   }
 
   /**
+   * Clear session failure strikes for one normalized relay URL so reads and publishes use it again
+   * until new failures accrue (same counter as {@link clearSessionRelayStrikes}).
+   */
+  clearSessionRelayStrikeForUrl(url: string): boolean {
+    const n = normalizeAnyRelayUrl(url) || url
+    if (!n) return false
+    const had = this.publishStrikeCount.delete(n)
+    if (had) {
+      logger.info('[Relay] Session strikes cleared for relay (manual)', { url: n })
+    }
+    return had
+  }
+
+  /**
    * Apply strike filter; if that removes all candidates while some were provided, clear strikes **for those URLs
    * only** and retry once. (A global clear here caused storms: e.g. NIP-65 outbox retry with 2 relays wiped strikes
    * for every relay in the tab session.)
@@ -866,9 +884,13 @@ class ClientService extends EventTarget {
     if (filtered.length === 0 && unique.length > 0) {
       let cleared = 0
       for (const u of unique) {
-        const n = normalizeUrl(u) || u
+        // HTTP index relays (CORS down, wrong origin) do not recover like WebSockets; clearing their strikes
+        // here caused retry storms with many parallel fetchEvents hitting the same dead endpoint.
+        if (isHttpRelayUrl(u)) continue
+        const n = normalizeAnyRelayUrl(u) || u
         if (n && this.publishStrikeCount.delete(n)) cleared += 1
       }
+      if (cleared === 0) return filtered
       logger.info('[Relay] Batch was all session-striked — cleared strikes for this batch only', {
         batchUrlCount: unique.length,
         strikeEntriesCleared: cleared
@@ -880,7 +902,7 @@ class ClientService extends EventTarget {
 
   /** Record a successful publish and its latency for session-based preference when selecting random relays. */
   recordPublishSuccess(url: string, latencyMs: number) {
-    const n = normalizeUrl(url) || url
+    const n = normalizeAnyRelayUrl(url) || url
     const cur = this.sessionRelayPublishStats.get(n)
     if (cur) {
       cur.successCount += 1
@@ -899,7 +921,7 @@ class ClientService extends EventTarget {
     const out: string[] = []
     for (const [url, stats] of this.sessionRelayPublishStats.entries()) {
       if (stats.successCount < 1) continue
-      const n = normalizeUrl(url) || url
+      const n = normalizeAnyRelayUrl(url) || url
       if (!n || readOnlySet.has(n)) continue
       if ((this.publishStrikeCount.get(n) ?? 0) >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) continue
       out.push(n)
@@ -952,9 +974,9 @@ class ClientService extends EventTarget {
    * preferring those that have succeeded and been fast this session. Excludes 3-strike and read-only relays.
    */
   getPreferredRelaysForRandom(candidateUrls: string[], count: number): string[] {
-    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
+    const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeAnyRelayUrl(u) || u))
     const normalizedCandidates = candidateUrls
-      .map((u) => normalizeUrl(u) || u)
+      .map((u) => normalizeAnyRelayUrl(u) || u)
       .filter((n) => n && !readOnlySet.has(n))
     const unique = Array.from(new Set(normalizedCandidates))
     const notStruckOut = unique.filter(
