@@ -61,11 +61,14 @@ async function fetchHtmlForOpenGraph(originalUrl: string): Promise<{ html: strin
     if (html) {
       return { html, via: proxyFetchUrl }
     }
-    logger.debug('[WebService] OG proxy unavailable or bad response; trying direct fetch', {
-      originalUrl
-    })
-    html = await tryFetchHtml(originalUrl, 15_000)
-    return html ? { html, via: 'direct' } : null
+    logger.debug('[WebService] OG proxy unavailable or bad response', { originalUrl })
+    // In production with a configured proxy, skip direct fetch: random sites rarely allow browser CORS,
+    // and the attempt spams DevTools with cross-origin errors without improving OG success.
+    if (!import.meta.env.PROD) {
+      html = await tryFetchHtml(originalUrl, 15_000)
+      return html ? { html, via: 'direct' } : null
+    }
+    return null
   }
 
   const html = await tryFetchHtml(originalUrl, 15_000)

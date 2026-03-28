@@ -1,4 +1,5 @@
 import { LRUCache } from 'lru-cache'
+import { buildViteProxySitesFetchUrl } from '@/lib/vite-proxy-url'
 import { isValidPubkey } from './pubkey'
 import logger from '@/lib/logger'
 
@@ -37,16 +38,14 @@ async function _verifyNip05(nip05: string, pubkey: string): Promise<TVerifyNip05
   const result: TVerifyNip05Result = { isVerified: false, nip05Name, nip05Domain }
   if (!nip05Name || !nip05Domain || !pubkey) return result
 
-  try {
-    const res = await fetch(getWellKnownNip05Url(nip05Domain, nip05Name))
-    const json = await res.json()
-    if (json.names?.[nip05Name] === pubkey) {
-      // Also extract relays if available (NIP-05 spec allows a relays object)
-      const relays = json.relays?.[pubkey]
-      return { ...result, isVerified: true, relays: Array.isArray(relays) ? relays : undefined }
+  const json = await fetchWellKnownNostrJson(nip05Domain, nip05Name)
+  if (json) {
+    const names = json.names as Record<string, string> | undefined
+    if (names?.[nip05Name] === pubkey) {
+      const relays = json.relays as Record<string, unknown> | undefined
+      const relayList = relays?.[pubkey]
+      return { ...result, isVerified: true, relays: Array.isArray(relayList) ? relayList : undefined }
     }
-  } catch {
-    // ignore
   }
   return result
 }
@@ -70,12 +69,33 @@ export function getWellKnownNip05Url(domain: string, name?: string): string {
   return url.toString()
 }
 
+/**
+ * Fetch `/.well-known/nostr.json` in the browser without tripping third-party CORS:
+ * when `VITE_PROXY_SERVER` is set (production), use same-origin `/sites/?url=…` like OG preview.
+ */
+async function fetchWellKnownNostrJson(domain: string, name?: string): Promise<Record<string, unknown> | null> {
+  const targetUrl = getWellKnownNip05Url(domain, name)
+  const proxyServer = import.meta.env.VITE_PROXY_SERVER?.trim()
+  const fetchUrl = proxyServer ? buildViteProxySitesFetchUrl(targetUrl, proxyServer) : targetUrl
+  try {
+    const res = await fetch(fetchUrl, {
+      credentials: 'omit',
+      headers: { Accept: 'application/json, text/plain;q=0.9,*/*;q=0.8' }
+    })
+    if (!res.ok) return null
+    const data: unknown = await res.json()
+    return data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
 export async function fetchPubkeysFromDomain(domain: string): Promise<string[]> {
   try {
-    const res = await fetch(getWellKnownNip05Url(domain))
-    const json = await res.json()
+    const json = await fetchWellKnownNostrJson(domain)
+    if (!json) return []
     const pubkeySet = new Set<string>()
-    return Object.values(json.names || {}).filter((pubkey) => {
+    return Object.values((json.names as Record<string, string>) || {}).filter((pubkey) => {
       if (typeof pubkey !== 'string' || !isValidPubkey(pubkey)) {
         return false
       }
