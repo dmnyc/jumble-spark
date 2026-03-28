@@ -1,6 +1,18 @@
 import { ExtendedKind, READ_ALOUD_TTS_URL } from '@/constants'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
+import logger from '@/lib/logger'
 import { Event, kinds } from 'nostr-tools'
+
+function readAloudEndpointForLog(): string {
+  const u = READ_ALOUD_TTS_URL
+  if (!u) return ''
+  try {
+    const parsed = new URL(u)
+    return `${parsed.origin}${parsed.pathname}`
+  } catch {
+    return u.length > 96 ? `${u.slice(0, 96)}…` : u
+  }
+}
 
 export type ReadAloudResult = 'ok' | 'unsupported' | 'empty' | 'error'
 
@@ -77,11 +89,16 @@ async function speakViaPiperTts(text: string): Promise<ReadAloudResult> {
     })
 
     if (!response.ok) {
+      logger.warn('[ReadAloud] Piper HTTP error', {
+        status: response.status,
+        endpoint: readAloudEndpointForLog()
+      })
       return 'error'
     }
 
     const blob = await response.blob()
     if (!blob.size) {
+      logger.warn('[ReadAloud] Piper returned empty body', { endpoint: readAloudEndpointForLog() })
       return 'error'
     }
 
@@ -109,7 +126,11 @@ async function speakViaPiperTts(text: string): Promise<ReadAloudResult> {
     try {
       await audio.play()
       return 'ok'
-    } catch {
+    } catch (playErr) {
+      logger.warn('[ReadAloud] Piper audio.play() blocked or failed', {
+        endpoint: readAloudEndpointForLog(),
+        error: playErr instanceof Error ? playErr.message : String(playErr)
+      })
       cleanupBlob()
       if (readAloudAudio === audio) {
         readAloudAudio = null
@@ -123,6 +144,10 @@ async function speakViaPiperTts(text: string): Promise<ReadAloudResult> {
     if (isAbort) {
       return 'ok'
     }
+    logger.warn('[ReadAloud] Piper fetch failed (check CORS on the TTS host or use same-origin /api/piper-tts)', {
+      endpoint: readAloudEndpointForLog(),
+      error: e instanceof Error ? e.message : String(e)
+    })
     return 'error'
   }
 }
@@ -147,7 +172,10 @@ export async function speakNoteReadAloud(event: Event): Promise<ReadAloudResult>
     if (piperResult === 'ok') {
       return 'ok'
     }
-    // Server failed or unreachable: fall back to Web Speech when available
+    logger.warn(
+      '[ReadAloud] Using Web Speech fallback — Piper did not play. See previous [ReadAloud] log for cause.',
+      { endpoint: readAloudEndpointForLog() }
+    )
   }
 
   if (!window.speechSynthesis) {

@@ -1,10 +1,12 @@
 # Minimal compose for running the published image (e.g. on remote server).
 # Usage: docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
 #
-# Apache (unchanged on your host) should keep:
+# Apache (unchanged on your host) should keep (order: specific paths before catch-all /):
 #   ProxyPass /sites/ http://127.0.0.1:8090/sites/
+#   ProxyPass /api/piper-tts http://127.0.0.1:9876/api/piper-tts
+#   ProxyPassReverse /api/piper-tts http://127.0.0.1:9876/api/piper-tts
 #   ProxyPass / http://127.0.0.1:8089/
-# so the browser hits https://<host>/sites/?url=… on Apache → OG proxy (8090); static SPA is 8089 only.
+# so the browser hits same-origin /api/piper-tts → aitherboard; /sites/ → OG proxy; else static SPA on 8089.
 # VITE_PROXY_SERVER / VITE_READ_ALOUD_TTS_URL are baked at image build — see scripts/build-and-push-prod.sh
 #
 # NIP-66 monitor: set NIP66_MONITOR_NSEC (and optionally NIP66_MONITOR_NPUB) in the host env or .env.

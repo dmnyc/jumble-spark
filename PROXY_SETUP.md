@@ -97,6 +97,28 @@ docker-compose up -d
    - What URL is being used to fetch metadata
    - Any errors (CORS, network, etc.)
 
+## Read-aloud / Piper TTS (same-origin `/api/piper-tts`)
+
+The client uses **`POST /api/piper-tts`** on the **same host** as the app (default build: `VITE_READ_ALOUD_TTS_URL=/api/piper-tts`) so the browser does not need cross-origin CORS to aitherboard.
+
+Add these **before** the catch-all `ProxyPass /` to the Jumble static container (same ordering as `/sites/`):
+
+```apache
+ProxyPass        /api/piper-tts http://127.0.0.1:9876/api/piper-tts
+ProxyPassReverse /api/piper-tts http://127.0.0.1:9876/api/piper-tts
+```
+
+Use the port where **aitherboard** listens (example: `9876`). Reload Apache, then test:
+
+```bash
+curl -sS -o /tmp/t.wav -w "%{http_code}\n" -H "Content-Type: application/json" \
+  -d '{"text":"test","speed":1}' "https://jumble.imwald.eu/api/piper-tts"
+```
+
+Expect **200** and a WAV file. **Local dev:** `npm run dev` proxies `/api/piper-tts` → `http://127.0.0.1:9876` in `vite.config.ts`.
+
+Rebuild the Jumble image after changing `VITE_READ_ALOUD_TTS_URL`; `Dockerfile` passes `ARG`/`ENV` `VITE_READ_ALOUD_TTS_URL` into `npm run build`.
+
 ## Update Proxy Server's ALLOW_ORIGIN
 
 Since users access via `https://jumble.imwald.eu`, you need to update the proxy server's `ALLOW_ORIGIN`:
