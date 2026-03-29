@@ -9,7 +9,12 @@
  * inbox+favorites fill the cap and global kinds/media/hashtags never hit aggr). The **interests** spell
  * uses **one** shard: all subscribed topics in one `#t` filter (NIP-01 OR semantics).
  */
-import { DEFAULT_FEED_SHOW_KINDS, ExtendedKind, READ_ONLY_RELAY_URLS } from '@/constants'
+import {
+  DEFAULT_FEED_SHOW_KINDS,
+  ExtendedKind,
+  PROFILE_MEDIA_TAB_KINDS,
+  READ_ONLY_RELAY_URLS
+} from '@/constants'
 import { RENDERABLE_NOTE_KINDS_SORTED } from '@/lib/note-renderable-kinds'
 import { buildProfileAugmentedReadRelayUrls } from '@/lib/favorites-feed-relays'
 import { normalizeTopic } from '@/lib/discussion-topics'
@@ -86,18 +91,8 @@ export function appendCuratedReadOnlyRelays(curated: string[], blockedRelays: st
   return out
 }
 
-/** NIP-style native media kinds only (picture, video, short video, voice). */
-export const MEDIA_SPELL_KINDS = [
-  ExtendedKind.PICTURE,
-  ExtendedKind.VIDEO,
-  ExtendedKind.SHORT_VIDEO,
-  ExtendedKind.VOICE
-] as const
-
-/**
- * Profile Medien tab: NIP native media only (picture, video, short video, voice) — same as {@link MEDIA_SPELL_KINDS}.
- */
-export const PROFILE_MEDIA_TAB_KINDS = [...MEDIA_SPELL_KINDS] as const
+/** NIP-style native media kinds only — same as {@link PROFILE_MEDIA_TAB_KINDS}. */
+export const MEDIA_SPELL_KINDS = PROFILE_MEDIA_TAB_KINDS
 
 function normalizeMentionPubkey(pubkey: string): string {
   return /^[0-9a-f]{64}$/i.test(pubkey.trim()) ? pubkey.trim().toLowerCase() : pubkey.trim()

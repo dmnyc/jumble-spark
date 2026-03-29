@@ -506,12 +506,23 @@ export const PROFILE_PUBLICATIONS_TAB_KINDS: readonly number[] = [
 
 const PROFILE_PUBLICATIONS_TAB_KIND_SET = new Set<number>(PROFILE_PUBLICATIONS_TAB_KINDS)
 
+/** NIP native media kinds for the profile Media tab (and Spells → media faux spell). */
+export const PROFILE_MEDIA_TAB_KINDS: readonly number[] = [
+  ExtendedKind.PICTURE,
+  ExtendedKind.VIDEO,
+  ExtendedKind.SHORT_VIDEO,
+  ExtendedKind.VOICE
+]
+
+const PROFILE_MEDIA_TAB_KIND_SET = new Set<number>(PROFILE_MEDIA_TAB_KINDS)
+
 /**
- * Kinds subscribed on the profile Posts tab only. Omits {@link PROFILE_PUBLICATIONS_TAB_KINDS} so those events
- * appear on the dedicated tab; {@link PROFILE_FEED_KINDS} is unchanged for the home feed and kind-filter defaults.
+ * Kinds subscribed on the profile Posts tab only. Omits publication kinds and native media kinds so those
+ * events appear only on Articles/Publications and Media; {@link PROFILE_FEED_KINDS} is unchanged for the home
+ * feed and kind-filter defaults.
  */
 export const PROFILE_POSTS_TAB_KINDS: readonly number[] = PROFILE_FEED_KINDS.filter(
-  (k) => !PROFILE_PUBLICATIONS_TAB_KIND_SET.has(k)
+  (k) => !PROFILE_PUBLICATIONS_TAB_KIND_SET.has(k) && !PROFILE_MEDIA_TAB_KIND_SET.has(k)
 )
 
 /**
