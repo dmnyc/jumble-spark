@@ -275,6 +275,62 @@ function buildReadAloudPlainText(event: Event): string {
   return stripMarkupForReadAloud(raw)
 }
 
+function isAbortError(e: unknown): boolean {
+  return (
+    (e instanceof DOMException && e.name === 'AbortError') ||
+    (e instanceof Error && e.name === 'AbortError')
+  )
+}
+
+/** Fetch one Piper WAV blob; rethrows AbortError; throws Error with user-facing message on failure. */
+async function fetchPiperTtsBlobForChunk(
+  chunkIndex: number,
+  totalChunks: number,
+  text: string,
+  signal: AbortSignal
+): Promise<Blob> {
+  const url = READ_ALOUD_TTS_URL
+  if (!url) {
+    throw new Error(`Part ${chunkIndex + 1} of ${totalChunks}: TTS URL not configured`)
+  }
+
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, speed: 1 }),
+      signal
+    })
+  } catch (e) {
+    if (isAbortError(e)) {
+      throw e
+    }
+    const msg = e instanceof Error ? e.message : String(e)
+    logger.warn('[ReadAloud] Piper fetch failed (check CORS on the TTS host or use same-origin /api/piper-tts)', {
+      endpoint: readAloudEndpointForLog(),
+      error: msg
+    })
+    throw new Error(`Part ${chunkIndex + 1} of ${totalChunks}: ${msg}`)
+  }
+
+  if (!response.ok) {
+    logger.warn('[ReadAloud] Piper HTTP error', {
+      status: response.status,
+      endpoint: readAloudEndpointForLog()
+    })
+    throw new Error(`Part ${chunkIndex + 1} of ${totalChunks}: HTTP ${response.status}`)
+  }
+
+  const blob = await response.blob()
+  if (!blob.size) {
+    logger.warn('[ReadAloud] Piper returned empty body', { endpoint: readAloudEndpointForLog() })
+    throw new Error(`Part ${chunkIndex + 1} of ${totalChunks}: empty audio response`)
+  }
+
+  return blob
+}
+
 function playPiperBlob(blob: Blob, signal: AbortSignal): Promise<'ok' | 'error' | 'aborted'> {
   return new Promise((resolve) => {
     if (signal.aborted) {
@@ -391,6 +447,23 @@ async function speakViaPiperTtsChunks(chunks: string[]): Promise<ReadAloudResult
     return 'empty'
   }
 
+  /** One promise per chunk index so playback always awaits section *i* before *i+1* (no reordering). */
+  const chunkBlobPromises = new Map<number, Promise<Blob>>()
+
+  const ensureChunkBlob = (index: number): Promise<Blob> => {
+    let p = chunkBlobPromises.get(index)
+    if (!p) {
+      const text = chunks[index]
+      if (text === undefined) {
+        p = Promise.reject(new Error(`Part ${index + 1} of ${chunks.length}: missing text`))
+      } else {
+        p = fetchPiperTtsBlobForChunk(index, chunks.length, text, signal)
+      }
+      chunkBlobPromises.set(index, p)
+    }
+    return p
+  }
+
   try {
     for (let i = 0; i < chunks.length; i++) {
       await waitUntilUnpaused()
@@ -408,51 +481,25 @@ async function speakViaPiperTtsChunks(chunks: string[]): Promise<ReadAloudResult
         chunkPlaybackRatio: 0
       })
 
-      let response: Response
-      try {
-        response = await fetch(READ_ALOUD_TTS_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: chunks[i], speed: 1 }),
-          signal
+      // Background-load the next section while this one is still fetching / playing.
+      if (i + 1 < chunks.length) {
+        ensureChunkBlob(i + 1).catch((e) => {
+          if (isAbortError(e)) return
+          /* Real errors surface when we await this index; this only avoids unhandled rejections on prefetch. */
         })
+      }
+
+      let blob: Blob
+      try {
+        blob = await ensureChunkBlob(i)
       } catch (e) {
-        const isAbort =
-          (e instanceof DOMException && e.name === 'AbortError') ||
-          (e instanceof Error && e.name === 'AbortError')
-        if (isAbort) {
+        if (isAbortError(e)) {
           return 'ok'
         }
         const msg = e instanceof Error ? e.message : String(e)
-        logger.warn('[ReadAloud] Piper fetch failed (check CORS on the TTS host or use same-origin /api/piper-tts)', {
-          endpoint: readAloudEndpointForLog(),
+        patchSnapshot({
+          phase: 'error',
           error: msg
-        })
-        patchSnapshot({
-          phase: 'error',
-          error: `Part ${i + 1} of ${chunks.length}: ${msg}`
-        })
-        return 'error'
-      }
-
-      if (!response.ok) {
-        logger.warn('[ReadAloud] Piper HTTP error', {
-          status: response.status,
-          endpoint: readAloudEndpointForLog()
-        })
-        patchSnapshot({
-          phase: 'error',
-          error: `Part ${i + 1} of ${chunks.length}: HTTP ${response.status}`
-        })
-        return 'error'
-      }
-
-      const blob = await response.blob()
-      if (!blob.size) {
-        logger.warn('[ReadAloud] Piper returned empty body', { endpoint: readAloudEndpointForLog() })
-        patchSnapshot({
-          phase: 'error',
-          error: `Part ${i + 1} of ${chunks.length}: empty audio response`
         })
         return 'error'
       }
