@@ -85,29 +85,45 @@ const PostTextarea = forwardRef<
     ref
   ) => {
     const { t } = useTranslation()
-    const [activeTab, setActiveTab] = useState('edit')
+    const [activeTab, setActiveTab] = useState('preview')
     const [draftEventJson, setDraftEventJson] = useState<string>('')
     const [isLoadingJson, setIsLoadingJson] = useState(false)
     
     const kindDescription = useMemo(() => getKindDescription(kind), [kind])
     
     useEffect(() => {
-      if (activeTab === 'json' && getDraftEventJson) {
-        setIsLoadingJson(true)
-        getDraftEventJson()
-          .then((json) => {
-            setDraftEventJson(json)
-            setIsLoadingJson(false)
-          })
-          .catch((error) => {
-            setDraftEventJson(`Error generating JSON: ${error.message}`)
-            setIsLoadingJson(false)
-          })
-      } else if (activeTab === 'preview') {
-        // Clear JSON when switching away from JSON tab
+      if (activeTab === 'preview') {
         setDraftEventJson('')
+        setIsLoadingJson(false)
+        return
       }
-    }, [activeTab, getDraftEventJson, kind])
+
+      if (activeTab !== 'json' || !getDraftEventJson) {
+        return
+      }
+
+      let cancelled = false
+      setIsLoadingJson(true)
+
+      void Promise.resolve(getDraftEventJson())
+        .then((json) => {
+          if (cancelled) return
+          setDraftEventJson(json)
+          setIsLoadingJson(false)
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return
+          const msg = error instanceof Error ? error.message : String(error)
+          setDraftEventJson(`Error generating JSON: ${msg}`)
+          setIsLoadingJson(false)
+        })
+
+      return () => {
+        cancelled = true
+      }
+      // `text` is included so JSON refreshes when the parent memoizes `getDraftEventJson` too narrowly;
+      // `kind` catches compose-mode switches even if callback identity were ever stable across them.
+    }, [activeTab, getDraftEventJson, kind, text])
     const editor = useEditor({
       // TipTap + Radix Dialog/Tabs: defer init so React 18 does not warn about flushSync in a lifecycle.
       immediatelyRender: false,
@@ -229,7 +245,6 @@ const PostTextarea = forwardRef<
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <TabsList className="w-auto justify-start">
-            <TabsTrigger value="edit">{t('Edit')}</TabsTrigger>
             <TabsTrigger value="preview">{t('Preview')}</TabsTrigger>
             <TabsTrigger value="json">{t('Json')}</TabsTrigger>
           </TabsList>
@@ -239,10 +254,8 @@ const PostTextarea = forwardRef<
             </div>
           )}
         </div>
-        {/* Keep editor mounted: remounting EditorContent after Preview/Json triggers TipTap flushSync under React 18. */}
-        <TabsContent value="edit" forceMount>
-          <EditorContent className="tiptap" editor={editor} />
-        </TabsContent>
+        {/* Editor always visible (no Edit tab). Keep mounted; only Preview/Json swap panels below. */}
+        <EditorContent className="tiptap" editor={editor} />
         <TabsContent value="preview">
           <div className="space-y-2">
             <div className="text-xs text-muted-foreground">

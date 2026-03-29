@@ -19,6 +19,7 @@ import { pubkeyToNpub } from '@/lib/pubkey'
 import postEditor from '@/services/post-editor.service'
 import { Event } from 'nostr-tools'
 import { Dispatch, useMemo } from 'react'
+import type { TDiscussionDynamicTopics } from '@/lib/discussion-thread-composer'
 import PostContent from './PostContent'
 
 export default function PostEditor({
@@ -29,7 +30,8 @@ export default function PostEditor({
   openFrom,
   initialHighlightData,
   initialPublicMessageTo,
-  onPublishSuccess
+  onPublishSuccess,
+  discussionDynamicTopics
 }: {
   defaultContent?: string
   parentEvent?: Event
@@ -41,6 +43,8 @@ export default function PostEditor({
   initialPublicMessageTo?: string
   /** Called after a reply/post is successfully published, before closing. */
   onPublishSuccess?: () => void
+  /** Hot topics for the discussion (kind 11) composer when integrated in this editor. */
+  discussionDynamicTopics?: TDiscussionDynamicTopics | null
 }) {
   const { isSmallScreen } = useScreenSize()
 
@@ -63,9 +67,19 @@ export default function PostEditor({
         initialHighlightData={initialHighlightData}
         initialPublicMessageTo={initialPublicMessageTo}
         onPublishSuccess={onPublishSuccess}
+        discussionDynamicTopics={discussionDynamicTopics}
       />
     )
-  }, [effectiveDefaultContent, parentEvent, openFrom, setOpen, initialHighlightData, initialPublicMessageTo, onPublishSuccess])
+  }, [
+    effectiveDefaultContent,
+    parentEvent,
+    openFrom,
+    setOpen,
+    initialHighlightData,
+    initialPublicMessageTo,
+    onPublishSuccess,
+    discussionDynamicTopics
+  ])
 
   if (isSmallScreen) {
     return (

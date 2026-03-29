@@ -33,7 +33,7 @@ import {
   createCitationPromptDraftEvent
 } from '@/lib/draft-event'
 import { ExtendedKind } from '@/constants'
-import { isTouchDevice } from '@/lib/utils'
+import { cn, isTouchDevice } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFeed } from '@/providers/FeedProvider'
 import { useReply } from '@/providers/ReplyProvider'
@@ -44,16 +44,21 @@ import postEditorCache from '@/services/post-editor-cache.service'
 import storage from '@/services/local-storage.service'
 import { TPollCreateData } from '@/types'
 import {
+  Book,
+  Check,
+  ChevronDown,
   ImageUp,
   ListTodo,
   MessageCircle,
   MessagesSquare,
   Settings,
   Smile,
+  Users,
   X,
   Highlighter,
   FileText,
   Quote,
+  StickyNote,
   Upload,
   Mic,
   Music,
@@ -68,7 +73,22 @@ import { successfulPublishRelayUrls, type TRelayPublishStatus } from '@/lib/publ
 import client, { eventService } from '@/services/client.service'
 import discussionFeedCache from '@/services/discussion-feed-cache.service'
 import noteStatsService from '@/services/note-stats.service'
-import CreateThreadDialog from '@/pages/primary/DiscussionsPage/CreateThreadDialog'
+import {
+  buildAllAvailableTopics,
+  collectDiscussionThreadTags,
+  discussionThreadDraftKindParams,
+  displayTopicLabel,
+  resolveTopicFromInput,
+  THREAD_POST_EDITOR_PARENT,
+  type TDiscussionDynamicTopics
+} from '@/lib/discussion-thread-composer'
+import { prefixNostrAddresses } from '@/lib/nostr-address'
+import dayjs from 'dayjs'
+import { TDraftEvent } from '@/types'
+import { useGroupList } from '@/providers/GroupListProvider'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Switch } from '@/components/ui/switch'
+import { DISCUSSION_TOPICS } from '@/pages/primary/DiscussionsPage/discussionTopics'
 import { getReplaceableCoordinateFromEvent, isProtectedEvent as isEventProtected, isReplaceableEvent, isReplyNoteEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -95,7 +115,8 @@ export default function PostContent({
   openFrom,
   initialHighlightData,
   initialPublicMessageTo,
-  onPublishSuccess
+  onPublishSuccess,
+  discussionDynamicTopics
 }: {
   defaultContent?: string
   parentEvent?: Event
@@ -106,9 +127,12 @@ export default function PostContent({
   initialPublicMessageTo?: string
   /** Called after a reply/post is successfully published, before closing. */
   onPublishSuccess?: () => void
+  /** Optional hot/discussion topics (e.g. from Discussions spell) for the thread composer. */
+  discussionDynamicTopics?: TDiscussionDynamicTopics | null
 }) {
   const { t } = useTranslation()
   const { pubkey, publish, checkLogin } = useNostr()
+  const { userGroups } = useGroupList()
   const { feedInfo } = useFeed()
   const { addReplies } = useReply()
 
@@ -196,7 +220,29 @@ export default function PostContent({
     relays: []
   })
   const [minPow, setMinPow] = useState(0)
-  const [createThreadOpen, setCreateThreadOpen] = useState(false)
+  const [isDiscussionThread, setIsDiscussionThread] = useState(false)
+  const [threadTitle, setThreadTitle] = useState('')
+  const [threadTopicInput, setThreadTopicInput] = useState(() => {
+    const row = DISCUSSION_TOPICS.find((x) => x.id === 'general')
+    return row?.label ?? 'general'
+  })
+  const [threadSelectedTopic, setThreadSelectedTopic] = useState('general')
+  const [threadSelectedGroup, setThreadSelectedGroup] = useState('')
+  const [threadIsReadingGroup, setThreadIsReadingGroup] = useState(false)
+  const [threadReadingAuthor, setThreadReadingAuthor] = useState('')
+  const [threadReadingSubject, setThreadReadingSubject] = useState('')
+  const [threadShowReadingsPanel, setThreadShowReadingsPanel] = useState(false)
+  const [threadTopicPopoverOpen, setThreadTopicPopoverOpen] = useState(false)
+  const [threadGroupPopoverOpen, setThreadGroupPopoverOpen] = useState(false)
+  const [threadErrors, setThreadErrors] = useState<{
+    title?: string
+    content?: string
+    topic?: string
+    relay?: string
+    author?: string
+    subject?: string
+    group?: string
+  }>({})
   const [mediaNoteKind, setMediaNoteKind] = useState<number | null>(null)
   const [mediaImetaTags, setMediaImetaTags] = useState<string[][]>([])
   const [mediaUrl, setMediaUrl] = useState<string>('')
@@ -247,6 +293,23 @@ export default function PostContent({
   const uploadedMediaFileMap = useRef<Map<string, File>>(new Map())
   /** Accumulates imeta tags for kind 20 (picture) so multiple rapid uploads don’t overwrite each other. */
   const pictureImetaTagsRef = useRef<string[][]>([])
+  /** Stable auto d-tag when the field is left empty; `{ slug, value }` resets when article subtype changes. */
+  const articleDTagFallbackRef = useRef<{ slug: string; value: string } | null>(null)
+
+  useEffect(() => {
+    if (articleDTag.trim()) {
+      articleDTagFallbackRef.current = null
+    }
+  }, [articleDTag])
+
+  useEffect(() => {
+    const isArticle =
+      isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
+    if (!isArticle) {
+      articleDTagFallbackRef.current = null
+    }
+  }, [isLongFormArticle, isWikiArticle, isWikiArticleMarkdown, isPublicationContent])
+
   useEffect(() => {
     if (mediaNoteKind === ExtendedKind.PICTURE && mediaImetaTags.length > 0) {
       pictureImetaTagsRef.current = mediaImetaTags
@@ -254,20 +317,68 @@ export default function PostContent({
   }, [mediaNoteKind, mediaImetaTags])
   const isFirstRender = useRef(true)
 
+  const allAvailableTopics = useMemo(
+    () => buildAllAvailableTopics(discussionDynamicTopics),
+    [discussionDynamicTopics]
+  )
+
+  const threadTopicResolved = useMemo(
+    () => (isDiscussionThread ? resolveTopicFromInput(threadTopicInput, allAvailableTopics) : ''),
+    [isDiscussionThread, threadTopicInput, allAvailableTopics]
+  )
+
+  const discussionPreviewExtraTags = useMemo((): string[][] | undefined => {
+    if (!isDiscussionThread) return undefined
+    const resolved = resolveTopicFromInput(threadTopicInput, allAvailableTopics)
+    if (!resolved) return []
+    return collectDiscussionThreadTags({
+      processedContent: prefixNostrAddresses(text.trim()),
+      topicForTags: resolved,
+      title: threadTitle,
+      selectedGroup: threadSelectedGroup,
+      dynamicTopics: discussionDynamicTopics,
+      isReadingGroup: threadIsReadingGroup,
+      author: threadReadingAuthor,
+      subject: threadReadingSubject,
+      isNsfw
+    })
+  }, [
+    isDiscussionThread,
+    threadTopicInput,
+    allAvailableTopics,
+    text,
+    threadTitle,
+    threadSelectedGroup,
+    discussionDynamicTopics,
+    threadIsReadingGroup,
+    threadReadingAuthor,
+    threadReadingSubject,
+    isNsfw
+  ])
+
   const canPost = useMemo(() => {
-    const isArticle = isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
+    const discussionOk =
+      !isDiscussionThread ||
+      !!parentEvent ||
+      (!!threadTitle.trim() &&
+        threadTitle.length <= 100 &&
+        !!threadTopicResolved &&
+        !!text.trim() &&
+        text.length <= 5000 &&
+        additionalRelayUrls.length > 0 &&
+        (!threadIsReadingGroup || (!!threadReadingAuthor.trim() && !!threadReadingSubject.trim())) &&
+        (threadTopicResolved !== 'groups' || !!threadSelectedGroup.trim()))
     const result = (
       !!pubkey &&
       !posting &&
       !uploadProgresses.length &&
+      discussionOk &&
       // For media notes, text is optional - just need media
       ((mediaNoteKind !== null && mediaUrl) || !!text) &&
       (!isPoll || pollCreateData.options.filter((option) => !!option.trim()).length >= 2) &&
       (!isPublicMessage || extractedMentions.length > 0 || parentEvent?.kind === ExtendedKind.PUBLIC_MESSAGE) &&
       (!isProtectedEvent || additionalRelayUrls.length > 0) &&
       (!isHighlight || highlightData.sourceValue.trim() !== '') &&
-      // For articles, dTag is mandatory
-      (!isArticle || !!articleDTag.trim()) &&
       // For citations, required fields must be filled
       (!isCitationInternal || !!citationInternalCTag.trim()) &&
       (!isCitationExternal || (!!citationExternalUrl.trim() && !!citationAccessedOn.trim())) &&
@@ -287,16 +398,11 @@ export default function PostContent({
     pollCreateData,
     isPublicMessage,
     extractedMentions,
-    parentEvent?.kind,
+    parentEvent,
     isProtectedEvent,
     additionalRelayUrls,
     isHighlight,
     highlightData,
-    isLongFormArticle,
-    isWikiArticle,
-    isWikiArticleMarkdown,
-    isPublicationContent,
-    articleDTag,
     isCitationInternal,
     citationInternalCTag,
     isCitationExternal,
@@ -304,7 +410,14 @@ export default function PostContent({
     citationAccessedOn,
     isCitationHardcopy,
     isCitationPrompt,
-    citationPromptLlm
+    citationPromptLlm,
+    isDiscussionThread,
+    threadTitle,
+    threadTopicResolved,
+    threadIsReadingGroup,
+    threadReadingAuthor,
+    threadReadingSubject,
+    threadSelectedGroup
   ])
 
   // Clear highlight data when initialHighlightData changes or is removed
@@ -366,6 +479,28 @@ export default function PostContent({
     })
   }, [pubkey])
 
+  useEffect(() => {
+    if (!isDiscussionThread || parentEvent) return
+    if (!threadTitle && !text.trim()) return
+    const h = setTimeout(() => {
+      const tr = resolveTopicFromInput(threadTopicInput, allAvailableTopics)
+      postEditorCache.setThreadDraft({
+        title: threadTitle,
+        content: text,
+        topic: tr || threadSelectedTopic
+      })
+    }, 500)
+    return () => clearTimeout(h)
+  }, [
+    isDiscussionThread,
+    parentEvent,
+    threadTitle,
+    text,
+    threadTopicInput,
+    threadSelectedTopic,
+    allAvailableTopics
+  ])
+
   // Helper function to determine the kind that will be created
   const getDeterminedKind = useMemo((): number => {
     // Public messages always take priority - even with media, they stay as PMs
@@ -378,6 +513,8 @@ export default function PostContent({
     // For voice comments in replies, check mediaNoteKind even if mediaUrl is not set yet (for preview)
     if (parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT) {
       return ExtendedKind.VOICE_COMMENT
+    } else if (isDiscussionThread && !parentEvent) {
+      return ExtendedKind.DISCUSSION
     } else if (mediaNoteKind !== null && mediaUrl) {
       return mediaNoteKind
     } else if (isLongFormArticle) {
@@ -408,6 +545,7 @@ export default function PostContent({
   }, [
     mediaNoteKind,
     mediaUrl,
+    isDiscussionThread,
     isLongFormArticle,
     isWikiArticle,
     isWikiArticleMarkdown,
@@ -512,6 +650,29 @@ export default function PostContent({
       })
     }
 
+    if (isDiscussionThread && !parentEvent) {
+      const processed = prefixNostrAddresses(cleanedText.trim())
+      const topicResolved = resolveTopicFromInput(threadTopicInput, allAvailableTopics) || threadSelectedTopic
+      const tags = collectDiscussionThreadTags({
+        processedContent: processed,
+        topicForTags: topicResolved,
+        title: threadTitle,
+        selectedGroup: threadSelectedGroup,
+        dynamicTopics: discussionDynamicTopics,
+        isReadingGroup: threadIsReadingGroup,
+        author: threadReadingAuthor,
+        subject: threadReadingSubject,
+        isNsfw
+      })
+      const draft: TDraftEvent = {
+        kind: ExtendedKind.DISCUSSION,
+        content: processed,
+        tags,
+        created_at: dayjs().unix()
+      }
+      return draft
+    }
+
     // Check for voice comments (only for non-PM replies)
     if (parentEvent && mediaNoteKind === ExtendedKind.VOICE_COMMENT) {
       const url = mediaUrl || 'placeholder://audio'
@@ -589,9 +750,35 @@ export default function PostContent({
       : []
 
     // Articles
+    const isArticleDraft =
+      isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
+    let effectiveArticleDTag = ''
+    if (isArticleDraft) {
+      const trimmedDTag = articleDTag.trim()
+      if (trimmedDTag) {
+        effectiveArticleDTag = trimmedDTag
+      } else {
+        const slug = isLongFormArticle
+          ? 'longform-article'
+          : isWikiArticle
+            ? 'wiki-article'
+            : isWikiArticleMarkdown
+              ? 'wiki-markdown'
+              : 'publication-content'
+        const prev = articleDTagFallbackRef.current
+        if (!prev || prev.slug !== slug) {
+          articleDTagFallbackRef.current = {
+            slug,
+            value: `${slug}-${Math.floor(Date.now() / 1000)}`
+          }
+        }
+        effectiveArticleDTag = articleDTagFallbackRef.current!.value
+      }
+    }
+
     if (isLongFormArticle) {
       return await createLongFormArticleDraftEvent(cleanedText, mentions, {
-        dTag: articleDTag.trim(),
+        dTag: effectiveArticleDTag,
         title: articleTitle.trim() || undefined,
         summary: articleSummary.trim() || undefined,
         image: articleImage.trim() || undefined,
@@ -605,7 +792,7 @@ export default function PostContent({
       })
     } else if (isWikiArticle) {
       return await createWikiArticleDraftEvent(cleanedText, mentions, {
-        dTag: articleDTag.trim(),
+        dTag: effectiveArticleDTag,
         title: articleTitle.trim() || undefined,
         summary: articleSummary.trim() || undefined,
         image: articleImage.trim() || undefined,
@@ -619,7 +806,7 @@ export default function PostContent({
       })
     } else if (isWikiArticleMarkdown) {
       return await createWikiArticleMarkdownDraftEvent(cleanedText, mentions, {
-        dTag: articleDTag.trim(),
+        dTag: effectiveArticleDTag,
         title: articleTitle.trim() || undefined,
         summary: articleSummary.trim() || undefined,
         image: articleImage.trim() || undefined,
@@ -633,7 +820,7 @@ export default function PostContent({
       })
     } else if (isPublicationContent) {
       return await createPublicationContentDraftEvent(cleanedText, mentions, {
-        dTag: articleDTag.trim(),
+        dTag: effectiveArticleDTag,
         title: articleTitle.trim() || undefined,
         summary: articleSummary.trim() || undefined,
         image: articleImage.trim() || undefined,
@@ -778,6 +965,16 @@ export default function PostContent({
     mediaUrl,
     mediaImetaTags,
     mentions,
+    isDiscussionThread,
+    threadTopicInput,
+    allAvailableTopics,
+    threadSelectedTopic,
+    threadTitle,
+    threadSelectedGroup,
+    discussionDynamicTopics,
+    threadIsReadingGroup,
+    threadReadingAuthor,
+    threadReadingSubject,
     isLongFormArticle,
     isWikiArticle,
     isWikiArticleMarkdown,
@@ -805,12 +1002,6 @@ export default function PostContent({
 
   // Function to generate draft event JSON for preview
   const getDraftEventJson = useCallback(async (): Promise<string> => {
-    // For articles, validate dTag is provided
-    const isArticle = isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
-    if (isArticle && !articleDTag.trim()) {
-      throw new Error(t('D-Tag is required for articles'))
-    }
-
     if (!pubkey) {
       return JSON.stringify({ error: 'Not logged in' }, null, 2)
     }
@@ -824,17 +1015,7 @@ export default function PostContent({
     } catch (error) {
       return JSON.stringify({ error: error instanceof Error ? error.message : String(error) }, null, 2)
     }
-  }, [
-    text,
-    pubkey,
-    isLongFormArticle,
-    isWikiArticle,
-    isWikiArticleMarkdown,
-    isPublicationContent,
-    articleDTag,
-    createDraftEvent,
-    t
-  ])
+  }, [text, pubkey, isDiscussionThread, createDraftEvent])
 
   const post = async (e?: React.MouseEvent) => {
     e?.stopPropagation()
@@ -842,6 +1023,42 @@ export default function PostContent({
       if (!canPost) {
         logger.warn('Attempted to post while canPost is false')
         return
+      }
+
+      if (isDiscussionThread && !parentEvent) {
+        const newErrors: typeof threadErrors = {}
+        const topicResolved = resolveTopicFromInput(threadTopicInput, allAvailableTopics)
+        if (!threadTitle.trim()) {
+          newErrors.title = t('Title is required')
+        } else if (threadTitle.length > 100) {
+          newErrors.title = t('Title must be 100 characters or less')
+        }
+        if (!topicResolved) {
+          newErrors.topic = t('Topic is required')
+        }
+        if (!text.trim()) {
+          newErrors.content = t('Content is required')
+        } else if (text.length > 5000) {
+          newErrors.content = t('Content must be 5000 characters or less')
+        }
+        if (additionalRelayUrls.length === 0) {
+          newErrors.relay = t('Please select at least one relay')
+        }
+        if (threadIsReadingGroup) {
+          if (!threadReadingAuthor.trim()) {
+            newErrors.author = t('Author is required for reading groups')
+          }
+          if (!threadReadingSubject.trim()) {
+            newErrors.subject = t('Subject (book title) is required for reading groups')
+          }
+        }
+        if (topicResolved === 'groups' && !threadSelectedGroup.trim()) {
+          newErrors.group = t('Please select a group')
+        }
+        setThreadErrors(newErrors)
+        if (Object.keys(newErrors).length > 0) {
+          return
+        }
       }
 
       // console.log('🚀 Starting post process:', {
@@ -871,6 +1088,12 @@ export default function PostContent({
 
         // Create draft event using shared function
         draftEvent = await createDraftEvent(cleanedText)
+
+        const publishSuccessMessage = parentEvent
+          ? t('Reply published')
+          : isDiscussionThread && !parentEvent
+            ? t('Thread published')
+            : t('Post published')
 
         // console.log('Publishing draft event:', draftEvent)
         // For private events, only publish to private relays
@@ -911,15 +1134,20 @@ export default function PostContent({
             successCount: (newEvent as any).relayStatuses.filter((s: any) => s.success).length,
             totalCount: (newEvent as any).relayStatuses.length
           }, {
-            message: parentEvent ? t('Reply published') : t('Post published'),
+            message: publishSuccessMessage,
             duration: 6000
           })
         } else {
-          showSimplePublishSuccess(parentEvent ? t('Reply published') : t('Post published'))
+          showSimplePublishSuccess(publishSuccessMessage)
         }
         
         // Full success - clean up and close
         postEditorCache.clearPostCache({ kind: getDeterminedKind, defaultContent, parentEvent })
+        if (isDiscussionThread && !parentEvent) {
+          postEditorCache.clearPostCache(discussionThreadDraftKindParams())
+          postEditorCache.clearThreadDraft()
+          discussionFeedCache.clearDiscussionsListCache()
+        }
         deleteDraftEventCache(draftEvent)
         const relayStatuses = (newEvent as any).relayStatuses as TRelayPublishStatus[] | undefined
         const cleanEvent = { ...newEvent }
@@ -970,6 +1198,11 @@ export default function PostContent({
               mergePublishedReplyIntoThread(clean, (error as any).relayStatuses)
             }
             postEditorCache.clearPostCache({ kind: getDeterminedKind, defaultContent, parentEvent })
+            if (isDiscussionThread && !parentEvent) {
+              postEditorCache.clearPostCache(discussionThreadDraftKindParams())
+              postEditorCache.clearThreadDraft()
+              discussionFeedCache.clearDiscussionsListCache()
+            }
             if (draftEvent) deleteDraftEventCache(draftEvent)
             onPublishSuccess?.()
             close()
@@ -1000,10 +1233,18 @@ export default function PostContent({
       // When enabling poll mode, clear other modes
       setIsPublicMessage(false)
       setIsHighlight(false)
+      setIsLongFormArticle(false)
+      setIsWikiArticle(false)
+      setIsWikiArticleMarkdown(false)
+      setIsPublicationContent(false)
       setIsCitationInternal(false)
       setIsCitationExternal(false)
       setIsCitationHardcopy(false)
       setIsCitationPrompt(false)
+      setIsDiscussionThread(false)
+      setMediaNoteKind(null)
+      setMediaUrl('')
+      setMediaImetaTags([])
     }
   }
 
@@ -1015,12 +1256,77 @@ export default function PostContent({
       // When enabling public message mode, clear other modes
       setIsPoll(false)
       setIsHighlight(false)
+      setIsLongFormArticle(false)
+      setIsWikiArticle(false)
+      setIsWikiArticleMarkdown(false)
+      setIsPublicationContent(false)
       setIsCitationInternal(false)
       setIsCitationExternal(false)
       setIsCitationHardcopy(false)
       setIsCitationPrompt(false)
+      setIsDiscussionThread(false)
+      setMediaNoteKind(null)
+      setMediaUrl('')
+      setMediaImetaTags([])
     }
   }
+
+  const handlePlainNoteMode = () => {
+    if (parentEvent) return
+    setIsPoll(false)
+    setIsPublicMessage(false)
+    setIsHighlight(false)
+    setIsLongFormArticle(false)
+    setIsWikiArticle(false)
+    setIsWikiArticleMarkdown(false)
+    setIsPublicationContent(false)
+    setIsCitationInternal(false)
+    setIsCitationExternal(false)
+    setIsCitationHardcopy(false)
+    setIsCitationPrompt(false)
+    setIsDiscussionThread(false)
+    setMediaNoteKind(null)
+    setMediaUrl('')
+    setMediaImetaTags([])
+    pictureImetaTagsRef.current = []
+    uploadedMediaFileMap.current.clear()
+  }
+
+  const isPlainShortNoteToolbar = useMemo(
+    () =>
+      !parentEvent &&
+      !isPoll &&
+      !isPublicMessage &&
+      !isHighlight &&
+      !isLongFormArticle &&
+      !isWikiArticle &&
+      !isWikiArticleMarkdown &&
+      !isPublicationContent &&
+      !isCitationInternal &&
+      !isCitationExternal &&
+      !isCitationHardcopy &&
+      !isCitationPrompt &&
+      !isDiscussionThread &&
+      mediaNoteKind === null &&
+      !mediaUrl,
+    [
+      parentEvent,
+      isPoll,
+      isPublicMessage,
+      isHighlight,
+      isLongFormArticle,
+      isWikiArticle,
+      isWikiArticleMarkdown,
+      isPublicationContent,
+      isCitationInternal,
+      isCitationExternal,
+      isCitationHardcopy,
+      isCitationPrompt,
+      isDiscussionThread,
+      mediaNoteKind,
+      mediaUrl
+    ]
+  )
 
   const handleHighlightToggle = () => {
     if (parentEvent) return
@@ -1030,11 +1336,54 @@ export default function PostContent({
       // When enabling highlight mode, clear other modes and set client tag to true
       setIsPoll(false)
       setIsPublicMessage(false)
+      setIsLongFormArticle(false)
+      setIsWikiArticle(false)
+      setIsWikiArticleMarkdown(false)
+      setIsPublicationContent(false)
       setIsCitationInternal(false)
       setIsCitationExternal(false)
       setIsCitationHardcopy(false)
       setIsCitationPrompt(false)
+      setIsDiscussionThread(false)
+      setMediaNoteKind(null)
+      setMediaUrl('')
+      setMediaImetaTags([])
       setAddClientTag(true)
+    }
+  }
+
+  const handleDiscussionThreadToggle = () => {
+    if (parentEvent) return
+    if (!isDiscussionThread) {
+      setIsPoll(false)
+      setIsPublicMessage(false)
+      setIsHighlight(false)
+      setIsCitationInternal(false)
+      setIsCitationExternal(false)
+      setIsCitationHardcopy(false)
+      setIsCitationPrompt(false)
+      setMediaNoteKind(null)
+      setMediaUrl('')
+      setMediaImetaTags([])
+      const draft = postEditorCache.getThreadDraft()
+      if (draft) {
+        setThreadTitle(draft.title)
+        setText(draft.content)
+        setThreadSelectedTopic(draft.topic)
+        const predefined = DISCUSSION_TOPICS.find((x) => x.id === draft.topic)
+        const dyn = discussionDynamicTopics?.allTopics.find((x) => x.id === draft.topic)
+        setThreadTopicInput(predefined?.label ?? dyn?.label ?? draft.topic)
+      } else {
+        setThreadTitle('')
+        setThreadSelectedTopic('general')
+        const row = DISCUSSION_TOPICS.find((x) => x.id === 'general')
+        setThreadTopicInput(row?.label ?? 'general')
+      }
+      setThreadErrors({})
+      setIsDiscussionThread(true)
+    } else {
+      setIsDiscussionThread(false)
+      setThreadErrors({})
     }
   }
 
@@ -1076,7 +1425,7 @@ export default function PostContent({
           }
           // Note: URL will be inserted when upload completes in handleMediaUploadSuccess
         }
-      } else {
+      } else if (!isDiscussionThread) {
         // For new posts, detect the kind from the file (async)
         getMediaKindFromFile(file, false)
           .then((kind) => setMediaNoteKind(kind))
@@ -1306,6 +1655,18 @@ export default function PostContent({
         return
       }
 
+      if (isDiscussionThread && !parentEvent) {
+        setTimeout(() => {
+          const ed = textareaRef.current
+          if (ed && !ed.getText().includes(url)) {
+            ed.appendText(url, true)
+          }
+        }, 100)
+        uploadedMediaFileMap.current.delete(`${uploadingFile.name}-${uploadingFile.size}-${uploadingFile.lastModified}`)
+        handleUploadEnd(uploadingFile)
+        return
+      }
+
       // Determine media kind from file
       // For replies, only audio comments are supported (kind 1244)
       // For new PMs, audio messages are supported (kind 1222)
@@ -1421,6 +1782,7 @@ export default function PostContent({
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
     setIsCitationPrompt(false)
+    setIsDiscussionThread(false)
 
     // Clear uploaded file from map and picture accumulation ref
     uploadedMediaFileMap.current.clear()
@@ -1444,6 +1806,7 @@ export default function PostContent({
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
     setIsCitationPrompt(false)
+    setIsDiscussionThread(false)
     
     // Clear article metadata when switching off article mode
     if (type === null) {
@@ -1484,6 +1847,7 @@ export default function PostContent({
     setIsWikiArticle(false)
     setIsWikiArticleMarkdown(false)
     setIsPublicationContent(false)
+    setIsDiscussionThread(false)
     
     // Set default accessedOn if not already set
     if (!citationAccessedOn && (type === 'external' || type === 'hardcopy' || type === 'prompt')) {
@@ -1492,6 +1856,7 @@ export default function PostContent({
   }
 
   const handleClear = () => {
+    const wasDiscussion = isDiscussionThread
     // Clear the post editor cache
     postEditorCache.clearPostCache({ kind: getDeterminedKind, defaultContent, parentEvent })
     
@@ -1516,6 +1881,21 @@ export default function PostContent({
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
     setIsCitationPrompt(false)
+    setIsDiscussionThread(false)
+    setThreadTitle('')
+    setThreadSelectedTopic('general')
+    const gRow = DISCUSSION_TOPICS.find((x) => x.id === 'general')
+    setThreadTopicInput(gRow?.label ?? 'general')
+    setThreadSelectedGroup('')
+    setThreadIsReadingGroup(false)
+    setThreadReadingAuthor('')
+    setThreadReadingSubject('')
+    setThreadShowReadingsPanel(false)
+    setThreadErrors({})
+    if (wasDiscussion) {
+      postEditorCache.clearThreadDraft()
+      postEditorCache.clearPostCache(discussionThreadDraftKindParams())
+    }
     // Clear citation fields
     setCitationInternalCTag('')
     setCitationInternalRelayHint('')
@@ -1580,6 +1960,8 @@ export default function PostContent({
             return t('New Public Message')
           } else if (determinedKind === kinds.Highlights) {
             return t('New Highlight')
+          } else if (determinedKind === ExtendedKind.DISCUSSION) {
+            return t('New Discussion')
           } else if (determinedKind === kinds.LongFormArticle) {
             return t('New Long-form Article')
           } else if (determinedKind === ExtendedKind.WIKI_ARTICLE) {
@@ -1609,24 +1991,237 @@ export default function PostContent({
           </div>
         </ScrollArea>
       )}
+
+      {isDiscussionThread && !parentEvent && (
+        <div className="shrink-0 space-y-3 rounded-lg border bg-muted/30 p-4">
+          <div className="space-y-2">
+            <Label htmlFor="discussion-topic-input" className="text-sm font-medium">
+              {t('Topic')} <span className="text-destructive">*</span>
+            </Label>
+            <div className="flex min-w-0 gap-2">
+              <Input
+                id="discussion-topic-input"
+                value={threadTopicInput}
+                onChange={(e) => setThreadTopicInput(e.target.value)}
+                onBlur={() => {
+                  const r = resolveTopicFromInput(threadTopicInput, allAvailableTopics)
+                  if (r) {
+                    setThreadSelectedTopic(r)
+                    setThreadTopicInput(displayTopicLabel(r, allAvailableTopics))
+                  }
+                }}
+                placeholder={t('Type a topic or pick from the list')}
+                autoComplete="off"
+                className={cn('min-w-0 flex-1 bg-background', threadErrors.topic && 'border-destructive')}
+              />
+              <Popover open={threadTopicPopoverOpen} onOpenChange={setThreadTopicPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 shrink-0"
+                    title={t('Suggested topics')}
+                    aria-expanded={threadTopicPopoverOpen}
+                  >
+                    <ChevronDown className="h-4 w-4 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="z-[10000] w-72 p-2" align="end" side="bottom" sideOffset={4}>
+                  <p className="text-muted-foreground mb-2 px-1 text-xs font-medium">{t('Suggested topics')}</p>
+                  <div className="max-h-60 overflow-y-auto">
+                    {allAvailableTopics.map((topic, index) => {
+                      const Icon = topic.icon
+                      return (
+                        <div
+                          key={`topic-${index}-${topic.id}`}
+                          className="flex cursor-pointer items-center rounded p-2 hover:bg-accent"
+                          onClick={() => {
+                            setThreadSelectedTopic(topic.id)
+                            setThreadTopicInput(topic.label)
+                            setThreadTopicPopoverOpen(false)
+                          }}
+                        >
+                          <Check
+                            className={`mr-2 h-4 w-4 ${threadTopicResolved === topic.id ? 'opacity-100' : 'opacity-0'}`}
+                          />
+                          <Icon className="mr-2 h-4 w-4 shrink-0" />
+                          <span className="min-w-0 truncate text-sm">{topic.label}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+            {threadErrors.topic && <p className="text-sm text-destructive">{threadErrors.topic}</p>}
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'Choose a suggested topic or type your own. It becomes a normalized tag (e.g. my-topic).'
+              )}
+            </p>
+          </div>
+
+          {threadTopicResolved === 'groups' && (
+            <div className="space-y-2">
+              <Label htmlFor="discussion-group" className="text-sm font-medium">
+                {t('Select Group')}
+              </Label>
+              <Popover open={threadGroupPopoverOpen} onOpenChange={setThreadGroupPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={threadGroupPopoverOpen}
+                    className="h-9 w-full justify-between bg-background font-normal"
+                  >
+                    {threadSelectedGroup ? threadSelectedGroup : t('Select group...')}
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="z-[10000] w-[--radix-popover-trigger-width] p-2"
+                  align="start"
+                  side="bottom"
+                  sideOffset={4}
+                >
+                  <div className="max-h-60 overflow-y-auto">
+                    {userGroups.length === 0 ? (
+                      <div className="p-2 text-center text-sm text-muted-foreground">
+                        {t('No groups available. Join some groups first.')}
+                      </div>
+                    ) : (
+                      userGroups.map((groupId) => (
+                        <div
+                          key={groupId}
+                          className="flex cursor-pointer items-center rounded p-2 hover:bg-accent"
+                          onClick={() => {
+                            setThreadSelectedGroup(groupId)
+                            setThreadGroupPopoverOpen(false)
+                          }}
+                        >
+                          <Check
+                            className={`mr-2 h-4 w-4 ${threadSelectedGroup === groupId ? 'opacity-100' : 'opacity-0'}`}
+                          />
+                          <Users className="mr-2 h-4 w-4" />
+                          {groupId}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              {threadErrors.group && <p className="text-sm text-destructive">{threadErrors.group}</p>}
+              <p className="text-xs text-muted-foreground">
+                {t('Select the group where you want to create this discussion.')}
+              </p>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="discussion-thread-title" className="text-sm font-medium">
+              {t('Title')} <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="discussion-thread-title"
+              value={threadTitle}
+              onChange={(e) => setThreadTitle(e.target.value)}
+              placeholder={t('Enter a descriptive title for your thread')}
+              maxLength={100}
+              className={cn('bg-background', threadErrors.title && 'border-destructive')}
+            />
+            {threadErrors.title && <p className="text-sm text-destructive">{threadErrors.title}</p>}
+            <p className="text-xs text-muted-foreground">
+              {threadTitle.length}/100 {t('characters')}
+            </p>
+          </div>
+
+          {threadTopicResolved === 'literature' && (
+            <div className="shrink-0 space-y-2">
+              <div className="flex items-center gap-2">
+                <Book className="h-4 w-4" />
+                <Label className="text-sm font-medium">{t('Readings Options')}</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setThreadShowReadingsPanel(!threadShowReadingsPanel)}
+                  className="ml-auto"
+                >
+                  {threadShowReadingsPanel ? t('Hide') : t('Configure')}
+                </Button>
+              </div>
+
+              {threadShowReadingsPanel && (
+                <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Book className="h-4 w-4 text-primary" />
+                      <Label htmlFor="discussion-reading-group" className="text-sm">
+                        {t('Reading group entry')}
+                      </Label>
+                    </div>
+                    <Switch
+                      id="discussion-reading-group"
+                      checked={threadIsReadingGroup}
+                      onCheckedChange={setThreadIsReadingGroup}
+                    />
+                  </div>
+
+                  {threadIsReadingGroup && (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="discussion-reading-author">{t('Author')}</Label>
+                        <Input
+                          id="discussion-reading-author"
+                          value={threadReadingAuthor}
+                          onChange={(e) => setThreadReadingAuthor(e.target.value)}
+                          placeholder={t('Enter the author name')}
+                          className={threadErrors.author ? 'border-destructive' : ''}
+                        />
+                        {threadErrors.author && <p className="text-sm text-destructive">{threadErrors.author}</p>}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="discussion-reading-subject">{t('Subject (Book Title)')}</Label>
+                        <Input
+                          id="discussion-reading-subject"
+                          value={threadReadingSubject}
+                          onChange={(e) => setThreadReadingSubject(e.target.value)}
+                          placeholder={t('Enter the book title')}
+                          className={threadErrors.subject ? 'border-destructive' : ''}
+                        />
+                        {threadErrors.subject && <p className="text-sm text-destructive">{threadErrors.subject}</p>}
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">
+                        {t(
+                          'This will add additional tags for author and subject to help organize reading group discussions.'
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       
       {/* Article metadata fields */}
       {(isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent) && (
         <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
           <div className="space-y-2">
             <Label htmlFor="article-dtag" className="text-sm font-medium">
-              {t('D-Tag')} <span className="text-destructive">*</span>
+              {t('D-Tag')}
             </Label>
             <Input
               id="article-dtag"
               value={articleDTag}
               onChange={(e) => setArticleDTag(e.target.value)}
               placeholder={t('e.g., my-article-title')}
-              className={!articleDTag.trim() ? 'border-destructive' : ''}
             />
-            <p className="text-xs text-muted-foreground">
-              {t('Unique identifier for this article (required)')}
-            </p>
+            <p className="text-xs text-muted-foreground">{t('articleDTagDefaultHint')}</p>
           </div>
           
           <div className="space-y-2">
@@ -2047,9 +2642,12 @@ export default function PostContent({
           text={text}
           setText={setText}
           defaultContent={defaultContent}
-          parentEvent={parentEvent}
+          parentEvent={isDiscussionThread && !parentEvent ? THREAD_POST_EDITOR_PARENT : parentEvent}
           onSubmit={() => post()}
-          className={isPoll ? 'min-h-20' : 'min-h-52'}
+          className={cn(
+            isPoll ? 'min-h-20' : 'min-h-52',
+            isDiscussionThread && threadErrors.content && 'border-destructive'
+          )}
           onUploadStart={handleUploadStart}
           onUploadProgress={handleUploadProgress}
           onUploadEnd={handleUploadEnd}
@@ -2057,30 +2655,45 @@ export default function PostContent({
           highlightData={isHighlight ? highlightData : undefined}
           pollCreateData={isPoll ? pollCreateData : undefined}
           getDraftEventJson={getDraftEventJson}
-          extraPreviewTags={rssReplyExtraPreviewTags}
+          extraPreviewTags={
+            isDiscussionThread && !parentEvent ? discussionPreviewExtraTags : rssReplyExtraPreviewTags
+          }
           mediaImetaTags={mediaImetaTags}
           mediaUrl={mediaUrl}
           headerActions={
             <>
               {/* Media button - show for new posts only (replies have audio button at bottom) */}
               {!parentEvent && (
-                <Uploader
-                  onUploadSuccess={handleMediaUploadSuccess}
-                  onUploadStart={handleUploadStart}
-                  onUploadEnd={handleUploadEnd}
-                  onProgress={handleUploadProgress}
-                  accept="image/*,audio/*,video/*"
-                >
-                  <Button 
+                <>
+                  <Button
                     type="button"
-                    variant="ghost" 
+                    variant="ghost"
                     size="icon"
-                    title={t('Upload Media')}
-                    className={mediaNoteKind !== null ? 'bg-accent' : ''}
+                    title={t('composeModeKind1')}
+                    className={isPlainShortNoteToolbar ? 'bg-accent' : ''}
+                    aria-pressed={isPlainShortNoteToolbar}
+                    onClick={handlePlainNoteMode}
                   >
-                    <Upload className="h-4 w-4" />
+                    <StickyNote className="h-4 w-4" />
                   </Button>
-                </Uploader>
+                  <Uploader
+                    onUploadSuccess={handleMediaUploadSuccess}
+                    onUploadStart={handleUploadStart}
+                    onUploadEnd={handleUploadEnd}
+                    onProgress={handleUploadProgress}
+                    accept="image/*,audio/*,video/*"
+                  >
+                    <Button 
+                      type="button"
+                      variant="ghost" 
+                      size="icon"
+                      title={t('Upload Media')}
+                      className={mediaNoteKind !== null ? 'bg-accent' : ''}
+                    >
+                      <Upload className="h-4 w-4" />
+                    </Button>
+                  </Uploader>
+                </>
               )}
               {/* Note creation buttons - only show when not replying */}
               {!parentEvent && (
@@ -2116,7 +2729,8 @@ export default function PostContent({
                     variant="ghost"
                     size="icon"
                     title={t('Create Thread')}
-                    onClick={() => checkLogin(() => setCreateThreadOpen(true))}
+                    className={isDiscussionThread ? 'bg-accent' : ''}
+                    onClick={() => checkLogin(() => handleDiscussionThreadToggle())}
                   >
                     <MessagesSquare className="h-4 w-4" />
                   </Button>
@@ -2220,6 +2834,14 @@ export default function PostContent({
             </>
           }
         />
+      {isDiscussionThread && !parentEvent && (
+        <div className="flex min-w-0 flex-col gap-1">
+          {threadErrors.content && <p className="text-sm text-destructive">{threadErrors.content}</p>}
+          <p className="text-xs text-muted-foreground">
+            {text.length}/5000 {t('characters')}
+          </p>
+        </div>
+      )}
       {isPoll && (
         <PollEditor
           pollCreateData={pollCreateData}
@@ -2285,15 +2907,25 @@ export default function PostContent({
           </div>
         ))}
       {!isPoll && (
-        <PostRelaySelector
-          setIsProtectedEvent={setIsProtectedEvent}
-          setAdditionalRelayUrls={setAdditionalRelayUrls}
-          parentEvent={parentEvent}
-          openFrom={openFrom}
-          content={text}
-          isPublicMessage={isPublicMessage}
-          mentions={extractedMentions}
-        />
+        <div
+          className={cn(
+            'shrink-0',
+            isDiscussionThread && threadErrors.relay && 'rounded-md ring-1 ring-destructive'
+          )}
+        >
+          <PostRelaySelector
+            setIsProtectedEvent={setIsProtectedEvent}
+            setAdditionalRelayUrls={setAdditionalRelayUrls}
+            parentEvent={parentEvent}
+            openFrom={openFrom}
+            content={text}
+            isPublicMessage={isPublicMessage}
+            mentions={extractedMentions}
+          />
+          {isDiscussionThread && threadErrors.relay && (
+            <p className="mt-1 text-sm text-destructive">{threadErrors.relay}</p>
+          )}
+        </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
         <div className="flex gap-2 items-center min-w-0 shrink-0">
@@ -2388,7 +3020,13 @@ export default function PostContent({
               {posting && (
                 <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />
               )}
-              {parentEvent ? t('Reply') : isPublicMessage ? t('Send Public Message') : t('Post')}
+              {parentEvent
+                ? t('Reply')
+                : isPublicMessage
+                  ? t('Send Public Message')
+                  : isDiscussionThread
+                    ? t('Create Thread')
+                    : t('Post')}
             </Button>
           </div>
         </div>
@@ -2428,7 +3066,7 @@ export default function PostContent({
           {posting && (
             <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />
           )}
-          {parentEvent ? t('Reply') : t('Post')}
+          {parentEvent ? t('Reply') : isDiscussionThread ? t('Create Thread') : t('Post')}
         </Button>
       </div>
       
@@ -2514,16 +3152,6 @@ export default function PostContent({
         </DialogContent>
       </Dialog>
       </NeventPickerProvider>
-      {createThreadOpen && (
-        <CreateThreadDialog
-          onClose={() => setCreateThreadOpen(false)}
-          onThreadCreated={() => {
-            discussionFeedCache.clearDiscussionsListCache()
-            setCreateThreadOpen(false)
-            close()
-          }}
-        />
-      )}
     </div>
   )
 }
