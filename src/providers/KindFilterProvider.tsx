@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useMemo } from 'react'
+import type { ReactNode } from 'react'
 import storage from '@/services/local-storage.service'
 import { DEFAULT_FEED_SHOW_KINDS, ExtendedKind } from '@/constants'
 import { kinds } from 'nostr-tools'
@@ -53,7 +54,33 @@ export const useKindFilter = () => {
   return context
 }
 
-export function KindFilterProvider({ children }: { children: React.ReactNode }) {
+/** When context is missing (e.g. Vite HMR / duplicate module instances), use storage-backed defaults. */
+function createKindFilterFallback(): TKindFilterContext {
+  const defaultShowKinds = DEFAULT_FEED_SHOW_KINDS
+  const storedShowKinds = storage.getShowKinds()
+  const showKinds = storedShowKinds.length > 0 ? storedShowKinds : defaultShowKinds
+  const noop = () => {}
+  return {
+    showKinds,
+    showKind1OPs: storage.getShowKind1OPs(),
+    showKind1Replies: storage.getShowKind1Replies(),
+    showKind1111: storage.getShowKind1111(),
+    feedKindFilterBypass: storage.getFeedKindFilterBypass(),
+    updateShowKinds: noop,
+    updateShowKind1OPs: noop,
+    updateShowKind1Replies: noop,
+    updateShowKind1111: noop,
+    updateFeedKindFilterBypass: noop
+  }
+}
+
+export function useKindFilterOrDefaults(): TKindFilterContext {
+  const context = useContext(KindFilterContext)
+  const fallback = useMemo(() => createKindFilterFallback(), [])
+  return context ?? fallback
+}
+
+export function KindFilterProvider({ children }: { children: ReactNode }) {
   const defaultShowKinds = DEFAULT_FEED_SHOW_KINDS
   const storedShowKinds = storage.getShowKinds()
   const storedShowKind1OPs = storage.getShowKind1OPs()

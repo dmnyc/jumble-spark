@@ -3,7 +3,7 @@ import type { TNoteListRef } from '@/components/NoteList'
 import { checkAlgoRelay } from '@/lib/relay'
 import { normalizeUrl } from '@/lib/url'
 import { useFeed } from '@/providers/FeedProvider'
-import { useKindFilter } from '@/providers/KindFilterProvider'
+import { useKindFilterOrDefaults } from '@/providers/KindFilterProvider'
 import relayInfoService from '@/services/relay-info.service'
 import { kinds } from 'nostr-tools'
 import React, { forwardRef, useEffect, useMemo, useState } from 'react'
@@ -18,7 +18,7 @@ const RelaysFeed = forwardRef<
   }
 >(function RelaysFeed({ setSubHeader, onSubHeaderRefresh, kindsOverride }, ref) {
   const { feedInfo, relayUrls } = useFeed()
-  const { showKinds } = useKindFilter()
+  const { showKinds } = useKindFilterOrDefaults()
   const [areAlgoRelays, setAreAlgoRelays] = useState(false)
   const [relayAlgoReady, setRelayAlgoReady] = useState(false)
 

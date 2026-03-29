@@ -9,9 +9,17 @@ import { generateBech32IdFromATag } from '@/lib/tag'
 import { isReplaceableEvent } from '@/lib/event'
 import client from '@/services/client.service'
 import { eventService } from '@/services/client.service'
+import logger from '@/lib/logger'
 import indexedDb from '@/services/indexed-db.service'
 import type { Event } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+const PUB_SEC_LOG = '[PublicationSection]'
+function pubLog(message: string, data?: Record<string, unknown>) {
+  if (!import.meta.env.DEV) return
+  if (data) logger.info(`${PUB_SEC_LOG} ${message}`, data)
+  else logger.info(`${PUB_SEC_LOG} ${message}`)
+}
 
 export type SectionLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
 
@@ -134,6 +142,11 @@ export function usePublicationSectionLoader(indexEvent: Event, referencesData: P
 
       if (refsToLoad.length === 0) return
 
+      pubLog('flush_start', {
+        keys: refsToLoad.map((r) => refKey(r)),
+        relayCount: relayUrlsRef.current.length
+      })
+
       setRows((prev) => {
         const next = new Map(prev)
         for (const ref of refsToLoad) {
@@ -147,25 +160,53 @@ export function usePublicationSectionLoader(indexEvent: Event, referencesData: P
       const urls = relayUrlsRef.current
       const resolved = new Map<string, Event>()
 
-      if (urls.length > 0) {
-        const fromDb = await hydrateRefsFromIndexedDb(refsToLoad)
-        for (const [k, ev] of fromDb) {
+      // Always hydrate from IDB — do not gate on relay URLs (they resolve async after first IO batch).
+      const fromDb = await hydrateRefsFromIndexedDb(refsToLoad)
+      for (const [k, ev] of fromDb) {
+        resolved.set(k, ev)
+        client.addEventToCache(ev)
+      }
+
+      let stillNeed = refsToLoad.filter((r) => !resolved.has(refKey(r)))
+      pubLog('after_idb', {
+        fromDb: fromDb.size,
+        stillNeed: stillNeed.map((r) => ({ key: refKey(r), type: r.type }))
+      })
+
+      // No relay list yet: apply DB hits only, re-queue the rest (do not mark error).
+      if (urls.length === 0 && stillNeed.length > 0) {
+        for (const r of stillNeed) pendingRef.current.add(refKey(r))
+        pubLog('defer_net_until_relays', { reQueued: stillNeed.length })
+        setRows((prev) => {
+          const next = new Map(prev)
+          for (const ref of refsToLoad) {
+            const k = refKey(ref)
+            const row = next.get(k)
+            if (!row) continue
+            const ev = resolved.get(k)
+            if (ev) next.set(k, { ...row, event: ev, status: 'loaded' })
+            else next.set(k, { ...row, status: 'idle', event: undefined })
+          }
+          return next
+        })
+        return
+      }
+
+      if (urls.length > 0 && stillNeed.length > 0) {
+        const fromNet = await batchFetchPublicationSectionEvents(stillNeed, urls)
+        pubLog('after_batch_fetch', { fromNet: fromNet.size })
+        for (const [k, ev] of fromNet) {
           resolved.set(k, ev)
           client.addEventToCache(ev)
-        }
-
-        const stillNeed = refsToLoad.filter((r) => !resolved.has(refKey(r)))
-        if (stillNeed.length > 0) {
-          const fromNet = await batchFetchPublicationSectionEvents(stillNeed, urls)
-          for (const [k, ev] of fromNet) {
-            resolved.set(k, ev)
-            client.addEventToCache(ev)
-            if (isReplaceableEvent(ev.kind)) void indexedDb.putReplaceableEvent(ev)
-          }
+          if (isReplaceableEvent(ev.kind)) void indexedDb.putReplaceableEvent(ev)
         }
       }
 
       const missing = refsToLoad.filter((r) => !resolved.has(refKey(r)))
+      pubLog('before_fallback', {
+        missing: missing.map((r) => refKey(r)),
+        relayUrlsEmpty: urls.length === 0
+      })
       await Promise.all(
         missing.map(async (ref) => {
           const k = refKey(ref)
@@ -177,6 +218,17 @@ export function usePublicationSectionLoader(indexEvent: Event, referencesData: P
           }
         })
       )
+
+      const failed = refsToLoad.filter((r) => !resolved.has(refKey(r)))
+      pubLog('flush_done', {
+        loaded: refsToLoad.length - failed.length,
+        failed: failed.map((r) => ({
+          key: refKey(r),
+          type: r.type,
+          coordinate: r.coordinate,
+          eventId: r.eventId
+        }))
+      })
 
       setRows((prev) => {
         const next = new Map(prev)
@@ -223,8 +275,8 @@ export function usePublicationSectionLoader(indexEvent: Event, referencesData: P
 
   useEffect(() => {
     if (!relayReady || orderedKeys.length === 0) return
-    const n = Math.min(3, orderedKeys.length)
-    requestKeys(orderedKeys.slice(0, n))
+    // Full list: scroll-IO may have fired before relays were ready; those keys were re-queued idle.
+    requestKeys(orderedKeys)
   }, [relayReady, orderedKeys, requestKeys])
 
   const failedKeys = useMemo(

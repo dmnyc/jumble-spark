@@ -1,3 +1,4 @@
+import logger from '@/lib/logger'
 import { publicationCoordinateLookupKeys } from '@/lib/publication-coordinate'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 import { normalizeUrl } from '@/lib/url'
@@ -165,7 +166,15 @@ export async function batchFetchPublicationSectionEvents(
     }
   }
 
-  if (filters.length === 0) return out
+  if (filters.length === 0) {
+    if (import.meta.env.DEV) {
+      logger.info('[PublicationSection] batch_fetch_skip — no filters', {
+        aRefCount: aRefs.length,
+        idRefCount: idRefs.length
+      })
+    }
+    return out
+  }
 
   let events: Event[] = []
   try {
@@ -175,7 +184,14 @@ export async function batchFetchPublicationSectionEvents(
       /** Do not early-resolve after the first event; this query must wait for the full batch. */
       firstRelayResultGraceMs: false
     })
-  } catch {
+  } catch (err) {
+    if (import.meta.env.DEV) {
+      logger.warn('[PublicationSection] batch_fetch_error', {
+        message: err instanceof Error ? err.message : String(err),
+        filterCount: filters.length,
+        relayCount: relayUrls.length
+      })
+    }
     return out
   }
 
@@ -209,6 +225,25 @@ export async function batchFetchPublicationSectionEvents(
       if (ev) break
     }
     if (ev) out.set(key, ev)
+  }
+
+  if (import.meta.env.DEV) {
+    const unmatchedA = aRefs.filter((r) => !out.has(publicationRefKey(r)))
+    const unmatchedE = idRefs.filter((r) => !out.has(publicationRefKey(r)))
+    logger.info('[PublicationSection] batch_fetch_result', {
+      relayCount: relayUrls.length,
+      filterCount: filters.length,
+      eventsReturned: events.length,
+      byCoordSize: byCoord.size,
+      resolved: out.size,
+      unmatchedACount: unmatchedA.length,
+      unmatchedECount: unmatchedE.length,
+      unmatchedAKeys: unmatchedA.map((r) => publicationRefKey(r)).slice(0, 12),
+      sampleEventCoords: events.slice(0, 3).map((ev) => {
+        const d = ev.tags.find((t) => t[0] === 'd')?.[1]
+        return d !== undefined && d !== '' ? coordinateFromEvent(ev) : `${ev.kind}:${ev.pubkey.slice(0, 8)}…`
+      })
+    })
   }
 
   return out
