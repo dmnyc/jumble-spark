@@ -2,7 +2,6 @@ import Content from '@/components/Content'
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import ProfileBadgeDetailDialog from './ProfileBadgeDetailDialog'
-import { Button } from '@/components/ui/button'
 import { replaceableEventDedupeKey } from '@/lib/event'
 import { formatAmount } from '@/lib/lightning'
 import { cn } from '@/lib/utils'
@@ -13,7 +12,7 @@ import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import type { TProfileZap } from '@/hooks/useProfileInteractions'
 import type { TProfileBadge } from '@/hooks/useProfileBadges'
 import type { TProfileFollowPack } from '@/hooks/useProfileFollowPacks'
-import { Flag, MoreHorizontal, Zap, MessageCircle, ThumbsDown, ThumbsUp, Users } from 'lucide-react'
+import { Flag, Zap, MessageCircle, ThumbsDown, ThumbsUp, Users } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
@@ -173,17 +172,20 @@ function BadgeItem({
   const imageUrl = badge.thumb ?? badge.image
   const label = badge.name ?? badge.a.split(':').pop() ?? ''
   return (
-    <div
-      className="relative shrink-0 rounded-lg border bg-muted"
+    <button
+      type="button"
+      className="relative shrink-0 rounded-lg border bg-muted p-0 overflow-hidden cursor-pointer transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       style={{ width: BADGE_TILE_PX, height: BADGE_TILE_PX }}
       title={label}
+      aria-label={label ? `${t('Badge details')}: ${label}` : t('Badge details')}
+      onClick={() => onOpenDetail(badge)}
     >
       {imageUrl ? (
         <>
           <img
             src={imageUrl}
             alt=""
-            className="size-full rounded-lg object-cover"
+            className="size-full rounded-lg object-cover pointer-events-none"
             loading="lazy"
             onError={(e) => {
               e.currentTarget.style.visibility = 'hidden'
@@ -191,7 +193,7 @@ function BadgeItem({
               fallback?.classList.remove('hidden')
             }}
           />
-          <div className="hidden absolute inset-0 flex items-center justify-center rounded-lg bg-muted p-1 text-center text-xs text-muted-foreground">
+          <div className="hidden absolute inset-0 flex items-center justify-center rounded-lg bg-muted p-1 text-center text-xs text-muted-foreground pointer-events-none">
             {label.slice(0, 3)}
           </div>
         </>
@@ -200,21 +202,7 @@ function BadgeItem({
           {label.slice(0, 3)}
         </div>
       )}
-      <Button
-        type="button"
-        variant="secondary"
-        size="icon"
-        className="absolute right-0.5 top-0.5 h-7 w-7 shrink-0 rounded-md border border-border/80 bg-background/90 shadow-sm backdrop-blur-sm hover:bg-background"
-        aria-label={t('Badge details')}
-        onClick={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          onOpenDetail(badge)
-        }}
-      >
-        <MoreHorizontal className="size-4" aria-hidden />
-      </Button>
-    </div>
+    </button>
   )
 }
 
