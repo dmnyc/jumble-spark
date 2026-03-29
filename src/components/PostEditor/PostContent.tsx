@@ -4,7 +4,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
@@ -31,12 +30,10 @@ import {
   createCitationInternalDraftEvent,
   createCitationExternalDraftEvent,
   createCitationHardcopyDraftEvent,
-  createCitationPromptDraftEvent,
-  createGitReleaseDraftEvent
+  createCitationPromptDraftEvent
 } from '@/lib/draft-event'
 import { ExtendedKind } from '@/constants'
-import { parseRepoOwnerPubkeyInput } from '@/lib/git-republic-event'
-import { cn, isTouchDevice } from '@/lib/utils'
+import { isTouchDevice } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFeed } from '@/providers/FeedProvider'
 import { useReply } from '@/providers/ReplyProvider'
@@ -243,15 +240,6 @@ export default function PostContent({
   const [citationGeohash, setCitationGeohash] = useState('')
   const [citationVersion, setCitationVersion] = useState('')
   const [citationSummary, setCitationSummary] = useState('')
-  const [isGitRelease, setIsGitRelease] = useState(false)
-  const [releaseRepoOwnerInput, setReleaseRepoOwnerInput] = useState('')
-  const [releaseRepoId, setReleaseRepoId] = useState('')
-  const [releaseTagName, setReleaseTagName] = useState('')
-  const [releaseTagHash, setReleaseTagHash] = useState('')
-  const [releaseTitle, setReleaseTitle] = useState('')
-  const [releaseDownloadUrl, setReleaseDownloadUrl] = useState('')
-  const [releaseDraft, setReleaseDraft] = useState(false)
-  const [releasePrerelease, setReleasePrerelease] = useState(false)
 
   const [hasPrivateRelaysAvailable, setHasPrivateRelaysAvailable] = useState(false)
   const [showMediaKindDialog, setShowMediaKindDialog] = useState(false)
@@ -265,16 +253,6 @@ export default function PostContent({
     }
   }, [mediaNoteKind, mediaImetaTags])
   const isFirstRender = useRef(true)
-  const releaseFieldsOk = useMemo(() => {
-    if (!isGitRelease) return true
-    const owner = parseRepoOwnerPubkeyInput(releaseRepoOwnerInput)
-    return (
-      !!owner &&
-      !!releaseRepoId.trim() &&
-      !!releaseTagName.trim() &&
-      /^[0-9a-f]{40}$/i.test(releaseTagHash.trim())
-    )
-  }, [isGitRelease, releaseRepoOwnerInput, releaseRepoId, releaseTagName, releaseTagHash])
 
   const canPost = useMemo(() => {
     const isArticle = isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
@@ -282,15 +260,14 @@ export default function PostContent({
       !!pubkey &&
       !posting &&
       !uploadProgresses.length &&
-      // For media notes, text is optional - just need media; Git releases use the editor as release notes (optional)
-      ((mediaNoteKind !== null && mediaUrl) || !!text || isGitRelease) &&
+      // For media notes, text is optional - just need media
+      ((mediaNoteKind !== null && mediaUrl) || !!text) &&
       (!isPoll || pollCreateData.options.filter((option) => !!option.trim()).length >= 2) &&
       (!isPublicMessage || extractedMentions.length > 0 || parentEvent?.kind === ExtendedKind.PUBLIC_MESSAGE) &&
       (!isProtectedEvent || additionalRelayUrls.length > 0) &&
       (!isHighlight || highlightData.sourceValue.trim() !== '') &&
       // For articles, dTag is mandatory
       (!isArticle || !!articleDTag.trim()) &&
-      (!isGitRelease || releaseFieldsOk) &&
       // For citations, required fields must be filled
       (!isCitationInternal || !!citationInternalCTag.trim()) &&
       (!isCitationExternal || (!!citationExternalUrl.trim() && !!citationAccessedOn.trim())) &&
@@ -320,8 +297,6 @@ export default function PostContent({
     isWikiArticleMarkdown,
     isPublicationContent,
     articleDTag,
-    isGitRelease,
-    releaseFieldsOk,
     isCitationInternal,
     citationInternalCTag,
     isCitationExternal,
@@ -413,8 +388,6 @@ export default function PostContent({
       return ExtendedKind.WIKI_ARTICLE_MARKDOWN
     } else if (isPublicationContent) {
       return ExtendedKind.PUBLICATION_CONTENT
-    } else if (isGitRelease) {
-      return ExtendedKind.GIT_RELEASE
     } else if (isCitationInternal) {
       return ExtendedKind.CITATION_INTERNAL
     } else if (isCitationExternal) {
@@ -439,7 +412,6 @@ export default function PostContent({
     isWikiArticle,
     isWikiArticleMarkdown,
     isPublicationContent,
-    isGitRelease,
     isCitationInternal,
     isCitationExternal,
     isCitationHardcopy,
@@ -675,23 +647,6 @@ export default function PostContent({
       })
     }
 
-    if (isGitRelease) {
-      const ownerHex = parseRepoOwnerPubkeyInput(releaseRepoOwnerInput)
-      if (!ownerHex) {
-        throw new Error(t('Invalid repository owner pubkey'))
-      }
-      return createGitReleaseDraftEvent(cleanedText, {
-        repoOwnerPubkey: ownerHex,
-        repoId: releaseRepoId.trim(),
-        tagName: releaseTagName.trim(),
-        tagHash: releaseTagHash.trim().toLowerCase(),
-        title: releaseTitle.trim() || undefined,
-        downloadUrl: releaseDownloadUrl.trim() || undefined,
-        isDraft: releaseDraft,
-        isPrerelease: releasePrerelease
-      })
-    }
-
     // Citations
     if (isCitationInternal) {
       return createCitationInternalDraftEvent(cleanedText, {
@@ -827,15 +782,6 @@ export default function PostContent({
     isWikiArticle,
     isWikiArticleMarkdown,
     isPublicationContent,
-    isGitRelease,
-    releaseRepoOwnerInput,
-    releaseRepoId,
-    releaseTagName,
-    releaseTagHash,
-    releaseTitle,
-    releaseDownloadUrl,
-    releaseDraft,
-    releasePrerelease,
     isCitationInternal,
     isCitationExternal,
     isCitationHardcopy,
@@ -864,9 +810,6 @@ export default function PostContent({
     if (isArticle && !articleDTag.trim()) {
       throw new Error(t('D-Tag is required for articles'))
     }
-    if (isGitRelease && !releaseFieldsOk) {
-      throw new Error(t('Fill repository release fields'))
-    }
 
     if (!pubkey) {
       return JSON.stringify({ error: 'Not logged in' }, null, 2)
@@ -889,8 +832,6 @@ export default function PostContent({
     isWikiArticleMarkdown,
     isPublicationContent,
     articleDTag,
-    isGitRelease,
-    releaseFieldsOk,
     createDraftEvent,
     t
   ])
@@ -1059,7 +1000,6 @@ export default function PostContent({
       // When enabling poll mode, clear other modes
       setIsPublicMessage(false)
       setIsHighlight(false)
-      setIsGitRelease(false)
       setIsCitationInternal(false)
       setIsCitationExternal(false)
       setIsCitationHardcopy(false)
@@ -1075,7 +1015,6 @@ export default function PostContent({
       // When enabling public message mode, clear other modes
       setIsPoll(false)
       setIsHighlight(false)
-      setIsGitRelease(false)
       setIsCitationInternal(false)
       setIsCitationExternal(false)
       setIsCitationHardcopy(false)
@@ -1091,7 +1030,6 @@ export default function PostContent({
       // When enabling highlight mode, clear other modes and set client tag to true
       setIsPoll(false)
       setIsPublicMessage(false)
-      setIsGitRelease(false)
       setIsCitationInternal(false)
       setIsCitationExternal(false)
       setIsCitationHardcopy(false)
@@ -1483,7 +1421,6 @@ export default function PostContent({
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
     setIsCitationPrompt(false)
-    setIsGitRelease(false)
 
     // Clear uploaded file from map and picture accumulation ref
     uploadedMediaFileMap.current.clear()
@@ -1503,7 +1440,6 @@ export default function PostContent({
     setIsPublicMessage(false)
     setIsHighlight(false)
     setMediaNoteKind(null)
-    setIsGitRelease(false)
     setIsCitationInternal(false)
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
@@ -1534,7 +1470,6 @@ export default function PostContent({
   const handleCitationToggle = (type: 'internal' | 'external' | 'hardcopy' | 'prompt') => {
     if (parentEvent) return // Can't create citations as replies
 
-    setIsGitRelease(false)
     setIsCitationInternal(type === 'internal')
     setIsCitationExternal(type === 'external')
     setIsCitationHardcopy(type === 'hardcopy')
@@ -1554,24 +1489,6 @@ export default function PostContent({
     if (!citationAccessedOn && (type === 'external' || type === 'hardcopy' || type === 'prompt')) {
       setCitationAccessedOn(new Date().toISOString().split('T')[0]) // ISO date format YYYY-MM-DD
     }
-  }
-
-  const handleGitReleaseFromMenu = () => {
-    if (parentEvent) return
-
-    setIsGitRelease(true)
-    setIsCitationInternal(false)
-    setIsCitationExternal(false)
-    setIsCitationHardcopy(false)
-    setIsCitationPrompt(false)
-    setIsPoll(false)
-    setIsPublicMessage(false)
-    setIsHighlight(false)
-    setMediaNoteKind(null)
-    setIsLongFormArticle(false)
-    setIsWikiArticle(false)
-    setIsWikiArticleMarkdown(false)
-    setIsPublicationContent(false)
   }
 
   const handleClear = () => {
@@ -1599,15 +1516,6 @@ export default function PostContent({
     setIsCitationExternal(false)
     setIsCitationHardcopy(false)
     setIsCitationPrompt(false)
-    setIsGitRelease(false)
-    setReleaseRepoOwnerInput('')
-    setReleaseRepoId('')
-    setReleaseTagName('')
-    setReleaseTagHash('')
-    setReleaseTitle('')
-    setReleaseDownloadUrl('')
-    setReleaseDraft(false)
-    setReleasePrerelease(false)
     // Clear citation fields
     setCitationInternalCTag('')
     setCitationInternalRelayHint('')
@@ -1688,8 +1596,6 @@ export default function PostContent({
             return t('New Hardcopy Citation')
           } else if (determinedKind === ExtendedKind.CITATION_PROMPT) {
             return t('New Prompt Citation')
-          } else if (determinedKind === ExtendedKind.GIT_RELEASE) {
-            return t('New Repository Release')
           } else {
             return t('New Note')
           }
@@ -1787,23 +1693,18 @@ export default function PostContent({
       {(isCitationInternal ||
         isCitationExternal ||
         isCitationHardcopy ||
-        isCitationPrompt ||
-        isGitRelease) && (
+        isCitationPrompt) && (
         <div className="p-4 border rounded-lg bg-muted/30">
           <div className="text-sm font-medium mb-3">
-            {isGitRelease
-              ? t('Repository release')
-              : isCitationInternal
-                ? t('Internal Citation Settings')
-                : isCitationExternal
-                  ? t('External Citation Settings')
-                  : isCitationHardcopy
-                    ? t('Hardcopy Citation Settings')
-                    : t('Prompt Citation Settings')}
+            {isCitationInternal
+              ? t('Internal Citation Settings')
+              : isCitationExternal
+                ? t('External Citation Settings')
+                : isCitationHardcopy
+                  ? t('Hardcopy Citation Settings')
+                  : t('Prompt Citation Settings')}
           </div>
-          {(isCitationInternal || isCitationExternal || isCitationHardcopy || isCitationPrompt) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          
           {/* Prompt Citation specific fields - shown first if prompt */}
           {isCitationPrompt && (
             <>
@@ -2137,115 +2038,6 @@ export default function PostContent({
             </>
           )}
           </div>
-          )}
-          {isGitRelease && (
-            <div
-              className={cn(
-                'mt-4 grid grid-cols-1 gap-3 md:grid-cols-2',
-                (isCitationInternal ||
-                  isCitationExternal ||
-                  isCitationHardcopy ||
-                  isCitationPrompt) &&
-                  'border-t border-border pt-4'
-              )}
-            >
-              <p className="text-xs text-muted-foreground md:col-span-2">
-                {t('Release notes use the editor below (optional).')}
-              </p>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="release-repo-owner" className="text-sm font-medium">
-                  {t('Repository owner (npub or hex)')} <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="release-repo-owner"
-                  value={releaseRepoOwnerInput}
-                  onChange={(e) => setReleaseRepoOwnerInput(e.target.value)}
-                  placeholder="npub1…"
-                  className={
-                    releaseRepoOwnerInput.trim() && !parseRepoOwnerPubkeyInput(releaseRepoOwnerInput)
-                      ? 'border-destructive'
-                      : ''
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="release-repo-id" className="text-sm font-medium">
-                  {t('Repository id (d-tag)')} <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="release-repo-id"
-                  value={releaseRepoId}
-                  onChange={(e) => setReleaseRepoId(e.target.value)}
-                  placeholder={t('e.g. my-repo')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="release-tag-name" className="text-sm font-medium">
-                  {t('Git tag name')} <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="release-tag-name"
-                  value={releaseTagName}
-                  onChange={(e) => setReleaseTagName(e.target.value)}
-                  placeholder="v1.0.0"
-                />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="release-tag-hash" className="text-sm font-medium">
-                  {t('Tag target (40-char commit hash)')} <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="release-tag-hash"
-                  value={releaseTagHash}
-                  onChange={(e) => setReleaseTagHash(e.target.value.trim())}
-                  placeholder={t('40-character hex SHA-1')}
-                  className={
-                    releaseTagHash.trim() && !/^[0-9a-f]{40}$/i.test(releaseTagHash.trim())
-                      ? 'border-destructive'
-                      : ''
-                  }
-                />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="release-title" className="text-sm font-medium">
-                  {t('Release title')}
-                </Label>
-                <Input
-                  id="release-title"
-                  value={releaseTitle}
-                  onChange={(e) => setReleaseTitle(e.target.value)}
-                  placeholder={t('Optional display title')}
-                />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="release-download-url" className="text-sm font-medium">
-                  {t('Download URL')}
-                </Label>
-                <Input
-                  id="release-download-url"
-                  value={releaseDownloadUrl}
-                  onChange={(e) => setReleaseDownloadUrl(e.target.value)}
-                  placeholder={t('https://…')}
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-6 md:col-span-2">
-                <label className="flex cursor-pointer items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={releaseDraft}
-                    onCheckedChange={(v) => setReleaseDraft(v === true)}
-                  />
-                  {t('Draft release')}
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={releasePrerelease}
-                    onCheckedChange={(v) => setReleasePrerelease(v === true)}
-                  />
-                  {t('Pre-release')}
-                </label>
-              </div>
-            </div>
-          )}
         </div>
       )}
       
@@ -2363,7 +2155,7 @@ export default function PostContent({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
-                  {/* Citations (private relays) + repository release */}
+                  {/* Citations (private relays) */}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -2374,8 +2166,7 @@ export default function PostContent({
                           isCitationInternal ||
                           isCitationExternal ||
                           isCitationHardcopy ||
-                          isCitationPrompt ||
-                          isGitRelease
+                          isCitationPrompt
                             ? 'bg-accent'
                             : ''
                         }
@@ -2404,9 +2195,6 @@ export default function PostContent({
                           {t('Citations require private relays (NIP-65).')}
                         </div>
                       )}
-                      <DropdownMenuItem onClick={handleGitReleaseFromMenu}>
-                        {t('Repository release')}
-                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </>

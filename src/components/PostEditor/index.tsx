@@ -1,3 +1,4 @@
+import StoredAccountSwitchSelect from '@/components/StoredAccountSwitchSelect'
 import {
   Dialog,
   DialogContent,
@@ -86,6 +87,13 @@ export default function PostEditor({
                 <SheetTitle>Post Editor</SheetTitle>
                 <SheetDescription>Create a new post or reply</SheetDescription>
               </SheetHeader>
+              {open ? (
+                <StoredAccountSwitchSelect
+                  withBottomBorder
+                  className="w-full flex-wrap"
+                  showLabelAlways
+                />
+              ) : null}
               {content}
             </div>
           </ScrollArea>
@@ -112,6 +120,13 @@ export default function PostEditor({
               <DialogTitle>Post Editor</DialogTitle>
               <DialogDescription>Create a new post or reply</DialogDescription>
             </DialogHeader>
+            {open ? (
+              <StoredAccountSwitchSelect
+                withBottomBorder
+                className="w-full flex-wrap"
+                showLabelAlways
+              />
+            ) : null}
             {content}
           </div>
         </ScrollArea>
