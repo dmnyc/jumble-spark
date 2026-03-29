@@ -32,8 +32,7 @@ export default function ProfileOptions({
   pubkey,
   profileEvent,
   onSendPublicMessage,
-  onSendCallInvite,
-  onProfileInteractionsRefresh
+  onSendCallInvite
 }: {
   pubkey: string
   /** Optional profile event (kind 0) for republishing and viewing JSON */
@@ -42,8 +41,6 @@ export default function ProfileOptions({
   onSendPublicMessage?: () => void
   /** Opens the post editor to send the call invite URL as a public message to this profile. */
   onSendCallInvite?: (url: string) => void
-  /** Called after Like or Reply to refresh profile header interactions. */
-  onProfileInteractionsRefresh?: () => void
 }) {
   const { t } = useTranslation()
   const { pubkey: accountPubkey, profile, publish, checkLogin } = useNostr()
@@ -164,7 +161,6 @@ export default function ProfileOptions({
         const evt = await publish(reaction)
         if (evt) {
           showSimplePublishSuccess(t('Reaction published'))
-          onProfileInteractionsRefresh?.()
         }
       } finally {
         setReacting(false)
@@ -291,7 +287,6 @@ export default function ProfileOptions({
             parentEvent={eventToUse}
             open={openReply}
             setOpen={setOpenReply}
-            onPublishSuccess={onProfileInteractionsRefresh}
           />
         )}
         {(localProfileEvent || profileEvent) && (

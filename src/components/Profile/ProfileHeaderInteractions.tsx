@@ -3,6 +3,7 @@ import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
 import ProfileBadgeDetailDialog from './ProfileBadgeDetailDialog'
 import { Button } from '@/components/ui/button'
+import { replaceableEventDedupeKey } from '@/lib/event'
 import { formatAmount } from '@/lib/lightning'
 import { cn } from '@/lib/utils'
 import { toNote, toProfile } from '@/lib/link'
@@ -343,7 +344,7 @@ export default function ProfileHeaderInteractions({
       >
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
           {displayFollowPacks.map((pack) => (
-            <FollowPackBadge key={pack.event.id} pack={pack} />
+            <FollowPackBadge key={replaceableEventDedupeKey(pack.event)} pack={pack} />
           ))}
         </div>
       </Section>

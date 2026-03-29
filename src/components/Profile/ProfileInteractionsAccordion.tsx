@@ -1,14 +1,11 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
-import { useEffect, useRef } from 'react'
 import { useProfileRelayUrls } from '@/hooks/useProfileRelayUrls'
-import { useProfileInteractions } from '@/hooks/useProfileInteractions'
-import { useProfileBadges } from '@/hooks/useProfileBadges'
-import { useProfileFollowPacks } from '@/hooks/useProfileFollowPacks'
-import { useProfileReports } from '@/hooks/useProfileReports'
+import { useProfileAccordionData } from '@/hooks/useProfileAccordionData'
 import { useNostr } from '@/providers/NostrProvider'
 import ProfileHeaderInteractions from './ProfileHeaderInteractions'
 
@@ -16,62 +13,6 @@ type Props = {
   pubkey: string | undefined
   isExpanded: boolean
   onExpandedChange: (open: boolean) => void
-  onRefreshReady?: (refresh: (() => void) | null) => void
-}
-
-function ProfileInteractionsContent({
-  pubkey,
-  relayUrls,
-  refreshRelayUrls,
-  onRefreshReady
-}: {
-  pubkey: string
-  relayUrls: string[] | undefined
-  refreshRelayUrls: () => void | Promise<void>
-  onRefreshReady?: (refresh: (() => void) | null) => void
-}) {
-  const { pubkey: viewerPubkey } = useNostr()
-  const { zaps, reactions, comments, loading, refresh } = useProfileInteractions(pubkey, relayUrls)
-  const { badges, loading: badgesLoading, refresh: refreshBadges } = useProfileBadges(pubkey, relayUrls)
-  const { packs, loading: followPacksLoading, refresh: refreshFollowPacks } = useProfileFollowPacks(pubkey, relayUrls)
-  const { reports, loading: reportsLoading, refresh: refreshReports } = useProfileReports(pubkey, viewerPubkey)
-
-  const onRefreshReadyRef = useRef(onRefreshReady)
-  onRefreshReadyRef.current = onRefreshReady
-
-  useEffect(() => {
-    const doRefresh = () => {
-      void (async () => {
-        await refreshRelayUrls()
-        refresh()
-        refreshBadges()
-        refreshFollowPacks()
-        refreshReports()
-      })()
-    }
-    onRefreshReadyRef.current?.(doRefresh)
-    return () => {
-      onRefreshReadyRef.current?.(null)
-    }
-  }, [refreshRelayUrls, refresh, refreshBadges, refreshFollowPacks, refreshReports])
-
-  return (
-    <ProfileHeaderInteractions
-      profilePubkey={pubkey}
-      badgeRelayUrls={relayUrls ?? []}
-      zaps={zaps}
-      reactions={reactions}
-      comments={comments}
-      badges={badges}
-      followPacks={packs}
-      reports={reports}
-      loading={loading}
-      badgesLoading={badgesLoading}
-      followPacksLoading={followPacksLoading}
-      reportsLoading={reportsLoading}
-      reportsEnabled={!!viewerPubkey}
-    />
-  )
 }
 
 function ProfileInteractionsSkeleton() {
@@ -103,37 +44,103 @@ function ProfileInteractionsSkeleton() {
 export default function ProfileInteractionsAccordion({
   pubkey,
   isExpanded,
-  onExpandedChange,
-  onRefreshReady
+  onExpandedChange
 }: Props) {
   const { t } = useTranslation()
-  const { relayUrls, loading: relayUrlsLoading, refresh: refreshRelayUrls } = useProfileRelayUrls(pubkey, isExpanded)
+  const { pubkey: viewerPubkey } = useNostr()
+  const { relayUrls, loading: relayUrlsLoading, refresh: refreshRelayUrls } = useProfileRelayUrls(
+    pubkey,
+    isExpanded
+  )
   const relaysReady = !relayUrlsLoading
+  const urlsForFetch = relayUrls.length > 0 ? relayUrls : undefined
+
+  const {
+    zaps,
+    reactions,
+    comments,
+    badges,
+    followPacks,
+    reports,
+    loading: bundleLoading,
+    refresh: refreshBundle
+  } = useProfileAccordionData({
+    pubkey,
+    relayUrls: urlsForFetch,
+    enabled: isExpanded && relaysReady && !!pubkey,
+    viewerPubkey
+  })
+
+  const handleRefresh = () => {
+    void (async () => {
+      const urls = await refreshRelayUrls()
+      refreshBundle(urls.length > 0 ? urls : undefined)
+    })()
+  }
+
   const hasContent = isExpanded && pubkey
+  const hasAnyBundleData =
+    zaps.length > 0 ||
+    reactions.length > 0 ||
+    comments.length > 0 ||
+    badges.length > 0 ||
+    followPacks.length > 0 ||
+    reports.length > 0
+  const showSkeleton = hasContent && (!relaysReady || (bundleLoading && !hasAnyBundleData))
 
   return (
     <Collapsible open={isExpanded} onOpenChange={onExpandedChange} className="min-w-0">
-      <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/80 bg-muted/15 px-3 py-2 text-left hover:bg-muted/25 min-w-0">
-        <span className="text-sm font-medium truncate">
-          {t('Zaps')}, {t('Likes')}, {t('Comments')}, {t('Badges')}, {t('In Follow Packs')}, {t('Reports')}
-        </span>
-        <ChevronDown
-          className={cn('size-4 shrink-0 text-muted-foreground transition-transform', isExpanded && 'rotate-180')}
-        />
-      </CollapsibleTrigger>
+      <div className="flex min-w-0 items-stretch gap-1 rounded-lg border border-border/80 bg-muted/15 hover:bg-muted/25">
+        <CollapsibleTrigger className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left">
+          <span className="text-sm font-medium truncate">
+            {t('Zaps')}, {t('Likes')}, {t('Comments')}, {t('Badges')}, {t('In Follow Packs')}, {t('Reports')}
+          </span>
+          <ChevronDown
+            className={cn(
+              'size-4 shrink-0 text-muted-foreground transition-transform',
+              isExpanded && 'rotate-180'
+            )}
+          />
+        </CollapsibleTrigger>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="my-1 mr-1 shrink-0 rounded-md"
+          title={t('Refresh')}
+          aria-label={t('Refresh')}
+          disabled={!pubkey}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            handleRefresh()
+          }}
+        >
+          <RefreshCw className={cn('size-4', bundleLoading && 'animate-spin')} />
+        </Button>
+      </div>
       <CollapsibleContent className="overflow-hidden">
         {hasContent ? (
-          !relaysReady ? (
+          showSkeleton ? (
             <div className="pt-2">
               <ProfileInteractionsSkeleton />
             </div>
           ) : (
             <div className="pt-2">
-              <ProfileInteractionsContent
-                pubkey={pubkey}
-                relayUrls={relayUrls.length > 0 ? relayUrls : undefined}
-                refreshRelayUrls={refreshRelayUrls}
-                onRefreshReady={onRefreshReady}
+              <ProfileHeaderInteractions
+                profilePubkey={pubkey}
+                badgeRelayUrls={relayUrls}
+                zaps={zaps}
+                reactions={reactions}
+                comments={comments}
+                badges={badges}
+                followPacks={followPacks}
+                reports={reports}
+                loading={bundleLoading}
+                badgesLoading={bundleLoading}
+                followPacksLoading={bundleLoading}
+                reportsLoading={bundleLoading}
+                reportsEnabled={!!viewerPubkey}
               />
             </div>
           )

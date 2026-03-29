@@ -384,6 +384,17 @@ export function getReplaceableCoordinateFromEvent(event: Event) {
   return getReplaceableCoordinate(event.kind, event.pubkey, d)
 }
 
+/**
+ * Merge key for NIP-33 addressable events when relays return different ids for the same logical
+ * replaceable. Normalized `kind:pubkey:d`; missing/empty `d` or non-addressable kinds use `event.id`.
+ */
+export function replaceableEventDedupeKey(event: Event): string {
+  if (!kinds.isAddressableKind(event.kind)) return event.id
+  const d = event.tags.find(tagNameEquals('d'))?.[1]
+  if (d == null || d === '') return event.id
+  return normalizeReplaceableCoordinateString(getReplaceableCoordinateFromEvent(event))
+}
+
 /** Normalize `kind:pubkey:d` for comparisons (lowercase pubkey; preserve d). */
 export function normalizeReplaceableCoordinateString(coord: string): string {
   const m = /^(\d+):([0-9a-f]{64}):(.*)$/i.exec(coord.trim())

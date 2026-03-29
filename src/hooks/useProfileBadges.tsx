@@ -14,6 +14,7 @@ import {
 import { queryService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Event } from 'nostr-tools'
 import { tagNameEquals } from '@/lib/tag'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { buildProfileRelayUrls } from '@/lib/profile-relay-urls'
@@ -55,14 +56,14 @@ function badgeNeedsDefinitionMedia(b: TProfileBadge): boolean {
   return !!(parsed && parsed.kind === ExtendedKind.BADGE_DEFINITION)
 }
 
-function mergeBadgesByAwardId(seed: TProfileBadge[], fresh: TProfileBadge[]): TProfileBadge[] {
+export function mergeProfileBadgesByAwardId(seed: TProfileBadge[], fresh: TProfileBadge[]): TProfileBadge[] {
   const m = new Map<string, TProfileBadge>()
   for (const b of seed) m.set(b.awardId, b)
   for (const b of fresh) m.set(b.awardId, b)
   return [...m.values()]
 }
 
-async function enrichBadgesFromIndexedDb(badges: TProfileBadge[]): Promise<TProfileBadge[]> {
+export async function enrichBadgesFromIndexedDb(badges: TProfileBadge[]): Promise<TProfileBadge[]> {
   return Promise.all(
     badges.map(async (b) => {
       if (b.thumb || b.image) return b
@@ -173,75 +174,14 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
         return
       }
 
-      const tags = profileBadgesEvent.tags
-      const pairs: { a: string; e: string; eRelayHint?: string }[] = []
-      for (let i = 0; i < tags.length - 1; i++) {
-        const ta = tags[i]
-        const te = tags[i + 1]
-        if (
-          ta[0] === 'a' &&
-          te[0] === 'e' &&
-          ta[1] &&
-          te[1] &&
-          /^[a-f0-9]{64}$/i.test(te[1])
-        ) {
-          pairs.push({ a: ta[1], e: te[1], eRelayHint: te[2] })
-        }
-      }
-
-      if (pairs.length === 0) {
-        if (!seedBadges?.length) setBadges([])
-        return
-      }
-
-      const result: TProfileBadge[] = await Promise.all(
-        pairs.map(async ({ a, e, eRelayHint }) => {
-          const parsed = parseATag(a)
-          if (!parsed || parsed.kind !== ExtendedKind.BADGE_DEFINITION) {
-            return { a, awardId: e }
-          }
-
-          const relayPool = mergeNip58BadgeRelayPool(urls, eRelayHint, blockedRelaysRef.current)
-          const [defEvent, awardEvent] = await Promise.all([
-            fetchNip58BadgeDefinition(parsed.pubkey, parsed.d, relayPool),
-            fetchNip58BadgeAward(e, relayPool)
-          ])
-
-          const awardATag = awardEvent?.tags.find(tagNameEquals('a'))?.[1]
-          const awardMatchesDefinition = !awardEvent || awardATag === a
-          const awardCreatedAt =
-            awardMatchesDefinition && awardEvent ? awardEvent.created_at : undefined
-
-          if (defEvent) {
-            try {
-              await indexedDb.putReplaceableEvent(defEvent)
-            } catch {
-              // ignore ingest failures (tombstone / validation)
-            }
-          }
-
-          if (!defEvent) {
-            return { a, awardId: e, awardCreatedAt }
-          }
-
-          const name = defEvent.tags.find(tagNameEquals('name'))?.[1]
-          const description = defEvent.tags.find(tagNameEquals('description'))?.[1]
-          const media = extractBadgeDefinitionMedia(defEvent)
-
-          return {
-            a,
-            awardId: e,
-            name: name ?? parsed.d,
-            image: media.image,
-            thumb: media.thumb ?? media.image,
-            description,
-            awardCreatedAt
-          }
-        })
+      const merged = await resolveProfileBadgeList(
+        profileBadgesEvent,
+        urls,
+        blockedRelaysRef.current,
+        seedBadges
       )
 
       if (myFetchId !== fetchIdRef.current) return
-      const merged = mergeBadgesByAwardId(seedBadges ?? [], result)
       setBadges(merged)
       profileAccordionSetBadges(pubkey, relayKey, merged)
     } catch {
@@ -261,4 +201,87 @@ export function useProfileBadges(pubkey: string | undefined, relayUrls?: string[
   }, [fetchBadges])
 
   return { badges, loading, refresh }
+}
+
+/**
+ * Resolves NIP-58 badge definitions/awards for the newest kind-30008 `profile_badges` event.
+ * Shared by {@link useProfileBadges} and profile accordion bundle fetch.
+ */
+export async function resolveProfileBadgeList(
+  profileBadgesEvent: Event | undefined,
+  urls: string[],
+  blockedRelays: string[],
+  seedBadges: TProfileBadge[] | null | undefined
+): Promise<TProfileBadge[]> {
+  if (!profileBadgesEvent) {
+    return seedBadges?.length ? [...seedBadges] : []
+  }
+
+  const tags = profileBadgesEvent.tags
+  const pairs: { a: string; e: string; eRelayHint?: string }[] = []
+  for (let i = 0; i < tags.length - 1; i++) {
+    const ta = tags[i]
+    const te = tags[i + 1]
+    if (
+      ta[0] === 'a' &&
+      te[0] === 'e' &&
+      ta[1] &&
+      te[1] &&
+      /^[a-f0-9]{64}$/i.test(te[1])
+    ) {
+      pairs.push({ a: ta[1], e: te[1], eRelayHint: te[2] })
+    }
+  }
+
+  if (pairs.length === 0) {
+    return seedBadges?.length ? [...seedBadges] : []
+  }
+
+  const result: TProfileBadge[] = await Promise.all(
+    pairs.map(async ({ a, e, eRelayHint }) => {
+      const parsed = parseATag(a)
+      if (!parsed || parsed.kind !== ExtendedKind.BADGE_DEFINITION) {
+        return { a, awardId: e }
+      }
+
+      const relayPool = mergeNip58BadgeRelayPool(urls, eRelayHint, blockedRelays)
+      const [defEvent, awardEvent] = await Promise.all([
+        fetchNip58BadgeDefinition(parsed.pubkey, parsed.d, relayPool),
+        fetchNip58BadgeAward(e, relayPool)
+      ])
+
+      const awardATag = awardEvent?.tags.find(tagNameEquals('a'))?.[1]
+      const awardMatchesDefinition = !awardEvent || awardATag === a
+      const awardCreatedAt =
+        awardMatchesDefinition && awardEvent ? awardEvent.created_at : undefined
+
+      if (defEvent) {
+        try {
+          await indexedDb.putReplaceableEvent(defEvent)
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (!defEvent) {
+        return { a, awardId: e, awardCreatedAt }
+      }
+
+      const name = defEvent.tags.find(tagNameEquals('name'))?.[1]
+      const description = defEvent.tags.find(tagNameEquals('description'))?.[1]
+      const media = extractBadgeDefinitionMedia(defEvent)
+
+      return {
+        a,
+        awardId: e,
+        name: name ?? parsed.d,
+        image: media.image,
+        thumb: media.thumb ?? media.image,
+        description,
+        awardCreatedAt
+      }
+    })
+  )
+
+  return mergeProfileBadgesByAwardId(seedBadges ?? [], result)
 }

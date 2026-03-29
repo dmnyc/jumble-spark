@@ -21,11 +21,11 @@ export function useProfileRelayUrls(pubkey: string | undefined, enabled: boolean
   relayUrlsRef.current = relayUrls
 
   const fetch = useCallback(
-    async (force = false) => {
+    async (force = false): Promise<string[]> => {
       if (!pubkey) {
         setRelayUrls((prev) => (prev.length === 0 ? prev : []))
         setLoading(false)
-        return
+        return []
       }
 
       if (!force) {
@@ -33,7 +33,7 @@ export function useProfileRelayUrls(pubkey: string | undefined, enabled: boolean
         if (cached?.length) {
           setRelayUrls(cached)
           setLoading(false)
-          return
+          return cached
         }
       }
 
@@ -45,8 +45,10 @@ export function useProfileRelayUrls(pubkey: string | undefined, enabled: boolean
         const urls = await buildProfileRelayUrls(pubkey, blockedRelaysRef.current)
         profileAccordionSetRelayUrls(pubkey, urls)
         setRelayUrls(urls)
+        return urls
       } catch {
         setRelayUrls((prev) => (prev.length === 0 ? prev : []))
+        return []
       } finally {
         setLoading(false)
       }
@@ -55,7 +57,7 @@ export function useProfileRelayUrls(pubkey: string | undefined, enabled: boolean
   )
 
   const refresh = useCallback(() => {
-    if (!pubkey) return Promise.resolve()
+    if (!pubkey) return Promise.resolve([] as string[])
     /** Do not invalidate: that wipes interactions/badges/follow-packs cache and forces empty refetches */
     return fetch(true)
   }, [pubkey, fetch])

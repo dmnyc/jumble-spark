@@ -288,7 +288,6 @@ export default function Profile({
   )
   const isSelf = accountPubkey === profile?.pubkey
   const [profileInteractionsExpanded, setProfileInteractionsExpanded] = useState(false)
-  const profileInteractionsRefreshRef = useRef<(() => void) | null>(null)
 
   /** All available relays: current feed, favorites, relay sets, defaults (FAST_READ, FAST_WRITE). */
   const allAvailableRelayUrls = useMemo(() => {
@@ -352,7 +351,6 @@ export default function Profile({
     const m = r as MutableRefObject<{ refresh: () => void } | null>
     m.current = {
       refresh: () => {
-        profileInteractionsRefreshRef.current?.()
         postsFeedRef.current?.refresh()
         mediaFeedRef.current?.refresh()
         publicationsFeedRef.current?.refresh()
@@ -425,7 +423,6 @@ export default function Profile({
                   ? (url) => setOpenCallInviteTo({ pubkey, url })
                   : undefined
               }
-              onProfileInteractionsRefresh={() => profileInteractionsRefreshRef.current?.()}
             />
             {isSelf ? (
               <DropdownMenu>
@@ -452,7 +449,6 @@ export default function Profile({
                               const evt = await publish(reaction)
                               if (evt) {
                                 showSimplePublishSuccess(t('Reaction published'))
-                                profileInteractionsRefreshRef.current?.()
                               }
                             } finally {
                               setSelfReacting(false)
@@ -508,7 +504,6 @@ export default function Profile({
                 parentEvent={profileEvent}
                 open={openSelfReply}
                 setOpen={setOpenSelfReply}
-                onPublishSuccess={() => profileInteractionsRefreshRef.current?.()}
               />
             )}
             {!isSelf ? (
@@ -649,7 +644,6 @@ export default function Profile({
                 pubkey={pubkey}
                 isExpanded={profileInteractionsExpanded}
                 onExpandedChange={setProfileInteractionsExpanded}
-                onRefreshReady={(refresh) => { profileInteractionsRefreshRef.current = refresh ?? null }}
               />
             </div>
           </div>

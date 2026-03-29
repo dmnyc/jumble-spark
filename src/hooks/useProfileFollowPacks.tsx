@@ -5,6 +5,7 @@ import {
   profileAccordionRelayUrlsKey,
   profileAccordionSetFollowPacks
 } from '@/lib/profile-accordion-session-cache'
+import { replaceableEventDedupeKey } from '@/lib/event'
 import { queryService } from '@/services/client.service'
 import { Event } from 'nostr-tools'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -94,10 +95,17 @@ export function useProfileFollowPacks(
         event: evt,
         title: getPackTitle(evt)
       }))
-      const byId = new Map<string, TProfileFollowPack>()
-      for (const p of seed ?? []) byId.set(p.event.id, p)
-      for (const p of network) byId.set(p.event.id, p)
-      const merged = [...byId.values()].sort((a, b) => b.event.created_at - a.event.created_at)
+      const byDedupeKey = new Map<string, TProfileFollowPack>()
+      const put = (p: TProfileFollowPack) => {
+        const k = replaceableEventDedupeKey(p.event)
+        const prev = byDedupeKey.get(k)
+        if (!prev || p.event.created_at > prev.event.created_at) {
+          byDedupeKey.set(k, p)
+        }
+      }
+      for (const p of seed ?? []) put(p)
+      for (const p of network) put(p)
+      const merged = [...byDedupeKey.values()].sort((a, b) => b.event.created_at - a.event.created_at)
       setPacks(merged)
       profileAccordionSetFollowPacks(pubkey, relayKey, merged)
     } catch {
