@@ -310,7 +310,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 ) {
   const { t } = useTranslation()
   const { navigate: navigatePrimary } = usePrimaryPage()
-  const { pubkey, relayList, attemptDelete, bookmarkListEvent, interestListEvent } = useNostr()
+  const { pubkey, account, relayList, attemptDelete, bookmarkListEvent, interestListEvent } =
+    useNostr()
   const { addBookmark, removeBookmark } = useBookmarks()
   const { hideUntrustedNotifications } = useUserTrust()
   const { isSmallScreen } = useScreenSize()
@@ -1179,7 +1180,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     [logSpellFeedPickerSelection, navigatePrimary, selectedFauxSpell, selectedSpell]
   )
 
-  const selectedSpellIsOwn = !!(pubkey && selectedSpell && selectedSpell.pubkey === pubkey)
+  const canSignSpellActions = account != null && account.signerType !== 'npub'
+  const selectedSpellIsAuthor = !!(pubkey && selectedSpell && selectedSpell.pubkey === pubkey)
+  const selectedSpellCanEditOrDelete = selectedSpellIsAuthor && canSignSpellActions
 
   const handleSpellFeedFirstPaint = useCallback(
     (detail: { eventCount: number; firstEventId: string }) => {
@@ -1588,7 +1591,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {selectedSpellIsOwn ? (
+                        {selectedSpellCanEditOrDelete ? (
                           <DropdownMenuItem
                             className="gap-2"
                             onClick={() => {
@@ -1617,7 +1620,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                           <FileText className="size-4" />
                           {t('View definition')}
                         </DropdownMenuItem>
-                        {selectedSpellIsOwn ? (
+                        {selectedSpellCanEditOrDelete ? (
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

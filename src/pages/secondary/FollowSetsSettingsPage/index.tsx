@@ -59,7 +59,7 @@ const FOLLOW_SET_FETCH_OPTS = {
 const FollowSetsSettingsPage = forwardRef(
   ({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
     const { t } = useTranslation()
-    const { pubkey, publish, attemptDelete, checkLogin, relayList } = useNostr()
+    const { pubkey, account, publish, attemptDelete, checkLogin, relayList } = useNostr()
     const { favoriteRelays, blockedRelays } = useFavoriteRelays()
     const [lists, setLists] = useState<Event[]>([])
     const [loading, setLoading] = useState(true)
@@ -73,6 +73,8 @@ const FollowSetsSettingsPage = forwardRef(
     const [formPubkeys, setFormPubkeys] = useState<string[]>([])
     const [deleteTarget, setDeleteTarget] = useState<Event | null>(null)
     const [deleting, setDeleting] = useState(false)
+
+    const canSignEvents = account != null && account.signerType !== 'npub'
 
     const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
 
@@ -275,17 +277,19 @@ const FollowSetsSettingsPage = forwardRef(
                           <Pencil className="size-4" />
                           <span className="sr-only">{t('Edit')}</span>
                         </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => setDeleteTarget(ev)}
-                          title={t('Delete')}
-                        >
-                          <Trash2 className="size-4" />
-                          <span className="sr-only">{t('Delete')}</span>
-                        </Button>
+                        {canSignEvents && ev.pubkey === pubkey ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setDeleteTarget(ev)}
+                            title={t('Delete')}
+                          >
+                            <Trash2 className="size-4" />
+                            <span className="sr-only">{t('Delete')}</span>
+                          </Button>
+                        ) : null}
                       </div>
                     </li>
                   ))}

@@ -850,8 +850,8 @@ export function useMenuActions({
       })
     }
 
-    // Delete functionality only available for own notes
-    if (pubkey && event.pubkey === pubkey) {
+    // Delete only when signed in as the author with a signing key (not read-only npub)
+    if (canSignEvents && pubkey && event.pubkey === pubkey) {
       actions.push({
         icon: Trash2,
         label: t('Try deleting this note'),
