@@ -123,115 +123,147 @@ export default defineConfig(({ mode }) => {
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (!id.includes('node_modules')) return undefined
+          const norm = id.replace(/\\/g, '/')
+
+          // One chunk per locale file — `i18n/index` statically imports all of them; splitting keeps
+          // the main app chunk smaller and allows parallel fetch + finer cache invalidation.
+          const localeMatch = norm.match(/\/i18n\/locales\/([^/]+)\.(?:[cm]?ts|[cm]?js|tsx|jsx)$/)
+          if (localeMatch) {
+            const code = localeMatch[1].replace(/[^a-zA-Z0-9_-]/g, '_')
+            return `i18n-locale-${code}`
+          }
+
+          if (!norm.includes('node_modules')) return undefined
 
           // Lazy-loaded only — must not share a chunk with sync vendors or it gets preloaded
-          if (id.includes('@asciidoctor')) {
+          if (norm.includes('@asciidoctor')) {
             return 'vendor-asciidoctor'
           }
 
-          if (id.includes('/katex/') || id.includes('node_modules/katex/')) {
+          if (norm.includes('/katex/') || norm.includes('node_modules/katex/')) {
             return 'vendor-katex'
           }
 
           // React core (load first; keep together)
-          if (/node_modules\/(react-dom|react\/|scheduler\/|use-sync-external-store\/)/.test(id)) {
+          if (/node_modules\/(react-dom|react\/|scheduler\/|use-sync-external-store\/)/.test(norm)) {
             return 'vendor-react'
           }
 
-          // TipTap + ProseMirror
-          if (id.includes('@tiptap') || id.includes('prosemirror-')) {
-            return 'vendor-editor'
+          // ProseMirror vs TipTap — avoids one ~750k editor blob; both load together when editor mounts
+          if (norm.includes('prosemirror-')) {
+            return 'vendor-prosemirror'
+          }
+          if (norm.includes('@tiptap')) {
+            return 'vendor-tiptap'
           }
 
           // Radix UI primitives
-          if (id.includes('@radix-ui')) {
+          if (norm.includes('@radix-ui')) {
             return 'vendor-radix'
           }
 
           // Nostr + crypto used by the stack
           if (
-            id.includes('nostr-tools') ||
-            id.includes('@noble') ||
-            id.includes('@scure')
+            norm.includes('nostr-tools') ||
+            norm.includes('@noble') ||
+            norm.includes('@scure')
           ) {
             return 'vendor-nostr'
           }
 
-          if (id.includes('lucide-react')) {
+          if (norm.includes('lucide-react')) {
             return 'vendor-lucide'
           }
 
-          if (id.includes('i18next') || id.includes('react-i18next')) {
-            return 'vendor-i18n'
+          if (norm.includes('i18next') || norm.includes('react-i18next')) {
+            return 'vendor-i18n-runtime'
           }
 
-          if (id.includes('@dnd-kit')) {
+          if (norm.includes('@dnd-kit')) {
             return 'vendor-dnd'
           }
 
-          if (id.includes('highlight.js')) {
+          if (norm.includes('highlight.js')) {
             return 'vendor-highlight'
           }
 
-          if (id.includes('flexsearch')) {
+          if (norm.includes('flexsearch')) {
             return 'vendor-flexsearch'
           }
 
-          if (id.includes('emoji-picker-react')) {
+          if (norm.includes('emoji-picker-react')) {
             return 'vendor-emoji'
           }
 
-          if (id.includes('yet-another-react-lightbox')) {
+          if (norm.includes('yet-another-react-lightbox')) {
             return 'vendor-lightbox'
           }
 
-          if (
-            id.includes('@getalby') ||
-            id.includes('bitcoin-connect') ||
-            id.includes('nstart-modal')
-          ) {
-            return 'vendor-lightning'
+          if (norm.includes('@getalby') || norm.includes('bitcoin-connect')) {
+            return 'vendor-lightning-alby'
+          }
+          if (norm.includes('nstart-modal')) {
+            return 'vendor-lightning-nstart'
           }
 
-          if (id.includes('embla-carousel')) {
+          if (norm.includes('embla-carousel')) {
             return 'vendor-embla'
           }
 
-          if (id.includes('qr-code-styling') || id.includes('/qr-scanner/')) {
+          if (norm.includes('qr-code-styling') || norm.includes('/qr-scanner/')) {
             return 'vendor-qr'
           }
 
-          if (id.includes('/cmdk/')) {
+          if (norm.includes('/cmdk/')) {
             return 'vendor-cmdk'
           }
 
-          if (id.includes('/vaul/')) {
+          if (norm.includes('/vaul/')) {
             return 'vendor-vaul'
           }
 
-          if (id.includes('tippy.js')) {
+          if (norm.includes('tippy.js')) {
             return 'vendor-tippy'
           }
 
-          if (id.includes('/zod/') || id.includes('node_modules/zod')) {
+          if (norm.includes('/zod/') || norm.includes('node_modules/zod')) {
             return 'vendor-zod'
           }
 
-          if (id.includes('/dayjs/')) {
+          if (norm.includes('/dayjs/')) {
             return 'vendor-dayjs'
           }
 
-          if (id.includes('/sonner/')) {
+          if (norm.includes('/sonner/')) {
             return 'vendor-sonner'
           }
 
-          if (id.includes('blossom-client-sdk')) {
+          if (norm.includes('blossom-client-sdk')) {
             return 'vendor-blossom'
           }
 
-          if (id.includes('@popperjs')) {
+          if (norm.includes('@popperjs')) {
             return 'vendor-popper'
+          }
+
+          if (norm.includes('@floating-ui')) {
+            return 'vendor-floating-ui'
+          }
+
+          if (norm.includes('/blurhash/') || norm.includes('node_modules/blurhash')) {
+            return 'vendor-blurhash'
+          }
+
+          if (norm.includes('/dataloader/') || norm.includes('node_modules/dataloader')) {
+            return 'vendor-dataloader'
+          }
+
+          if (
+            norm.includes('tailwind-merge') ||
+            norm.includes('/clsx/') ||
+            norm.includes('class-variance-authority')
+          ) {
+            return 'vendor-clsx-tailwind'
           }
 
           return 'vendor-misc'

@@ -3,6 +3,7 @@ import {
   LIVE_ACTIVITY_KINDS,
   mergeLiveActivityEvents,
   msUntilNextQuarterHour,
+  resolveParentSpacesForLiveActivities,
   type TLiveActivityItem
 } from '@/lib/live-activities'
 import logger from '@/lib/logger'
@@ -69,7 +70,10 @@ export function LiveActivitiesProvider({ children }: { children: React.ReactNode
         { kinds: [...LIVE_ACTIVITY_KINDS], limit: 500 },
         { eoseTimeout: 6000, globalTimeout: 14_000 }
       )
-      const merged = mergeLiveActivityEvents(events, followings)
+      const parentByAddress = await resolveParentSpacesForLiveActivities(events, urls, (u, f, o) =>
+        client.fetchEvents(u, f, o)
+      )
+      const merged = mergeLiveActivityEvents(events, followings, parentByAddress)
       setItems(merged)
       logger.debug('[LiveActivities] poll done', { relayCount: urls.length, raw: events.length, merged: merged.length })
     } catch (e) {

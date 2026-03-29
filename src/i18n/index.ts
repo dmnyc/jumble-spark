@@ -2,95 +2,113 @@ import dayjs from 'dayjs'
 import i18n, { Resource } from 'i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import { initReactI18next } from 'react-i18next'
-import ar from './locales/ar'
-import de from './locales/de'
 import en from './locales/en'
-import es from './locales/es'
-import fa from './locales/fa'
-import fr from './locales/fr'
-import hi from './locales/hi'
-import it from './locales/it'
-import ja from './locales/ja'
-import ko from './locales/ko'
-import pl from './locales/pl'
-import pt_BR from './locales/pt-BR'
-import pt_PT from './locales/pt-PT'
-import ru from './locales/ru'
-import th from './locales/th'
-import zh from './locales/zh'
 
-const languages = {
-  ar: { resource: ar, name: 'العربية' },
-  de: { resource: de, name: 'Deutsch' },
-  en: { resource: en, name: 'English' },
-  es: { resource: es, name: 'Español' },
-  fa: { resource: fa, name: 'فارسی' },
-  fr: { resource: fr, name: 'Français' },
-  hi: { resource: hi, name: 'हिन्दी' },
-  it: { resource: it, name: 'Italiano' },
-  ja: { resource: ja, name: '日本語' },
-  ko: { resource: ko, name: '한국어' },
-  pl: { resource: pl, name: 'Polski' },
-  'pt-BR': { resource: pt_BR, name: 'Português (Brasil)' },
-  'pt-PT': { resource: pt_PT, name: 'Português (Portugal)' },
-  ru: { resource: ru, name: 'Русский' },
-  th: { resource: th, name: 'ไทย' },
-  zh: { resource: zh, name: '简体中文' }
+/** Display names only — keeps this module small; locale strings load on demand (except English). */
+const LANGUAGE_META = {
+  ar: 'العربية',
+  de: 'Deutsch',
+  en: 'English',
+  es: 'Español',
+  fa: 'فارسی',
+  fr: 'Français',
+  hi: 'हिन्दी',
+  it: 'Italiano',
+  ja: '日本語',
+  ko: '한국어',
+  pl: 'Polski',
+  'pt-BR': 'Português (Brasil)',
+  'pt-PT': 'Português (Portugal)',
+  ru: 'Русский',
+  th: 'ไทย',
+  zh: '简体中文'
 } as const
 
-export type TLanguage = keyof typeof languages
-export const LocalizedLanguageNames: { [key in TLanguage]?: string } = {}
-const resources: { [key in TLanguage]?: Resource } = {}
-const supportedLanguages: TLanguage[] = []
-for (const [key, value] of Object.entries(languages)) {
-  const lang = key as TLanguage
-  LocalizedLanguageNames[lang] = value.name
-  resources[lang] = value.resource
-  supportedLanguages.push(lang)
+export type TLanguage = keyof typeof LANGUAGE_META
+
+export const LocalizedLanguageNames: { [key in TLanguage]: string } = { ...LANGUAGE_META }
+
+export const supportedLanguages = Object.keys(LANGUAGE_META) as TLanguage[]
+
+const localeModules = import.meta.glob<{ default: Resource }>('./locales/*.ts')
+
+const localePath = (code: TLanguage): string => `./locales/${code}.ts`
+
+function normalizeToSupported(lng: string): TLanguage {
+  const exact = supportedLanguages.find((s) => lng === s)
+  if (exact) return exact
+  return supportedLanguages.find((s) => lng.startsWith(s)) ?? 'en'
 }
 
-i18n
-  .use(LanguageDetector)
-  .use(initReactI18next)
-  .init({
-    fallbackLng: 'en',
-    resources,
-    interpolation: {
-      escapeValue: false // react already safes from xss
-    },
-    detection: {
-      convertDetectedLanguage: (lng) => {
-        const supported = supportedLanguages.find((supported) => lng.startsWith(supported))
-        return supported || 'en'
-      }
-    }
-  })
-
-i18n.services.formatter?.add('date', (timestamp, lng) => {
-  switch (lng) {
-    case 'zh':
-    case 'ja':
-      return dayjs(timestamp).format('YYYY年MM月DD日')
-    case 'pl':
-    case 'de':
-    case 'ru':
-      return dayjs(timestamp).format('DD.MM.YYYY')
-    case 'fa':
-      return dayjs(timestamp).format('YYYY/MM/DD')
-    case 'it':
-    case 'es':
-    case 'fr':
-    case 'pt-BR':
-    case 'pt-PT':
-    case 'ar':
-    case 'hi':
-    case 'th':
-      return dayjs(timestamp).format('DD/MM/YYYY')
-    case 'ko':
-      return dayjs(timestamp).format('YYYY년 MM월 DD일')
-    default:
-      return dayjs(timestamp).format('MMM D, YYYY')
+export async function ensureLocaleLoaded(code: TLanguage): Promise<void> {
+  if (code === 'en') return
+  if (i18n.hasResourceBundle(code, 'translation')) return
+  const load = localeModules[localePath(code)]
+  if (!load) {
+    console.warn('[i18n] Missing locale module for', code)
+    return
   }
-})
+  const mod = await load()
+  i18n.addResourceBundle(code, 'translation', mod.default.translation, true, true)
+}
+
+export async function changeAppLanguage(code: TLanguage): Promise<void> {
+  await ensureLocaleLoaded(code)
+  await i18n.changeLanguage(code)
+}
+
+let initPromise: Promise<void> | null = null
+
+export function initI18n(): Promise<void> {
+  if (initPromise) return initPromise
+  initPromise = (async () => {
+    await i18n.use(LanguageDetector).use(initReactI18next).init({
+      fallbackLng: 'en',
+      supportedLngs: supportedLanguages,
+      resources: { en },
+      partialBundledLanguages: true,
+      interpolation: {
+        escapeValue: false
+      },
+      detection: {
+        convertDetectedLanguage: (lng) => normalizeToSupported(lng)
+      }
+    })
+
+    i18n.services.formatter?.add('date', (timestamp, lng) => {
+      switch (lng) {
+        case 'zh':
+        case 'ja':
+          return dayjs(timestamp).format('YYYY年MM月DD日')
+        case 'pl':
+        case 'de':
+        case 'ru':
+          return dayjs(timestamp).format('DD.MM.YYYY')
+        case 'fa':
+          return dayjs(timestamp).format('YYYY/MM/DD')
+        case 'it':
+        case 'es':
+        case 'fr':
+        case 'pt-BR':
+        case 'pt-PT':
+        case 'ar':
+        case 'hi':
+        case 'th':
+          return dayjs(timestamp).format('DD/MM/YYYY')
+        case 'ko':
+          return dayjs(timestamp).format('YYYY년 MM월 DD일')
+        default:
+          return dayjs(timestamp).format('MMM D, YYYY')
+      }
+    })
+
+    const target = normalizeToSupported(i18n.language)
+    if (target !== 'en') {
+      await ensureLocaleLoaded(target)
+      await i18n.changeLanguage(target)
+    }
+  })()
+  return initPromise
+}
 
 export default i18n

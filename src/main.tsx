@@ -1,4 +1,3 @@
-import './i18n'
 import './index.css'
 import './polyfill'
 import './services/lightning.service'
@@ -9,6 +8,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
+import { initI18n } from './i18n'
 import storage from './services/local-storage.service'
 import { restoreSessionFeedSnapshotsAfterHardRefresh } from './services/session-feed-snapshot.service'
 
@@ -64,6 +64,7 @@ async function bootstrap() {
   window.__RUNTIME_CONFIG__ = {}
   console.info('[jumble] Boot: opening storage and loading config…')
   await Promise.all([
+    initI18n(),
     storage.initAsync(),
     (async () => {
       try {

@@ -7,16 +7,11 @@ import { NavigationService } from '@/services/navigation.service'
 // Page imports needed for primary note view
 import LiveActivitiesStrip from '@/components/LiveActivitiesStrip'
 import NoteDrawer from '@/components/NoteDrawer'
-import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
 import storage from '@/services/local-storage.service'
 import client from '@/services/client.service'
 import { navigationEventStore } from '@/services/navigation-event-store'
 import type { Event } from 'nostr-tools'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
-import FollowingListPage from '@/pages/secondary/FollowingListPage'
-import MuteListPage from '@/pages/secondary/MuteListPage'
-import OthersRelaySettingsPage from '@/pages/secondary/OthersRelaySettingsPage'
-import SecondaryRelayPage from '@/pages/secondary/RelayPage'
 import { CurrentRelaysProvider } from '@/providers/CurrentRelaysProvider'
 // DEPRECATED: useUserPreferences removed - double-panel functionality disabled
 import { TPageRef } from '@/types'
@@ -88,6 +83,17 @@ const CreateWalletGuideToastLazy = lazy(() => import('@/components/CreateWalletG
 const RelayPulseActiveNpubsSheetLazy = lazy(
   () => import('@/components/FavoriteRelaysActiveStrip/RelayPulseActiveNpubsSheet').then((m) => ({ default: m.RelayPulseActiveNpubsSheet }))
 )
+
+/** Mobile primary-note overlay: lazy so these pages are not in the main bundle (routes use the same modules → shared async chunks). */
+const SecondaryProfilePageLazy = lazy(() => import('@/pages/secondary/ProfilePage'))
+const PrimaryFollowingListPageLazy = lazy(() => import('@/pages/secondary/FollowingListPage'))
+const PrimaryMuteListPageLazy = lazy(() => import('@/pages/secondary/MuteListPage'))
+const PrimaryOthersRelaySettingsPageLazy = lazy(() => import('@/pages/secondary/OthersRelaySettingsPage'))
+const SecondaryRelayPageLazy = lazy(() => import('@/pages/secondary/RelayPage'))
+
+function suspensePrimaryPage(page: ReactElement) {
+  return <Suspense fallback={primaryPageLazyFallback}>{page}</Suspense>
+}
 
 type TStackItem = {
   index: number
@@ -469,7 +475,10 @@ export function useSmartRelayNavigation() {
     if (isSmallScreen) {
       // Use primary note view on mobile
       window.history.pushState(null, '', contextualUrl)
-      setPrimaryNoteView(<SecondaryRelayPage url={relayUrl} index={0} hideTitlebar={true} />, 'relay')
+      setPrimaryNoteView(
+        suspensePrimaryPage(<SecondaryRelayPageLazy url={relayUrl} index={0} hideTitlebar={true} />),
+        'relay'
+      )
     } else {
       // Desktop: always use secondary routing (will be rendered in drawer in single-pane, side panel in double-pane)
       pushSecondaryPage(contextualUrl)
@@ -502,7 +511,10 @@ export function useSmartRelayNavigationOptional() {
     const contextualUrl = buildRelayUrl(relayUrl, currentPrimaryPage)
     if (isSmallScreen) {
       window.history.pushState(null, '', contextualUrl)
-      setPrimaryNoteView(<SecondaryRelayPage url={relayUrl} index={0} hideTitlebar={true} />, 'relay')
+      setPrimaryNoteView(
+        suspensePrimaryPage(<SecondaryRelayPageLazy url={relayUrl} index={0} hideTitlebar={true} />),
+        'relay'
+      )
     } else {
       pushSecondaryPage(contextualUrl)
     }
@@ -528,7 +540,10 @@ export function useSmartProfileNavigation() {
           // Use primary note view on mobile
           const profileId = url.replace('/users/', '')
           window.history.pushState(null, '', url)
-          setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+          setPrimaryNoteView(
+            suspensePrimaryPage(<SecondaryProfilePageLazy id={profileId} index={0} hideTitlebar={true} />),
+            'profile'
+          )
         } else {
           // Use secondary routing on desktop
           pushSecondaryPage(url)
@@ -540,7 +555,10 @@ export function useSmartProfileNavigation() {
         // Use primary note view on mobile
         const profileId = url.replace('/users/', '')
         window.history.pushState(null, '', url)
-        setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+        setPrimaryNoteView(
+          suspensePrimaryPage(<SecondaryProfilePageLazy id={profileId} index={0} hideTitlebar={true} />),
+          'profile'
+        )
       } else {
         // Use secondary routing on desktop
         pushSecondaryPage(url)
@@ -578,7 +596,10 @@ export function useSmartProfileNavigationOptional() {
         if (isSmallScreen) {
           const profileId = url.replace('/users/', '')
           window.history.pushState(null, '', url)
-          setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+          setPrimaryNoteView(
+            suspensePrimaryPage(<SecondaryProfilePageLazy id={profileId} index={0} hideTitlebar={true} />),
+            'profile'
+          )
         } else {
           pushSecondaryPage(url)
         }
@@ -587,7 +608,10 @@ export function useSmartProfileNavigationOptional() {
       if (isSmallScreen) {
         const profileId = url.replace('/users/', '')
         window.history.pushState(null, '', url)
-        setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+        setPrimaryNoteView(
+          suspensePrimaryPage(<SecondaryProfilePageLazy id={profileId} index={0} hideTitlebar={true} />),
+          'profile'
+        )
       } else {
         pushSecondaryPage(url)
       }
@@ -666,7 +690,10 @@ export function useSmartFollowingListNavigation() {
       // Use primary note view on mobile
       const profileId = url.replace('/users/', '').replace('/following', '')
       window.history.pushState(null, '', url)
-      setPrimaryNoteView(<FollowingListPage id={profileId} index={0} hideTitlebar={true} />, 'following')
+      setPrimaryNoteView(
+        suspensePrimaryPage(<PrimaryFollowingListPageLazy id={profileId} index={0} hideTitlebar={true} />),
+        'following'
+      )
     } else {
       // Use secondary routing on desktop
       pushSecondaryPage(url)
@@ -686,7 +713,7 @@ export function useSmartMuteListNavigation() {
     if (isSmallScreen) {
       // Use primary note view on mobile
       window.history.pushState(null, '', url)
-      setPrimaryNoteView(<MuteListPage index={0} hideTitlebar={true} />, 'mute')
+      setPrimaryNoteView(suspensePrimaryPage(<PrimaryMuteListPageLazy index={0} hideTitlebar={true} />), 'mute')
     } else {
       // Use secondary routing on desktop
       pushSecondaryPage(url)
@@ -707,7 +734,12 @@ export function useSmartOthersRelaySettingsNavigation() {
       // Use primary note view on mobile
       const profileId = url.replace('/users/', '').replace('/relays', '')
       window.history.pushState(null, '', url)
-      setPrimaryNoteView(<OthersRelaySettingsPage id={profileId} index={0} hideTitlebar={true} />, 'others-relay-settings')
+      setPrimaryNoteView(
+        suspensePrimaryPage(
+          <PrimaryOthersRelaySettingsPageLazy id={profileId} index={0} hideTitlebar={true} />
+        ),
+        'others-relay-settings'
+      )
     } else {
       // Use secondary routing on desktop
       pushSecondaryPage(url)
@@ -1642,7 +1674,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       const profileId = currentPath.replace('/users/', '').replace('/following', '').replace('/muted', '').replace('/relays', '')
       const profileUrl = `/users/${profileId}`
       window.history.pushState(null, '', profileUrl)
-      setPrimaryNoteView(<SecondaryProfilePage id={profileId} index={0} hideTitlebar={true} />, 'profile')
+      setPrimaryNoteView(
+        suspensePrimaryPage(<SecondaryProfilePageLazy id={profileId} index={0} hideTitlebar={true} />),
+        'profile'
+      )
       return
     }
     window.history.back()

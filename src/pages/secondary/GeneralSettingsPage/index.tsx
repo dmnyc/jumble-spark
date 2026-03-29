@@ -8,7 +8,7 @@ import {
   NOTIFICATION_LIST_STYLE,
   RANDOM_PUBLISH_RELAY_COUNT
 } from '@/constants'
-import { LocalizedLanguageNames, TLanguage } from '@/i18n'
+import { changeAppLanguage, LocalizedLanguageNames, TLanguage } from '@/i18n'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { cn, isSupportCheckConnectionType } from '@/lib/utils'
@@ -51,8 +51,8 @@ const GeneralSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
     updateShowLiveActivitiesBanner
   } = useUserPreferences()
 
-  const handleLanguageChange = (value: TLanguage) => {
-    i18n.changeLanguage(value)
+  const handleLanguageChange = async (value: TLanguage) => {
+    await changeAppLanguage(value)
     setLanguage(value)
   }
 
