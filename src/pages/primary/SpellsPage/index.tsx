@@ -15,6 +15,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import UserAvatar from '@/components/UserAvatar'
@@ -50,7 +57,7 @@ import {
   FIRST_RELAY_RESULT_GRACE_MS,
 } from '@/constants'
 import { filterEventsExcludingTombstones, isUserInEventMentions } from '@/lib/event'
-import { formatPubkey } from '@/lib/pubkey'
+import { formatPubkey, hexPubkeysEqual, normalizeHexPubkey } from '@/lib/pubkey'
 import {
   augmentSubRequestsWithFavoritesFastReadAndInbox,
   getRelayUrlsWithFavoritesFastReadAndInbox
@@ -98,6 +105,7 @@ import type { Event } from 'nostr-tools'
 import { kinds as nostrKinds, verifyEvent } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import CreateSpellDialog from './CreateSpellDialog'
 import {
   appendCuratedReadOnlyRelays,
@@ -310,8 +318,17 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 ) {
   const { t } = useTranslation()
   const { navigate: navigatePrimary } = usePrimaryPage()
-  const { pubkey, account, relayList, attemptDelete, bookmarkListEvent, interestListEvent } =
-    useNostr()
+  const {
+    pubkey,
+    account,
+    accounts,
+    relayList,
+    attemptDelete,
+    bookmarkListEvent,
+    interestListEvent,
+    switchAccount,
+    isAccountSessionHydrating
+  } = useNostr()
   const { addBookmark, removeBookmark } = useBookmarks()
   const { hideUntrustedNotifications } = useUserTrust()
   const { isSmallScreen } = useScreenSize()
@@ -352,6 +369,43 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const spellFeedInstrLabelRef = useRef('')
   const [spellFeedInstrumentToken, setSpellFeedInstrumentToken] = useState(0)
   const [followSetManualRefreshKey, setFollowSetManualRefreshKey] = useState(0)
+  /** Notifications `#p` + mention filter track the active session; changing the dropdown calls {@link switchAccount}. */
+  const notificationsFeedPubkey = useMemo(() => {
+    const cur = pubkey?.trim()
+    return cur ? normalizeHexPubkey(cur) : null
+  }, [pubkey])
+
+  const storedAccountPubkeys = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const a of accounts) {
+      const raw = a.pubkey?.trim()
+      if (!raw) continue
+      const p = normalizeHexPubkey(raw)
+      if (!seen.has(p)) {
+        seen.add(p)
+        out.push(p)
+      }
+    }
+    return out
+  }, [accounts])
+
+  const handleNotificationsAccountPick = useCallback(
+    async (v: string) => {
+      const target = normalizeHexPubkey(v)
+      if (pubkey && hexPubkeysEqual(target, pubkey)) return
+      const nextAccount = accounts.find((a) => hexPubkeysEqual(a.pubkey, target))
+      if (!nextAccount) {
+        toast.error(t('notificationsSwitchAccountFailed'))
+        return
+      }
+      const switched = await switchAccount(nextAccount)
+      if (!switched || !hexPubkeysEqual(normalizeHexPubkey(switched), target)) {
+        toast.error(t('notificationsSwitchAccountFailed'))
+      }
+    },
+    [pubkey, accounts, switchAccount, t]
+  )
 
   const logSpellFeedPickerSelection = useCallback((label: string, extra?: Record<string, unknown>) => {
     spellFeedInstrT0Ref.current = performance.now()
@@ -835,8 +889,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     )
 
     if (selectedFauxSpell === 'notifications') {
-      if (!pubkey || !feedUrls.length) return []
-      return buildNotificationsSpellSubRequests(feedUrls, pubkey)
+      if (!notificationsFeedPubkey || !feedUrls.length) return []
+      return buildNotificationsSpellSubRequests(feedUrls, notificationsFeedPubkey)
     }
     if (selectedFauxSpell === 'discussions') {
       // Read-only prepended in appendCuratedReadOnlyRelays so FAUX_SPELL_MAX_RELAYS still includes aggr.
@@ -876,7 +930,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       ]
     }
     return []
-  }, [selectedFauxSpell, pubkey, fauxFeedRelaysDepsKey, relayMailboxStableKey])
+  }, [selectedFauxSpell, pubkey, notificationsFeedPubkey, fauxFeedRelaysDepsKey, relayMailboxStableKey])
 
   const fauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
     const base = isFollowFeedFauxSpellId(selectedFauxSpell ?? '')
@@ -1205,8 +1259,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   }, [selectedFauxSpell])
 
   const notificationsMentionExtraHide = useCallback(
-    (evt: Event) => (pubkey ? !isUserInEventMentions(evt, pubkey) : false),
-    [pubkey]
+    (evt: Event) =>
+      notificationsFeedPubkey ? !isUserInEventMentions(evt, notificationsFeedPubkey) : false,
+    [notificationsFeedPubkey]
   )
 
   const fauxFeedEmptyMessage = useMemo(() => {
@@ -1670,7 +1725,40 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
           ) : selectedFauxSpell && fauxSubRequests.length > 0 ? (
             <>
               {selectedFauxSpell === 'notifications' ? (
-                <div className="flex shrink-0 justify-end px-1 pb-2">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 px-1 pb-2 sm:justify-between">
+                  {storedAccountPubkeys.length > 1 && notificationsFeedPubkey ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-[min(100%,20rem)]">
+                      <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+                        {t('notificationsViewAsAccount')}
+                      </span>
+                      <Select
+                        value={notificationsFeedPubkey}
+                        disabled={isAccountSessionHydrating}
+                        onValueChange={(v) => void handleNotificationsAccountPick(v)}
+                      >
+                        <SelectTrigger
+                          className="h-9 min-w-0 flex-1"
+                          aria-label={t('notificationsViewAsAccountAria')}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent position="popper">
+                          {storedAccountPubkeys.map((pk) => (
+                            <SelectItem key={pk} value={pk}>
+                              <span className="flex min-w-0 items-center gap-2">
+                                <UserAvatar userId={pk} size="small" className="shrink-0" />
+                                <Username
+                                  userId={pk}
+                                  className="min-w-0 truncate text-left font-normal"
+                                  skeletonClassName="h-4 w-24"
+                                />
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
                   <HideUntrustedContentButton type="notifications" size="titlebar-icon" />
                 </div>
               ) : null}
@@ -1712,7 +1800,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                       : false
                   }
                   extraShouldHideEvent={
-                    selectedFauxSpell === 'notifications' && pubkey
+                    selectedFauxSpell === 'notifications' && notificationsFeedPubkey
                       ? notificationsMentionExtraHide
                       : undefined
                   }

@@ -840,14 +840,14 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const switchAccount = async (act: TAccountPointer | null) => {
+  const switchAccount = async (act: TAccountPointer | null): Promise<string | null> => {
     if (!act) {
       storage.switchAccount(null)
       setAccount(null)
       setSigner(null)
-      return
+      return null
     }
-    await loginWithAccountPointer(act)
+    return await loginWithAccountPointer(act)
   }
 
   const finishNcryptsecPasswordPrompt = useCallback((password: string | null) => {

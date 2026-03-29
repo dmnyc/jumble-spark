@@ -617,6 +617,11 @@ export default {
     Pay: 'Pay',
     interactions: 'interactions',
     notifications: 'notifications',
+    notificationsViewAsAccount: 'View as',
+    notificationsViewAsAccountAria:
+      'Switch stored account. Notifications, replies, zaps, reactions, and boosts use this account.',
+    notificationsSwitchAccountFailed:
+      'Could not switch account. Check your signer, password, or extension and try again.',
     'Show untrusted {type}': 'Show untrusted {{type}}',
     'Hide untrusted {type}': 'Hide untrusted {{type}}',
     'Currently hiding {type} from untrusted users.':

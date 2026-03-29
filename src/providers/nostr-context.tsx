@@ -35,7 +35,8 @@ export type TNostrContext = {
   accounts: TAccountPointer[]
   nsec: string | null
   ncryptsec: string | null
-  switchAccount: (account: TAccountPointer | null) => Promise<void>
+  /** Returns the new session pubkey on success, or `null` if logout / switch failed. */
+  switchAccount: (account: TAccountPointer | null) => Promise<string | null>
   nsecLogin: (nsec: string, password?: string, needSetup?: boolean) => Promise<string>
   ncryptsecLogin: (ncryptsec: string) => Promise<string>
   nip07Login: () => Promise<string>

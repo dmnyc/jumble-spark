@@ -596,6 +596,11 @@ export default {
     Pay: 'Bezahlen',
     interactions: 'Interaktionen',
     notifications: 'Benachrichtigungen',
+    notificationsViewAsAccount: 'Anzeigen als',
+    notificationsViewAsAccountAria:
+      'Gespeichertes Konto wechseln. Benachrichtigungen, Antworten, Zaps, Reaktionen und Boosts nutzen dieses Konto.',
+    notificationsSwitchAccountFailed:
+      'Kontowechsel fehlgeschlagen. Signierer, Passwort oder Erweiterung prüfen und erneut versuchen.',
     'Show untrusted {type}': 'Untrusted {{type}} anzeigen',
     'Hide untrusted {type}': 'Untrusted {{type}} ausblenden',
     'Currently hiding {type} from untrusted users.':
