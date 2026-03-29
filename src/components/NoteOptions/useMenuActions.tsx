@@ -428,6 +428,12 @@ export function useMenuActions({
     return event.tags.find(tag => tag[0] === 'd')?.[1] || ''
   }, [isArticleType, event])
 
+  /** Decent Newsroom article URLs are scoped by author: /p/{npub}/d/{identifier} */
+  const authorNpubForDecentNewsroom = useMemo(
+    () => pubkeyToNpub(event.pubkey) ?? '',
+    [event.pubkey]
+  )
+
   // Generate naddr for Alexandria URL
   const naddr = useMemo(() => {
     if (!isArticleType || !dTag) return ''
@@ -554,9 +560,11 @@ export function useMenuActions({
     }
 
     const handleViewOnDecentNewsroom = () => {
-      if (!dTag) return
+      if (!dTag || !authorNpubForDecentNewsroom) return
       closeDrawer()
-      window.open(`https://decentnewsroom.com/article/d/${dTag}`, '_blank', 'noopener,noreferrer')
+      const p = encodeURIComponent(authorNpubForDecentNewsroom)
+      const d = encodeURIComponent(dTag)
+      window.open(`https://decentnewsroom.com/p/${p}/d/${d}`, '_blank', 'noopener,noreferrer')
     }
     const actions: MenuAction[] = [
       {
@@ -750,7 +758,7 @@ export function useMenuActions({
             onClick: handleViewOnAlexandria
           })
         }
-        if (dTag) {
+        if (dTag && authorNpubForDecentNewsroom) {
           actions.push({
             icon: Globe,
             label: t('View on DecentNewsroom'),
@@ -884,6 +892,7 @@ export function useMenuActions({
     isArticleType,
     articleMetadata,
     dTag,
+    authorNpubForDecentNewsroom,
     naddr,
     onOpenPublicMessage,
     onOpenCallInvite,

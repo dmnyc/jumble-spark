@@ -2,6 +2,7 @@ import 'yet-another-react-lightbox/styles.css'
 import './index.css'
 
 import PublishSuccessSubtleIndicator from '@/components/PublishSuccessSubtleIndicator'
+import ReadAloudPlayerModal from '@/components/ReadAloudPlayerModal'
 import { Toaster } from '@/components/ui/sonner'
 import { BookmarksProvider } from '@/providers/BookmarksProvider'
 import { ContentPolicyProvider } from '@/providers/ContentPolicyProvider'
@@ -52,6 +53,7 @@ export default function App(): JSX.Element {
                                           <KindFilterProvider>
                                             <UserPreferencesProvider>
                                               <PageManager />
+                                              <ReadAloudPlayerModal />
                                               <PublishSuccessSubtleIndicator />
                                               <Toaster />
                                             </UserPreferencesProvider>
