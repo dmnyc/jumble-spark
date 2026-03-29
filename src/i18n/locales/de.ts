@@ -651,6 +651,12 @@ export default {
     '{{votes}} · {{pct}}%': '{{votes}} · {{pct}}%',
     Poll: 'Umfrage',
     Media: 'Medien',
+    'Articles and Publications': 'Artikel und Veröffentlichungen',
+    'Search articles...': 'Artikel suchen…',
+    'Refreshing articles...': 'Artikel werden aktualisiert…',
+    'No articles or publications found': 'Keine Artikel oder Veröffentlichungen gefunden',
+    'No articles or publications match your search': 'Keine Artikel oder Veröffentlichungen entsprechen der Suche',
+    'articles and publications': 'Artikel und Veröffentlichungen',
     Interests: 'Interessen',
     Calendar: 'Kalender',
     'No subscribed interests yet.':

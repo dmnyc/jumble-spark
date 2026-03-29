@@ -47,6 +47,7 @@ import NotFound from '../NotFound'
 import FollowedBy from './FollowedBy'
 import ProfileFeedWithPins from './ProfileFeedWithPins'
 import ProfileMediaFeed from './ProfileMediaFeed'
+import ProfilePublicationsFeed from './ProfilePublicationsFeed'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { TNoteListRef } from '@/components/NoteList'
 import ProfileInteractionsAccordion from './ProfileInteractionsAccordion'
@@ -183,6 +184,7 @@ export default function Profile({
   const profileFeedRef = feedRef ?? internalFeedRef
   const postsFeedRef = useRef<{ refresh: () => void }>(null)
   const mediaFeedRef = useRef<TNoteListRef>(null)
+  const publicationsFeedRef = useRef<{ refresh: () => void }>(null)
 
   const { profile, isFetching } = useFetchProfile(id)
   const { pubkey: accountPubkey, publish, checkLogin } = useNostr()
@@ -353,6 +355,7 @@ export default function Profile({
         profileInteractionsRefreshRef.current?.()
         postsFeedRef.current?.refresh()
         mediaFeedRef.current?.refresh()
+        publicationsFeedRef.current?.refresh()
       }
     }
     return () => {
@@ -652,16 +655,20 @@ export default function Profile({
           </div>
         </div>
       </div>
-      <Tabs defaultValue="posts" className="min-w-0">
+      <Tabs defaultValue="posts" className="min-w-0 pt-4">
         <TabsList className="mb-2 ml-1 w-auto justify-start md:ml-4">
           <TabsTrigger value="posts">{t('Posts')}</TabsTrigger>
           <TabsTrigger value="media">{t('Media')}</TabsTrigger>
+          <TabsTrigger value="publications">{t('Articles and Publications')}</TabsTrigger>
         </TabsList>
         <TabsContent value="posts" className="min-w-0 focus-visible:outline-none">
           <ProfileFeedWithPins ref={postsFeedRef} pubkey={pubkey} />
         </TabsContent>
         <TabsContent value="media" className="min-w-0 focus-visible:outline-none">
           <ProfileMediaFeed ref={mediaFeedRef} pubkey={pubkey} />
+        </TabsContent>
+        <TabsContent value="publications" className="min-w-0 focus-visible:outline-none">
+          <ProfilePublicationsFeed ref={publicationsFeedRef} pubkey={pubkey} />
         </TabsContent>
       </Tabs>
       {openPublicMessageTo && (

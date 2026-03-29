@@ -697,6 +697,12 @@ export default {
     '{{n}} zaps': '{{n}} zaps',
     Poll: 'Poll',
     Media: 'Media',
+    'Articles and Publications': 'Articles and Publications',
+    'Search articles...': 'Search articles...',
+    'Refreshing articles...': 'Refreshing articles...',
+    'No articles or publications found': 'No articles or publications found',
+    'No articles or publications match your search': 'No articles or publications match your search',
+    'articles and publications': 'articles and publications',
     Interests: 'Interests',
     Calendar: 'Calendar',
     'No subscribed interests yet.':

@@ -496,6 +496,24 @@ export const PROFILE_FEED_KINDS = SUPPORTED_KINDS.filter(
     k !== ExtendedKind.APPLICATION_HANDLER_INFO
 )
 
+/** Long-form, wiki, and publication index events for the profile "Articles and Publications" tab. */
+export const PROFILE_PUBLICATIONS_TAB_KINDS: readonly number[] = [
+  kinds.LongFormArticle,
+  ExtendedKind.PUBLICATION,
+  ExtendedKind.WIKI_ARTICLE,
+  ExtendedKind.WIKI_ARTICLE_MARKDOWN
+]
+
+const PROFILE_PUBLICATIONS_TAB_KIND_SET = new Set<number>(PROFILE_PUBLICATIONS_TAB_KINDS)
+
+/**
+ * Kinds subscribed on the profile Posts tab only. Omits {@link PROFILE_PUBLICATIONS_TAB_KINDS} so those events
+ * appear on the dedicated tab; {@link PROFILE_FEED_KINDS} is unchanged for the home feed and kind-filter defaults.
+ */
+export const PROFILE_POSTS_TAB_KINDS: readonly number[] = PROFILE_FEED_KINDS.filter(
+  (k) => !PROFILE_PUBLICATIONS_TAB_KIND_SET.has(k)
+)
+
 /**
  * {@link PROFILE_FEED_KINDS} without reposts (kind 6 / 16). Default for the global kind filter, home feed,
  * and most faux spells. Reposts are still shown on profile timelines, Spells → Following, and Follows latest.

@@ -1,7 +1,7 @@
 import NoteCard from '@/components/NoteCard'
 import ProfileSearchBar from '@/components/ui/ProfileSearchBar'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ExtendedKind, PROFILE_FEED_KINDS } from '@/constants'
+import { ExtendedKind, PROFILE_POSTS_TAB_KINDS, PROFILE_PUBLICATIONS_TAB_KINDS } from '@/constants'
 import { isReplyNoteEvent } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { useProfilePins } from '@/hooks/useProfilePins'
@@ -54,6 +54,7 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
     return next.sort((a, b) => a - b)
   }, [showKinds])
   const hideReplies = useHideRepliesLikeMainFeed()
+  const publicationsKindSet = useMemo(() => new Set(PROFILE_PUBLICATIONS_TAB_KINDS), [])
   const [searchQuery, setSearchQuery] = useState('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [showCount, setShowCount] = useState(INITIAL_SHOW_COUNT)
@@ -76,10 +77,12 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
 
   const cacheKey = useMemo(() => `${pubkey}-profile-unified-${zapReplyThreshold}`, [pubkey, zapReplyThreshold])
 
+  const postsTabKinds = useMemo(() => [...PROFILE_POSTS_TAB_KINDS], [])
+
   const { events: timelineEvents, isLoading: loadingTimeline, refresh: refreshTimeline } = useProfileTimeline({
     pubkey,
     cacheKey,
-    kinds: PROFILE_FEED_KINDS,
+    kinds: postsTabKinds,
     limit: 200,
     filterPredicate
   })
@@ -160,8 +163,11 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
   )
 
   const filteredPins = useMemo(
-    () => applySearch(pinEvents).filter((e) => !isEventDeleted(e)),
-    [pinEvents, applySearch, isEventDeleted]
+    () =>
+      applySearch(pinEvents)
+        .filter((e) => !isEventDeleted(e))
+        .filter((e) => !publicationsKindSet.has(e.kind)),
+    [pinEvents, applySearch, isEventDeleted, publicationsKindSet]
   )
   const filteredRest = useMemo(
     () =>
