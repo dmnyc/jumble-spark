@@ -1,19 +1,17 @@
 import { ExtendedKind } from '@/constants'
-import { Event, nip19 } from 'nostr-tools'
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { Event, kinds, nip19 } from 'nostr-tools'
+import { useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from 'react'
+import { usePublicationSectionLoader } from '@/hooks/usePublicationSectionLoader'
+import { parsePublicationATagCoordinate, publicationRefKey } from '@/lib/publication-section-fetch'
 import { cn } from '@/lib/utils'
-import { normalizeUrl } from '@/lib/url'
 import AsciidocArticle from '../AsciidocArticle/AsciidocArticle'
 import MarkdownArticle from '../MarkdownArticle/MarkdownArticle'
 import { generateBech32IdFromATag } from '@/lib/tag'
-import client from '@/services/client.service'
-import { eventService, queryService, replaceableEventService } from '@/services/client.service'
 import logger from '@/lib/logger'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RefreshCw, ArrowUp } from 'lucide-react'
 import indexedDb from '@/services/indexed-db.service'
-import { isReplaceableEvent } from '@/lib/event'
 import { useSecondaryPageOptional } from '@/PageManager'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { dTagToTitleCase } from '@/lib/event-metadata'
@@ -48,6 +46,102 @@ interface PublicationMetadata {
   version?: string
   type?: string
   tags: string[]
+}
+
+function publicationSectionNotesLink(ref: {
+  coordinate?: string
+  eventId?: string
+  relay?: string
+}): string | null {
+  if (ref.coordinate) {
+    const aTag = ['a', ref.coordinate, ref.relay || '', ref.eventId || '']
+    const bech32Id = generateBech32IdFromATag(aTag)
+    if (bech32Id) return `/notes?events=${encodeURIComponent(bech32Id)}`
+  }
+  if (ref.eventId) {
+    if (
+      ref.eventId.startsWith('note1') ||
+      ref.eventId.startsWith('nevent1') ||
+      ref.eventId.startsWith('naddr1')
+    ) {
+      return `/notes?events=${encodeURIComponent(ref.eventId)}`
+    }
+    if (/^[0-9a-f]{64}$/i.test(ref.eventId)) {
+      try {
+        const nevent = nip19.neventEncode({ id: ref.eventId })
+        return `/notes?events=${encodeURIComponent(nevent)}`
+      } catch {
+        return `/notes?events=${encodeURIComponent(ref.eventId)}`
+      }
+    }
+  }
+  return null
+}
+
+const SECTION_IO_ROOT_MARGIN = '480px'
+
+/**
+ * IntersectionObserver with `root: null` uses the browser viewport. Note / feed layouts scroll inside
+ * `overflow-y: auto` panels ({@link SecondaryPageLayout}, {@link PrimaryPageLayout}), so section
+ * placeholders never intersect the viewport while scrolling — only the first prefetch batch loads.
+ */
+function findScrollPortRoot(from: HTMLElement | null): Element | null {
+  if (!from) return null
+  let el: HTMLElement | null = from.parentElement
+  while (el && el !== document.documentElement) {
+    const s = window.getComputedStyle(el)
+    if (s.overflowY === 'auto' || s.overflowY === 'scroll' || s.overflowY === 'overlay') {
+      return el
+    }
+    el = el.parentElement
+  }
+  return null
+}
+
+/** Request section payload when this block nears the visible scrollport (batched + debounced upstream). */
+function PublicationSectionBoundary({
+  sectionKey,
+  requestKeys,
+  children
+}: {
+  sectionKey: string
+  requestKeys: (keys: string[]) => void
+  children: ReactNode
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!sectionKey) return
+    const el = rootRef.current
+    if (!el) return
+
+    let io: IntersectionObserver | null = null
+    let cancelled = false
+
+    const attach = () => {
+      if (cancelled) return
+      const scrollRoot = findScrollPortRoot(el)
+      io?.disconnect()
+      io = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting) requestKeys([sectionKey])
+        },
+        { root: scrollRoot, rootMargin: SECTION_IO_ROOT_MARGIN, threshold: 0 }
+      )
+      io.observe(el)
+    }
+
+    attach()
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(attach)
+    })
+
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+      io?.disconnect()
+    }
+  }, [sectionKey, requestKeys])
+  return <div ref={rootRef}>{children}</div>
 }
 
 export default function PublicationIndex({
@@ -97,31 +191,23 @@ export default function PublicationIndex({
   }, [event])
   const bookMetadata = useMemo(() => extractBookMetadata(event), [event])
   const isBookstrEvent = (event.kind === ExtendedKind.PUBLICATION || event.kind === ExtendedKind.PUBLICATION_CONTENT) && !!bookMetadata.book
-  const [references, setReferences] = useState<PublicationReference[]>([])
-  const [visitedIndices, setVisitedIndices] = useState<Set<string>>(new Set())
-  const [isLoading, setIsLoading] = useState(true)
-  const [retryCount, setRetryCount] = useState(0)
   const [isRetrying, setIsRetrying] = useState(false)
-  const [failedReferences, setFailedReferences] = useState<PublicationReference[]>([])
-  const maxRetries = 5
 
   // Extract references from 'a' tags (addressable events) and 'e' tags (event IDs)
   const referencesData = useMemo(() => {
     const refs: PublicationReference[] = []
     for (const tag of event.tags) {
       if (tag[0] === 'a' && tag[1]) {
-        // Addressable event (kind:pubkey:identifier)
-        const [kindStr, pubkey, identifier] = tag[1].split(':')
-        const kind = parseInt(kindStr)
-        if (!isNaN(kind)) {
+        const parsed = parsePublicationATagCoordinate(tag[1])
+        if (parsed) {
           refs.push({
             type: 'a',
-            coordinate: tag[1],
-            kind,
-            pubkey,
-            identifier: identifier || '',
+            coordinate: parsed.coordinate,
+            kind: parsed.kind,
+            pubkey: parsed.pubkey,
+            identifier: parsed.identifier,
             relay: tag[2],
-            eventId: tag[3] // Optional event ID for version tracking
+            eventId: tag[3]
           })
         }
       } else if (tag[0] === 'e' && tag[1]) {
@@ -135,6 +221,9 @@ export default function PublicationIndex({
     }
     return refs
   }, [event])
+
+  const { requestKeys, retryKeys, failedKeys, referencesWithEvents } =
+    usePublicationSectionLoader(event, referencesData)
 
   // Helper function to format bookstr titles (remove hyphens, title case)
   const formatBookstrTitle = useCallback((title: string, event?: Event): string => {
@@ -155,194 +244,55 @@ export default function PublicationIndex({
     return title
   }, [])
 
-  // Recursive helper function to build ToC item from a reference
-  const buildToCItemFromRef = useCallback((ref: PublicationReference, allReferences: PublicationReference[], visitedCoords: Set<string> = new Set()): ToCItem | null => {
-    if (!ref.event) {
-      // If no event but we have a coordinate/eventId, create placeholder
-      if (ref.coordinate || ref.eventId) {
-        return {
-          title: 'Loading...',
-          coordinate: ref.coordinate || ref.eventId || '',
-          kind: ref.kind || 0
-        }
-      }
-      return null
-    }
-    
-    // Extract title from the event - prioritize 'title' tag, only use 'd' tag as fallback
-    const titleTag = ref.event.tags.find(tag => tag[0] === 'title')?.[1]
-    const dTag = ref.event.tags.find(tag => tag[0] === 'd')?.[1]
-    
-    // Use title tag if available, otherwise format d-tag for bookstr events
-    let rawTitle: string
-    if (titleTag) {
-      rawTitle = titleTag
-    } else if (dTag) {
-      // Only use d-tag as fallback, and format it for bookstr events
-      rawTitle = dTag
-    } else {
-      rawTitle = 'Untitled'
-    }
-    
-    // Format title for bookstr events (only if we're using d-tag, title tag should already be formatted)
-    const title = titleTag ? rawTitle : formatBookstrTitle(rawTitle, ref.event)
-    
-    const coordinate = ref.coordinate || ref.eventId || ''
-    const coordKey = ref.coordinate || ref.eventId || ''
-    
-    // Prevent infinite recursion
-    if (visitedCoords.has(coordKey)) {
-      return null
-    }
-    visitedCoords.add(coordKey)
-    
-    const tocItem: ToCItem = {
-      title,
-      coordinate,
-      event: ref.event,
-      kind: ref.kind || ref.event?.kind || 0
-    }
-    
-    // Build children recursively - check both nestedRefs and event tags
-    const children: ToCItem[] = []
-    const processedCoords = new Set<string>()
-    
-    // First, process discovered nestedRefs if they exist
-    if (ref.nestedRefs && ref.nestedRefs.length > 0) {
-      for (const nestedRef of ref.nestedRefs) {
-        const nestedCoord = nestedRef.coordinate || nestedRef.eventId || ''
-        if (nestedCoord && !processedCoords.has(nestedCoord)) {
-          processedCoords.add(nestedCoord)
-          
-          // Look up the full reference (with fetched event) from allReferences
-          const fullNestedRef = allReferences.find(r => 
-            (r.coordinate && nestedRef.coordinate && r.coordinate === nestedRef.coordinate) ||
-            (r.eventId && nestedRef.eventId && r.eventId === nestedRef.eventId) ||
-            (r.event && nestedRef.event && r.event.id === nestedRef.event.id)
-          ) || nestedRef
-          
-          const nestedToCItem = buildToCItemFromRef(fullNestedRef, allReferences, new Set(visitedCoords))
-          if (nestedToCItem) {
-            children.push(nestedToCItem)
-          }
-        }
-      }
-    }
-    
-    // Also process tags from publication events (for publications that reference other publications)
-    if ((ref.kind === ExtendedKind.PUBLICATION || ref.event?.kind === ExtendedKind.PUBLICATION) && ref.event) {
-      for (const tag of ref.event.tags) {
-        if (tag[0] === 'a' && tag[1]) {
-          const [kindStr, , identifier] = tag[1].split(':')
-          const kind = parseInt(kindStr)
-          
-          if (!isNaN(kind) && (kind === ExtendedKind.PUBLICATION_CONTENT || 
-                kind === ExtendedKind.WIKI_ARTICLE || 
-                kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN ||
-                kind === ExtendedKind.PUBLICATION)) {
-            const tagCoord = tag[1]
-            if (!processedCoords.has(tagCoord)) {
-              processedCoords.add(tagCoord)
-              
-              // Look up the fetched event from allReferences
-              const fetchedNestedEvent = allReferences.find(r => 
-                r.coordinate === tagCoord || 
-                (r.type === 'a' && r.coordinate === tagCoord) ||
-                (r.event && r.event.kind === kind && r.event.pubkey && tagCoord.includes(r.event.pubkey))
-              )
-              
-              if (fetchedNestedEvent) {
-                const nestedToCItem = buildToCItemFromRef(fetchedNestedEvent, allReferences, new Set(visitedCoords))
-                if (nestedToCItem) {
-                  children.push(nestedToCItem)
-                }
-              } else {
-                // Event not fetched yet, create placeholder
-                // Format identifier for bookstr events (if it looks like a bookstr identifier)
-                const formattedIdentifier = identifier
-                  ? identifier
-                      .split('-')
-                      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                      .join(' ')
-                  : 'Untitled'
-                children.push({
-                  title: formattedIdentifier,
-                  coordinate: tagCoord,
-                  kind
-                })
-              }
-            }
-          }
-        } else if (tag[0] === 'e' && tag[1]) {
-          const eventId = tag[1]
-          if (!processedCoords.has(eventId)) {
-            processedCoords.add(eventId)
-            
-            // Look up the fetched event from allReferences
-            const fetchedNestedEvent = allReferences.find(r => 
-              (r.type === 'e' && r.eventId === eventId) || 
-              (r.event && r.event.id === eventId) ||
-              (r.coordinate === eventId) ||
-              (r.eventId === eventId)
-            )
-            
-            if (fetchedNestedEvent) {
-              const nestedToCItem = buildToCItemFromRef(fetchedNestedEvent, allReferences, new Set(visitedCoords))
-              if (nestedToCItem) {
-                children.push(nestedToCItem)
-              }
-            } else {
-              // Event not fetched yet, create placeholder
-              children.push({
-                title: 'Loading...',
-                coordinate: eventId,
-                kind: 0
-              })
-            }
-          }
-        }
-      }
-    }
-    
-    if (children.length > 0) {
-      tocItem.children = children
-    }
-    
-    return tocItem
-  }, [formatBookstrTitle])
 
-  // Build table of contents from references
+  // Build table of contents from references (tag-derived titles before sections load)
   const tableOfContents = useMemo<ToCItem[]>(() => {
     const toc: ToCItem[] = []
-    
-    for (const ref of references) {
-      if (!ref.event) continue
-      
-      // Extract title from the event - prioritize 'title' tag, only use 'd' tag as fallback
-      const titleTag = ref.event.tags.find(tag => tag[0] === 'title')?.[1]
-      const dTag = ref.event.tags.find(tag => tag[0] === 'd')?.[1]
-      
-      // Use title tag if available, otherwise format d-tag for bookstr events
-      let rawTitle: string
-      if (titleTag) {
-        rawTitle = titleTag
-      } else if (dTag) {
-        // Only use d-tag as fallback, and format it for bookstr events
-        rawTitle = dTag
-      } else {
-        rawTitle = 'Untitled'
+
+    const titleFromIdentifier = (identifier: string, kind?: number) => {
+      const raw = identifier || 'Untitled'
+      if (
+        kind === ExtendedKind.PUBLICATION ||
+        kind === ExtendedKind.PUBLICATION_CONTENT ||
+        kind === kinds.LongFormArticle ||
+        kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN
+      ) {
+        return raw
+          .split('-')
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(' ')
       }
-      
-      // Format title for bookstr events (only if we're using d-tag, title tag should already be formatted)
-      const title = titleTag ? rawTitle : formatBookstrTitle(rawTitle, ref.event)
-      
+      return raw
+    }
+
+    for (const ref of referencesWithEvents) {
+      const coord = ref.coordinate || ref.eventId || ''
+      if (!coord) continue
+
+      let title: string
+      if (ref.event) {
+        const titleTag = ref.event.tags.find((tag) => tag[0] === 'title')?.[1]
+        const dTag = ref.event.tags.find((tag) => tag[0] === 'd')?.[1]
+        let rawTitle: string
+        if (titleTag) rawTitle = titleTag
+        else if (dTag) rawTitle = dTag
+        else rawTitle = 'Untitled'
+        title = titleTag ? rawTitle : formatBookstrTitle(rawTitle, ref.event)
+      } else if (ref.type === 'a' && ref.kind === kinds.ShortTextNote) {
+        title = 'Note'
+      } else if (ref.type === 'a' && ref.identifier) {
+        title = titleFromIdentifier(ref.identifier, ref.kind)
+      } else {
+        title = 'Section'
+      }
+
       const tocItem: ToCItem = {
         title,
-        coordinate: ref.coordinate || ref.eventId || '',
+        coordinate: coord,
         event: ref.event,
-        kind: ref.kind || ref.event.kind || 0
+        kind: ref.kind || ref.event?.kind || 0
       }
-      
+
       // For nested 30040 publications, recursively get their ToC
       if (ref.kind === ExtendedKind.PUBLICATION && ref.event) {
         const nestedRefs: ToCItem[] = []
@@ -353,18 +303,27 @@ export default function PublicationIndex({
             const [kindStr, , identifier] = tag[1].split(':')
             const kind = parseInt(kindStr)
             
-            if (!isNaN(kind) && (kind === ExtendedKind.PUBLICATION_CONTENT || 
-                  kind === ExtendedKind.WIKI_ARTICLE || 
-                  kind === ExtendedKind.PUBLICATION)) {
+            if (
+              !isNaN(kind) &&
+              (kind === ExtendedKind.PUBLICATION_CONTENT ||
+                kind === ExtendedKind.WIKI_ARTICLE ||
+                kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN ||
+                kind === kinds.LongFormArticle ||
+                kind === kinds.ShortTextNote ||
+                kind === ExtendedKind.PUBLICATION)
+            ) {
               // For this simplified version, we'll just extract the title from the coordinate
               const rawNestedTitle = identifier || 'Untitled'
               // Format for bookstr events (check if kind is bookstr-related)
-              const nestedTitle = (kind === ExtendedKind.PUBLICATION || kind === ExtendedKind.PUBLICATION_CONTENT)
-                ? rawNestedTitle
-                    .split('-')
-                    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                    .join(' ')
-                : rawNestedTitle
+              const nestedTitle =
+                kind === ExtendedKind.PUBLICATION || kind === ExtendedKind.PUBLICATION_CONTENT
+                  ? rawNestedTitle
+                      .split('-')
+                      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                      .join(' ')
+                  : kind === kinds.ShortTextNote
+                    ? 'Note'
+                    : rawNestedTitle
               
               nestedRefs.push({
                 title: nestedTitle,
@@ -384,7 +343,7 @@ export default function PublicationIndex({
     }
     
     return toc
-  }, [references, formatBookstrTitle])
+  }, [referencesWithEvents, formatBookstrTitle])
 
   // Scroll to ToC (scroll to top of page)
   const scrollToToc = useCallback(() => {
@@ -427,898 +386,35 @@ export default function PublicationIndex({
   }
 
 
-  // Add current event to visited set
-  const currentCoordinate = useMemo(() => {
-    const dTag = event.tags.find(tag => tag[0] === 'd')?.[1] || ''
-    return `${event.kind}:${event.pubkey}:${dTag}`
+  useEffect(() => {
+    void indexedDb.putReplaceableEvent(event).catch((err) => {
+      logger.error('[PublicationIndex] Error caching publication event:', err)
+    })
   }, [event])
 
   useEffect(() => {
-    setVisitedIndices(prev => new Set([...prev, currentCoordinate]))
-    
-    // Cache the current publication index event as replaceable event
-    indexedDb.putReplaceableEvent(event).catch(err => {
-      logger.error('[PublicationIndex] Error caching publication event:', err)
-    })
-  }, [currentCoordinate, event])
-
-  // Helper function to build comprehensive relay list
-  const buildComprehensiveRelayList = useCallback(async (
-    additionalRelays: string[] = []
-  ): Promise<string[]> => {
-    const { FAST_READ_RELAY_URLS, SEARCHABLE_RELAY_URLS } = await import('@/constants')
-    const relayUrls = new Set<string>()
-    
-    // Add FAST_READ_RELAY_URLS
-    FAST_READ_RELAY_URLS.forEach(url => {
-      const normalized = normalizeUrl(url)
-      if (normalized) relayUrls.add(normalized)
-    })
-    
-    // Add additional relays (from tag relay hints)
-    additionalRelays.forEach(url => {
-      const normalized = normalizeUrl(url)
-      if (normalized) relayUrls.add(normalized)
-    })
-    
-    // Add user's favorite relays (kind 10012) and relay list (kind 10002) if logged in
-    try {
-      const userPubkey = (client as any).pubkey
-      if (userPubkey) {
-        // Fetch user's relay list (includes cache relays)
-        const userRelayList = await client.fetchRelayList(userPubkey)
-        if (userRelayList?.read) {
-          userRelayList.read.forEach((url: string) => {
-            const normalized = normalizeUrl(url)
-            if (normalized) relayUrls.add(normalized)
-          })
-        }
-        
-        // Fetch user's favorite relays (kind 10012)
-        try {
-          const { ExtendedKind } = await import('@/constants')
-          const favoriteRelaysEvent = await (client as any).fetchReplaceableEvent?.(userPubkey, ExtendedKind.FAVORITE_RELAYS)
-          if (favoriteRelaysEvent) {
-            favoriteRelaysEvent.tags.forEach(([tagName, tagValue]: [string, string]) => {
-              if (tagName === 'relay' && tagValue) {
-                const normalized = normalizeUrl(tagValue)
-                if (normalized) relayUrls.add(normalized)
-              }
-            })
-          }
-        } catch (error) {
-          // Ignore if favorite relays can't be fetched
-        }
-      }
-    } catch (error) {
-      // Ignore if user relay list can't be fetched
-    }
-    
-    // Add FAST_READ_RELAY_URLS as fallback
-    FAST_READ_RELAY_URLS.forEach(url => {
-      const normalized = normalizeUrl(url)
-      if (normalized) relayUrls.add(normalized)
-    })
-    
-    // Add SEARCHABLE_RELAY_URLS
-    SEARCHABLE_RELAY_URLS.forEach(url => {
-      const normalized = normalizeUrl(url)
-      if (normalized) relayUrls.add(normalized)
-    })
-    
-    return Array.from(relayUrls)
-  }, [])
-
-  // Helper function to fetch event using subscription-style query with comprehensive relay list
-  const fetchEventWithSubscription = useCallback(async (
-    filter: any,
-    relayUrls: string[],
-    logPrefix: string
-  ): Promise<Event | undefined> => {
-    try {
-      let foundEvent: Event | undefined = undefined
-      let hasEosed = false
-      let subscriptionClosed = false
-      
-      const { closer } = await client.subscribeTimeline(
-        [{ urls: relayUrls, filter }],
-        {
-          onEvents: (events, eosed) => {
-            if (events.length > 0 && !foundEvent) {
-              foundEvent = events[0]
-              logger.debug(`[PublicationIndex] Found event via ${logPrefix} subscription`)
-            }
-            if (eosed) {
-              hasEosed = true
-            }
-            // Close subscription once we have an event and eosed
-            if ((foundEvent || hasEosed) && !subscriptionClosed) {
-              subscriptionClosed = true
-              closer()
-            }
-          },
-          onNew: () => {} // Not needed for one-time fetch
-        },
-        { needSort: false }
-      )
-      
-      // Wait for up to 10 seconds for events to arrive or eosed
-      const startTime = Date.now()
-      while (!foundEvent && !hasEosed && Date.now() - startTime < 10000) {
-        await new Promise(resolve => setTimeout(resolve, 100))
-      }
-      
-      // Close subscription if still open
-      if (!subscriptionClosed) {
-        closer()
-      }
-      
-      if (foundEvent) {
-        return foundEvent
-      }
-    } catch (subError) {
-      logger.warn(`[PublicationIndex] Subscription error for ${logPrefix}, falling back to fetchEvents:`, subError)
-      // Fallback to regular fetchEvents if subscription fails
-      const events = await queryService.fetchEvents(relayUrls, [filter])
-      if (events.length > 0) {
-        logger.debug(`[PublicationIndex] Found event via ${logPrefix} fetchEvents fallback`)
-        return events[0]
-      }
-    }
-    
-    return undefined
-  }, [])
-
-  // Unified method to fetch event for both a and e tags
-  const fetchEventFromRelay = useCallback(async (
-    filter: any,
-    additionalRelays: string[],
-    logPrefix: string
-  ): Promise<Event | undefined> => {
-    // Build comprehensive relay list
-    const finalRelayUrls = await buildComprehensiveRelayList(additionalRelays)
-    logger.debug(`[PublicationIndex] Using ${finalRelayUrls.length} relays for ${logPrefix} query`)
-    
-    // Fetch using subscription-style query with comprehensive relay list
-    return await fetchEventWithSubscription(filter, finalRelayUrls, logPrefix)
-  }, [buildComprehensiveRelayList, fetchEventWithSubscription])
-
-  /** Resolve eventId (hex, note1, or nevent1) to 64-char hex for filter.ids. Relays require 64-char hex; wrong length causes "uneven size input to from_hex". */
-  const resolveEventIdToHex = useCallback((eventId: string): string | undefined => {
-    if (!eventId) return undefined
-    const trimmed = eventId.trim()
-    if (/^[0-9a-fA-F]{64}$/.test(trimmed)) return trimmed.toLowerCase()
-    try {
-      const decoded = nip19.decode(trimmed)
-      if (decoded.type === 'note') return decoded.data
-      if (decoded.type === 'nevent') return decoded.data.id
-    } catch {
-      // ignore
-    }
-    return undefined
-  }, [])
-
-  // Fetch a single reference with retry logic
-  const fetchSingleReference = useCallback(async (
-    ref: PublicationReference,
-    currentVisited: Set<string>,
-    isRetry = false
-  ): Promise<PublicationReference | null> => {
-    // Skip if this is a 30040 event we've already visited (prevent circular references)
-    if (ref.type === 'a' && ref.kind === ExtendedKind.PUBLICATION && ref.coordinate) {
-      if (currentVisited.has(ref.coordinate)) {
-        logger.debug('[PublicationIndex] Skipping visited 30040 index:', ref.coordinate)
-        return { ...ref, event: undefined }
-      }
-    }
-
-    try {
-      let fetchedEvent: Event | undefined = undefined
-      
-      if (ref.type === 'a' && ref.coordinate) {
-        // Handle addressable event (a tag)
-        const aTag = ['a', ref.coordinate, ref.relay || '', ref.eventId || '']
-        const bech32Id = generateBech32IdFromATag(aTag)
-        
-        if (bech32Id) {
-          // Try to get by coordinate (replaceable event)
-          fetchedEvent = await indexedDb.getPublicationEvent(ref.coordinate)
-          
-          // If not found, try to fetch from relay
-          if (!fetchedEvent) {
-            // For naddr, always use subscription-style query with comprehensive relay list (more reliable)
-            if (bech32Id.startsWith('naddr1')) {
-              try {
-                const { nip19 } = await import('nostr-tools')
-                const decoded = nip19.decode(bech32Id)
-                if (decoded.type === 'naddr') {
-                  const filter: any = {
-                    authors: [decoded.data.pubkey],
-                    kinds: [decoded.data.kind],
-                    limit: 1
-                  }
-                  if (decoded.data.identifier) {
-                    filter['#d'] = [decoded.data.identifier]
-                  }
-                  
-                  // Build comprehensive relay list and fetch using unified method
-                  const additionalRelays = decoded.data.relays || []
-                  fetchedEvent = await fetchEventFromRelay(filter, additionalRelays, 'naddr')
-                }
-              } catch (error) {
-                logger.warn('[PublicationIndex] Error trying naddr filter query:', error)
-              }
-            } else {
-              // For non-naddr (nevent/note), try fetchEvent first, then force retry
-              if (isRetry) {
-                fetchedEvent = await eventService.fetchEvent(bech32Id)
-              } else {
-                fetchedEvent = await eventService.fetchEvent(bech32Id)
-              }
-            }
-            
-            // Save to cache as replaceable event if we fetched it
-            if (fetchedEvent) {
-              await indexedDb.putReplaceableEvent(fetchedEvent)
-              logger.debug('[PublicationIndex] Cached event with coordinate:', ref.coordinate)
-            }
-          } else {
-            logger.debug('[PublicationIndex] Loaded from cache by coordinate:', ref.coordinate)
-          }
-        } else {
-          logger.warn('[PublicationIndex] Could not generate bech32 ID for:', ref.coordinate)
-        }
-      } else if (ref.type === 'e' && ref.eventId) {
-        // Handle event ID reference (e tag) - same as a tags
-        // Resolve to 64-char hex only; relays require hex in filter.ids (wrong length → "uneven size input to from_hex")
-        const hexId = resolveEventIdToHex(ref.eventId)
-        if (hexId) {
-          try {
-            // Check PUBLICATION_EVENTS store first (for non-replaceable events stored with master)
-            fetchedEvent = await indexedDb.getEventFromPublicationStore(hexId)
-            if (fetchedEvent) {
-              logger.debug('[PublicationIndex] Loaded from indexedDb PUBLICATION_EVENTS store by event ID:', ref.eventId)
-            }
-          } catch (error) {
-            logger.debug('[PublicationIndex] PUBLICATION_EVENTS store lookup failed:', error)
-          }
-          
-          // Also check if it's a replaceable event (check by pubkey and kind if we have them)
-          if (!fetchedEvent && ref.kind && ref.pubkey && isReplaceableEvent(ref.kind)) {
-            try {
-              const replaceableEvent = await replaceableEventService.fetchReplaceableEvent(ref.pubkey, ref.kind)
-              if (replaceableEvent && replaceableEvent.id === hexId) {
-                fetchedEvent = replaceableEvent
-                logger.debug('[PublicationIndex] Loaded from indexedDb replaceable cache by event ID:', ref.eventId)
-              }
-            } catch (error) {
-              logger.debug('[PublicationIndex] Replaceable cache lookup failed:', error)
-            }
-          }
-        }
-        
-        // If not found in indexedDb cache, try to fetch from relay using unified method
-        if (!fetchedEvent) {
-          if (hexId) {
-            // Only send filter.ids with valid 64-char hex; otherwise relays can return "bad req: uneven size input to from_hex"
-            const additionalRelays = ref.relay ? [ref.relay] : []
-            const filter = { ids: [hexId], limit: 1 }
-            fetchedEvent = await fetchEventFromRelay(filter, additionalRelays, 'e tag')
-          } else {
-            // ref.eventId is bech32 or invalid; client.fetchEvent decodes bech32 and builds correct filter internally
-            try {
-              fetchedEvent = await eventService.fetchEvent(ref.eventId)
-            } catch (err) {
-              logger.debug('[PublicationIndex] fetchEvent failed for ref.eventId:', ref.eventId, err)
-            }
-          }
-          
-          // Cache the fetched event if found
-          if (fetchedEvent) {
-            // Check if this is a replaceable event kind
-            if (isReplaceableEvent(fetchedEvent.kind)) {
-              // Save to cache as replaceable event (will be linked to master via putPublicationWithNestedEvents)
-              await indexedDb.putReplaceableEvent(fetchedEvent)
-              logger.debug('[PublicationIndex] Cached replaceable event with ID:', ref.eventId)
-            } else {
-              // For non-replaceable events, we'll link them to master later via putPublicationWithNestedEvents
-              logger.debug('[PublicationIndex] Fetched non-replaceable event with ID (will link to master):', ref.eventId)
-            }
-          }
-        }
-        
-        if (!fetchedEvent) {
-          logger.warn('[PublicationIndex] Could not fetch event for ID:', ref.eventId)
-        }
-      }
-      
-      if (fetchedEvent) {
-        // Check if this event has nested references we haven't seen yet
-        const nestedRefs: PublicationReference[] = []
-        for (const tag of fetchedEvent.tags) {
-          if (tag[0] === 'a' && tag[1]) {
-            const [kindStr, pubkey, identifier] = tag[1].split(':')
-            const kind = parseInt(kindStr)
-            if (!isNaN(kind)) {
-              const coordinate = tag[1]
-              const nestedRef: PublicationReference = {
-                type: 'a',
-                coordinate,
-                kind,
-                pubkey,
-                identifier: identifier || '',
-                relay: tag[2],
-                eventId: tag[3]
-              }
-              
-              // Check if we already have this reference
-              const existingRef = referencesData.find(r => 
-                r.coordinate === coordinate || 
-                (r.type === 'a' && r.coordinate === coordinate)
-              )
-              
-              if (!existingRef && !currentVisited.has(coordinate)) {
-                nestedRefs.push(nestedRef)
-              }
-            }
-          } else if (tag[0] === 'e' && tag[1]) {
-            const eventId = tag[1]
-            const nestedRef: PublicationReference = {
-              type: 'e',
-              eventId,
-              relay: tag[2]
-            }
-            
-            // Check if we already have this reference
-            const existingRef = referencesData.find(r => 
-              r.eventId === eventId || 
-              (r.type === 'e' && r.eventId === eventId)
-            )
-            
-            if (!existingRef) {
-              nestedRefs.push(nestedRef)
-            }
-          }
-        }
-        
-        // For e-tags, ensure coordinate is set to eventId if not already set
-        const updatedRef = { ...ref, event: fetchedEvent, nestedRefs }
-        if (ref.type === 'e' && ref.eventId && !updatedRef.coordinate) {
-          updatedRef.coordinate = ref.eventId
-        }
-        return updatedRef
-      } else {
-        // For e-tags, ensure coordinate is set to eventId even if fetch failed
-        const updatedRef = { ...ref, event: undefined }
-        if (ref.type === 'e' && ref.eventId && !updatedRef.coordinate) {
-          updatedRef.coordinate = ref.eventId
-        }
-        return updatedRef
-      }
-    } catch (error) {
-      logger.error('[PublicationIndex] Error fetching reference:', error)
-      // For e-tags, ensure coordinate is set to eventId even on error
-      const updatedRef = { ...ref, event: undefined }
-      if (ref.type === 'e' && ref.eventId && !updatedRef.coordinate) {
-        updatedRef.coordinate = ref.eventId
-      }
-      return updatedRef
-    }
-  }, [referencesData, resolveEventIdToHex, fetchEventFromRelay])
-
-  // Helper function to extract nested references from an event
-  const extractNestedReferences = useCallback((
-    event: Event,
-    existingRefs: Map<string, PublicationReference>,
-    visited: Set<string>
-  ): PublicationReference[] => {
-    const nestedRefs: PublicationReference[] = []
-    
-    for (const tag of event.tags) {
-      if (tag[0] === 'a' && tag[1]) {
-        const [kindStr, pubkey, identifier] = tag[1].split(':')
-        const kind = parseInt(kindStr)
-        if (!isNaN(kind)) {
-          const coordinate = tag[1]
-          // Skip if already visited (prevent circular references)
-          if (kind === ExtendedKind.PUBLICATION && visited.has(coordinate)) {
-            continue
-          }
-          
-          const key = coordinate
-          if (!existingRefs.has(key)) {
-            nestedRefs.push({
-              type: 'a',
-              coordinate,
-              kind,
-              pubkey,
-              identifier: identifier || '',
-              relay: tag[2],
-              eventId: tag[3]
-            })
-          }
-        }
-      } else if (tag[0] === 'e' && tag[1]) {
-        const eventId = tag[1]
-        if (!existingRefs.has(eventId)) {
-          nestedRefs.push({
-            type: 'e',
-            eventId,
-            relay: tag[2]
-          })
-        }
-      }
-    }
-    
-    return nestedRefs
-  }, [])
-
-  // Batch fetch all references efficiently
-  const batchFetchReferences = useCallback(async (
-    initialRefs: PublicationReference[],
-    currentVisited: Set<string>,
-    isRetry: boolean,
-    onProgress?: (fetchedRefs: PublicationReference[]) => void
-  ): Promise<{ fetched: PublicationReference[]; failed: PublicationReference[] }> => {
-    const CONCURRENCY_LIMIT = 10 // Limit concurrent fetches
-    const BATCH_SIZE = 50 // Process in batches
-    
-    // Step 1: Collect ALL references (including nested ones) by traversing the tree
-    const allRefs = new Map<string, PublicationReference>()
-    const refsToProcess = [...initialRefs]
-    
-    logger.info('[PublicationIndex] Starting batch fetch, collecting all references...')
-    
-    // First pass: collect all top-level references
-    for (const ref of initialRefs) {
-      const key = ref.coordinate || ref.eventId || ''
-      if (key && !allRefs.has(key)) {
-        allRefs.set(key, ref)
-      }
-    }
-    
-    // Step 2: Check cache in bulk for all collected references
-    logger.info('[PublicationIndex] Checking cache for', allRefs.size, 'references...')
-    const cachedEvents = new Map<string, Event>()
-    const refsToFetch: PublicationReference[] = []
-    
-    for (const [key, ref] of allRefs) {
-      let cached: Event | undefined = undefined
-      
-      // Check cache based on reference type
-      if (ref.type === 'a' && ref.coordinate) {
-        cached = await indexedDb.getPublicationEvent(ref.coordinate)
-      } else if (ref.type === 'e' && ref.eventId) {
-        const hexId = resolveEventIdToHex(ref.eventId)
-        if (hexId) {
-          cached = await indexedDb.getEventFromPublicationStore(hexId)
-          if (!cached && ref.kind && ref.pubkey && isReplaceableEvent(ref.kind)) {
-            const replaceable = await indexedDb.getReplaceableEvent(ref.pubkey, ref.kind)
-            if (replaceable && replaceable.id === hexId) {
-              cached = replaceable
-            }
-          }
-        }
-      }
-      
-      if (cached) {
-        cachedEvents.set(key, cached)
-        // Extract nested references from cached event
-        const nestedRefs = extractNestedReferences(cached, allRefs, currentVisited)
-        for (const nestedRef of nestedRefs) {
-          const nestedKey = nestedRef.coordinate || nestedRef.eventId || ''
-          if (nestedKey && !allRefs.has(nestedKey)) {
-            allRefs.set(nestedKey, nestedRef)
-            refsToProcess.push(nestedRef)
-            // Check if nested ref is cached, if not add to fetch queue
-            // (We'll check cache for it in the next iteration)
-          }
-        }
-      } else {
-        refsToFetch.push(ref)
-      }
-    }
-    
-    // Continue processing nested references discovered from cached events
-    while (refsToProcess.length > 0) {
-      const ref = refsToProcess.shift()!
-      const key = ref.coordinate || ref.eventId || ''
-      if (!key || allRefs.has(key)) continue
-      
-      allRefs.set(key, ref)
-      
-      // Check cache for this nested reference
-      let cached: Event | undefined = undefined
-      if (ref.type === 'a' && ref.coordinate) {
-        cached = await indexedDb.getPublicationEvent(ref.coordinate)
-      } else if (ref.type === 'e' && ref.eventId) {
-        const hexId = resolveEventIdToHex(ref.eventId)
-        if (hexId) {
-          cached = await indexedDb.getEventFromPublicationStore(hexId)
-          if (!cached && ref.kind && ref.pubkey && isReplaceableEvent(ref.kind)) {
-            const replaceable = await indexedDb.getReplaceableEvent(ref.pubkey, ref.kind)
-            if (replaceable && replaceable.id === hexId) {
-              cached = replaceable
-            }
-          }
-        }
-      }
-      
-      if (cached) {
-        cachedEvents.set(key, cached)
-        // Extract nested references from this cached event
-        const nestedRefs = extractNestedReferences(cached, allRefs, currentVisited)
-        for (const nestedRef of nestedRefs) {
-          const nestedKey = nestedRef.coordinate || nestedRef.eventId || ''
-          if (nestedKey && !allRefs.has(nestedKey)) {
-            allRefs.set(nestedKey, nestedRef)
-            refsToProcess.push(nestedRef)
-          }
-        }
-      } else {
-        refsToFetch.push(ref)
-      }
-    }
-    
-    logger.info('[PublicationIndex] Cache check complete:', {
-      cached: cachedEvents.size,
-      toFetch: refsToFetch.length,
-      total: allRefs.size
-    })
-    
-    // Step 3: Fetch missing events in parallel batches with concurrency control
-    const fetchedRefs: PublicationReference[] = []
-    const failedRefs: PublicationReference[] = []
-    const pendingRefs = [...refsToFetch] // Queue of references to fetch
-    
-    // Process in batches to avoid overwhelming relays
-    while (pendingRefs.length > 0) {
-      const batch = pendingRefs.splice(0, BATCH_SIZE)
-      logger.info('[PublicationIndex] Processing batch', '(', batch.length, 'references,', pendingRefs.length, 'remaining)')
-      
-      // Process batch with concurrency limit
-      const batchPromises: Promise<void>[] = []
-      let activeCount = 0
-      
-      for (const ref of batch) {
-        // Wait if we've hit concurrency limit
-        while (activeCount >= CONCURRENCY_LIMIT) {
-          await new Promise(resolve => setTimeout(resolve, 10))
-        }
-        
-        activeCount++
-        const promise = (async () => {
-          try {
-            const result = await fetchSingleReference(ref, currentVisited, isRetry)
-          if (result) {
-            if (result.event) {
-              fetchedRefs.push(result)
-                // Extract and add nested references
-                const nestedRefs = extractNestedReferences(result.event, allRefs, currentVisited)
-                for (const nestedRef of nestedRefs) {
-                  const nestedKey = nestedRef.coordinate || nestedRef.eventId || ''
-                  if (nestedKey && !allRefs.has(nestedKey)) {
-                    allRefs.set(nestedKey, nestedRef)
-                    // Check if nested ref is cached
-                    let nestedCached: Event | undefined = undefined
-                    if (nestedRef.type === 'a' && nestedRef.coordinate) {
-                      nestedCached = await indexedDb.getPublicationEvent(nestedRef.coordinate)
-                    } else if (nestedRef.type === 'e' && nestedRef.eventId) {
-                      const hexId = resolveEventIdToHex(nestedRef.eventId)
-                      if (hexId) {
-                        nestedCached = await indexedDb.getEventFromPublicationStore(hexId)
-                        if (!nestedCached && nestedRef.kind && nestedRef.pubkey && isReplaceableEvent(nestedRef.kind)) {
-                          const replaceable = await indexedDb.getReplaceableEvent(nestedRef.pubkey, nestedRef.kind)
-                          if (replaceable && replaceable.id === hexId) {
-                            nestedCached = replaceable
-                          }
-                        }
-                      }
-                    }
-                    
-                    if (nestedCached) {
-                      cachedEvents.set(nestedKey, nestedCached)
-                      // Extract nested references from this cached event
-                      const deeperNestedRefs = extractNestedReferences(nestedCached, allRefs, currentVisited)
-                      for (const deeperRef of deeperNestedRefs) {
-                        const deeperKey = deeperRef.coordinate || deeperRef.eventId || ''
-                        if (deeperKey && !allRefs.has(deeperKey)) {
-                          allRefs.set(deeperKey, deeperRef)
-                          // Will be checked in next iteration
-                        }
-                      }
-                    } else {
-                      // Add to queue for fetching
-                      pendingRefs.push(nestedRef)
-                  }
-                }
-              }
-            } else {
-              failedRefs.push(result)
-              }
-            }
-          } catch (error) {
-            logger.error('[PublicationIndex] Error fetching reference in batch:', error)
-            failedRefs.push({ ...ref, event: undefined })
-          } finally {
-            activeCount--
-          }
-        })()
-        
-        batchPromises.push(promise)
-      }
-      
-      await Promise.all(batchPromises)
-      
-      // Update progress after each batch
-      if (onProgress) {
-        const currentFetched: PublicationReference[] = []
-        for (const [key, ref] of allRefs) {
-          const cached = cachedEvents.get(key)
-          if (cached) {
-            currentFetched.push({ ...ref, event: cached })
-          } else {
-            const fetched = fetchedRefs.find(r => (r.coordinate || r.eventId) === key)
-            if (fetched) {
-              currentFetched.push(fetched)
-            }
-          }
-        }
-        onProgress(currentFetched)
-      }
-    }
-    
-    // Combine cached and fetched references
-    const allFetchedRefs: PublicationReference[] = []
-    for (const [key, ref] of allRefs) {
-      const cached = cachedEvents.get(key)
-      if (cached) {
-        allFetchedRefs.push({ ...ref, event: cached })
-              } else {
-        const fetched = fetchedRefs.find(r => (r.coordinate || r.eventId) === key)
-        if (fetched) {
-          allFetchedRefs.push(fetched)
-        } else {
-          const failed = failedRefs.find(r => (r.coordinate || r.eventId) === key)
-          if (failed) {
-            allFetchedRefs.push(failed)
-          } else {
-            allFetchedRefs.push({ ...ref, event: undefined })
-          }
-        }
-      }
-    }
-    
-    logger.info('[PublicationIndex] Batch fetch complete:', {
-      total: allFetchedRefs.length,
-      fetched: fetchedRefs.length,
-      cached: cachedEvents.size,
-      failed: failedRefs.length
-    })
-    
-    return {
-      fetched: allFetchedRefs,
-      failed: allFetchedRefs.filter(ref => !ref.event)
-              }
-  }, [fetchSingleReference, extractNestedReferences, resolveEventIdToHex])
-
-  // Fetch referenced events
-  useEffect(() => {
-    let isMounted = true
-    
-    const fetchReferences = async (isManualRetry = false) => {
-      if (isManualRetry) {
-        setIsRetrying(true)
-      } else {
-        setIsLoading(true)
-      }
-      
-      // Capture current visitedIndices at the start of the fetch
-      const currentVisited = visitedIndices
-      
-      // Add a timeout to prevent infinite loading on mobile
-      const timeout = setTimeout(() => {
-        if (isMounted) {
-          logger.warn('[PublicationIndex] Fetch timeout reached, setting loaded state')
-          setIsLoading(false)
-          setIsRetrying(false)
-        }
-      }, 60000) // 60 second timeout for large publications
-      
-      try {
-        // Combine original references with failed references if this is a retry
-        const refsToFetch = isManualRetry && failedReferences.length > 0 
-          ? [...referencesData, ...failedReferences]
-          : referencesData
-        
-        if (refsToFetch.length === 0) {
-          setIsLoading(false)
-          setIsRetrying(false)
-          return
-        }
-        
-        // Use batch fetching
-        const { fetched, failed } = await batchFetchReferences(
-          refsToFetch,
-          currentVisited,
-          isManualRetry,
-          (fetchedRefs) => {
-            if (isMounted) {
-              // Update state progressively as events are fetched
-          setReferences(fetchedRefs)
-            }
-          }
-        )
-        
-        if (isMounted) {
-          setReferences(fetched)
-          setFailedReferences(failed)
-          setIsLoading(false)
-          setIsRetrying(false)
-          
-          // Store master publication with all nested events
-          const nestedEvents = fetched.filter(ref => ref.event).map(ref => ref.event!).filter((e): e is Event => e !== undefined)
-          if (nestedEvents.length > 0) {
-            indexedDb.putPublicationWithNestedEvents(event, nestedEvents).catch(err => {
-              logger.error('[PublicationIndex] Error caching publication with nested events:', err)
-            })
-          }
-        }
-      } catch (error) {
-        logger.error('[PublicationIndex] Error in fetchReferences:', error)
-        if (isMounted) {
-          setIsLoading(false)
-          setIsRetrying(false)
-        }
-      } finally {
-        clearTimeout(timeout)
-      }
-    }
-
-    if (referencesData.length > 0) {
-      fetchReferences(false).then(() => {
-        // Auto-retry failed references after initial load
-        setFailedReferences(prevFailed => {
-          if (prevFailed.length > 0 && retryCount < maxRetries) {
-            const delay = Math.min(1000 * Math.pow(2, retryCount), 10000) // Exponential backoff, max 10s
-            setTimeout(() => {
-              setRetryCount(prev => prev + 1)
-              fetchReferences(true)
-            }, delay)
-          }
-          return prevFailed
-        })
+    const loaded = referencesWithEvents
+      .filter((r) => r.event)
+      .map((r) => r.event!)
+    if (loaded.length === 0) return
+    const t = window.setTimeout(() => {
+      void indexedDb.putPublicationWithNestedEvents(event, loaded).catch((err) => {
+        logger.error('[PublicationIndex] Error caching publication with nested events:', err)
       })
-    } else {
-      setIsLoading(false)
-    }
-    
-    return () => {
-      isMounted = false
-    }
-  }, [referencesData, visitedIndices, fetchSingleReference]) // Include fetchSingleReference in dependencies
+    }, 400)
+    return () => clearTimeout(t)
+  }, [referencesWithEvents, event])
 
-  // Manual retry function
-  const handleManualRetry = useCallback(async () => {
-    setRetryCount(0)
+  const handleManualRetry = useCallback(() => {
     setIsRetrying(true)
-    
-    const fetchReferences = async () => {
-      const updatedRefs: Map<string, PublicationReference> = new Map()
-      const newRefs: PublicationReference[] = []
-      const failedRefs: PublicationReference[] = []
-      const discoveredRefs: PublicationReference[] = []
-      const currentVisited = visitedIndices
-      
-      // Create a map of existing references for quick lookup
-      references.forEach(ref => {
-        const id = ref.coordinate || ref.eventId || ''
-        if (id) {
-          updatedRefs.set(id, ref)
-        }
-      })
-      
-      // Only retry failed references, not all references
-      const refsToRetry = failedReferences.length > 0 ? failedReferences : references.filter(ref => !ref.event)
-      
-      if (refsToRetry.length === 0) {
-        setIsRetrying(false)
-        return
-      }
-      
-      logger.info('[PublicationIndex] Retrying', refsToRetry.length, 'failed references')
-      
-      for (const ref of refsToRetry) {
-        const result = await fetchSingleReference(ref, currentVisited, true)
-        
-        if (result) {
-          const id = result.coordinate || result.eventId || ''
-          
-          if (result.event) {
-            // Successfully fetched - update existing reference or add new one
-            if (id) {
-              updatedRefs.set(id, result)
-            } else {
-              newRefs.push(result)
-            }
-            
-            // Collect discovered nested references
-            if ((result as any).nestedRefs && (result as any).nestedRefs.length > 0) {
-              for (const nestedRef of (result as any).nestedRefs) {
-                const nestedId = nestedRef.coordinate || nestedRef.eventId || ''
-                if (!nestedId) continue
-                
-                // Check if we already have this reference
-                const existingInMap = updatedRefs.has(nestedId)
-                const existingInNew = newRefs.find(r => {
-                  const rid = r.coordinate || r.eventId || ''
-                  return rid === nestedId
-                })
-                const existingInDiscovered = discoveredRefs.find(r => {
-                  const rid = r.coordinate || r.eventId || ''
-                  return rid === nestedId
-                })
-                
-                if (!existingInMap && !existingInNew && !existingInDiscovered) {
-                  discoveredRefs.push(nestedRef)
-                }
-              }
-            }
-          } else {
-            // Still failed
-            if (id) {
-              updatedRefs.set(id, result)
-            } else {
-              failedRefs.push(result)
-            }
-          }
-        }
-      }
-      
-      // Fetch discovered nested references
-      if (discoveredRefs.length > 0) {
-        logger.info('[PublicationIndex] Found', discoveredRefs.length, 'new nested references on retry')
-        for (const nestedRef of discoveredRefs) {
-          const result = await fetchSingleReference(nestedRef, currentVisited, true)
-          
-          if (result) {
-            const id = result.coordinate || result.eventId || ''
-            if (result.event) {
-              if (id) {
-                updatedRefs.set(id, result)
-              } else {
-                newRefs.push(result)
-              }
-            } else {
-              if (id) {
-                updatedRefs.set(id, result)
-              } else {
-                failedRefs.push(result)
-              }
-            }
-          }
-        }
-      }
-      
-      // Update state with merged results
-      const finalRefs = Array.from(updatedRefs.values()).concat(newRefs)
-      const stillFailed = finalRefs.filter(ref => !ref.event)
-      
-      setReferences(finalRefs)
-      setFailedReferences(stillFailed)
-      setIsRetrying(false)
-      
-      // Store master publication with all nested events
-      const nestedEvents = finalRefs.filter(ref => ref.event).map(ref => ref.event!).filter((e): e is Event => e !== undefined)
-      if (nestedEvents.length > 0) {
-        indexedDb.putPublicationWithNestedEvents(event, nestedEvents).catch(err => {
-          logger.error('[PublicationIndex] Error caching publication with nested events:', err)
-        })
-      }
-    }
-    
-    await fetchReferences()
-  }, [failedReferences, visitedIndices, fetchSingleReference, references, event])
+    const keys =
+      failedKeys.length > 0
+        ? failedKeys
+        : (referencesData.map((r) => r.coordinate || r.eventId).filter(Boolean) as string[])
+    retryKeys(keys)
+    window.setTimeout(() => setIsRetrying(false), 600)
+  }, [failedKeys, referencesData, retryKeys])
+
 
   return (
     <div className={cn('space-y-6', className)}>
@@ -1413,7 +509,7 @@ export default function PublicationIndex({
       )}
 
       {/* Table of Contents - only show for top-level publications */}
-      {!isNested && !isLoading && tableOfContents.length > 0 && (
+      {!isNested && tableOfContents.length > 0 && (
         <div id="publication-toc" className="border rounded-lg p-6 bg-muted/30 scroll-mt-24">
           <h2 className="text-xl font-semibold mb-4">Table of Contents</h2>
           <nav>
@@ -1431,12 +527,13 @@ export default function PublicationIndex({
         </div>
       )}
 
-      {/* Failed References Banner - only show for top-level publications */}
-      {!isNested && !isLoading && failedReferences.length > 0 && references.length > 0 && (
+      {/* Failed sections banner — batched fetch missed some payloads */}
+      {!isNested && failedKeys.length > 0 && referencesWithEvents.length > 0 && (
         <div className="p-4 border rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800">
           <div className="flex items-center justify-between gap-4">
             <div className="text-sm text-yellow-800 dark:text-yellow-200">
-              {failedReferences.length} reference{failedReferences.length !== 1 ? 's' : ''} failed to load. Click retry to attempt loading again.
+              {failedKeys.length} section{failedKeys.length !== 1 ? 's' : ''} failed to load. Scroll near a
+              section or retry all.
             </div>
             <Button
               variant="outline"
@@ -1455,123 +552,120 @@ export default function PublicationIndex({
         </div>
       )}
 
-      {/* Content - render referenced events */}
-      {isLoading ? (
-        <div className="text-muted-foreground">
-          <div>Loading publication content...</div>
-          <div className="text-xs mt-2">If this takes too long, the content may not be available.</div>
-        </div>
-      ) : references.length === 0 ? (
-        <div className="p-6 border rounded-lg bg-muted/30 text-center">
-          <div className="text-lg font-semibold mb-2">No content loaded</div>
-          <div className="text-sm text-muted-foreground mb-4">
-            Unable to load publication content. The referenced events may not be available on the current relays.
-          </div>
-          <Button
-            variant="outline"
-            onClick={handleManualRetry}
-            disabled={isRetrying}
-          >
-            {isRetrying ? (
-              <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-sm align-middle" aria-hidden />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Retry Loading
-          </Button>
+      {/* Sections: intersection-observer triggers debounced batch REQ; placeholders until loaded */}
+      {referencesData.length === 0 ? (
+        <div className="p-6 border rounded-lg bg-muted/30 text-center text-sm text-muted-foreground">
+          This publication index has no linked sections.
         </div>
       ) : (
         <div className="space-y-8">
-          {references.map((ref, index) => {
+          {referencesWithEvents.map((ref, index) => {
+            const sectionKey = publicationRefKey(ref)
+            const coordinate = ref.coordinate || ref.eventId || ''
+            const sectionId = `section-${coordinate.replace(/:/g, '-')}`
+            const notesLink = publicationSectionNotesLink(ref)
+
             if (!ref.event) {
-              // Generate naddr from coordinate or eventId for link
-              let notesLink: string | null = null
-              if (ref.coordinate) {
-                const aTag = ['a', ref.coordinate, ref.relay || '', ref.eventId || '']
-                const bech32Id = generateBech32IdFromATag(aTag)
-                if (bech32Id) {
-                  // Construct URL as /notes?events=naddr1...
-                  notesLink = `/notes?events=${encodeURIComponent(bech32Id)}`
-                }
-              } else if (ref.eventId) {
-                // For event IDs, try to construct a note/nevent, otherwise use as-is
-                if (ref.eventId.startsWith('note1') || ref.eventId.startsWith('nevent1') || ref.eventId.startsWith('naddr1')) {
-                  notesLink = `/notes?events=${encodeURIComponent(ref.eventId)}`
-                } else if (/^[0-9a-f]{64}$/i.test(ref.eventId)) {
-                  // Hex event ID - try to create nevent
-                  try {
-                    const nevent = nip19.neventEncode({ id: ref.eventId })
-                    notesLink = `/notes?events=${encodeURIComponent(nevent)}`
-                  } catch {
-                    // Fallback to hex ID
-                    notesLink = `/notes?events=${encodeURIComponent(ref.eventId)}`
-                  }
-                }
-              }
-              
-              return (
-                <div key={index} className="p-4 border rounded-lg bg-muted/50">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm text-muted-foreground">
-                      Reference {index + 1}: Unable to load event{' '}
-                      {notesLink ? (
-                        <a
-                          href={notesLink}
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            push(notesLink!)
-                          }}
-                          className="text-primary hover:underline cursor-pointer"
+              if (ref.loadStatus === 'error') {
+                return (
+                  <PublicationSectionBoundary
+                    key={sectionKey || index}
+                    sectionKey={sectionKey}
+                    requestKeys={requestKeys}
+                  >
+                    <div id={sectionId} className="scroll-mt-24 p-4 border rounded-lg bg-muted/50">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm text-muted-foreground">
+                          Section {index + 1}: unable to load{' '}
+                          {notesLink ? (
+                            <a
+                              href={notesLink}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                push(notesLink)
+                              }}
+                              className="text-primary hover:underline cursor-pointer"
+                            >
+                              {coordinate || 'unknown'}
+                            </a>
+                          ) : (
+                            <span>{coordinate || 'unknown'}</span>
+                          )}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => retryKeys([sectionKey])}
                         >
-                          {ref.coordinate || ref.eventId || 'unknown'}
-                        </a>
-                      ) : (
-                        <span>{ref.coordinate || ref.eventId || 'unknown'}</span>
-                      )}
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleManualRetry}
-                      disabled={isRetrying}
-                      className="shrink-0"
-                    >
-                      {isRetrying ? (
-                        <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
-                      ) : (
-                        <RefreshCw className="h-4 w-4" />
-                      )}
-                      Retry
-                    </Button>
+                  </PublicationSectionBoundary>
+                )
+              }
+
+              return (
+                <PublicationSectionBoundary
+                  key={sectionKey || index}
+                  sectionKey={sectionKey}
+                  requestKeys={requestKeys}
+                >
+                  <div
+                    id={sectionId}
+                    className="scroll-mt-24 rounded-lg border border-dashed p-6 bg-muted/20 space-y-3"
+                    aria-busy
+                  >
+                    <Skeleton className="h-5 w-2/3 max-w-md" />
+                    <Skeleton className="h-28 w-full" />
+                    <Skeleton className="h-28 w-full" />
                   </div>
+                </PublicationSectionBoundary>
+              )
+            }
+
+            const eventKind = ref.kind || ref.event.kind
+            const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
+
+            if (eventKind === ExtendedKind.PUBLICATION) {
+              return (
+                <div
+                  key={sectionKey || index}
+                  id={sectionId}
+                  className="border-l-4 border-primary pl-6 scroll-mt-24 pt-6 relative"
+                >
+                  <div className="absolute top-0 right-0 flex items-center gap-2">
+                    {!isNested && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-70 hover:opacity-100"
+                        onClick={scrollToToc}
+                        title="Back to Table of Contents"
+                      >
+                        <ArrowUp className="h-4 w-4 mr-2" />
+                        ToC
+                      </Button>
+                    )}
+                    <NoteOptions event={ref.event} />
+                  </div>
+                  <PublicationIndex
+                    event={ref.event}
+                    isNested={true}
+                    parentImageUrl={effectiveParentImageUrl}
+                  />
                 </div>
               )
             }
 
-            // Render based on event kind
-            // Use the same coordinate logic as ToC: coordinate || eventId
-            // For e-tags, coordinate might be empty, so use eventId
-            // For a-tags, coordinate is set (kind:pubkey:identifier)
-            const coordinate = ref.coordinate || ref.eventId || ''
-            const sectionId = `section-${coordinate.replace(/:/g, '-')}`
-            const eventKind = ref.kind || ref.event.kind
-            
-            // Debug: log section ID generation
-            logger.debug('[PublicationIndex] Rendering section:', { 
-              coordinate, 
-              sectionId, 
-              hasCoordinate: !!ref.coordinate, 
-              hasEventId: !!ref.eventId,
-              eventId: ref.eventId?.substring(0, 16) + '...'
-            })
-            
-            if (eventKind === ExtendedKind.PUBLICATION) {
-              // Recursively render nested 30040 publication index
-              // Use the top-level publication's image as parent for nested publications
-              const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
+            if (
+              eventKind === ExtendedKind.PUBLICATION_CONTENT ||
+              eventKind === ExtendedKind.WIKI_ARTICLE
+            ) {
               return (
-                <div key={index} id={sectionId} className="border-l-4 border-primary pl-6 scroll-mt-24 pt-6 relative">
+                <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 pt-6 relative">
                   <div className="absolute top-0 right-0 flex items-center gap-2">
                     {!isNested && (
                       <Button
@@ -1587,69 +681,101 @@ export default function PublicationIndex({
                     )}
                     <NoteOptions event={ref.event} />
                   </div>
-                  <PublicationIndex event={ref.event} isNested={true} parentImageUrl={effectiveParentImageUrl} />
-                </div>
-              )
-            } else if (eventKind === ExtendedKind.PUBLICATION_CONTENT || eventKind === ExtendedKind.WIKI_ARTICLE) {
-              // Render 30041 or 30818 content as AsciidocArticle
-              // Pass parent image URL to avoid showing duplicate cover images
-              // Use the top-level publication's image as parent, or the passed parentImageUrl for nested publications
-              const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
-              return (
-                <div key={index} id={sectionId} className="scroll-mt-24 pt-6 relative">
-                  <div className="absolute top-0 right-0 flex items-center gap-2">
-                    {!isNested && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="opacity-70 hover:opacity-100"
-                        onClick={scrollToToc}
-                        title="Back to Table of Contents"
-                      >
-                        <ArrowUp className="h-4 w-4 mr-2" />
-                        ToC
-                      </Button>
-                    )}
-                    <NoteOptions event={ref.event} />
-                  </div>
-                  <AsciidocArticle event={ref.event} hideImagesAndInfo={true} parentImageUrl={effectiveParentImageUrl} />
-                </div>
-              )
-            } else if (eventKind === ExtendedKind.WIKI_ARTICLE_MARKDOWN) {
-              // Render 30817 content as MarkdownArticle
-              // Pass parent image URL to avoid showing duplicate cover images
-              // Use the top-level publication's image as parent, or the passed parentImageUrl for nested publications
-              const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
-              return (
-                <div key={index} id={sectionId} className="scroll-mt-24 pt-6 relative">
-                  <div className="absolute top-0 right-0 flex items-center gap-2">
-                    {!isNested && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="opacity-70 hover:opacity-100"
-                        onClick={scrollToToc}
-                        title="Back to Table of Contents"
-                      >
-                        <ArrowUp className="h-4 w-4 mr-2" />
-                        ToC
-                      </Button>
-                    )}
-                    <NoteOptions event={ref.event} />
-                  </div>
-                  <MarkdownArticle event={ref.event} hideMetadata={true} parentImageUrl={effectiveParentImageUrl} />
-                </div>
-              )
-            } else {
-              // Fallback for other kinds - just show a placeholder
-              return (
-                <div key={index} className="p-4 border rounded-lg">
-                  <div className="text-sm text-muted-foreground">
-                    Reference {index + 1}: Unsupported kind {eventKind}
-                  </div>
+                  <AsciidocArticle
+                    event={ref.event}
+                    hideImagesAndInfo={true}
+                    parentImageUrl={effectiveParentImageUrl}
+                  />
                 </div>
               )
             }
+
+            if (eventKind === ExtendedKind.WIKI_ARTICLE_MARKDOWN) {
+              return (
+                <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 pt-6 relative">
+                  <div className="absolute top-0 right-0 flex items-center gap-2">
+                    {!isNested && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-70 hover:opacity-100"
+                        onClick={scrollToToc}
+                        title="Back to Table of Contents"
+                      >
+                        <ArrowUp className="h-4 w-4 mr-2" />
+                        ToC
+                      </Button>
+                    )}
+                    <NoteOptions event={ref.event} />
+                  </div>
+                  <MarkdownArticle
+                    event={ref.event}
+                    hideMetadata={true}
+                    parentImageUrl={effectiveParentImageUrl}
+                  />
+                </div>
+              )
+            }
+
+            // NIP-23 long-form (30023): same markdown body path as standalone note view
+            if (eventKind === kinds.LongFormArticle) {
+              return (
+                <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 pt-6 relative">
+                  <div className="absolute top-0 right-0 flex items-center gap-2">
+                    {!isNested && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-70 hover:opacity-100"
+                        onClick={scrollToToc}
+                        title="Back to Table of Contents"
+                      >
+                        <ArrowUp className="h-4 w-4 mr-2" />
+                        ToC
+                      </Button>
+                    )}
+                    <NoteOptions event={ref.event} />
+                  </div>
+                  <MarkdownArticle
+                    event={ref.event}
+                    hideMetadata={true}
+                    parentImageUrl={effectiveParentImageUrl}
+                  />
+                </div>
+              )
+            }
+
+            // Kind 1: plain text / markdown body like {@link Note}
+            if (eventKind === kinds.ShortTextNote) {
+              return (
+                <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 pt-6 relative">
+                  <div className="absolute top-0 right-0 flex items-center gap-2">
+                    {!isNested && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="opacity-70 hover:opacity-100"
+                        onClick={scrollToToc}
+                        title="Back to Table of Contents"
+                      >
+                        <ArrowUp className="h-4 w-4 mr-2" />
+                        ToC
+                      </Button>
+                    )}
+                    <NoteOptions event={ref.event} />
+                  </div>
+                  <MarkdownArticle event={ref.event} hideMetadata={true} />
+                </div>
+              )
+            }
+
+            return (
+              <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 p-4 border rounded-lg">
+                <div className="text-sm text-muted-foreground">
+                  Section {index + 1}: unsupported kind {eventKind}
+                </div>
+              </div>
+            )
           })}
         </div>
       )}

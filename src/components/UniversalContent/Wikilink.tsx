@@ -12,11 +12,6 @@ interface WikilinkProps {
 export default function Wikilink({ dTag, displayText, className }: WikilinkProps) {
   const [isOpen, setIsOpen] = useState(false)
 
-  const handleWikistrClick = () => {
-    const url = `https://wikistr.imwald.eu/${dTag}`
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
-
   const handleAlexandriaClick = () => {
     const url = `https://next-alexandria.gitcitadel.eu/events?d=${dTag}`
     window.open(url, '_blank', 'noopener,noreferrer')
@@ -35,15 +30,6 @@ export default function Wikilink({ dTag, displayText, className }: WikilinkProps
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-1">
         <div className="bg-muted/30 rounded-md p-2 text-xs space-y-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start text-xs h-6"
-            onClick={handleWikistrClick}
-          >
-            <ExternalLink className="h-3 w-3 mr-1" />
-            View on Wikistr
-          </Button>
           <Button
             variant="ghost"
             size="sm"

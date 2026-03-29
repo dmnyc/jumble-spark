@@ -46,6 +46,14 @@ const CONTENT_PREVIEW_HOOK_PLACEHOLDER = {
   sig: ''
 } as Event
 
+const PARENT_REPLY_POLL_BLURB_MAX = 150
+
+function parentReplyPollQuestionBlurb(content: string): string {
+  const normalized = content.trim().replace(/\s+/g, ' ')
+  if (normalized.length <= PARENT_REPLY_POLL_BLURB_MAX) return normalized
+  return `${normalized.slice(0, PARENT_REPLY_POLL_BLURB_MAX)}…`
+}
+
 /** Keep spacing/margins on the outer wrapper; put line-clamp on the preview body so it still clamps text. */
 function splitPreviewLayoutClasses(className?: string) {
   if (!className?.trim()) return { outer: undefined, body: undefined }
@@ -66,11 +74,14 @@ export default function ContentPreview({
   event,
   className,
   /** Inline parent lines (e.g. reply thread): zap receipts match compact thread styling. */
-  previewDensity
+  previewDensity,
+  /** Reply-to-parent strip: polls show a short question snippet instead of full poll UI. */
+  forParentReplyBlurb = false
 }: {
   event?: Event
   className?: string
   previewDensity?: 'default' | 'compact'
+  forParentReplyBlurb?: boolean
 }) {
   const { t } = useTranslation()
   const reactionDisplay = useNotificationReactionDisplay(event ?? CONTENT_PREVIEW_HOOK_PLACEHOLDER)
@@ -146,6 +157,14 @@ export default function ContentPreview({
   }
 
   if (event.kind === ExtendedKind.POLL) {
+    if (forParentReplyBlurb) {
+      const snippet = parentReplyPollQuestionBlurb(event.content ?? '')
+      return (
+        <div className={cn('pointer-events-none min-w-0 text-muted-foreground', previewOuter)}>
+          <div className={cn('min-w-0 truncate', previewBody)}>{snippet || t('Poll')}</div>
+        </div>
+      )
+    }
     return withKindRow(<PollPreview event={event} />)
   }
 

@@ -114,6 +114,7 @@ export default function ParentNotePreview({
           className="pointer-events-none"
           event={finalEvent}
           previewDensity={appearance === 'subtle' ? 'compact' : 'default'}
+          forParentReplyBlurb
         />
       </div>
     </div>

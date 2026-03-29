@@ -423,7 +423,6 @@ export function useMenuActions({
     return getLongFormArticleMetadataFromEvent(event)
   }, [isArticleType, event])
 
-  // Extract d-tag for Wikistr URL
   const dTag = useMemo(() => {
     if (!isArticleType) return ''
     return event.tags.find(tag => tag[0] === 'd')?.[1] || ''
@@ -548,12 +547,6 @@ export function useMenuActions({
     }
 
     // View on external sites functions
-    const handleViewOnWikistr = () => {
-      if (!dTag) return
-      closeDrawer()
-      window.open(`https://wikistr.imwald.eu/${dTag}*${event.pubkey}`, '_blank', 'noopener,noreferrer')
-    }
-
     const handleViewOnAlexandria = () => {
       if (!naddr) return
       closeDrawer()
@@ -770,19 +763,12 @@ export function useMenuActions({
         event.kind === ExtendedKind.WIKI_ARTICLE ||
         event.kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN
       ) {
-        // For 30041, 30040, 30818, 30817: Alexandria and Wikistr
+        // For 30041, 30040, 30818, 30817: Alexandria
         if (naddr) {
           actions.push({
             icon: BookOpen,
             label: t('View on Alexandria'),
             onClick: handleViewOnAlexandria
-          })
-        }
-        if (dTag) {
-          actions.push({
-            icon: Globe,
-            label: t('View on Wikistr'),
-            onClick: handleViewOnWikistr
           })
         }
       }

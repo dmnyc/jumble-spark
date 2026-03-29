@@ -1,4 +1,8 @@
 import { ExtendedKind } from '@/constants'
+import {
+  publicationCoordinateLookupKeys,
+  splitPublicationCoordinate
+} from '@/lib/publication-coordinate'
 import { tagNameEquals } from '@/lib/tag'
 import { TNip66RelayDiscovery, TRelayInfo } from '@/types'
 import type { Event } from 'nostr-tools'
@@ -1009,18 +1013,14 @@ class IndexedDbService {
   }
 
   async getPublicationEvent(coordinate: string): Promise<Event | undefined> {
-    // Parse coordinate (format: kind:pubkey:d-tag)
-    const coordinateParts = coordinate.split(':')
-    if (coordinateParts.length >= 2) {
-      const kind = parseInt(coordinateParts[0])
-      if (!isNaN(kind)) {
-        const pubkey = coordinateParts[1]
-        const d = coordinateParts[2] || undefined
-        const event = await this.getReplaceableEvent(pubkey, kind, d)
-        return event || undefined
-      }
+    // kind:64-hex-pubkey:d (d may contain ':'); try NFC/NFD d variants for cache hits.
+    for (const fullCoord of publicationCoordinateLookupKeys(coordinate.trim())) {
+      const p = splitPublicationCoordinate(fullCoord)
+      if (!p) continue
+      const event = await this.getReplaceableEvent(p.pubkey, p.kind, p.d)
+      if (event) return event
     }
-    return Promise.resolve(undefined)
+    return undefined
   }
 
   async getEventFromPublicationStore(eventId: string): Promise<Event | undefined> {
