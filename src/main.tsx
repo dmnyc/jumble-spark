@@ -12,6 +12,38 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import storage from './services/local-storage.service'
 import { restoreSessionFeedSnapshotsAfterHardRefresh } from './services/session-feed-snapshot.service'
 
+/**
+ * After a deploy, hashed chunks from the previous build are removed. A tab that still runs old JS
+ * (HTTP cache, or a service worker that just dropped the old precache) can hit 404 on import().
+ * One reload usually picks up the new index.html and asset graph.
+ */
+function installStaleBuildChunkRecovery() {
+  if (typeof window === 'undefined') return
+
+  const isChunkLoadFailure = (msg: string) =>
+    msg.includes('Failed to fetch dynamically imported module') ||
+    msg.includes('error loading dynamically imported module') ||
+    msg.includes('Importing a module script failed')
+
+  window.addEventListener('unhandledrejection', (event) => {
+    const r = event.reason
+    const msg =
+      typeof r === 'string' ? r : r instanceof Error ? r.message : String(r ?? '')
+    if (!isChunkLoadFailure(msg)) return
+    event.preventDefault()
+    try {
+      const key = 'jumble:stale-chunk-reload'
+      if (sessionStorage.getItem(key)) return
+      sessionStorage.setItem(key, '1')
+    } catch {
+      return
+    }
+    window.location.reload()
+  })
+}
+
+installStaleBuildChunkRecovery()
+
 declare global {
   interface Window {
     __RUNTIME_CONFIG__?: { NIP66_MONITOR_NPUB?: string; DESKTOP_DOWNLOAD_URL?: string }
