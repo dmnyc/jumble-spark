@@ -14,6 +14,7 @@ import SpellsButton from './SpellsButton'
 import { FavoriteRelaysActiveStripSidebar } from '@/components/FavoriteRelaysActiveStrip'
 import PaneModeToggle from './PaneModeToggle'
 import DownloadDesktopSidebarButton from './DownloadDesktopSidebarButton'
+import LiveActivitiesStrip from '@/components/LiveActivitiesStrip'
 
 export default function PrimaryPageSidebar() {
   const { isSmallScreen } = useScreenSize()
@@ -30,6 +31,9 @@ export default function PrimaryPageSidebar() {
               Im Wald
             </div>
           </div>
+        </div>
+        <div className="max-xl:hidden w-full min-w-0 px-1">
+          <LiveActivitiesStrip placement="sidebar" />
         </div>
         <HomeButton />
         <FeedButton />

@@ -46,7 +46,9 @@ const GeneralSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
     notificationListStyle,
     updateNotificationListStyle,
     addRandomRelaysToPublish,
-    updateAddRandomRelaysToPublish
+    updateAddRandomRelaysToPublish,
+    showLiveActivitiesBanner,
+    updateShowLiveActivitiesBanner
   } = useUserPreferences()
 
   const handleLanguageChange = (value: TLanguage) => {
@@ -170,6 +172,17 @@ const GeneralSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
             <div className="text-muted-foreground">{t('Enable video autoplay on this device')}</div>
           </Label>
           <Switch id="autoplay" checked={autoplay} onCheckedChange={setAutoplay} />
+        </SettingItem>
+        <SettingItem>
+          <Label htmlFor="live-activities-banner" className="text-base font-normal">
+            <div>{t('liveActivities.settingsToggle')}</div>
+            <div className="text-muted-foreground">{t('liveActivities.settingsHint')}</div>
+          </Label>
+          <Switch
+            id="live-activities-banner"
+            checked={showLiveActivitiesBanner}
+            onCheckedChange={updateShowLiveActivitiesBanner}
+          />
         </SettingItem>
         <SettingItem>
           <Label htmlFor="add-random-relays" className="text-base font-normal">

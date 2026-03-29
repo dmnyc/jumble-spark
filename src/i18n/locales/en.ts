@@ -581,6 +581,13 @@ export default {
     General: 'General',
     Autoplay: 'Autoplay',
     'Enable video autoplay on this device': 'Enable video autoplay on this device',
+    'liveActivities.heading': 'Live now',
+    'liveActivities.regionLabel': 'Live spaces and streams',
+    'liveActivities.fromFollow': 'From someone you follow',
+    'liveActivities.goToSlide': 'Show live item {{n}}',
+    'liveActivities.settingsToggle': 'Live activities banner',
+    'liveActivities.settingsHint':
+      'Shows NIP-53 live rooms (audio/video spaces) from your relays. Updates on a quarter-hour schedule and when the app finishes its initial session warm-up.',
     'Add random relays to every publish': 'Random relays in publish list',
     'Add random relays to every publish description':
       'Adds {{n}} random public relays from the NIP-66 lively list (preferring monitors that reported a write RTT) to the publish relay list. When ON, they are selected by default; when OFF, they appear in the list but are unchecked so you can optionally include them.',

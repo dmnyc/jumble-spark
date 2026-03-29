@@ -59,6 +59,7 @@ const SETTINGS_KEYS = [
   StorageKey.SHOW_RECOMMENDED_RELAYS_PANEL,
   StorageKey.ADD_RANDOM_RELAYS_TO_PUBLISH,
   StorageKey.SHOW_PUBLISH_SUCCESS_TOASTS,
+  StorageKey.SHOW_LIVE_ACTIVITIES_BANNER,
   StorageKey.DEFAULT_EXPIRATION_ENABLED,
   StorageKey.DEFAULT_EXPIRATION_MONTHS,
   StorageKey.DEFAULT_QUIET_ENABLED,
@@ -114,6 +115,7 @@ class LocalStorageService {
   private panelMode: 'single' | 'double' = 'single'
   private addRandomRelaysToPublish: boolean = false
   private showPublishSuccessToasts: boolean = true
+  private showLiveActivitiesBanner: boolean = true
 
   constructor() {
     if (!LocalStorageService.instance) {
@@ -408,6 +410,9 @@ class LocalStorageService {
     const showPublishSuccessStr = window.localStorage.getItem(StorageKey.SHOW_PUBLISH_SUCCESS_TOASTS)
     this.showPublishSuccessToasts = showPublishSuccessStr !== 'false'
 
+    const showLiveActivitiesStr = window.localStorage.getItem(StorageKey.SHOW_LIVE_ACTIVITIES_BANNER)
+    this.showLiveActivitiesBanner = showLiveActivitiesStr !== 'false'
+
     // Clean up deprecated data
     window.localStorage.removeItem(StorageKey.ACCOUNT_PROFILE_EVENT_MAP)
     window.localStorage.removeItem(StorageKey.ACCOUNT_FOLLOW_LIST_EVENT_MAP)
@@ -515,6 +520,8 @@ class LocalStorageService {
     this.addRandomRelaysToPublish = get(StorageKey.ADD_RANDOM_RELAYS_TO_PUBLISH) === 'true'
     const showPublishSuccessStr = get(StorageKey.SHOW_PUBLISH_SUCCESS_TOASTS)
     if (showPublishSuccessStr != null) this.showPublishSuccessToasts = showPublishSuccessStr !== 'false'
+    const showLiveActivitiesStr = get(StorageKey.SHOW_LIVE_ACTIVITIES_BANNER)
+    if (showLiveActivitiesStr != null) this.showLiveActivitiesBanner = showLiveActivitiesStr !== 'false'
     const showKindsStr = get(StorageKey.SHOW_KINDS)
     if (showKindsStr != null) this.showKinds = JSON.parse(showKindsStr) as number[]
     const showKind1OPsStr = get(StorageKey.SHOW_KIND_1_OPs)
@@ -806,6 +813,15 @@ class LocalStorageService {
   setAddRandomRelaysToPublish(value: boolean) {
     this.addRandomRelaysToPublish = value
     this.persistSetting(StorageKey.ADD_RANDOM_RELAYS_TO_PUBLISH, value.toString())
+  }
+
+  getShowLiveActivitiesBanner(): boolean {
+    return this.showLiveActivitiesBanner
+  }
+
+  setShowLiveActivitiesBanner(value: boolean) {
+    this.showLiveActivitiesBanner = value
+    this.persistSetting(StorageKey.SHOW_LIVE_ACTIVITIES_BANNER, value ? 'true' : 'false')
   }
 
   getShowKinds() {

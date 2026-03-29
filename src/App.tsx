@@ -21,6 +21,7 @@ import { NostrProvider } from '@/providers/NostrProvider'
 import { ReplyProvider } from '@/providers/ReplyProvider'
 import { ScreenSizeProvider } from '@/providers/ScreenSizeProvider'
 import { ThemeProvider } from '@/providers/ThemeProvider'
+import { LiveActivitiesProvider } from '@/providers/LiveActivitiesProvider'
 import { UserPreferencesProvider } from '@/providers/UserPreferencesProvider'
 import { UserTrustProvider } from '@/providers/UserTrustProvider'
 import { ZapProvider } from '@/providers/ZapProvider'
@@ -52,7 +53,9 @@ export default function App(): JSX.Element {
                                         <MediaUploadServiceProvider>
                                           <KindFilterProvider>
                                             <UserPreferencesProvider>
-                                              <PageManager />
+                                              <LiveActivitiesProvider>
+                                                <PageManager />
+                                              </LiveActivitiesProvider>
                                               <ReadAloudPlayerModal />
                                               <PublishSuccessSubtleIndicator />
                                               <Toaster />

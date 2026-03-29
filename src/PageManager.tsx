@@ -5,6 +5,7 @@ import logger from '@/lib/logger'
 import { ChevronLeft } from 'lucide-react'
 import { NavigationService } from '@/services/navigation.service'
 // Page imports needed for primary note view
+import LiveActivitiesStrip from '@/components/LiveActivitiesStrip'
 import NoteDrawer from '@/components/NoteDrawer'
 import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
 import storage from '@/services/local-storage.service'
@@ -1848,9 +1849,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               }}
             >
             <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId, drawerInitialEvent }}>
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <LiveActivitiesStrip placement="mobile" />
             {primaryNoteView ? (
               // Show primary note view with back button on mobile
-              <div className="flex flex-col h-full w-full">
+              <div className="flex min-h-0 flex-1 flex-col h-full w-full">
                 <div className="flex justify-center py-1 border-b">
                   <span className="text-green-600 dark:text-green-500 font-semibold text-sm">
                     Imwald
@@ -1917,6 +1920,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                 ))}
               </>
             )}
+            </div>
             {drawerNoteId && (
               <NoteDrawer
                 open={drawerOpen}

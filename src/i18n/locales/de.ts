@@ -559,6 +559,13 @@ export default {
     Autoplay: 'Automatische Wiedergabe',
     'Enable video autoplay on this device':
       'Aktiviere die automatische Video-Wiedergabe auf diesem Gerät',
+    'liveActivities.heading': 'Jetzt live',
+    'liveActivities.regionLabel': 'Live-Räume und Streams',
+    'liveActivities.fromFollow': 'Von jemandem, dem du folgst',
+    'liveActivities.goToSlide': 'Live-Eintrag {{n}} anzeigen',
+    'liveActivities.settingsToggle': 'Banner für Live-Aktivitäten',
+    'liveActivities.settingsHint':
+      'Zeigt NIP-53-Live-Räume (Audio/Video) von deinen Relays. Aktualisierung zur Viertelstunde und nach dem ersten Session-Warm-up.',
     'Add random relays to every publish': 'Zufällige Relays in der Publish-Liste',
     'Add random relays to every publish description':
       'Fügt {{n}} zufällige öffentliche Relays aus der NIP-66-Liveliness-Liste hinzu (bevorzugt solche, deren Monitor eine Write-RTT gemeldet hat). Bei AN standardmäßig ausgewählt; bei AUS in der Liste, aber nicht angehakt.',

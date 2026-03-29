@@ -73,6 +73,7 @@ import {
 } from 'nostr-tools'
 import { AbstractRelay } from 'nostr-tools/abstract-relay'
 import indexedDb from './indexed-db.service'
+import { notifyLiveActivitiesPrewarmComplete } from './live-activities-prewarm-bridge'
 import nip66Service from './nip66.service'
 import { patchRelayNoticeForFetchFailures } from '@/services/relay-notice-strike'
 import {
@@ -264,6 +265,7 @@ class ClientService extends EventTarget {
     }
 
     if (tasks.length === 0) {
+      notifyLiveActivitiesPrewarmComplete()
       return
     }
 
@@ -276,6 +278,7 @@ class ClientService extends EventTarget {
       ms: typeof performance !== 'undefined' ? Math.round(performance.now() - t0) : undefined,
       results: results.map((r) => r.status)
     })
+    notifyLiveActivitiesPrewarmComplete()
   }
 
   // Update signer in query service when it changes

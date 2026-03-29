@@ -160,6 +160,8 @@ export const StorageKey = {
   ADD_RANDOM_RELAYS_TO_PUBLISH: 'addRandomRelaysToPublish',
   /** When not `'false'`, show green Sonner toasts after successful publishes (default on). */
   SHOW_PUBLISH_SUCCESS_TOASTS: 'showPublishSuccessToasts',
+  /** When not `'false'`, show NIP-53 live activity banner (default on). */
+  SHOW_LIVE_ACTIVITIES_BANNER: 'showLiveActivitiesBanner',
   /** Temporary draft cache: new notes and replies. Persisted after 30s idle; restored on refresh; cleared on logout/switch. */
   POST_EDITOR_DRAFT: 'postEditorDraft',
   MEDIA_UPLOAD_SERVICE: 'mediaUploadService', // deprecated
