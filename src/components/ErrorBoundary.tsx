@@ -3,6 +3,7 @@ import { MessageCircle, RotateCw } from 'lucide-react'
 import React, { Component, ReactNode } from 'react'
 import { toast } from 'sonner'
 import logger from '@/lib/logger'
+import { isChunkLoadFailureMessage, tryStaleChunkReloadOnce } from '@/lib/stale-chunk-recovery'
 
 const ISSUES_URL =
   'https://gitrepublic.imwald.eu/repos/npub1l5sga6xg72phsz5422ykujprejwud075ggrr3z2hwyrfgr7eylqstegx9z/jumble-imwald-edition?tab=issues'
@@ -66,6 +67,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   render() {
     if (this.state.hasError) {
       const msg = this.state.error?.message ?? ''
+      if (isChunkLoadFailureMessage(msg) && tryStaleChunkReloadOnce()) {
+        return (
+          <div className="flex h-screen w-screen items-center justify-center p-4 text-muted-foreground">
+            Reloading to pick up the latest app version…
+          </div>
+        )
+      }
       if (isLikelyBrokenReactContextFromHmr(msg) && tryContextRecoveryReload()) {
         return (
           <div className="flex h-screen w-screen items-center justify-center p-4 text-muted-foreground">
