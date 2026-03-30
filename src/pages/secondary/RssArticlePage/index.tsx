@@ -2,6 +2,7 @@ import NoteInteractions from '@/components/NoteInteractions'
 import NoteStats from '@/components/NoteStats'
 import RssFeedItem from '@/components/RssFeedItem'
 import { RefreshButton } from '@/components/RefreshButton'
+import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -17,7 +18,7 @@ import {
   createWebOnlyRssFeedItem,
   isWebOnlyFauxRssItem
 } from '@/services/rss-feed.service'
-import { isHttpArticleUrl } from '@/lib/rss-web-feed'
+import { isHttpArticleUrl, promoteRssArticleForNostrThread } from '@/lib/rss-web-feed'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { useNostr } from '@/providers/NostrProvider'
@@ -45,6 +46,16 @@ const RssArticlePage = forwardRef(
     ref
   ) => {
     const { t } = useTranslation()
+    const [rssFeedReadOnly, setRssFeedReadOnly] = useState(() => {
+      try {
+        return new URLSearchParams(window.location.search).get('rssFeedReadOnly') === '1'
+      } catch {
+        return false
+      }
+    })
+    const [threadUnlocked, setThreadUnlocked] = useState(false)
+    const [promotingThread, setPromotingThread] = useState(false)
+    const showNostrThread = !rssFeedReadOnly || threadUnlocked
     const { rssFeedListEvent } = useNostr()
     const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
     const [contentKey, setContentKey] = useState(0)
@@ -59,6 +70,31 @@ const RssArticlePage = forwardRef(
         return ''
       }
     }, [articleKey])
+
+    useEffect(() => {
+      setThreadUnlocked(false)
+      try {
+        setRssFeedReadOnly(
+          new URLSearchParams(window.location.search).get('rssFeedReadOnly') === '1'
+        )
+      } catch {
+        setRssFeedReadOnly(false)
+      }
+    }, [articleKey])
+
+    useEffect(() => {
+      const sync = () => {
+        try {
+          setRssFeedReadOnly(
+            new URLSearchParams(window.location.search).get('rssFeedReadOnly') === '1'
+          )
+        } catch {
+          setRssFeedReadOnly(false)
+        }
+      }
+      window.addEventListener('popstate', sync)
+      return () => window.removeEventListener('popstate', sync)
+    }, [])
 
     const subscribedFeedUrls = useMemo(() => {
       if (!rssFeedListEvent?.tags?.length) return new Set<string>()
@@ -174,6 +210,17 @@ const RssArticlePage = forwardRef(
       }
     }, [articleUrl])
 
+    const onPromoteForNostrThread = useCallback(async () => {
+      if (!articleUrl || !isHttpArticleUrl(articleUrl)) return
+      setPromotingThread(true)
+      try {
+        await promoteRssArticleForNostrThread(articleUrl)
+        setThreadUnlocked(true)
+      } finally {
+        setPromotingThread(false)
+      }
+    }, [articleUrl])
+
     useEffect(() => {
       if (!hideTitlebar) {
         registerPrimaryPanelRefresh(null)
@@ -230,21 +277,35 @@ const RssArticlePage = forwardRef(
             <p className="text-xs text-muted-foreground">
               {t('Opened by URL — not from your RSS list. Nostr thread is still tied to this link.')}
             </p>
-            {syntheticRoot && (
+            {rssFeedReadOnly && !threadUnlocked ? (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">{t('RSS read-only thread hint')}</p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={promotingThread}
+                  onClick={() => void onPromoteForNostrThread()}
+                >
+                  {t('Respond to this RSS entry')}
+                </Button>
+              </div>
+            ) : null}
+            {showNostrThread && syntheticRoot ? (
               <div className="px-0 w-full">
                 <NoteStats className="mt-2" event={syntheticRoot} fetchIfNotExisting displayTopZapsAndLikes />
               </div>
-            )}
-            <Separator />
+            ) : null}
+            {showNostrThread ? <Separator /> : null}
             <div className="w-full">
-              {syntheticRoot && (
+              {showNostrThread && syntheticRoot ? (
                 <NoteInteractions
                   key={`rss-interactions-${syntheticRoot.id}`}
                   pageIndex={index}
                   event={syntheticRoot}
                   showQuotes={false}
                 />
-              )}
+              ) : null}
             </div>
           </div>
         </SecondaryPageLayout>
@@ -261,6 +322,20 @@ const RssArticlePage = forwardRef(
       >
         <div key={contentKey} className="min-w-0">
           <div className="px-4 pt-3 w-full space-y-3">
+            {rssFeedReadOnly && !threadUnlocked ? (
+              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                <p className="text-xs text-muted-foreground">{t('RSS read-only thread hint')}</p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={promotingThread || !isHttpArticleUrl(articleUrl)}
+                  onClick={() => void onPromoteForNostrThread()}
+                >
+                  {t('Respond to this RSS entry')}
+                </Button>
+              </div>
+            ) : null}
             {sourceOptions.length > 1 ? (
               <div className="space-y-1.5">
                 <Label htmlFor="rss-thread-feed-source" className="text-xs text-muted-foreground">
@@ -295,25 +370,26 @@ const RssArticlePage = forwardRef(
                   item={it}
                   layout="detail"
                   className={itemsToRender.length > 1 ? 'rounded-none border-0' : ''}
+                  readOnlyHighlights={rssFeedReadOnly && !threadUnlocked}
                 />
               ))}
             </div>
           </div>
-          {syntheticRoot && (
+          {showNostrThread && syntheticRoot ? (
             <div className="px-4 w-full">
               <NoteStats className="mt-3" event={syntheticRoot} fetchIfNotExisting displayTopZapsAndLikes />
             </div>
-          )}
-          <Separator className="mt-4" />
+          ) : null}
+          {showNostrThread ? <Separator className="mt-4" /> : null}
           <div className="px-4 pb-4 w-full">
-            {syntheticRoot && (
+            {showNostrThread && syntheticRoot ? (
               <NoteInteractions
                 key={`rss-interactions-${syntheticRoot.id}`}
                 pageIndex={index}
                 event={syntheticRoot}
                 showQuotes={false}
               />
-            )}
+            ) : null}
           </div>
         </div>
       </SecondaryPageLayout>

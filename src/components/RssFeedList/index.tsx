@@ -7,12 +7,13 @@ import { DEFAULT_RSS_FEEDS } from '@/constants'
 import RssFeedItem from '../RssFeedItem'
 import RssWebFeedCard from '../RssWebFeedCard'
 import { ArticleUrlsSection } from './ArticleUrlsSection'
-import { RssEntriesSection } from './RssEntriesSection'
+import { RssUnifiedScopeSection } from './RssUnifiedScopeSection'
 import { canonicalizeRssArticleUrl, isClawstrDotComHttpUrl } from '@/lib/rss-article'
 import {
   addManualRssWebUrl,
   fetchDiscoveredWebUrlsFromRelays,
   loadManualRssWebUrls,
+  loadPromotedRssThreadUrls,
   loadRssWebFeedScopePreference,
   loadRssWebHideUnifiedClutterPreference,
   loadRssWebSuppressClawstrPreference,
@@ -20,6 +21,7 @@ import {
   isHttpArticleUrl,
   isRssWebUnifiedClutterUrl,
   mergeDiscoveredRssWebUrls,
+  rssWebRowHasRealFeedItems,
   saveRssWebFeedScopePreference,
   saveRssWebHideUnifiedClutterPreference,
   saveRssWebSuppressClawstrPreference,
@@ -174,8 +176,19 @@ export default function RssFeedList() {
     void loadManualRssWebUrls().then(setManualWebEntries)
   }, [])
 
+  const [promotedThreadUrls, setPromotedThreadUrls] = useState<string[]>([])
+  const promotedThreadUrlSet = useMemo(() => new Set(promotedThreadUrls), [promotedThreadUrls])
+
+  const refreshPromotedThreadUrls = useCallback(() => {
+    void loadPromotedRssThreadUrls().then(setPromotedThreadUrls)
+  }, [])
+
   useEffect(() => {
     void loadManualRssWebUrls().then(setManualWebEntries)
+  }, [])
+
+  useEffect(() => {
+    void loadPromotedRssThreadUrls().then(setPromotedThreadUrls)
   }, [])
 
   /** Bump to re-run relay URL discovery after publishing a kind-17 reaction. */
@@ -550,28 +563,12 @@ export default function RssFeedList() {
     )
   }, [])
 
-  /** RSS-only view: flat timeline with full-text search. */
-  const rssScopeItems = useMemo(() => {
-    const q = searchQuery.trim()
-    let list = rssWebItemsRespectingClutterPref
-    if (q) {
-      list = list.filter((item) => rssItemMatchesSearch(item, q))
-    }
-    if (suppressClawstrLinks) {
-      list = list.filter((item) => !rssFeedItemArticleIsClawstrHost(item))
-    }
-    return [...list].sort(
-      (a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0)
-    )
-  }, [rssWebItemsRespectingClutterPref, searchQuery, rssItemMatchesSearch, suppressClawstrLinks])
-
   type CombinedFeedRow =
     | {
         kind: 'web'
         canonicalUrl: string
         rssItems: TRssFeedItem[]
         latestPub: number
-        fromNostrOrManual: boolean
       }
     | { kind: 'rss'; item: TRssFeedItem }
 
@@ -579,16 +576,19 @@ export default function RssFeedList() {
     | { kind: 'url'; canonicalUrl: string; rssItems: TRssFeedItem[] }
     | { kind: 'rssEntry'; item: TRssFeedItem }
 
-  const [feedScope, setFeedScope] = useState<RssWebFeedScope>('both')
+  const [feedScope, setFeedScope] = useState<RssWebFeedScope>('urls')
 
   useEffect(() => {
-    const handler = () => setRelayDiscoveryTick((n) => n + 1)
+    const handler = () => {
+      setRelayDiscoveryTick((n) => n + 1)
+      refreshManualWebUrls()
+      refreshPromotedThreadUrls()
+    }
     window.addEventListener(WEB_EXTERNAL_REACTION_PUBLISHED_EVENT, handler)
     return () => window.removeEventListener(WEB_EXTERNAL_REACTION_PUBLISHED_EVENT, handler)
-  }, [])
+  }, [refreshManualWebUrls, refreshPromotedThreadUrls])
 
   useEffect(() => {
-    if (feedScope === 'rss') return
     let cancelled = false
     void (async () => {
       try {
@@ -609,15 +609,7 @@ export default function RssFeedList() {
     return () => {
       cancelled = true
     }
-  }, [
-    feedScope,
-    pubkey,
-    favoriteRelays,
-    blockedRelays,
-    refreshManualWebUrls,
-    relayDiscoveryTick,
-    hideUnifiedClutter
-  ])
+  }, [pubkey, favoriteRelays, blockedRelays, refreshManualWebUrls, relayDiscoveryTick, hideUnifiedClutter])
 
   const combinedFeedRows = useMemo((): CombinedFeedRow[] => {
     const { webRows, nonHttpItems } = buildArticleUrlFeedRows(
@@ -660,32 +652,41 @@ export default function RssFeedList() {
     })
   }, [combinedFeedRows, searchQuery, rssItemMatchesSearch])
 
-  /**
-   * URLs-only: Nostr/manual article URLs only (`fromNostrOrManual`), not URL cards that exist solely from RSS
-   * grouping. RSS-only timeline rows stay on the RSS toggle. Both: every web row plus RSS entries.
-   */
-  const feedDisplayBase = useMemo(():
-    | { view: 'rss'; items: TRssFeedItem[] }
-    | { view: 'unified'; rows: UnifiedFeedRow[] } => {
-    if (feedScope === 'rss') {
-      return { view: 'rss', items: rssScopeItems }
-    }
+  const urlScopeRows = useMemo((): UnifiedFeedRow[] => {
+    return combinedFeedRowsForSearch
+      .filter(
+        (r): r is Extract<CombinedFeedRow, { kind: 'web' }> =>
+          r.kind === 'web' &&
+          (!rssWebRowHasRealFeedItems(r.rssItems) || promotedThreadUrlSet.has(r.canonicalUrl))
+      )
+      .sort((a, b) => b.latestPub - a.latestPub)
+      .map((r) => ({
+        kind: 'url' as const,
+        canonicalUrl: r.canonicalUrl,
+        rssItems: r.rssItems
+      }))
+  }, [combinedFeedRowsForSearch, promotedThreadUrlSet])
 
-    if (feedScope === 'urls') {
-      const rows: UnifiedFeedRow[] = combinedFeedRowsForSearch
-        .filter(
-          (r): r is Extract<CombinedFeedRow, { kind: 'web' }> =>
-            r.kind === 'web' && r.fromNostrOrManual
-        )
-        .map((r) => ({
-          kind: 'url' as const,
-          canonicalUrl: r.canonicalUrl,
-          rssItems: r.rssItems
-        }))
-      return { view: 'unified', rows }
-    }
-
-    const rows: UnifiedFeedRow[] = combinedFeedRowsForSearch.map((r) =>
+  const rssScopeRows = useMemo((): UnifiedFeedRow[] => {
+    const picked = combinedFeedRowsForSearch.filter((r) => {
+      if (r.kind === 'rss') {
+        const link = r.item.link?.trim()
+        if (link && isHttpArticleUrl(link)) {
+          if (promotedThreadUrlSet.has(canonicalizeRssArticleUrl(link))) return false
+        }
+        return true
+      }
+      if (r.kind === 'web' && rssWebRowHasRealFeedItems(r.rssItems)) {
+        return !promotedThreadUrlSet.has(r.canonicalUrl)
+      }
+      return false
+    })
+    const sorted = [...picked].sort((a, b) => {
+      const ta = a.kind === 'web' ? a.latestPub : (a.item.pubDate?.getTime() ?? 0)
+      const tb = b.kind === 'web' ? b.latestPub : (b.item.pubDate?.getTime() ?? 0)
+      return tb - ta
+    })
+    return sorted.map((r) =>
       r.kind === 'web'
         ? {
             kind: 'url' as const,
@@ -694,8 +695,12 @@ export default function RssFeedList() {
           }
         : { kind: 'rssEntry' as const, item: r.item }
     )
-    return { view: 'unified', rows }
-  }, [feedScope, rssScopeItems, combinedFeedRowsForSearch])
+  }, [combinedFeedRowsForSearch, promotedThreadUrlSet])
+
+  const feedDisplayBase = useMemo(
+    () => ({ rows: feedScope === 'urls' ? urlScopeRows : rssScopeRows }),
+    [feedScope, urlScopeRows, rssScopeRows]
+  )
 
   const persistSuppressClawstr = useCallback((checked: boolean) => {
     rssWebPrefsUserTouchedRef.current = true
@@ -733,33 +738,19 @@ export default function RssFeedList() {
     }
   }, [])
 
-  const feedTotalCount =
-    feedDisplayBase.view === 'rss'
-      ? feedDisplayBase.items.length
-      : feedDisplayBase.rows.length
+  const feedTotalCount = feedDisplayBase.rows.length
 
   // Reset pagination when filters change
   useEffect(() => {
     setShowRowCount(20)
   }, [selectedFeeds, timeFilter, searchQuery, feedScope, suppressClawstrLinks, hideUnifiedClutter])
 
-  const displayedFeed = useMemo(():
-    | { view: 'rss'; items: TRssFeedItem[] }
-    | { view: 'unified'; rows: UnifiedFeedRow[] } => {
-    if (feedDisplayBase.view === 'rss') {
-      return {
-        view: 'rss' as const,
-        items: feedDisplayBase.items.slice(0, showRowCount)
-      }
-    }
-    return {
-      view: 'unified' as const,
-      rows: feedDisplayBase.rows.slice(0, showRowCount)
-    }
-  }, [feedDisplayBase, showRowCount])
+  const displayedFeed = useMemo(
+    () => ({ rows: feedDisplayBase.rows.slice(0, showRowCount) }),
+    [feedDisplayBase, showRowCount]
+  )
 
-  const displayedCount =
-    displayedFeed.view === 'rss' ? displayedFeed.items.length : displayedFeed.rows.length
+  const displayedCount = displayedFeed.rows.length
 
   // IntersectionObserver for infinite scroll
   useEffect(() => {
@@ -842,15 +833,6 @@ export default function RssFeedList() {
                 onClick={() => persistFeedScope('urls')}
               >
                 {t('URLs')}
-              </Button>
-              <Button
-                type="button"
-                variant={feedScope === 'both' ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-7 rounded-sm px-2 text-[11px] font-normal shadow-none sm:px-2.5 sm:text-xs"
-                onClick={() => persistFeedScope('both')}
-              >
-                {t('Both')}
               </Button>
               <Button
                 type="button"
@@ -1005,18 +987,11 @@ export default function RssFeedList() {
             <p className="text-sm text-muted-foreground">
               {searchQuery || (!selectedFeeds.includes('all') && selectedFeeds.length > 0) || timeFilter !== 'all'
                 ? t('No items match your filters')
-                : t('No RSS feed items available')}
+                : feedScope === 'urls'
+                  ? t('No URL-only items yet')
+                  : t('No RSS feed items available')}
             </p>
           </div>
-        ) : displayedFeed.view === 'rss' ? (
-          <>
-            <RssEntriesSection items={displayedFeed.items} />
-            {displayedCount < feedTotalCount ? (
-              <div ref={bottomRef} className="flex justify-center py-4">
-                <Skeleton className="h-8 w-8 rounded-md" aria-hidden />
-              </div>
-            ) : null}
-          </>
         ) : feedScope === 'urls' ? (
           <>
             <ArticleUrlsSection subtitleKey="Article URLs Nostr manual subtitle">
@@ -1038,13 +1013,14 @@ export default function RssFeedList() {
           </>
         ) : (
           <>
-            <div className="space-y-4">
+            <RssUnifiedScopeSection>
               {displayedFeed.rows.map((row) =>
                 row.kind === 'url' ? (
                   <RssWebFeedCard
                     key={row.canonicalUrl}
                     canonicalUrl={row.canonicalUrl}
                     rssItems={row.rssItems}
+                    rssColumnReadOnly
                   />
                 ) : (
                   <div
@@ -1056,11 +1032,16 @@ export default function RssFeedList() {
                       layout="list"
                       sourceStrip="rss"
                       className="rounded-none border-0 bg-transparent shadow-none"
+                      rssEntryReadOnlyMode
+                      onAfterPromoteRss={() => {
+                        refreshManualWebUrls()
+                        refreshPromotedThreadUrls()
+                      }}
                     />
                   </div>
                 )
               )}
-            </div>
+            </RssUnifiedScopeSection>
             {displayedCount < feedTotalCount ? (
               <div ref={bottomRef} className="flex justify-center py-4">
                 <Skeleton className="h-8 w-8 rounded-md" aria-hidden />

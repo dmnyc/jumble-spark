@@ -1,47 +1,42 @@
 import RssFeedItem from '@/components/RssFeedItem'
-import RssUrlThreadEventsPreview from '@/components/RssUrlThreadEventsPreview'
 import RssUrlThreadStatsBar from '@/components/RssUrlThreadStatsBar'
 import WebPreview from '@/components/WebPreview'
 import { cn } from '@/lib/utils'
 import { createRssThreadRootEvent } from '@/lib/rss-article'
 import { isHttpArticleUrl } from '@/lib/rss-web-feed'
 import type { RssFeedItem as TRssFeedItem } from '@/services/rss-feed.service'
-import {
-  createWebOnlyRssFeedItem,
-  isWebOnlyFauxRssItem
-} from '@/services/rss-feed.service'
+import { isWebOnlyFauxRssItem } from '@/services/rss-feed.service'
 import { Globe, Rss } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSmartRssArticleNavigation } from '@/PageManager'
 
 /**
- * Single feed card for an article URL: RSS body and/or faux web item (OpenGraph), plus URL-thread stats.
- * Opens {@link RssArticlePage} in the secondary panel when the card is activated.
+ * Single feed card for an article URL: RSS body and/or faux web item (OpenGraph), plus compact thread counts.
+ * Opens RssArticlePage in the secondary panel for full article, comments, and highlights (like a note page).
  */
 export default function RssWebFeedCard({
   canonicalUrl,
   rssItems,
-  className
+  className,
+  /** When true (RSS column): hide Nostr thread UI; open article read-only until promoted in URL feed. */
+  rssColumnReadOnly = false
 }: {
   canonicalUrl: string
   rssItems: TRssFeedItem[]
   className?: string
+  rssColumnReadOnly?: boolean
 }) {
   const { t } = useTranslation()
   const { navigateToRssArticle } = useSmartRssArticleNavigation()
   const syntheticRoot = useMemo(() => createRssThreadRootEvent(canonicalUrl), [canonicalUrl])
 
-  const displayRssItems = useMemo(() => {
-    if (rssItems.length > 0) return rssItems
-    if (isHttpArticleUrl(canonicalUrl)) return [createWebOnlyRssFeedItem(canonicalUrl)]
-    return []
-  }, [rssItems, canonicalUrl])
-
-  const hasRealRss = displayRssItems.some((i) => !isWebOnlyFauxRssItem(i))
+  const hasRealRss = rssItems.some((i) => !isWebOnlyFauxRssItem(i))
+  const showRssRows = rssItems.length > 0
+  const showWebOgPreview = isHttpArticleUrl(canonicalUrl)
 
   const openArticle = () => {
-    navigateToRssArticle(canonicalUrl)
+    navigateToRssArticle(canonicalUrl, rssColumnReadOnly ? { rssFeedReadOnly: true } : undefined)
   }
 
   return (
@@ -74,9 +69,9 @@ export default function RssWebFeedCard({
       </div>
 
       <div className="not-prose max-w-full border-b border-border/60 bg-muted/10 pointer-events-none">
-        {displayRssItems.length > 0 ? (
+        {showRssRows ? (
           <div className="divide-y divide-border/60">
-            {displayRssItems.map((item) => (
+            {rssItems.map((item) => (
               <RssFeedItem
                 key={`${item.feedUrl}-${item.guid}`}
                 item={item}
@@ -85,27 +80,23 @@ export default function RssWebFeedCard({
               />
             ))}
           </div>
-        ) : (
-          <WebPreview url={canonicalUrl} className="w-full" />
-        )}
+        ) : null}
+        {showWebOgPreview ? (
+          <div className={cn(showRssRows && 'border-t border-border/60')}>
+            <WebPreview url={canonicalUrl} className="w-full" />
+          </div>
+        ) : null}
+        {!showWebOgPreview && !showRssRows ? (
+          <p className="px-3 py-2 text-sm text-muted-foreground break-all">{canonicalUrl}</p>
+        ) : null}
       </div>
-
-      {displayRssItems.length === 0 ? (
-        <p className="pointer-events-none border-b border-border/60 px-3 py-2 text-sm text-muted-foreground break-all">
-          {canonicalUrl}
-        </p>
-      ) : null}
       {rssItems.length > 1 ? (
         <p className="pointer-events-none border-b border-border/60 px-3 py-1.5 text-xs text-muted-foreground">
           {t('{{count}} RSS entries for this URL', { count: rssItems.length })}
         </p>
       ) : null}
 
-      {isHttpArticleUrl(canonicalUrl) ? (
-        <RssUrlThreadEventsPreview canonicalUrl={canonicalUrl} />
-      ) : null}
-
-      <RssUrlThreadStatsBar event={syntheticRoot} />
+      {!rssColumnReadOnly ? <RssUrlThreadStatsBar event={syntheticRoot} /> : null}
     </div>
   )
 }

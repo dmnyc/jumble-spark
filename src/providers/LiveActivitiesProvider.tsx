@@ -8,12 +8,13 @@ import {
 } from '@/lib/live-activities'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
+import storage from '@/services/local-storage.service'
 import { registerLiveActivitiesPrewarmCallback } from '@/services/live-activities-prewarm-bridge'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
 import { useFollowListOptional } from './FollowListProvider'
 import { useNostr } from './NostrProvider'
-import { useUserPreferences } from './UserPreferencesProvider'
+import { useUserPreferencesOptional } from './UserPreferencesProvider'
 
 type TLiveActivitiesContext = {
   items: TLiveActivityItem[]
@@ -39,7 +40,9 @@ export function LiveActivitiesProvider({ children }: { children: React.ReactNode
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const followListCtx = useFollowListOptional()
   const followings = followListCtx?.followings ?? []
-  const { showLiveActivitiesBanner } = useUserPreferences()
+  const userPrefs = useUserPreferencesOptional()
+  const showLiveActivitiesBanner =
+    userPrefs?.showLiveActivitiesBanner ?? storage.getShowLiveActivitiesBanner()
 
   const [items, setItems] = useState<TLiveActivityItem[]>([])
   const [loading, setLoading] = useState(false)

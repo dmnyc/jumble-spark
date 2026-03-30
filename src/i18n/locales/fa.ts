@@ -1523,13 +1523,19 @@ export default {
     'Article URLs subtitle':
       'One card per link: URLs from Nostr relays (you and people you follow) plus any RSS hit. No RSS row yet → web preview card.',
     'Article URLs Nostr manual subtitle':
-      'Only links from Nostr relay discovery or URLs you added. Items that exist only because they appeared in subscribed RSS feeds are not listed here — use RSS or Both.',
+      'Article URLs with no subscribed-feed items yet — from Nostr relay discovery or links you added. Anything that already has feed items appears under RSS.',
+    'RSS feed column title': 'RSS & linked articles',
+    'RSS feed column subtitle':
+      'Feed entries and article cards that include at least one item from your subscribed RSS feeds.',
     'RSS timeline': 'RSS timeline',
     'RSS timeline subtitle':
       'Every item from your subscribed feeds, newest first — classic RSS reader.',
     URLs: 'URLs',
     RSS: 'RSS',
-    Both: 'Both',
+    'No URL-only items yet': 'No URL-only items yet',
+    'Respond to this RSS entry': 'Respond to this RSS entry',
+    'RSS read-only thread hint':
+      'Nostr replies, zaps, and highlights are hidden here. Use this to add the article to your URL feed and respond there.',
     'RSS feed item label': 'RSS',
     'Web URL item label': 'Web URL',
     'URL thread activity': 'URL thread activity',

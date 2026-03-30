@@ -19,6 +19,7 @@ import { useSmartRssArticleNavigation } from '@/PageManager'
 import { getStandardRssFeedProfile } from '@/lib/standard-rss-feed-url'
 import { useRssFeedDisplayPrefs } from '@/components/RssFeedList/RssFeedDisplayPrefsContext'
 import { isClawstrDotComHttpHref } from '@/lib/rss-article'
+import { isHttpArticleUrl, promoteRssArticleForNostrThread } from '@/lib/rss-web-feed'
 
 /**
  * Convert HTML to plain text by extracting text content and cleaning up whitespace
@@ -49,7 +50,12 @@ export default function RssFeedItem({
   className,
   layout = 'detail',
   expandBodyFully = false,
-  sourceStrip
+  sourceStrip,
+  /** Disables text-selection → Nostr highlight flow (e.g. RSS read-only article panel). */
+  readOnlyHighlights = false,
+  /** RSS-column list rows: read-only navigation + promote button; implies read-only highlights. */
+  rssEntryReadOnlyMode = false,
+  onAfterPromoteRss
 }: {
   item: TRssFeedItem
   className?: string
@@ -59,6 +65,9 @@ export default function RssFeedItem({
   expandBodyFully?: boolean
   /** Optional RSS vs Web URL hint for feed rows (combined cards use their own strip). */
   sourceStrip?: 'rss' | 'web'
+  readOnlyHighlights?: boolean
+  rssEntryReadOnlyMode?: boolean
+  onAfterPromoteRss?: () => void
 }) {
   const { t } = useTranslation()
   const { suppressClawstrLinks } = useRssFeedDisplayPrefs()
@@ -68,6 +77,8 @@ export default function RssFeedItem({
   const isWebFaux = isWebOnlyFauxRssItem(item)
   const isListLayout = layout === 'list'
   const showFullBody = layout === 'detail'
+  const noHighlights = readOnlyHighlights || rssEntryReadOnlyMode
+  const [promotingRss, setPromotingRss] = useState(false)
   const [selectedText, setSelectedText] = useState('')
   const [highlightText, setHighlightText] = useState('') // Text to use in highlight editor
   const [showHighlightButton, setShowHighlightButton] = useState(false)
@@ -84,6 +95,14 @@ export default function RssFeedItem({
 
   // Handle text selection
   useEffect(() => {
+    if (noHighlights) {
+      setShowHighlightButton(false)
+      setShowHighlightDrawer(false)
+      setSelectedText('')
+      setSelectionPosition(null)
+      return
+    }
+
     const handleSelection = (forceShow = false) => {
       const selection = window.getSelection()
       if (!selection || selection.rangeCount === 0) {
@@ -354,7 +373,7 @@ export default function RssFeedItem({
         clearTimeout(selectionStableTimeoutRef.current)
       }
     }
-  }, [showHighlightButton, isSmallScreen])
+  }, [noHighlights, showHighlightButton, isSmallScreen])
 
   const handleCreateHighlight = () => {
     const currentSelection = window.getSelection()
@@ -560,11 +579,15 @@ export default function RssFeedItem({
                 target.closest('a') ||
                 target.closest('button') ||
                 target.closest('[role="dialog"]') ||
-                target.closest('.highlight-button-container')
+                target.closest('.highlight-button-container') ||
+                target.closest('[data-rss-respond-row]')
               ) {
                 return
               }
-              navigateToRssArticle(item.link)
+              navigateToRssArticle(
+                item.link,
+                rssEntryReadOnlyMode && !isWebFaux ? { rssFeedReadOnly: true } : undefined
+              )
             }
           : undefined
       }
@@ -658,6 +681,35 @@ export default function RssFeedItem({
           </a>
         )}
       </div>
+
+      {isListLayout &&
+      rssEntryReadOnlyMode &&
+      !isWebFaux &&
+      item.link?.trim() &&
+      isHttpArticleUrl(item.link.trim()) ? (
+        <div className="pt-2" data-rss-respond-row onClick={(e) => e.stopPropagation()}>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="w-full sm:w-auto"
+            disabled={promotingRss}
+            onClick={() => {
+              setPromotingRss(true)
+              void (async () => {
+                try {
+                  await promoteRssArticleForNostrThread(item.link!)
+                } finally {
+                  setPromotingRss(false)
+                  onAfterPromoteRss?.()
+                }
+              })()
+            }}
+          >
+            {t('Respond to this RSS entry')}
+          </Button>
+        </div>
+      ) : null}
 
       {/* List layout: body lives in the secondary panel */}
       {showFullBody ? (
@@ -784,7 +836,11 @@ export default function RssFeedItem({
             )}
             
             {/* Highlight Button (Desktop) */}
-            {!isSmallScreen && showHighlightButton && selectedText && selectionPosition && (
+            {!noHighlights &&
+            !isSmallScreen &&
+            showHighlightButton &&
+            selectedText &&
+            selectionPosition && (
               <div
                 className="highlight-button-container fixed z-50"
                 style={{
@@ -808,7 +864,7 @@ export default function RssFeedItem({
             )}
 
             {/* Highlight Drawer (Mobile) */}
-            {isSmallScreen && (
+            {!noHighlights && isSmallScreen && (
               <Drawer 
                 open={showHighlightDrawer} 
                 onOpenChange={(open) => {
@@ -864,18 +920,20 @@ export default function RssFeedItem({
       </div>
 
       {/* Post Editor for highlights */}
-      <PostEditor
-        open={isPostEditorOpen}
-        setOpen={(open) => {
-          setIsPostEditorOpen(open)
-          if (!open) {
-            setHighlightData(undefined)
-            setHighlightText('')
-          }
-        }}
-        defaultContent={highlightText}
-        initialHighlightData={highlightData}
-      />
+      {!noHighlights ? (
+        <PostEditor
+          open={isPostEditorOpen}
+          setOpen={(open) => {
+            setIsPostEditorOpen(open)
+            if (!open) {
+              setHighlightData(undefined)
+              setHighlightText('')
+            }
+          }}
+          defaultContent={highlightText}
+          initialHighlightData={highlightData}
+        />
+      ) : null}
     </div>
   )
 }

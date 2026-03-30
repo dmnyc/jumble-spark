@@ -1,7 +1,8 @@
 import { LIVE_ACTIVITIES_SLIDE_INTERVAL_MS } from '@/lib/live-activities'
 import { cn } from '@/lib/utils'
 import { useLiveActivitiesOptional } from '@/providers/LiveActivitiesProvider'
-import { useUserPreferences } from '@/providers/UserPreferencesProvider'
+import { useUserPreferencesOptional } from '@/providers/UserPreferencesProvider'
+import storage from '@/services/local-storage.service'
 import { ExternalLink } from 'lucide-react'
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -10,7 +11,9 @@ type TPlacement = 'sidebar' | 'mobile'
 
 export default function LiveActivitiesStrip({ placement }: { placement: TPlacement }) {
   const { t } = useTranslation()
-  const { showLiveActivitiesBanner } = useUserPreferences()
+  const userPrefs = useUserPreferencesOptional()
+  const showLiveActivitiesBanner =
+    userPrefs?.showLiveActivitiesBanner ?? storage.getShowLiveActivitiesBanner()
   const live = useLiveActivitiesOptional()
   const items = live?.items ?? []
 

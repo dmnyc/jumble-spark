@@ -17,6 +17,7 @@ import { isImage, isLocalNetworkUrl, isMedia, isVideo, normalizeUrl } from '@/li
 import { queryService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import type { RssFeedItem } from '@/services/rss-feed.service'
+import { isWebOnlyFauxRssItem } from '@/services/rss-feed.service'
 import { kinds, type Event, type Filter } from 'nostr-tools'
 
 /** IndexedDB: `'1'` (default) = hide clawstr.com (strip preview links + drop URL/RSS rows for that host). */
@@ -25,25 +26,32 @@ export const RSS_WEB_SUPPRESS_CLAWSTR_SETTING = 'rssWebSuppressClawstrLinks'
 /** IndexedDB: `'1'` (default) = keep local/media/feed XML links as plain RSS rows, not URL cards. */
 export const RSS_WEB_HIDE_UNIFIED_CLUTTER_SETTING = 'rssWebHideUnifiedClutter'
 
-/** IndexedDB: feed view — article URL cards, flat RSS timeline, or both interleaved. */
+/** IndexedDB: feed view — URLs (no feed items) vs RSS (feed-backed rows). */
 export const RSS_WEB_FEED_SCOPE_SETTING = 'rssWebFeedScope'
 
 /** IndexedDB: JSON array of `{ url, addedAt }` for URLs added from “Add URL” (no RSS row yet). */
 export const RSS_WEB_MANUAL_URLS_SETTING = 'rssWebManualUrls'
 
 /**
- * `urls` = article URL cards that come from manual URLs or Nostr discovery only (not RSS-grouped links).
- * `rss` = classic chronological RSS list only. `both` = all URL cards (RSS-enriched + Nostr/manual) plus RSS-only rows.
+ * `urls` = article URL cards with no real subscribed-feed items (Nostr/manual / web preview only).
+ * `rss` = feed items, non-HTTP entries, and URL cards that include at least one real RSS item.
  */
-export type RssWebFeedScope = 'urls' | 'rss' | 'both'
+export type RssWebFeedScope = 'urls' | 'rss'
 
-/** Normalize stored scope (legacy `webOnly` / `rssOnly` / `webAndRss` included). */
+/** True if the row includes at least one item from a subscribed RSS feed (not the synthetic web-only row). */
+export function rssWebRowHasRealFeedItems(
+  items: Pick<RssFeedItem, 'feedUrl' | 'guid'>[]
+): boolean {
+  return items.some((i) => !isWebOnlyFauxRssItem(i))
+}
+
+/** Normalize stored scope (legacy `both` / `webAndRss` → `rss`). */
 export function parseRssWebFeedScope(raw: string | null | undefined): RssWebFeedScope {
-  if (raw === 'urls' || raw === 'rss' || raw === 'both') return raw
+  if (raw === 'urls' || raw === 'rss') return raw
+  if (raw === 'both' || raw === 'webAndRss' || raw === 'all') return 'rss'
   if (raw === 'webOnly') return 'urls'
   if (raw === 'rssOnly') return 'rss'
-  if (raw === 'webAndRss' || raw === 'all') return 'both'
-  return 'both'
+  return 'urls'
 }
 
 export type ManualRssWebUrlEntry = { url: string; addedAt: number }
@@ -128,6 +136,51 @@ export async function mergeDiscoveredRssWebUrls(discovered: ManualRssWebUrlEntry
 
 /** Dispatched after publishing a kind 17 web URL reaction so RSS+Web can refetch. */
 export const WEB_EXTERNAL_REACTION_PUBLISHED_EVENT = 'jumble:webExternalReactionPublished'
+
+/** IndexedDB: JSON array of canonical article URLs promoted from RSS read-only into the URL feed (Nostr thread). */
+export const RSS_WEB_PROMOTED_THREAD_URLS_SETTING = 'rssWebPromotedThreadUrls'
+
+const MAX_PROMOTED_THREAD_URLS = 300
+
+export async function loadPromotedRssThreadUrls(): Promise<string[]> {
+  const raw = await indexedDb.getSetting(RSS_WEB_PROMOTED_THREAD_URLS_SETTING)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    const out: string[] = []
+    for (const x of parsed) {
+      if (typeof x !== 'string') continue
+      const c = canonicalizeRssArticleUrl(x.trim())
+      if (isHttpArticleUrl(c)) out.push(c)
+    }
+    return [...new Set(out)].slice(0, MAX_PROMOTED_THREAD_URLS)
+  } catch {
+    return []
+  }
+}
+
+export async function addPromotedRssThreadUrl(rawUrl: string): Promise<string> {
+  const canonical = canonicalizeRssArticleUrl(rawUrl.trim())
+  if (!isHttpArticleUrl(canonical)) return canonical
+  const existing = await loadPromotedRssThreadUrls()
+  const filtered = existing.filter((u) => u !== canonical)
+  const next = [canonical, ...filtered].slice(0, MAX_PROMOTED_THREAD_URLS)
+  await indexedDb.setSetting(RSS_WEB_PROMOTED_THREAD_URLS_SETTING, JSON.stringify(next))
+  return canonical
+}
+
+/**
+ * Adds the URL to the manual web list, marks it for the URL feed with full Nostr thread UI,
+ * and dispatches {@link WEB_EXTERNAL_REACTION_PUBLISHED_EVENT}.
+ */
+export async function promoteRssArticleForNostrThread(rawUrl: string): Promise<string> {
+  const canonical = await addManualRssWebUrl(rawUrl)
+  if (!isHttpArticleUrl(canonical)) return canonical
+  await addPromotedRssThreadUrl(canonical)
+  window.dispatchEvent(new CustomEvent(WEB_EXTERNAL_REACTION_PUBLISHED_EVENT))
+  return canonical
+}
 
 export type RssUrlGroup = {
   canonicalUrl: string
@@ -301,11 +354,6 @@ export type ArticleUrlFeedWebRow = {
   canonicalUrl: string
   rssItems: RssFeedItem[]
   latestPub: number
-  /**
-   * True when this URL came from the manual list or Nostr relay discovery. False when the row exists only
-   * because RSS items were grouped by link (RSS-only article cards).
-   */
-  fromNostrOrManual: boolean
 }
 
 export function buildArticleUrlFeedRows(
@@ -316,16 +364,12 @@ export function buildArticleUrlFeedRows(
 ): { webRows: ArticleUrlFeedWebRow[]; nonHttpItems: RssFeedItem[] } {
   const { groups, nonHttpItems } = partitionRssItemsForWebFeed(filteredItems, options)
   const excludeClutter = options?.excludeClutterLinks !== false
-  const webByUrl = new Map<
-    string,
-    { rssItems: RssFeedItem[]; latestPub: number; fromNostrOrManual: boolean }
-  >()
+  const webByUrl = new Map<string, { rssItems: RssFeedItem[]; latestPub: number }>()
 
   for (const g of groups) {
     webByUrl.set(g.canonicalUrl, {
       rssItems: g.items,
-      latestPub: g.latestPub,
-      fromNostrOrManual: false
+      latestPub: g.latestPub
     })
   }
 
@@ -334,11 +378,10 @@ export function buildArticleUrlFeedRows(
     if (cur) {
       webByUrl.set(url, {
         ...cur,
-        latestPub: Math.max(cur.latestPub, ts),
-        fromNostrOrManual: true
+        latestPub: Math.max(cur.latestPub, ts)
       })
     } else {
-      webByUrl.set(url, { rssItems: [], latestPub: ts, fromNostrOrManual: true })
+      webByUrl.set(url, { rssItems: [], latestPub: ts })
     }
   }
 
@@ -358,8 +401,7 @@ export function buildArticleUrlFeedRows(
       kind: 'web' as const,
       canonicalUrl,
       rssItems: v.rssItems,
-      latestPub: v.latestPub,
-      fromNostrOrManual: v.fromNostrOrManual
+      latestPub: v.latestPub
     })
   )
   webRows.sort((a, b) => b.latestPub - a.latestPub)

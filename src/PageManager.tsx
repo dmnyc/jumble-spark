@@ -241,7 +241,11 @@ function buildNoteUrl(noteId: string, currentPage: TPrimaryPageName | null): str
   return `/notes/${noteId}`
 }
 
-function buildRssArticleUrl(articleUrl: string, currentPage: TPrimaryPageName | null): string {
+function buildRssArticleUrl(
+  articleUrl: string,
+  currentPage: TPrimaryPageName | null,
+  options?: { rssFeedReadOnly?: boolean }
+): string {
   const key = encodeRssArticlePathSegment(articleUrl)
   const contextualPages: TPrimaryPageName[] = [
     'search',
@@ -252,10 +256,14 @@ function buildRssArticleUrl(articleUrl: string, currentPage: TPrimaryPageName | 
     'explore',
     'follows-latest'
   ]
-  if (currentPage && contextualPages.includes(currentPage)) {
-    return `/${currentPage}/rss-item/${key}`
+  let path =
+    currentPage && contextualPages.includes(currentPage)
+      ? `/${currentPage}/rss-item/${key}`
+      : `/rss-item/${key}`
+  if (options?.rssFeedReadOnly) {
+    path += `${path.includes('?') ? '&' : '?'}rssFeedReadOnly=1`
   }
-  return `/rss-item/${key}`
+  return path
 }
 
 /** True for secondary routes that show an RSS / web article in the panel (contextual or bare). */
@@ -272,8 +280,11 @@ export function useSmartRssArticleNavigation() {
   const { push: pushSecondaryPage } = useSecondaryPage()
   const { current: currentPrimaryPage } = usePrimaryPage()
 
-  const navigateToRssArticle = (articleUrl: string) => {
-    pushSecondaryPage(buildRssArticleUrl(articleUrl, currentPrimaryPage))
+  const navigateToRssArticle = (
+    articleUrl: string,
+    navOptions?: { rssFeedReadOnly?: boolean }
+  ) => {
+    pushSecondaryPage(buildRssArticleUrl(articleUrl, currentPrimaryPage, navOptions))
   }
 
   return { navigateToRssArticle }

@@ -23,6 +23,11 @@ export const useUserPreferences = () => {
   return context
 }
 
+/** When context is missing (e.g. HMR or misplaced tree), returns `undefined` instead of throwing. */
+export function useUserPreferencesOptional(): TUserPreferencesContext | undefined {
+  return useContext(UserPreferencesContext)
+}
+
 export function UserPreferencesProvider({ children }: { children: React.ReactNode }) {
   const [notificationListStyle, setNotificationListStyle] = useState(
     storage.getNotificationListStyle()

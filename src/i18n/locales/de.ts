@@ -1558,13 +1558,19 @@ export default {
     'Article URLs subtitle':
       'One card per link: URLs from Nostr relays (you and people you follow) plus any RSS hit. No RSS row yet → web preview card.',
     'Article URLs Nostr manual subtitle':
-      'Nur Links aus Nostr-Relays (Entdeckung) oder von dir hinzugefügte URLs. Einträge, die nur aus abonnierten RSS-Feeds stammen, erscheinen hier nicht — dafür RSS oder Beides.',
+      'Artikel-URLs ohne Einträge aus abonnierten Feeds — von Nostr-Relays oder von dir hinzugefügt. Sobald ein Feed Einträge liefert, erscheint die Karte unter RSS.',
+    'RSS feed column title': 'RSS & verknüpfte Artikel',
+    'RSS feed column subtitle':
+      'Feed-Einträge und Artikelkarten mit mindestens einem Eintrag aus deinen abonnierten RSS-Feeds.',
     'RSS timeline': 'RSS timeline',
     'RSS timeline subtitle':
       'Every item from your subscribed feeds, newest first — classic RSS reader.',
     URLs: 'URLs',
     RSS: 'RSS',
-    Both: 'Both',
+    'No URL-only items yet': 'Noch keine reinen Artikel-URLs',
+    'Respond to this RSS entry': 'Auf diesen RSS-Eintrag reagieren',
+    'RSS read-only thread hint':
+      'Nostr-Antworten, Zaps und Markierungen sind hier ausgeblendet. Damit fügst du den Artikel der URL-Liste hinzu und reagierst dort.',
     'RSS feed item label': 'RSS',
     'Web URL item label': 'Web URL',
     'URL thread activity': 'URL thread activity',
