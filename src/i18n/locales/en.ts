@@ -22,6 +22,11 @@ export default {
     'All favorite relays': 'All favorite relays',
     'Pinned note': 'Pinned note',
     'Relay settings': 'Relays and Storage Settings',
+    'Relay auth accepted (NIP-42)':
+      'The relay accepted authentication (NIP-42): {{relay}}{{detailSuffix}}',
+    'Relay auth rejected (NIP-42)':
+      'The relay rejected authentication (NIP-42): {{relay}} — {{message}}',
+    'Relay auth error unknown': 'Unknown error',
     Settings: 'Settings',
     'Account menu': 'Account menu',
     SidebarRelays: 'Relays',

@@ -1,7 +1,14 @@
+import JsonViewDialog from '@/components/JsonViewDialog'
 import MuteButton from '@/components/MuteButton'
 import Nip05 from '@/components/Nip05'
 import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import UserAvatar from '@/components/UserAvatar'
 import Username from '@/components/Username'
@@ -9,8 +16,9 @@ import { useFetchProfile } from '@/hooks'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { useMuteList } from '@/contexts/mute-list-context'
+import indexedDb from '@/services/indexed-db.service'
 import { useNostr } from '@/providers/NostrProvider'
-import { Lock, Unlock } from 'lucide-react'
+import { Code, Lock, MoreVertical, Unlock } from 'lucide-react'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import NotFoundPage from '../NotFoundPage'
@@ -18,14 +26,36 @@ import NotFoundPage from '../NotFoundPage'
 const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
   const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
-  const { profile, pubkey } = useNostr()
+  const { profile, pubkey, muteListEvent } = useNostr()
   const { getMutePubkeys } = useMuteList()
+  const [jsonOpen, setJsonOpen] = useState(false)
+  const [jsonPayload, setJsonPayload] = useState<unknown>(null)
   const mutePubkeys = useMemo(() => getMutePubkeys(), [pubkey])
   const [visibleMutePubkeys, setVisibleMutePubkeys] = useState<string[]>([])
   const [listRefreshKey, setListRefreshKey] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const bumpList = useCallback(() => setListRefreshKey((k) => k + 1), [])
+
+  const openMuteListJson = useCallback(async () => {
+    const derivedPubkeys = getMutePubkeys()
+    let indexedDbDecryptedPrivateTags: string[][] | null = null
+    if (muteListEvent?.id) {
+      try {
+        indexedDbDecryptedPrivateTags = await indexedDb.getMuteDecryptedTags(muteListEvent.id)
+      } catch {
+        indexedDbDecryptedPrivateTags = null
+      }
+    }
+    setJsonPayload({
+      muteListEvent: muteListEvent ?? null,
+      derivedMutePubkeys: derivedPubkeys,
+      indexedDbDecryptedPrivateTags,
+      note:
+        'Private mutes live in kind 10000 `content` (NIP-04). Decrypt failures in the console usually mean wrong key, read-only session, or bad/corrupt ciphertext — not necessarily a bad public tag list.'
+    })
+    setJsonOpen(true)
+  }, [getMutePubkeys, muteListEvent])
 
   useEffect(() => {
     if (!hideTitlebar) {
@@ -78,9 +108,33 @@ const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: numb
       index={index}
       title={hideTitlebar ? undefined : t("username's muted", { username: profile.username })}
       hideBackButton={hideTitlebar}
-      controls={hideTitlebar ? undefined : <RefreshButton onClick={bumpList} />}
+      controls={
+        hideTitlebar ? undefined : (
+          <div className="flex items-center gap-0">
+            <RefreshButton onClick={bumpList} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label={t('More options')}>
+                  <MoreVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => void openMuteListJson()}>
+                  <Code className="size-4 mr-2" />
+                  {t('View JSON')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )
+      }
       displayScrollToTopButton
     >
+      <JsonViewDialog
+        value={jsonPayload}
+        isOpen={jsonOpen}
+        onClose={() => setJsonOpen(false)}
+      />
       <div key={listRefreshKey} className="space-y-2 px-4 pt-2">
         {visibleMutePubkeys.map((pubkey, index) => (
           <UserItem key={`${index}-${pubkey}`} pubkey={pubkey} />

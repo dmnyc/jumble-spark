@@ -1,6 +1,7 @@
 import logger from '@/lib/logger'
+import { notifyRelayNip42Accepted, notifyRelayNip42Rejected } from '@/lib/relay-auth-feedback'
+import type { AbstractRelay } from 'nostr-tools/abstract-relay'
 import type { EventTemplate, VerifiedEvent } from 'nostr-tools'
-import { AbstractRelay } from 'nostr-tools/abstract-relay'
 
 type EventPubWaiter = {
   resolve: (v: unknown) => void
@@ -16,7 +17,7 @@ type RelayInternals = {
   authPromise?: Promise<string>
 }
 
-let patched = false
+const patchedConstructors = new WeakSet<Function>()
 
 function asRelayInternals(relay: AbstractRelay): RelayInternals {
   return relay as unknown as RelayInternals
@@ -46,17 +47,21 @@ function abortPendingAuthForDeadSocket(relay: RelayInternals, message: string) {
 }
 
 /**
- * Mitigate races between nostr-tools NIP-42 `AUTH`, WebSocket teardown (e.g. connect timeout while NIP-07
- * queues `signEvent`), and `send()` throwing {@link SendingOnClosedConnection} without a handler.
+ * `nostr-tools` main `SimplePool` bundle embeds its own `AbstractRelay` class; it is **not** the same
+ * object as `nostr-tools/abstract-relay`. Patching only the latter never affected pool connections, so
+ * NIP-42 toast/feedback never ran. Call this once per relay **class** using the first instance from
+ * `pool.ensureRelay` (same constructor for all pool relays).
  */
-export function installNostrRelayAuthRaceMitigation(): void {
-  if (patched) return
-  patched = true
+export function patchPoolRelayAuthRaceAndFeedback(relay: object): void {
+  const ctor = (relay as { constructor: Function }).constructor
+  if (patchedConstructors.has(ctor)) return
+  patchedConstructors.add(ctor)
 
-  const origSend = AbstractRelay.prototype.send
-  const origAuth = AbstractRelay.prototype.auth
+  const proto = ctor.prototype as AbstractRelay
+  const origSend = proto.send
+  const origAuth = proto.auth
 
-  AbstractRelay.prototype.send = function (this: AbstractRelay, message: string) {
+  proto.send = function (this: AbstractRelay, message: string) {
     const r = asRelayInternals(this)
     if (!r.connectionPromise && typeof message === 'string' && message.startsWith('["AUTH"')) {
       abortPendingAuthForDeadSocket(r, message)
@@ -68,24 +73,30 @@ export function installNostrRelayAuthRaceMitigation(): void {
     return origSend.call(this, message) as Promise<void>
   }
 
-  AbstractRelay.prototype.auth = function (
+  proto.auth = function (
     this: AbstractRelay,
     signAuthEvent: (evt: EventTemplate) => Promise<VerifiedEvent>
   ) {
     const r = asRelayInternals(this)
-    return (origAuth.call(this, signAuthEvent) as Promise<string>).catch((err: Error) => {
-      const msg = err?.message ?? ''
-      /** Hard close while `auth()` is in flight rejects open publish/auth waiters with this reason. */
-      const benignRace =
-        err?.name === 'SendingOnClosedConnection' ||
-        msg.includes('relay connection closed before AUTH') ||
-        /relay connection closed/i.test(msg)
-      if (benignRace) {
-        logger.warn('[RelayOp] Relay AUTH aborted (benign race)', { url: r.url, detail: msg })
-        r.authPromise = undefined
-        return ''
-      }
-      throw err
-    })
+    const url = r.url
+    return (origAuth.call(this, signAuthEvent) as Promise<string>)
+      .then((okReason) => {
+        notifyRelayNip42Accepted(url, typeof okReason === 'string' ? okReason : undefined)
+        return okReason
+      })
+      .catch((err: Error) => {
+        const msg = err?.message ?? ''
+        const benignRace =
+          err?.name === 'SendingOnClosedConnection' ||
+          msg.includes('relay connection closed before AUTH') ||
+          /relay connection closed/i.test(msg)
+        if (benignRace) {
+          logger.warn('[RelayOp] Relay AUTH aborted (benign race)', { url: r.url, detail: msg })
+          r.authPromise = undefined
+          return ''
+        }
+        notifyRelayNip42Rejected(url, msg)
+        throw err
+      })
   }
 }

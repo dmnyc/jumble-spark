@@ -11,6 +11,11 @@ import { FAST_READ_RELAY_URLS, ExtendedKind } from '@/constants'
 import { compareEvents } from '@/lib/event'
 import { getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
 import { toRelayReviews } from '@/lib/link'
+import {
+  relayReviewDTagsForRelayUrl,
+  relayReviewEventTargetsRelay,
+  relayReviewsFeedSnapshotKey
+} from '@/lib/relay-review-feed'
 import { normalizeUrl } from '@/lib/url'
 import { cn, isTouchDevice } from '@/lib/utils'
 import { useMuteList } from '@/contexts/mute-list-context'
@@ -18,6 +23,7 @@ import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { queryService } from '@/services/client.service'
+import { getSessionFeedSnapshot } from '@/services/session-feed-snapshot.service'
 import { WheelGesturesPlugin } from 'embla-carousel-wheel-gestures'
 import type { NostrEvent } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -82,13 +88,37 @@ export default function RelayReviewsPreview({ relayUrl }: { relayUrl: string }) 
     setInitialized(false)
 
     const normalizedTarget = normalizeUrl(relayUrl) || relayUrl
+    const dTags = relayReviewDTagsForRelayUrl(relayUrl)
+    const snapKey = relayReviewsFeedSnapshotKey(normalizedTarget)
+    const fromSession = getSessionFeedSnapshot(snapKey)
+    if (fromSession?.length) {
+      let seedMy: NostrEvent | null = null
+      const seedByPubkey = new Map<string, NostrEvent>()
+      for (const evt of fromSession) {
+        if (evt.kind !== ExtendedKind.RELAY_REVIEW || !relayReviewEventTargetsRelay(evt, relayUrl))
+          continue
+        if (muteSetHas(mutePubkeySet, evt.pubkey)) continue
+        if (hideUntrustedNotes && !isUserTrusted(evt.pubkey)) continue
+        const st = getStarsFromRelayReviewEvent(evt)
+        if (!st) continue
+        if (pubkey && evt.pubkey === pubkey) {
+          if (!seedMy || evt.created_at > seedMy.created_at) seedMy = evt
+        } else {
+          const ex = seedByPubkey.get(evt.pubkey)
+          if (!ex || evt.created_at > ex.created_at) seedByPubkey.set(evt.pubkey, evt)
+        }
+      }
+      setMyReview(seedMy)
+      setReviews([...seedByPubkey.values()].sort((a, b) => compareEvents(b, a)))
+    }
+
     const uniqueUrls = [
-      ...new Set([...FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u), normalizedTarget])
+      ...new Set([normalizedTarget, ...FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u)])
     ]
 
     const filter = {
       kinds: [ExtendedKind.RELAY_REVIEW],
-      '#d': [relayUrl],
+      '#d': dTags.length > 0 ? dTags : [relayUrl],
       limit: 100
     }
 

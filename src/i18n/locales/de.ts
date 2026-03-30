@@ -25,6 +25,11 @@ export default {
     'All favorite relays': 'Alle Lieblingsrelais',
     'Pinned note': 'Angehefteter Beitrag',
     'Relay settings': 'Relay-Einstellungen',
+    'Relay auth accepted (NIP-42)':
+      'Das Relay hat die Authentifizierung akzeptiert (NIP-42): {{relay}}{{detailSuffix}}',
+    'Relay auth rejected (NIP-42)':
+      'Das Relay hat die Authentifizierung abgelehnt (NIP-42): {{relay}} — {{message}}',
+    'Relay auth error unknown': 'Unbekannter Fehler',
     Settings: 'Einstellungen',
     'Account menu': 'Kontomenü',
     SidebarRelays: 'Relays',

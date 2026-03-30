@@ -4,6 +4,7 @@ import { RefreshButton } from '@/components/RefreshButton'
 import { FAST_READ_RELAY_URLS, ExtendedKind } from '@/constants'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
+import { relayReviewDTagsForRelayUrl, relayReviewsFeedSnapshotKey } from '@/lib/relay-review-feed'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
 import type { TFeedSubRequest } from '@/types'
 import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react'
@@ -26,23 +27,14 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
   }, [hideTitlebar, registerPrimaryPanelRefresh, bumpFeed])
 
   const normalizedUrl = useMemo(() => (url ? normalizeUrl(url) : undefined), [url])
-  /** `d` tag values vary by client (raw vs normalized URL); REQ should OR-match like {@link RelayReviewsPreview}. */
-  const relayReviewDTags = useMemo(() => {
-    const raw = url?.trim()
-    const norm = normalizedUrl?.trim()
-    const uniq: string[] = []
-    const add = (s: string | undefined) => {
-      const t = s?.trim()
-      if (t && !uniq.includes(t)) uniq.push(t)
-    }
-    add(raw)
-    add(norm)
-    return uniq
-  }, [url, normalizedUrl])
+  /** `d` tag values vary by client (raw vs normalized URL); REQ must OR-match every variant. */
+  const relayReviewDTags = useMemo(
+    () => (url ? relayReviewDTagsForRelayUrl(url) : []),
+    [url]
+  )
   /** Stable identity for session feed snapshot (decoupled from FAST_READ_RELAY_URLS JSON churn). */
   const relayReviewsFeedSubscriptionKey = useMemo(
-    () =>
-      normalizedUrl ? `relay-reviews:v1|${normalizedUrl}|k=${ExtendedKind.RELAY_REVIEW}` : '',
+    () => (normalizedUrl ? relayReviewsFeedSnapshotKey(normalizedUrl) : ''),
     [normalizedUrl]
   )
   const reviewsSubRequests = useMemo<TFeedSubRequest[]>(() => {

@@ -32,7 +32,7 @@ function canonicalSeenOnEventId(eventId: string): string {
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import { getHttpRelayListFromEvent, getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
-import { installNostrRelayAuthRaceMitigation } from '@/lib/nostr-relay-auth-patch'
+import { patchPoolRelayAuthRaceAndFeedback } from '@/lib/nostr-relay-auth-patch'
 import { queueRelayAuthSign } from '@/lib/relay-auth-sign-queue'
 import {
   authenticateNip42Relay,
@@ -217,7 +217,6 @@ class ClientService extends EventTarget {
 
   constructor() {
     super()
-    installNostrRelayAuthRaceMitigation()
     this.pool = new SimplePool()
     this.pool.trackRelays = true
     const rawEnsureRelay = this.pool.ensureRelay.bind(this.pool)
@@ -234,6 +233,7 @@ class ClientService extends EventTarget {
         ...params,
         connectionTimeout
       })
+      patchPoolRelayAuthRaceAndFeedback(relay)
       applyRelayNip42AckTimeout(relay)
       return relay
     }
