@@ -131,7 +131,7 @@ const BookmarkListPage = forwardRef(
           {bech32Ids.length === 0 ? (
             <p className="px-4 pt-4 text-center text-sm text-muted-foreground">{t('No entries in bookmark list')}</p>
           ) : (
-            <PersonalListBech32List bech32Ids={bech32Ids} />
+            <PersonalListBech32List bech32Ids={bech32Ids} listMode="bookmark" />
           )}
         </div>
       </SecondaryPageLayout>

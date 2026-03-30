@@ -15,7 +15,11 @@ export default function BookmarkButton({ event }: { event: Event }) {
   const accountPubkey = nostrContext?.pubkey ?? null
   const bookmarkListEvent = nostrContext?.bookmarkListEvent ?? null
   const checkLogin = nostrContext?.checkLogin ?? (async () => {})
-  const { addBookmark, removeBookmark } = bookmarksContext ?? { addBookmark: async () => {}, removeBookmark: async () => {} }
+  const { addBookmark, removeBookmark } = bookmarksContext ?? {
+    addBookmark: async () => {},
+    removeBookmark: async () => false,
+    removeBookmarkByBech32: async () => false
+  }
   const [updating, setUpdating] = useState(false)
   const isBookmarked = useMemo(() => {
     const isReplaceable = isReplaceableEvent(event.kind)

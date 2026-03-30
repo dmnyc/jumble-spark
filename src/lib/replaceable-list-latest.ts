@@ -2,6 +2,7 @@ import { METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS, METADATA_BATCH_QUERY_GLOBAL_TIMEO
 import { normalizeHexPubkey } from '@/lib/pubkey'
 import { normalizeUrl } from '@/lib/url'
 import client, { queryService } from '@/services/client.service'
+import type { TPersonalListBech32Ref } from '@/lib/personal-list-mutations'
 import type { Event } from 'nostr-tools'
 
 /**
@@ -101,6 +102,30 @@ export function buildPinListTagsAfterToggle(
   } else {
     eIds = eIds.filter((x) => x !== id)
   }
+  return [...meta, ...aKeep, ...eIds.map((eid) => ['e', eid] as string[])]
+}
+
+/**
+ * Pin list tags after removing an entry identified only by nevent/note id and/or naddr coordinate
+ * (when the pinned event is not loaded). Returns null if nothing matched.
+ */
+export function buildPinListTagsAfterRemovingRef(
+  tags: string[][],
+  ref: TPersonalListBech32Ref
+): string[][] | null {
+  if (!ref.eIdLower && !ref.aCoordLower) return null
+  const meta = tags.filter((t) => t[0] !== 'e' && t[0] !== 'a')
+  let aKeep = tags.filter((t) => t[0] === 'a' && t[1])
+  const origALen = aKeep.length
+  if (ref.aCoordLower) {
+    aKeep = aKeep.filter((t) => t[1]!.toLowerCase() !== ref.aCoordLower)
+  }
+  let eIds = orderedUniqueEHexIds(tags)
+  const origELen = eIds.length
+  if (ref.eIdLower) {
+    eIds = eIds.filter((x) => x !== ref.eIdLower)
+  }
+  if (aKeep.length === origALen && eIds.length === origELen) return null
   return [...meta, ...aKeep, ...eIds.map((eid) => ['e', eid] as string[])]
 }
 

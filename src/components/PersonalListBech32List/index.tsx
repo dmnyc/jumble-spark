@@ -3,8 +3,18 @@ import { useEffect, useRef, useState } from 'react'
 
 const PAGE = 10
 
+type TListMode = 'bookmark' | 'pin'
+
 /** Paginated list of nevent/naddr ids (same infinite-scroll pattern as mute list / {@link ProfileList}). */
-export default function PersonalListBech32List({ bech32Ids }: { bech32Ids: string[] }) {
+export default function PersonalListBech32List({
+  bech32Ids,
+  listMode,
+  onEntryRemoved
+}: {
+  bech32Ids: string[]
+  listMode?: TListMode
+  onEntryRemoved?: () => void
+}) {
   const [visible, setVisible] = useState<string[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -28,9 +38,14 @@ export default function PersonalListBech32List({ bech32Ids }: { bech32Ids: strin
   }, [visible, bech32Ids])
 
   return (
-    <div className="space-y-0 divide-y divide-border/60">
+    <div className="space-y-0">
       {visible.map((id) => (
-        <PersonalListNoteRefRow key={id} bech32Id={id} />
+        <PersonalListNoteRefRow
+          key={id}
+          bech32Id={id}
+          listMode={listMode}
+          onEntryRemoved={onEntryRemoved}
+        />
       ))}
       {bech32Ids.length > visible.length ? <div ref={bottomRef} className="h-4" /> : null}
     </div>

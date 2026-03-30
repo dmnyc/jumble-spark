@@ -8,7 +8,10 @@ import { createContext, useContext } from 'react'
 
 export type TBookmarksContext = {
   addBookmark: (event: Event) => Promise<void>
-  removeBookmark: (event: Event) => Promise<void>
+  /** `true` if a new list event was published. */
+  removeBookmark: (event: Event) => Promise<boolean>
+  /** Remove by nevent / note / naddr id when the row has no loaded event (or as fallback). */
+  removeBookmarkByBech32: (bech32Id: string) => Promise<boolean>
 }
 
 export const BookmarksContext = createContext<TBookmarksContext | undefined>(undefined)

@@ -139,7 +139,11 @@ const PinListPage = forwardRef(
           {bech32Ids.length === 0 ? (
             <p className="px-4 pt-4 text-center text-sm text-muted-foreground">{t('No pinned notes in list')}</p>
           ) : (
-            <PersonalListBech32List bech32Ids={bech32Ids} />
+            <PersonalListBech32List
+              bech32Ids={bech32Ids}
+              listMode="pin"
+              onEntryRemoved={() => void loadPins()}
+            />
           )}
         </div>
       </SecondaryPageLayout>
