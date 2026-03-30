@@ -68,6 +68,21 @@ export const OUTBOX_PUBLISH_RETRY_DELAY_MS = 5000
 /** Max merged URLs per REQ / timeline relay list (see `relay-url-priority`). */
 export const MAX_REQ_RELAY_URLS = MAX_CONCURRENT_RELAY_CONNECTIONS
 
+/** `SimplePool.ensureRelay` WebSocket handshake timeout (parallel multi-relay + slow TLS). */
+export const RELAY_POOL_CONNECTION_TIMEOUT_MS = 20_000
+
+/**
+ * Minimum `ensureRelay` connect timeout for `READ_ONLY_RELAY_URLS` (NIP-42 aggregators): must outlast queued
+ * extension `signEvent` when many relays send `AUTH` at once.
+ */
+export const RELAY_READ_ONLY_POOL_CONNECT_TIMEOUT_MS = 45_000
+
+/**
+ * nostr-tools `AbstractRelay.publishTimeout`: EVENT publish ACK and NIP-42 AUTH OK wait.
+ * Default 4400ms is too tight when a browser extension queues many `signEvent` calls.
+ */
+export const RELAY_NIP42_PUBLISH_ACK_TIMEOUT_MS = 90_000
+
 /** Multi-relay queries and timeline initial REQ: after the first event, wait this long then close (query) or finalize EOSE (live feed) while keeping the subscription open for new events. */
 export const FIRST_RELAY_RESULT_GRACE_MS = 5000
 
@@ -82,6 +97,11 @@ export const SPELL_FEED_FIRST_RELAY_GRACE_MS = SPELL_FEED_LOADING_MAX_MS
  * filters is at least this value. Omitting `limit` counts as 0 (no implicit grace).
  */
 export const FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT = 200
+
+/**
+ * Kindless single-relay page REQ: explicit `limit`, no `kinds` (see NoteList `allowKindlessRelayExplore`).
+ */
+export const SINGLE_RELAY_KINDLESS_REQ_LIMIT = 200
 
 /**
  * Minimum time between full account network hydrates (NostrProvider: relay + replaceable fetch from relays).

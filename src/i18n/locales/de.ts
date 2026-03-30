@@ -634,6 +634,12 @@ export default {
     'Session relays clear strike': 'Wieder zulassen',
     'Session relays clear strike hint':
       'Relay aus der Session-Sperrliste nehmen; es wird wieder genutzt, bis neue Verbindungsfehler auftreten.',
+    'relaySessionStrikes.bannerWarning':
+      'Dieses Relay hat {{count}} Session-Strike(s) (Limit {{threshold}}) nach Verbindungs- oder Abfragefehlern.',
+    'relaySessionStrikes.bannerSkipped':
+      'Dieses Relay hat die Session-Fehlergrenze ({{threshold}} Strikes) erreicht und wird in diesem Tab für Lesen und Publizieren übersprungen.',
+    'relaySessionStrikes.refreshHint':
+      'Mit {{refresh}} werden die Strikes für dieses Relay zurückgesetzt und der Feed erneut geladen.',
     successes: 'Erfolge',
     None: 'Keine',
     'Cache & offline storage': 'Cache & Offline-Speicher',

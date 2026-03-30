@@ -1,5 +1,5 @@
 import NewNotesButton from '@/components/NewNotesButton'
-import { ExtendedKind, FIRST_RELAY_RESULT_GRACE_MS } from '@/constants'
+import { ExtendedKind, FIRST_RELAY_RESULT_GRACE_MS, SINGLE_RELAY_KINDLESS_REQ_LIMIT } from '@/constants'
 import {
   collectEmbeddedEventPrefetchTargets,
   getReplaceableCoordinateFromEvent,
@@ -78,7 +78,7 @@ import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
 const LIMIT = 100 // Increased from 200 to load more events per request
 const ALGO_LIMIT = 200 // Increased from 500 for algorithm feeds
 /** Single-relay explore: kindless REQ cap (relay returns whatever it has, up to this many). */
-const RELAY_EXPLORE_LIMIT = 200
+const RELAY_EXPLORE_LIMIT = SINGLE_RELAY_KINDLESS_REQ_LIMIT
 
 /**
  * Vite HMR replaces this module and remounts NoteList; timeline refs reset while the subscription can briefly look
@@ -1738,6 +1738,13 @@ const NoteList = forwardRef(
       // Do not toast until merged timeline reports first paint or all shards EOSE (see subscribeTimeline
       // `allEosed`); `loading` is cleared earlier when the subscribe promise resolves.
       if (!feedPaintLiveRelayDoneRef.current) return
+      /**
+       * Outcomes are cleared in layout when the subscription key changes; `onRelaySubscribeWaveComplete`
+       * runs only after every shard’s relay batch ends (often 10–30s on slow / NIP-42 relays). Without this
+       * guard, `uiStatuses.length === 0` and the toast fires ~900ms after the first empty paint — not after
+       * relays actually respond. One-shot fetches never populate outcomes; they are excluded here.
+       */
+      if (!oneShotFetch && feedSubscribeRelayOutcomes.length === 0) return
 
       const toastKey = `${timelineSubscriptionKey}|${refreshCount}`
       const debounceMs = 900
@@ -1746,6 +1753,7 @@ const NoteList = forwardRef(
         if (eventsRef.current.length > 0) return
         if (!subRequestsRef.current.length) return
         if (!feedPaintLiveRelayDoneRef.current) return
+        if (!oneShotFetch && feedSubscribeRelayOutcomes.length === 0) return
         if (feedRelayReturnedAnyEventRef.current) return
         if (Date.now() < suppressRelayEmptyFeedToastUntilMs) return
         if (emptyRelayNoHitsToastKeyRef.current === toastKey) return
@@ -1789,6 +1797,7 @@ const NoteList = forwardRef(
       refreshCount,
       feedEmptyToastGateTick,
       feedSubscribeRelayOutcomes,
+      oneShotFetch,
       t
     ])
     

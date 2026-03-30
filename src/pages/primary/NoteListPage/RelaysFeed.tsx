@@ -1,5 +1,6 @@
 import NormalFeed from '@/components/NormalFeed'
 import type { TNoteListRef } from '@/components/NoteList'
+import { SINGLE_RELAY_KINDLESS_REQ_LIMIT } from '@/constants'
 import { checkAlgoRelay } from '@/lib/relay'
 import { normalizeUrl } from '@/lib/url'
 import { useFeed } from '@/providers/FeedProvider'
@@ -100,7 +101,7 @@ const RelaysFeed = forwardRef<
   const subRequests = useMemo(() => {
     if (!canRenderFeed) return []
     if (singleRelayKindlessExplore) {
-      return [{ urls: relayUrls, filter: {} }]
+      return [{ urls: relayUrls, filter: { limit: SINGLE_RELAY_KINDLESS_REQ_LIMIT } }]
     }
     return [
       {

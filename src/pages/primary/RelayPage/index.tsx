@@ -4,6 +4,7 @@ import Relay from '@/components/Relay'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import { TPageRef } from '@/types'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
+import client from '@/services/client.service'
 import { Server } from 'lucide-react'
 import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react'
 
@@ -13,8 +14,9 @@ const RelayPage = forwardRef<TPageRef, { url?: string }>(({ url }, ref) => {
   const feedRef = useRef<TNoteListRef>(null)
 
   const runRefresh = useCallback(() => {
+    if (normalizedUrl) client.clearSessionRelayStrikeForUrl(normalizedUrl)
     feedRef.current?.refresh()
-  }, [])
+  }, [normalizedUrl])
 
   useImperativeHandle(
     ref,

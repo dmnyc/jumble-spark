@@ -623,6 +623,12 @@ export default {
     'Session relays clear strike': 'Allow again',
     'Session relays clear strike hint':
       'Remove this relay from the session block list; it will be used again until new connection failures.',
+    'relaySessionStrikes.bannerWarning':
+      'This relay has {{count}} session strike(s) (limit {{threshold}}) after connection or query failures.',
+    'relaySessionStrikes.bannerSkipped':
+      'This relay has reached the session failure limit ({{threshold}} strikes) and is skipped for reads and publishes in this tab.',
+    'relaySessionStrikes.refreshHint':
+      'Use {{refresh}} to clear strikes for this relay and load the feed again.',
     successes: 'successes',
     None: 'None',
     'Cache & offline storage': 'Cache & offline storage',

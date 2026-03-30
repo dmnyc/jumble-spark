@@ -5,9 +5,17 @@ import {
   SOCIAL_KIND_BLOCKED_RELAY_URLS,
   MAX_CONCURRENT_RELAY_CONNECTIONS,
   MAX_CONCURRENT_SUBS_PER_RELAY,
+  RELAY_POOL_CONNECTION_TIMEOUT_MS,
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
+import { queueRelayAuthSign } from '@/lib/relay-auth-sign-queue'
+import {
+  authenticateNip42Relay,
+  isRelayAuthRequiredCloseReason,
+  isRelaySubscriptionClosedByCaller
+} from '@/lib/relay-nip42-auth'
+import { applyRelayNip42AckTimeout } from '@/lib/relay-nip42-tuning'
 import { isIndexRelayTransportFailure, queryIndexRelay } from '@/lib/index-relay-http'
 import logger from '@/lib/logger'
 import { isHttpRelayUrl, normalizeHttpRelayUrl, normalizeUrl } from '@/lib/url'
@@ -526,6 +534,9 @@ export class QueryService {
       : undefined
 
     const subs: { relayKey: string; close: () => void }[] = []
+    const nip42ResubscribePending = new Set<number>()
+    /** Same idea as `master` subscribe: only one successful auth+resubscribe cycle per relay slot. */
+    const nip42HasAuthedOnce = new Set<number>()
     const allOpened = Promise.all(
       groupedRequests.map(async ({ url, filters: relayFilters }, i) => {
         await this.acquireGlobalRelayConnectionSlot()
@@ -556,23 +567,35 @@ export class QueryService {
             onevent: (evt: NEvent) => forwardOnevent?.(evt),
             oneose: () => handleEose(i),
             onclose: (reason: string) => {
+              if (isRelaySubscriptionClosedByCaller(reason) && nip42ResubscribePending.has(i)) {
+                return
+              }
               releaseOnce()
-              if (reason.startsWith('auth-required: ') && this.canSignerAuthenticateRelay()) {
-                relay
-                  .auth(async (authEvt: EventTemplate) => {
-                    const evt = await this.signer!.signEvent(authEvt)
-                    if (!evt) throw new Error('sign event failed')
-                    return evt as VerifiedEvent
-                  })
+              if (
+                isRelayAuthRequiredCloseReason(reason) &&
+                this.canSignerAuthenticateRelay() &&
+                !nip42HasAuthedOnce.has(i)
+              ) {
+                nip42ResubscribePending.add(i)
+                applyRelayNip42AckTimeout(relay)
+                authenticateNip42Relay(relay, async (authEvt: EventTemplate) => {
+                  const evt = await queueRelayAuthSign(() => this.signer!.signEvent(authEvt))
+                  if (!evt) throw new Error('sign event failed')
+                  return evt as VerifiedEvent
+                })
                   .then(async () => {
+                    nip42HasAuthedOnce.add(i)
                     await this.acquireGlobalRelayConnectionSlot()
                     try {
                       await this.acquireSubSlot(relayKey)
                       let liveRelay: AbstractRelay
                       try {
-                        liveRelay = await this.pool.ensureRelay(url, { connectionTimeout: 5000 })
+                        liveRelay = await this.pool.ensureRelay(url, {
+                          connectionTimeout: RELAY_POOL_CONNECTION_TIMEOUT_MS
+                        })
                         patchRelayNoticeForFetchFailures(liveRelay, relayKey, this.onRelayNoticeStrike)
                       } catch (err) {
+                        nip42ResubscribePending.delete(i)
                         this.onRelayConnectionFailure?.(relayKey)
                         this.releaseSubSlot(relayKey)
                         handleClose(i, (err as Error)?.message ?? String(err))
@@ -604,7 +627,9 @@ export class QueryService {
                             sub2.close()
                           }
                         })
+                        nip42ResubscribePending.delete(i)
                       } catch (err) {
+                        nip42ResubscribePending.delete(i)
                         releaseSlot2()
                         handleClose(i, (err as Error)?.message ?? String(err))
                       }
@@ -612,12 +637,13 @@ export class QueryService {
                       this.releaseGlobalRelayConnectionSlot()
                     }
                   })
-                  .catch((err) => {
-                    handleClose(i, `auth failed: ${(err as Error)?.message ?? err}`)
+                  .catch(() => {
+                    nip42ResubscribePending.delete(i)
+                    handleClose(i, reason)
                   })
                 return
               }
-              if (reason.startsWith('auth-required: ')) {
+              if (isRelayAuthRequiredCloseReason(reason)) {
                 callbacks.startLogin?.()
               }
               handleClose(i, reason)

@@ -784,12 +784,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }, [account])
 
   useEffect(() => {
-    if (signer) {
-      client.signer = signer
-    } else {
-      client.signer = undefined
-    }
-    client.signerType = account?.signerType
+    /** Use `client.setSigner` so the client, QueryService, and scoped NIP-42 pool auth stay aligned. */
+    client.setSigner(signer ?? undefined, account?.signerType)
   }, [signer, account?.signerType])
 
   useEffect(() => {

@@ -4,16 +4,20 @@ import { RefreshButton } from '@/components/RefreshButton'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
+import client from '@/services/client.service'
 import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react'
 import NotFoundPage from '../NotFoundPage'
 
 const RelayPage = forwardRef(({ url, index, hideTitlebar = false }: { url?: string; index?: number; hideTitlebar?: boolean }, ref) => {
   const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
   const feedRef = useRef<TNoteListRef>(null)
-  const bumpFeed = useCallback(() => feedRef.current?.refresh(), [])
-
   const normalizedUrl = useMemo(() => (url ? normalizeUrl(url) : undefined), [url])
   const title = useMemo(() => (url ? simplifyUrl(url) : undefined), [url])
+
+  const bumpFeed = useCallback(() => {
+    if (normalizedUrl) client.clearSessionRelayStrikeForUrl(normalizedUrl)
+    feedRef.current?.refresh()
+  }, [normalizedUrl])
 
   useEffect(() => {
     if (!hideTitlebar) {
