@@ -7,7 +7,7 @@ import storage from '@/services/local-storage.service'
 import type { TPrimaryPageName } from '@/PageManager'
 import { TFeedSubRequest, TNoteListMode } from '@/types'
 import { cn } from '@/lib/utils'
-import { forwardRef, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import KindFilter from '../KindFilter'
 
 const NormalFeed = forwardRef<TNoteListRef, {
@@ -28,7 +28,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
   mergeTimelineWhenSubRequestFiltersMatch?: boolean
   /** Home favorite-relays chip scope; see {@link NoteList} `feedTimelineScopeKey`. */
   feedTimelineScopeKey?: string
-  /** Single-relay Explore / chip: kindless REQ (limit 200), no feed kind filter. */
+  /** Single-relay Explore / chip: kindless REQ (see `SINGLE_RELAY_KINDLESS_REQ_LIMIT` in constants), no feed kind filter. */
   useFilterAsIs?: boolean
   clientSideKindFilter?: boolean
   allowKindlessRelayExplore?: boolean
@@ -38,6 +38,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
   showFeedClientFilter?: boolean
   /** When set, {@link NoteList} clears 🔍 filters when another primary tab is shown (mounted-but-hidden pages). */
   hostPrimaryPageName?: TPrimaryPageName
+  /** Single-relay kindless wave EOSEd with no events: parent re-subscribes with explicit kinds. */
+  onSingleRelayKindlessEmpty?: () => void
+  /** Shown above the feed list (e.g. after kindless→kinds fallback on a single-relay chip). */
+  feedTopNotice?: ReactNode
 }>(function NormalFeed(
   {
     subRequests,
@@ -53,7 +57,9 @@ const NormalFeed = forwardRef<TNoteListRef, {
     clientSideKindFilter = false,
     allowKindlessRelayExplore = false,
     showFeedClientFilter: showFeedClientFilterProp,
-    hostPrimaryPageName
+    hostPrimaryPageName,
+    onSingleRelayKindlessEmpty,
+    feedTopNotice
   },
   ref
 ) {
@@ -217,6 +223,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
           showFeedClientFilter={showFeedClientFilter}
           hostPrimaryPageName={hostPrimaryPageName}
           feedClientFilterTabRowHost={mergeFilterWithTabsRow ? feedFilterTabRowHost : undefined}
+          onSingleRelayKindlessEmpty={onSingleRelayKindlessEmpty}
+          feedTopNotice={feedTopNotice}
         />
       </div>
     </>

@@ -649,6 +649,8 @@ export default {
     None: 'Keine',
     'Cache & offline storage': 'Cache & Offline-Speicher',
     feedStarting: 'Starting feeds and relays… This can take a few seconds after login.',
+    singleRelayKindFallbackNotice:
+      'Dieses Relay hat auf eine offene Anfrage (ohne kinds im Filter) keine Events geliefert. Der Feed unten nutzt stattdessen deinen gewohnten Kind-Filter.',
     refreshCacheButtonExplainer:
       'Refresh Cache runs an IndexedDB upgrade check, re-fetches your relay lists and profile-related events from the network (same work as the automatic startup sync), syncs kind-5 deletions into tombstones and removes deleted items from the local cache, then refreshes the store counts below.',
     'eventArchive.sectionTitle': 'Notes & feed archive',

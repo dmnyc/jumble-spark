@@ -1,10 +1,11 @@
-import { useTheme } from '@/providers/ThemeProvider'
+import { useThemeOptional } from '@/providers/ThemeProvider'
 import { Toaster as Sonner } from 'sonner'
 
 type ToasterProps = React.ComponentProps<typeof Sonner>
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { themeSetting } = useTheme()
+  const themeCtx = useThemeOptional()
+  const themeSetting = themeCtx?.themeSetting ?? 'system'
 
   return (
     <Sonner

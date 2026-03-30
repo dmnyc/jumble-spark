@@ -638,6 +638,8 @@ export default {
     None: 'None',
     'Cache & offline storage': 'Cache & offline storage',
     feedStarting: 'Starting feeds and relays… This can take a few seconds after login.',
+    singleRelayKindFallbackNotice:
+      'This relay returned no events for an open-ended request (no kinds in the filter). The feed below uses your usual kind filter instead.',
     refreshCacheButtonExplainer:
       'Refresh Cache runs an IndexedDB upgrade check, re-fetches your relay lists and profile-related events from the network (same work as the automatic startup sync), syncs kind-5 deletions into tombstones and removes deleted items from the local cache, then refreshes the store counts below.',
     'eventArchive.sectionTitle': 'Notes & feed archive',

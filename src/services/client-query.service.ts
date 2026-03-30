@@ -2,6 +2,7 @@ import {
   FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT,
   FIRST_RELAY_RESULT_GRACE_MS,
   relayFilterIncludesSocialKindBlockedKind,
+  relaysAfterSocialKindBlockedStrip,
   SOCIAL_KIND_BLOCKED_RELAY_URLS,
   MAX_CONCURRENT_RELAY_CONNECTIONS,
   MAX_CONCURRENT_SUBS_PER_RELAY,
@@ -447,7 +448,8 @@ export class QueryService {
     callbacks: SubscribeCallbacks,
     relayOpMeta?: { source: string; logLevel?: 'info' | 'debug' }
   ): { close: () => void } {
-    let relays = Array.from(new Set(urls))
+    const originalDedupedRelays = Array.from(new Set(urls))
+    let relays = originalDedupedRelays
     const filters = Array.isArray(filter) ? filter : [filter]
 
     const stripSocialBlockedRelays =
@@ -455,7 +457,8 @@ export class QueryService {
       filters.some((f) => relayFilterIncludesSocialKindBlockedKind(f))
     if (stripSocialBlockedRelays) {
       const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-      relays = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
+      const stripped = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
+      relays = relaysAfterSocialKindBlockedStrip(originalDedupedRelays, stripped)
     }
     if (this.shouldSkipRelayForSession) {
       relays = relays.filter((url) => {
@@ -686,7 +689,8 @@ export class QueryService {
       onevent?: (evt: NEvent) => void
     } & QueryOptions
   ): Promise<NEvent[]> {
-    let relays = Array.from(new Set(urls))
+    const originalDedupedRelays = Array.from(new Set(urls))
+    let relays = originalDedupedRelays
     if (relays.length === 0) {
       const { FAST_READ_RELAY_URLS } = await import('@/constants')
       relays = [...FAST_READ_RELAY_URLS]
@@ -697,7 +701,8 @@ export class QueryService {
       filters.some((f) => relayFilterIncludesSocialKindBlockedKind(f))
     if (stripSocialBlockedRelays) {
       const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-      relays = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
+      const stripped = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
+      relays = relaysAfterSocialKindBlockedStrip(originalDedupedRelays, stripped)
     }
     const { onevent, ...queryOpts } = options ?? {}
     return this.query(relays, filter, onevent, queryOpts)

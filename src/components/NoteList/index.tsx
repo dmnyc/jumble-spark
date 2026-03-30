@@ -47,7 +47,8 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState
+  useState,
+  type ReactNode
 } from 'react'
 import { CircleAlert } from 'lucide-react'
 import { useLongPressAction } from '@/hooks/use-long-press-action'
@@ -254,8 +255,9 @@ const NoteList = forwardRef(
        */
       timelineLoadingSafetyTimeoutMs,
       /**
-       * With {@link useFilterAsIs}: omit relay `kinds` when the subrequest filter has none, and narrow
-       * incoming events to {@link showKinds} before merging (so caps are not filled by unrelated kinds).
+       * With {@link useFilterAsIs}: omit relay `kinds` when the subrequest filter has none. Kindless relay feeds
+       * merge the full batch; the kind picker still applies in the list via {@link applyKindPickerInUi}. Other
+       * `useFilterAsIs` paths may still narrow merged batches to {@link showKinds}.
        */
       clientSideKindFilter = false,
       /**
@@ -293,7 +295,9 @@ const NoteList = forwardRef(
        * When {@link NormalFeed} renders Notes/Replies + kind row, it passes the slot element so the 🔍 control
        * sits on that row instead of an extra bar above the list. Omitted on spells / standalone NoteList.
        */
-      feedClientFilterTabRowHost
+      feedClientFilterTabRowHost,
+      onSingleRelayKindlessEmpty,
+      feedTopNotice
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -335,6 +339,10 @@ const NoteList = forwardRef(
       showFeedClientFilter?: boolean
       hostPrimaryPageName?: TPrimaryPageName
       feedClientFilterTabRowHost?: HTMLElement | null
+      /** Single-relay kindless: if EOSE with no events, parent switches to explicit kinds in `subRequests`. */
+      onSingleRelayKindlessEmpty?: () => void
+      /** Optional banner above the feed (e.g. kindless→kinds fallback). */
+      feedTopNotice?: ReactNode
     },
     ref
   ) => {
@@ -400,6 +408,10 @@ const NoteList = forwardRef(
     const feedPaintLiveRelayDoneRef = useRef(false)
     /** True if any timeline `onEvents` batch had `batch.length > 0`, or one-shot fetches returned any raw events (before UI filters). */
     const feedRelayReturnedAnyEventRef = useRef(false)
+    /** One-shot per timeline init: avoid double-calling parent fallback (Strict Mode / duplicate EOSE). */
+    const singleRelayKindlessFallbackAttemptedRef = useRef(false)
+    const onSingleRelayKindlessEmptyRef = useRef(onSingleRelayKindlessEmpty)
+    onSingleRelayKindlessEmptyRef.current = onSingleRelayKindlessEmpty
     /** Dedupe {@link toast.error} when relays return nothing for a feed load. */
     const emptyRelayNoHitsToastKeyRef = useRef('')
     /** Per-relay outcomes for the current subscribe wave (merged shards); drives empty-feed toast detail. */
@@ -605,8 +617,9 @@ const NoteList = forwardRef(
     clientSideKindFilterRef.current = clientSideKindFilter
 
     /**
-     * When to apply kind picker + kind-1/1111/GitRelease visibility to rows. Kindless home relay chips use a
-     * kindless REQ and narrow here via {@link clientSideKindFilter}; standalone relay explore keeps firehose.
+     * When to apply kind picker + kind-1/1111/GitRelease visibility to visible rows. Kindless relay REQs merge
+     * the full relay batch; this still filters what the list shows (unlike standalone relay explore, which sets
+     * {@link allowKindlessRelayExplore} without {@link clientSideKindFilter} and shows the firehose).
      */
     const applyKindPickerInUi = useMemo(
       () =>
@@ -1184,6 +1197,7 @@ const NoteList = forwardRef(
         feedPaintRelayMetaRef.current = null
         feedPaintLiveRelayDoneRef.current = false
         feedRelayReturnedAnyEventRef.current = false
+        singleRelayKindlessFallbackAttemptedRef.current = false
 
         // Re-subscribe with rows visible (e.g. relay URL expansion): don't flash global loading / skeleton.
         const keepRowsVisible =
@@ -1289,18 +1303,16 @@ const NoteList = forwardRef(
           return undefined
         }
 
+        /**
+         * Kindless relay REQ (`allowKindlessRelayExplore`): never drop events here — relays return many kinds;
+         * merging only rows in {@link showKinds} left almost nothing in the timeline (e.g. christpill 200 events → 1
+         * visible) while relay explore showed the full firehose. {@link applyKindPickerInUi} / {@link filteredEvents}
+         * still apply the kind picker for what the user sees.
+         */
         const narrowLiveBatch = (evs: Event[]) => {
           if (seeAllFeedEventsRef.current) return evs
-          if (
-            allowKindlessRelayExploreRef.current &&
-            !(useFilterAsIsRef.current && clientSideKindFilterRef.current)
-          ) {
-            return evs
-          }
-          if (!useFilterAsIsRef.current || !clientSideKindFilterRef.current) {
-            if (!allowKindlessRelayExploreRef.current) return evs
-            return evs
-          }
+          if (allowKindlessRelayExploreRef.current) return evs
+          if (!useFilterAsIsRef.current || !clientSideKindFilterRef.current) return evs
           return evs.filter((e) => showKinds.includes(e.kind))
         }
 
@@ -1536,15 +1548,38 @@ const NoteList = forwardRef(
                     setHasMore(true)
                   }
                 }
+
+                // Single-relay home chip: kindless REQ returned nothing — parent re-subscribes with explicit kinds.
+                if (
+                  eosed &&
+                  effectActive &&
+                  onSingleRelayKindlessEmptyRef.current &&
+                  !singleRelayKindlessFallbackAttemptedRef.current &&
+                  !feedRelayReturnedAnyEventRef.current
+                ) {
+                  const reqs = subRequestsRef.current
+                  const f0 = reqs[0]
+                  if (
+                    reqs.length === 1 &&
+                    f0 &&
+                    f0.urls.length === 1 &&
+                    allowKindlessRelayExploreRef.current &&
+                    useFilterAsIsRef.current &&
+                    clientSideKindFilterRef.current
+                  ) {
+                    const f = f0.filter as Filter
+                    const noKinds = !f.kinds || f.kinds.length === 0
+                    if (noKinds) {
+                      singleRelayKindlessFallbackAttemptedRef.current = true
+                      onSingleRelayKindlessEmptyRef.current()
+                    }
+                  }
+                }
               },
             onNew: (event: Event) => {
               if (!effectActive) return
               feedRelayReturnedAnyEventRef.current = true
-              if (
-                !seeAllFeedEventsRef.current &&
-                (!allowKindlessRelayExploreRef.current ||
-                  (useFilterAsIsRef.current && clientSideKindFilterRef.current))
-              ) {
+              if (!seeAllFeedEventsRef.current && !allowKindlessRelayExploreRef.current) {
                 if (!useFilterAsIsRef.current && !showKinds.includes(event.kind)) return
                 if (
                   clientSideKindFilterRef.current &&
@@ -1657,7 +1692,8 @@ const NoteList = forwardRef(
       oneShotEoseTimeoutMs,
       oneShotFirstRelayGraceMs,
       clientSideKindFilter,
-      allowKindlessRelayExplore
+      allowKindlessRelayExplore,
+      onSingleRelayKindlessEmpty
     ])
 
     const oneShotDebugPrevLoadingRef = useRef(false)
@@ -2461,12 +2497,28 @@ const NoteList = forwardRef(
               pullingContent=""
             >
               <div>
+                {feedTopNotice ? (
+                  <div
+                    className="mb-2 rounded-md border border-border/80 bg-muted/35 px-3 py-2 text-sm text-muted-foreground"
+                    role="note"
+                  >
+                    {feedTopNotice}
+                  </div>
+                ) : null}
                 {showFeedClientFilter ? feedClientFilterBar : null}
                 {list}
               </div>
             </PullToRefresh>
           ) : (
             <div>
+              {feedTopNotice ? (
+                <div
+                  className="mb-2 rounded-md border border-border/80 bg-muted/35 px-3 py-2 text-sm text-muted-foreground"
+                  role="note"
+                >
+                  {feedTopNotice}
+                </div>
+              ) : null}
               {showFeedClientFilter ? feedClientFilterBar : null}
               {list}
             </div>

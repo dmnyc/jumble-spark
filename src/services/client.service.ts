@@ -5,6 +5,7 @@ import {
   FIRST_RELAY_RESULT_GRACE_MS,
   isSocialKindBlockedKind,
   relayFilterIncludesSocialKindBlockedKind,
+  relaysAfterSocialKindBlockedStrip,
   SOCIAL_KIND_BLOCKED_RELAY_URLS,
   MAX_PUBLISH_RELAYS,
   RELAY_POOL_CONNECTION_TIMEOUT_MS,
@@ -14,6 +15,7 @@ import {
   NIP66_DISCOVERY_RELAY_URLS,
   PROFILE_FETCH_RELAY_URLS,
   READ_ONLY_RELAY_URLS,
+  NIP42_POOL_AUTOMATIC_AUTH_RELAY_URLS,
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
 
@@ -128,7 +130,9 @@ function summarizeFiltersForRelayLog(filters: Filter[]): Record<string, unknown>
 }
 
 const READ_ONLY_RELAY_CONNECT_BOOST_URLS = new Set(
-  READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u)
+  [...READ_ONLY_RELAY_URLS, ...NIP42_POOL_AUTOMATIC_AUTH_RELAY_URLS].map(
+    (u) => normalizeUrl(u) || u
+  )
 )
 
 /** Hostname (+ path when not "/") for readable publish / retry console lines. */
@@ -324,9 +328,10 @@ class ClientService extends EventTarget {
     this.signerType = signerType
     this.queryService.setSigner(signer, signerType)
     /**
-     * NIP-42: answer `AUTH` on the wire only for read-only aggregators (`READ_ONLY_RELAY_URLS`, e.g. aggr).
-     * They often require AUTH before REQ; `master`-style auth only on `CLOSED` is too late. Other relays stay
-     * on reactive `relay.auth()` after `auth-required` to avoid double-sign races with the wider pool.
+     * NIP-42: proactive `AUTH` for relays that need it before the first REQ (read-only aggregators +
+     * {@link NIP42_POOL_AUTOMATIC_AUTH_RELAY_URLS}). Without this, a REQ can EOSE empty while the extension
+     * is still signing; the batch then finishes and never refetches. Other relays stay on reactive
+     * `relay.auth()` after `auth-required` to avoid double-sign races with the wider pool.
      */
     if (signer && signerType !== 'npub') {
       this.pool.automaticallyAuth = (relayURL: string) => {
@@ -1812,7 +1817,8 @@ class ClientService extends EventTarget {
     },
     relayReqLog?: { groupId?: string; onBatchEnd?: (rows: RelayOpTerminalRow[]) => void }
   ) {
-    let relays = Array.from(new Set(urls))
+    const originalDedupedRelays = Array.from(new Set(urls))
+    let relays = originalDedupedRelays
     const filters = Array.isArray(filter) ? filter : [filter]
 
     const stripSocialBlockedRelays =
@@ -1820,7 +1826,8 @@ class ClientService extends EventTarget {
       filters.some((f) => relayFilterIncludesSocialKindBlockedKind(f))
     if (stripSocialBlockedRelays) {
       const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-      relays = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
+      const stripped = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
+      relays = relaysAfterSocialKindBlockedStrip(originalDedupedRelays, stripped)
     }
     relays = this.relayUrlsAfterStrikesOrRecover(relays)
 
@@ -2481,7 +2488,8 @@ class ClientService extends EventTarget {
       immediateReturn?: boolean
     } = {}
   ) {
-    let relays = Array.from(new Set(urls))
+    const originalDedupedRelays = Array.from(new Set(urls))
+    let relays = originalDedupedRelays
     if (relays.length === 0) relays = [...FAST_READ_RELAY_URLS]
     const filters = Array.isArray(filter) ? filter : [filter]
     const stripSocialBlockedRelays =
@@ -2489,7 +2497,8 @@ class ClientService extends EventTarget {
       filters.some((f) => relayFilterIncludesSocialKindBlockedKind(f))
     if (stripSocialBlockedRelays) {
       const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
-      relays = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
+      const stripped = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
+      relays = relaysAfterSocialKindBlockedStrip(originalDedupedRelays, stripped)
     }
     relays = this.relayUrlsAfterStrikesOrRecover(relays)
     const events = await this.queryService.query(relays, filter, onevent, {

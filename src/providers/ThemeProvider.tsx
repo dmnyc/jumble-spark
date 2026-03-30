@@ -89,3 +89,6 @@ export const useTheme = () => {
 
   return context
 }
+
+/** For leaf UI (e.g. Toaster) during Vite HMR when the tree can briefly mount outside ThemeProvider. */
+export const useThemeOptional = (): ThemeProviderState | undefined => useContext(ThemeProviderContext)

@@ -101,7 +101,7 @@ export const FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT = 200
 /**
  * Kindless single-relay page REQ: explicit `limit`, no `kinds` (see NoteList `allowKindlessRelayExplore`).
  */
-export const SINGLE_RELAY_KINDLESS_REQ_LIMIT = 200
+export const SINGLE_RELAY_KINDLESS_REQ_LIMIT = 500
 
 /**
  * Minimum time between full account network hydrates (NostrProvider: relay + replaceable fetch from relays).
@@ -248,6 +248,13 @@ export const READ_ONLY_RELAY_URLS = [
   'wss://sendit.nosflare.com',
   'wss://relay.nip46.com'
 ]
+
+/**
+ * Relays that need NIP-42 signed before the first REQ returns useful data. Same pool treatment as
+ * {@link READ_ONLY_RELAY_URLS} (longer connect timeout + proactive `automaticallyAuth`), but **not**
+ * necessarily read-only for publish — keep those relays out of {@link READ_ONLY_RELAY_URLS}.
+ */
+export const NIP42_POOL_AUTOMATIC_AUTH_RELAY_URLS = ['wss://nostr.wine'] as const
 
 /**
  * Relays that reject or poorly serve “social” kinds (short notes, discussions, URL comments).
@@ -467,6 +474,20 @@ export function relayFilterIncludesSocialKindBlockedKind(filter: Filter): boolea
   if (k === undefined) return true
   const arr = Array.isArray(k) ? k : [k]
   return arr.some((kind) => SOCIAL_KIND_BLOCKED_KIND_SET.has(kind))
+}
+
+/**
+ * After dropping {@link SOCIAL_KIND_BLOCKED_RELAY_URLS} from a relay stack: if every URL was removed but the caller
+ * passed exactly one relay (e.g. a favorite-relay chip), keep it. Blended stacks still omit these relays; a
+ * user-targeted single-relay feed should actually contact that relay (e.g. thecitadel for kinds the relay does carry).
+ */
+export function relaysAfterSocialKindBlockedStrip(
+  originalDedupedUrls: string[],
+  afterStrip: string[]
+): string[] {
+  if (afterStrip.length > 0) return afterStrip
+  if (originalDedupedUrls.length === 1) return [...originalDedupedUrls]
+  return afterStrip
 }
 
 /** Event kinds that show “Read this note aloud” in note options (Web Speech API). */

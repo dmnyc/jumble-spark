@@ -7,7 +7,8 @@ import { useFeed } from '@/providers/FeedProvider'
 import { useKindFilterOrDefaults } from '@/providers/KindFilterProvider'
 import relayInfoService from '@/services/relay-info.service'
 import { kinds } from 'nostr-tools'
-import React, { forwardRef, useEffect, useMemo, useState } from 'react'
+import React, { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 const RelaysFeed = forwardRef<
   TNoteListRef,
@@ -18,10 +19,13 @@ const RelaysFeed = forwardRef<
     kindsOverride?: number[]
   }
 >(function RelaysFeed({ setSubHeader, onSubHeaderRefresh, kindsOverride }, ref) {
+  const { t } = useTranslation()
   const { feedInfo, relayUrls } = useFeed()
   const { showKinds } = useKindFilterOrDefaults()
   const [areAlgoRelays, setAreAlgoRelays] = useState(false)
   const [relayAlgoReady, setRelayAlgoReady] = useState(false)
+  /** After kindless single-relay REQ EOSEs with no events, re-subscribe with the normal kind list. */
+  const [singleRelayKindFallback, setSingleRelayKindFallback] = useState(false)
 
   const relayUrlsKey = useMemo(
     () =>
@@ -76,10 +80,6 @@ const RelaysFeed = forwardRef<
         ? showKinds
         : [kinds.ShortTextNote]
 
-  /** One relay + user kind filter: avoid huge `kinds` REQ (many relays error with "too many kinds"). */
-  const singleRelayKindlessExplore =
-    feedInfo.feedType === 'relay' && relayUrls.length === 1 && !kindsOverride?.length
-
   const canRenderFeed =
     (feedInfo.feedType === 'relay' ||
       feedInfo.feedType === 'relays' ||
@@ -96,6 +96,29 @@ const RelaysFeed = forwardRef<
     }
     return undefined
   }, [feedInfo.feedType, feedInfo.id])
+
+  /** New relay chip / set: try kindless first again. */
+  useEffect(() => {
+    setSingleRelayKindFallback(false)
+  }, [feedTimelineScopeKey])
+
+  const onSingleRelayKindlessEmpty = useCallback(() => {
+    setSingleRelayKindFallback(true)
+  }, [])
+
+  /**
+   * One relay + user kind filter: kindless `{ limit }` REQ first (many relays error on huge `kinds` arrays).
+   * If that EOSEs with no events, `onSingleRelayKindlessEmpty` switches to explicit `kinds`.
+   */
+  const singleRelayKindlessExplore =
+    feedInfo.feedType === 'relay' &&
+    relayUrls.length === 1 &&
+    !kindsOverride?.length &&
+    !singleRelayKindFallback
+
+  const feedTopNotice = singleRelayKindFallback ? (
+    <p className="leading-snug">{t('singleRelayKindFallbackNotice')}</p>
+  ) : null
 
   // Hooks must run every render — never place useMemo after conditional returns.
   const subRequests = useMemo(() => {
@@ -136,6 +159,12 @@ const RelaysFeed = forwardRef<
       clientSideKindFilter={singleRelayKindlessExplore}
       showFeedClientFilter
       hostPrimaryPageName="feed"
+      onSingleRelayKindlessEmpty={
+        feedInfo.feedType === 'relay' && relayUrls.length === 1 && !kindsOverride?.length
+          ? onSingleRelayKindlessEmpty
+          : undefined
+      }
+      feedTopNotice={feedTopNotice}
     />
   )
 })
