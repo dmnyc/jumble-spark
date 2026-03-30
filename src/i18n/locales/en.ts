@@ -176,8 +176,7 @@ export default {
     'Start call about this': 'Start call about this',
     'Send call invite': 'Send call invite',
     'Read this note aloud': 'Read this note aloud',
-    'Read-aloud is not supported in this browser':
-      'Read-aloud is not supported in this browser',
+    'Read-aloud is not supported in this browser': 'Read-aloud is not supported in this browser',
     'Nothing to read aloud': 'Nothing to read aloud',
     'Read-aloud failed': 'Read-aloud failed',
     'Read aloud': 'Read aloud',
@@ -218,7 +217,8 @@ export default {
     'Read-aloud Piper status heading': 'Piper (server voice)',
     'Read-aloud Piper skipped notice':
       'No Piper URL is configured for this app (see VITE_READ_ALOUD_TTS_URL). Only the browser voice is used — the server was not contacted.',
-    'Read-aloud Piper attempt started': 'Piper was started at {{time}} (this read-aloud used the server first).',
+    'Read-aloud Piper attempt started':
+      'Piper was started at {{time}} (this read-aloud used the server first).',
     'Read-aloud Piper endpoint tried': 'URL used: {{url}}',
     'Join the video call': 'Join the video call',
     'Schedule video call': 'Schedule video call',
@@ -599,7 +599,8 @@ export default {
       'HTTPS index relays (e.g. REST /api/events/filter). Same read/write/both roles as mailbox relays; stored as kind 10243. Clear the list and save to publish an empty list.',
     'HTTP relays saved': 'HTTP relays saved',
     'Failed to save HTTP relay list': 'Failed to save HTTP relay list',
-    'HTTP relays must start with https:// or http://': 'HTTP relays must start with https:// or http://',
+    'HTTP relays must start with https:// or http://':
+      'HTTP relays must start with https:// or http://',
     relayType_client_default: 'Client default',
     relayType_open_from: 'Current feed',
     relayType_favorite: 'Favorite',
@@ -625,6 +626,9 @@ export default {
     successes: 'successes',
     None: 'None',
     'Cache & offline storage': 'Cache & offline storage',
+    feedStarting: 'Starting feeds and relays… This can take a few seconds after login.',
+    refreshCacheButtonExplainer:
+      'Refresh Cache runs an IndexedDB upgrade check, re-fetches your relay lists and profile-related events from the network (same work as the automatic startup sync), syncs kind-5 deletions into tombstones and removes deleted items from the local cache, then refreshes the store counts below.',
     'eventArchive.sectionTitle': 'Notes & feed archive',
     'eventArchive.sectionBlurb':
       'Keeps notes, reactions, and timeline order on disk so feeds can load offline or on slow links. Replaceable data (profiles, relay lists, publications) stays in its existing stores — this archive only fills gaps for “firehose” events. Turn off to rely on relays only.',
@@ -772,7 +776,8 @@ export default {
     'Search articles...': 'Search articles...',
     'Refreshing articles...': 'Refreshing articles...',
     'No articles or publications found': 'No articles or publications found',
-    'No articles or publications match your search': 'No articles or publications match your search',
+    'No articles or publications match your search':
+      'No articles or publications match your search',
     'articles and publications': 'articles and publications',
     Interests: 'Interests',
     Calendar: 'Calendar',
@@ -1241,7 +1246,7 @@ export default {
     'Clear Cache': 'Clear Cache',
     'Clear Service Worker': 'Clear Service Worker',
     'Clear cached data stored in your browser, including IndexedDB events, localStorage settings, and service worker caches.':
-      'Clear cached data stored in your browser, including IndexedDB events, localStorage settings, and service worker caches.',
+      'Clear cached data stored in your browser, including IndexedDB events, read-aloud (Piper) audio cache, localStorage settings, and service worker caches.',
     'Click update to get the latest features and improvements':
       'Click update to get the latest features and improvements',
     Close: 'Close',
@@ -1514,15 +1519,15 @@ export default {
     'Article URLs subtitle':
       'One card per link: URLs from Nostr relays (you and people you follow) plus any RSS hit. No RSS row yet → web preview card.',
     'RSS timeline': 'RSS timeline',
-    'RSS timeline subtitle': 'Every item from your subscribed feeds, newest first — classic RSS reader.',
+    'RSS timeline subtitle':
+      'Every item from your subscribed feeds, newest first — classic RSS reader.',
     URLs: 'URLs',
     RSS: 'RSS',
     Both: 'Both',
     'RSS feed item label': 'RSS',
     'Web URL item label': 'Web URL',
     'URL thread activity': 'URL thread activity',
-    'Suppress Clawstr links in RSS previews':
-      'Hide clawstr.com in RSS and URL feed',
+    'Suppress Clawstr links in RSS previews': 'Hide clawstr.com in RSS and URL feed',
     'Hide local, media & feed URLs from URL cards':
       'Hide local, media, feed, document & XML links from the feed',
     'RSS articles': 'RSS articles',
@@ -1532,8 +1537,7 @@ export default {
     '{{count}} RSS entries for this URL': '{{count}} RSS entries for this URL',
     'No comments yet': 'No comments yet',
     'No highlights yet': 'No highlights yet',
-    'Showing {{filtered}} of {{total}} entries':
-      'Showing {{filtered}} of {{total}} entries',
+    'Showing {{filtered}} of {{total}} entries': 'Showing {{filtered}} of {{total}} entries',
     standardRssFeed_spotifeed: 'Spotify playlist (Spotifeed)',
     standardRssFeed_youtube: 'YouTube feed',
     standardRssFeed_youtubeChannel: 'YouTube channel feed',
@@ -1679,7 +1683,8 @@ export default {
       'This GIF was found in a kind 1 note. Notes are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.',
     'This GIF was found in a kind 1111 comment. Comments are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.':
       'This GIF was found in a kind 1111 comment. Comments are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.',
-    'This GIF was found in a Nostr event of kind {{kind}}.': 'This GIF was found in a Nostr event of kind {{kind}}.',
+    'This GIF was found in a Nostr event of kind {{kind}}.':
+      'This GIF was found in a Nostr event of kind {{kind}}.',
     'This file could be either audio or video. Please select the correct type:':
       'This file could be either audio or video. Please select the correct type:',
     'This store does not contain replaceable events':
@@ -1789,6 +1794,26 @@ export default {
     threads: 'threads',
     'topic1, topic2, topic3': 'topic1, topic2, topic3',
     '{{count}} relay(s) selected': '{{count}} relay(s) selected',
-    '🔞 NSFW 🔞': '🔞 NSFW 🔞'
+    '🔞 NSFW 🔞': '🔞 NSFW 🔞',
+    'Choose a suggested topic or type your own. It becomes a normalized tag (e.g. my-topic).':
+      'Choose a suggested topic or type your own. It becomes a normalized tag (e.g. my-topic).',
+    'Failed to refresh': 'Failed to refresh',
+    'Invalid article link.': 'Invalid article link.',
+    Likes: 'Likes',
+    'Loading…': 'Loading…',
+    'Missing pubkey': 'Missing pubkey',
+    'No RSS feed list found on relays': 'No RSS feed list found on relays',
+    'Pinned posts': 'Pinned posts',
+    'Publishing...': 'Publishing...',
+    'RSS article': 'RSS article',
+    'RSS feed list refreshed': 'RSS feed list refreshed',
+    'Save or discard your changes before refreshing from relays':
+      'Save or discard your changes before refreshing from relays',
+    'Suggested topics': 'Suggested topics',
+    'Synthetic event (no author)': 'Synthetic event (no author)',
+    'Topic is required': 'Topic is required',
+    'Type a topic or pick from the list': 'Type a topic or pick from the list',
+    profileEditorRefreshCacheHint: 'profileEditorRefreshCacheHint',
+    startupSessionHydrating: 'startupSessionHydrating'
   }
 }

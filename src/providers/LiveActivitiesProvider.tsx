@@ -11,7 +11,7 @@ import client from '@/services/client.service'
 import { registerLiveActivitiesPrewarmCallback } from '@/services/live-activities-prewarm-bridge'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
-import { useFollowList } from './FollowListProvider'
+import { useFollowListOptional } from './FollowListProvider'
 import { useNostr } from './NostrProvider'
 import { useUserPreferences } from './UserPreferencesProvider'
 
@@ -37,7 +37,8 @@ export function useLiveActivitiesOptional(): TLiveActivitiesContext | undefined 
 export function LiveActivitiesProvider({ children }: { children: React.ReactNode }) {
   const { pubkey, relayList, isInitialized, isAccountSessionHydrating } = useNostr()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
-  const { followings } = useFollowList()
+  const followListCtx = useFollowListOptional()
+  const followings = followListCtx?.followings ?? []
   const { showLiveActivitiesBanner } = useUserPreferences()
 
   const [items, setItems] = useState<TLiveActivityItem[]>([])

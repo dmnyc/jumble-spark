@@ -27,6 +27,18 @@ import zh from '../src/i18n/locales/zh'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const srcDir = path.join(__dirname, '..', 'src')
 const localesDir = path.join(__dirname, '..', 'src/i18n/locales')
+const overridesDir = path.join(__dirname, 'i18n-overrides')
+
+function loadOverrides(localeFile: string): Record<string, string> {
+  if (localeFile === 'en.ts') return {}
+  const p = path.join(overridesDir, localeFile.replace(/\.ts$/, '.json'))
+  if (!fs.existsSync(p)) return {}
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8')) as Record<string, string>
+  } catch {
+    return {}
+  }
+}
 
 const PACKAGES: { file: string; translation: Record<string, string>; header?: string }[] = [
   { file: 'ar.ts', translation: ar.translation },
@@ -121,9 +133,11 @@ for (const k of keyOrder) {
 
 for (const pkg of PACKAGES) {
   const prev = pkg.translation as Record<string, string>
+  const patch = loadOverrides(pkg.file)
   const out: Record<string, string> = {}
   for (const k of keyOrder) {
-    out[k] = prev[k] !== undefined ? prev[k] : mergedEn[k]
+    const base = prev[k] !== undefined ? prev[k] : mergedEn[k]
+    out[k] = patch[k] !== undefined ? patch[k] : base
   }
   const body = emitLocaleFile(out, keyOrder, pkg.header)
   fs.writeFileSync(path.join(localesDir, pkg.file), body, 'utf8')

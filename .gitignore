@@ -28,3 +28,6 @@ dev-dist
 *.sw?
 
 .vercel
+
+.venv-i18n
+scripts/i18n-overrides/.gaps

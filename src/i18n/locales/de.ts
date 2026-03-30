@@ -19,7 +19,8 @@ export default {
       'Kind-0-Profile für npubs, die in der letzten Stunde auf deinen Lieblingsrelais auftauchten (gleiche Stichprobe wie Relay-Puls).',
     'Relay pulse drawer following': 'Folge ich',
     'Relay pulse drawer others': 'Andere',
-    'Relay pulse drawer no profiles': 'Für diese Stichprobe wurden noch keine Kind-0-Profile geladen.',
+    'Relay pulse drawer no profiles':
+      'Für diese Stichprobe wurden noch keine Kind-0-Profile geladen.',
     'See the newest notes from your follows': 'Neueste Notizen von deinen Abos anzeigen',
     'All favorite relays': 'Alle Lieblingsrelais',
     'Pinned note': 'Angehefteter Beitrag',
@@ -28,6 +29,8 @@ export default {
     'Account menu': 'Kontomenü',
     SidebarRelays: 'Relays',
     Refresh: 'Aktualisieren',
+    'refresh.longPressHardReload': 'Long-press: reload app and restore feed cache',
+    'link.expandNostrEmbed': 'Show Nostr preview',
     Profile: 'Profil',
     Logout: 'Abmelden',
     Following: 'Folgende',
@@ -336,16 +339,26 @@ export default {
     'Upload Image': 'Bild hochladen',
     'Insert emoji': 'Emoji einfügen',
     'Insert GIF': 'GIF einfügen',
+    'Insert meme': 'Insert meme',
     'Search GIFs': 'GIFs suchen',
+    'Search memes': 'Search memes',
     'Choose a GIF': 'GIF auswählen',
+    'Choose a meme': 'Choose a meme',
     'Search GifBuddy for more GIFs': 'Bei GifBuddy nach weiteren GIFs suchen',
     'Add your own GIFs': 'Eigene GIFs hinzufügen',
+    'Add your own meme templates': 'Add your own meme templates',
     'Description (optional, for search)': 'Beschreibung (optional, für Suche)',
     'e.g. happy birthday, thumbs up': 'z. B. happy birthday, Daumen hoch',
+    'e.g. drake, distracted boyfriend': 'e.g. drake, distracted boyfriend',
     'Uploading...': 'Wird hochgeladen...',
     'No GIFs found. Try searching or add your own. GIFs come from Nostr kind 1063 (NIP-94) events on GIF relays.':
       'Keine GIFs gefunden. Suche oder füge eigene hinzu. GIFs stammen von Nostr-Kind-1063-Events (NIP-94) auf GIF-Relays.',
+    'No meme templates found. Try searching or open Meme Amigo. The grid only lists kind 1063 (NIP-94) files tagged memeamigo (not random photos from notes).':
+      'No meme templates found. Try searching or open Meme Amigo. The grid only lists kind 1063 (NIP-94) files tagged memeamigo (not random photos from notes).',
+    'Failed to publish meme template for the picker':
+      'Failed to publish meme template for the picker',
     '{{name}} is not a GIF file': '{{name}} ist keine GIF-Datei',
+    '{{name}} is not a JPEG, PNG, or WebP file': '{{name}} is not a JPEG, PNG, or WebP file',
     'R & W': 'R & W',
     Read: 'Lesen',
     Write: 'Schreiben',
@@ -438,6 +451,22 @@ export default {
     Topics: 'Themen',
     'Open in a': 'Öffnen in {{a}}',
     'Cannot handle event of kind k': 'Ereignis des Typs {{k}} kann nicht verarbeitet werden',
+    'Unsupported event preview':
+      'There isn’t a dedicated card for this event type yet. Here’s a readable preview.',
+    'No text content in event': 'No text in this event.',
+    'Technical details': 'Technical details',
+    'Event kind and time': 'Kind {{kind}} · {{time}}',
+    'Event kind label': 'Kind {{kind}}',
+    'Note kind label line': 'KIND: {{kind}} · {{description}}',
+    'Unknown note declared kind tag': 'Tagged kind: {{value}}',
+    'Unknown note tagged pubkey': 'Tagged pubkey',
+    'Unknown note tagged content': 'Content',
+    'Unknown note reference tags': 'Referenz-Tags (e, p, q, a)',
+    'Starred spells': 'Markierte Sprüche',
+    'Spell star add title': 'Spruch markieren (wird zu deinen Nostr-Lesezeichen hinzugefügt)',
+    'Spell star remove title': 'Markierung aufheben (aus Nostr-Lesezeichen entfernen)',
+    'Copy JSON': 'Copy JSON',
+    Verse: 'Verse',
     'Notification reaction summary': 'hat auf diese Notiz reagiert.',
     'Notification discussion upvote summary': 'hat in dieser Diskussion positiv bewertet.',
     'Notification discussion downvote summary': 'hat in dieser Diskussion negativ bewertet.',
@@ -448,6 +477,9 @@ export default {
     'Jumble Imwald synthetic event': 'Jumble Imwald – synthetisches Ereignis',
     '+ Add a URL to this list': 'URL zur Liste hinzufügen',
     'Add a web URL': 'Web-URL hinzufügen',
+    'Add web URL to feed description':
+      'Adds a card to this feed. Open the page from the card when you want to read, reply, react, or highlight.',
+    'Add to feed': 'Add to feed',
     'Open any https page in the side panel to reply, react, and discuss on Nostr.':
       'Beliebige https-Seite im Seitenpanel öffnen, um auf Nostr zu antworten, zu reagieren und zu diskutieren.',
     'Enter a valid http(s) URL': 'Bitte eine gültige http(s)-URL eingeben',
@@ -545,6 +577,7 @@ export default {
     'No other recipients found': 'Keine weiteren Empfänger:innen gefunden',
     'Recipients could not be loaded': 'Empfänger:innen konnten nicht geladen werden',
     'View award': 'Verleihung anzeigen',
+    'Awarded on': 'Awarded on',
     'Please log in to follow': 'Zum Folgen bitte anmelden',
     'Following All': 'Allen gefolgt',
     'Followed {{count}} users': '{{count}} Nutzer:innen gefolgt',
@@ -577,7 +610,8 @@ export default {
       'HTTPS-Index-Relays (z. B. REST /api/events/filter). Gleiche Lese-/Schreib-/beides-Rollen wie Mailbox-Relays; gespeichert als Kind 10243. Liste leeren und speichern, um eine leere Liste zu veröffentlichen.',
     'HTTP relays saved': 'HTTP-Relays gespeichert',
     'Failed to save HTTP relay list': 'HTTP-Relay-Liste konnte nicht gespeichert werden',
-    'HTTP relays must start with https:// or http://': 'HTTP-Relays müssen mit https:// oder http:// beginnen',
+    'HTTP relays must start with https:// or http://':
+      'HTTP-Relays müssen mit https:// oder http:// beginnen',
     relayType_client_default: 'Client-Standard',
     relayType_open_from: 'Aktueller Feed',
     relayType_favorite: 'Favorit',
@@ -603,6 +637,28 @@ export default {
     successes: 'Erfolge',
     None: 'Keine',
     'Cache & offline storage': 'Cache & Offline-Speicher',
+    feedStarting: 'Starting feeds and relays… This can take a few seconds after login.',
+    refreshCacheButtonExplainer:
+      'Refresh Cache runs an IndexedDB upgrade check, re-fetches your relay lists and profile-related events from the network (same work as the automatic startup sync), syncs kind-5 deletions into tombstones and removes deleted items from the local cache, then refreshes the store counts below.',
+    'eventArchive.sectionTitle': 'Notes & feed archive',
+    'eventArchive.sectionBlurb':
+      'Keeps notes, reactions, and timeline order on disk so feeds can load offline or on slow links. Replaceable data (profiles, relay lists, publications) stays in its existing stores — this archive only fills gaps for “firehose” events. Turn off to rely on relays only.',
+    'eventArchive.defaultsMobile':
+      'This device profile uses small defaults: about {{lru}} events in memory, ~{{mb}} MB / {{ev}} archived events (reactions/zaps drop first).',
+    'eventArchive.defaultsElectron':
+      'Desktop app defaults: ~{{lru}} in-memory events, ~{{mb}} MB / {{ev}} archived events.',
+    'eventArchive.defaultsDesktopWeb':
+      'Desktop browser defaults: ~{{lru}} in-memory events, ~{{mb}} MB / {{ev}} archived events.',
+    'eventArchive.enablePersist': 'Persist feed events to disk',
+    'eventArchive.maxMb': 'Max archive size (MB), blank = default for this device',
+    'eventArchive.maxEvents': 'Max archived events, blank = default',
+    'eventArchive.sessionLru': 'In-memory session cache (event count), blank = default',
+    'eventArchive.effectiveSummary':
+      'Currently: {{enabled}} — ~{{mb}} MB budget, {{events}} events, {{lru}} session LRU.',
+    'eventArchive.on': 'on',
+    'eventArchive.off': 'off',
+    'eventArchive.apply': 'Apply cache settings',
+    'eventArchive.appliedToast': 'Cache settings saved. Session memory updated.',
     'Paste or drop media files to upload':
       'Füge Medien-Dateien ein oder ziehe sie hierher, um sie hochzuladen',
     Preview: 'Vorschau',
@@ -702,13 +758,39 @@ export default {
     'Remove poll': 'Umfrage entfernen',
     'Refresh results': 'Ergebnisse aktualisieren',
     '{{votes}} · {{pct}}%': '{{votes}} · {{pct}}%',
+    'See results': 'See results',
+    'Zap poll (paid votes)': 'Zap poll (paid votes)',
+    'Invalid zap poll': 'Invalid zap poll',
+    'You voted on this poll (zap receipt)': 'You voted on this poll (zap receipt)',
+    'Poll closed {{time}}': 'Poll closed {{time}}',
+    'Closes {{time}}': 'Closes {{time}}',
+    'Vote size': 'Vote size',
+    '{{n}} sats (fixed)': '{{n}} sats (fixed)',
+    '{{min}}–{{max}} sats': '{{min}}–{{max}} sats',
+    '≥ {{n}} sats': '≥ {{n}} sats',
+    '≤ {{n}} sats': '≤ {{n}} sats',
+    'Loading tally…': 'Loading tally…',
+    'Zap poll no votes yet':
+      'No zap votes found on the relays we queried (try Refresh tally, or votes may live on other relays).',
+    'Consensus threshold': 'Consensus threshold',
+    'Pay to': 'Pay to',
+    Recipient: 'Recipient',
+    Option: 'Option',
+    'Select option': 'Select option',
+    'Select an option': 'Select an option',
+    'Vote with zap': 'Vote with zap',
+    'Zap sent': 'Zap sent',
+    'Zapping…': 'Zapping…',
+    'Refresh tally': 'Refresh tally',
+    '{{n}} zaps': '{{n}} zaps',
     Poll: 'Umfrage',
     Media: 'Medien',
     'Articles and Publications': 'Artikel und Veröffentlichungen',
     'Search articles...': 'Artikel suchen…',
     'Refreshing articles...': 'Artikel werden aktualisiert…',
     'No articles or publications found': 'Keine Artikel oder Veröffentlichungen gefunden',
-    'No articles or publications match your search': 'Keine Artikel oder Veröffentlichungen entsprechen der Suche',
+    'No articles or publications match your search':
+      'Keine Artikel oder Veröffentlichungen entsprechen der Suche',
     'articles and publications': 'Artikel und Veröffentlichungen',
     Interests: 'Interessen',
     Calendar: 'Kalender',
@@ -720,10 +802,10 @@ export default {
     'Nothing to load for this feed.': 'Für diesen Feed gibt es nichts zu laden.',
     'No posts loaded for this feed. Try refreshing.':
       'Keine Beiträge für diesen Feed geladen. Bitte aktualisieren.',
-    'Per-relay timeline results ({{count}} connections)':
-      'Ergebnis je Relay ({{count}} Verbindungen)',
     'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.':
       'Die Relays haben keine Ereignisse für diesen Feed geliefert. Sie können offline sein, langsam antworten oder diese Notizen nicht indexieren.',
+    'Per-relay timeline results ({{count}} connections)':
+      'Ergebnis je Relay ({{count}} Verbindungen)',
     'Republish to ...': 'Erneut veröffentlichen zu ...',
     'All available relays': 'All available relays',
     'All active relays (monitoring list)': 'All active relays (monitoring list)',
@@ -790,6 +872,7 @@ export default {
     Highlights: 'Highlights',
     'A note from': 'A note from',
     Polls: 'Umfragen',
+    'Zap polls': 'Zap polls',
     'Voice Posts': 'Sprachbeiträge',
     'Photo Posts': 'Fotobeiträge',
     'Video Posts': 'Videobeiträge',
@@ -867,7 +950,8 @@ export default {
       'Bitte Suchtext, Autorenfilter oder einen Zeitraum setzen, bevor Relays abgefragt werden.',
     'Feed full search invalid feed': 'Für diesen Feed ist keine Relay-Suche möglich.',
     'Feed full search failed': 'Relay-Suche fehlgeschlagen. Bitte erneut versuchen.',
-    'Feed full search empty': 'Auf den abgefragten Relays wurden keine passenden Beiträge gefunden.',
+    'Feed full search empty':
+      'Auf den abgefragten Relays wurden keine passenden Beiträge gefunden.',
     'No loaded posts match your filters.': 'Keine geladenen Beiträge entsprechen den Filtern.',
     'mentioned you in a note': 'hat Sie in einer Notiz erwähnt',
     'quoted your note': 'hat Ihre Notiz zitiert',
@@ -1321,6 +1405,8 @@ export default {
     Insert: 'Insert',
     'Insert URL into your post and publish to Nostr GIF library (NIP-94).':
       'Insert URL into your post and publish to Nostr GIF library (NIP-94).',
+    'Insert URL into your post and publish kind 1063 (NIP-94) with hashtag memeamigo for discoverability.':
+      'Insert URL into your post and publish kind 1063 (NIP-94) with hashtag memeamigo for discoverability.',
     'Insert event or address': 'Insert event or address',
     'Insert mention': 'Insert mention',
     'Internal Citation': 'Internal Citation',
@@ -1406,7 +1492,8 @@ export default {
     'Open Timestamp': 'Open Timestamp',
     'Opens in a new tab. Copy a GIF URL there, then paste below. If this picker closed, click “Insert GIF” again to paste.':
       'Opens in a new tab. Copy a GIF URL there, then paste below. If this picker closed, click “Insert GIF” again to paste.',
-    Option: 'Option',
+    'Opens in a new tab. Copy an image URL there, then paste below. If this picker closed, click “Insert meme” again to paste.':
+      'Opens in a new tab. Copy an image URL there, then paste below. If this picker closed, click “Insert meme” again to paste.',
     Optional: 'Optional',
     'Optional image for the event': 'Optional image for the event',
     'Optionally, add the full quote/context to show your highlight within it':
@@ -1415,6 +1502,7 @@ export default {
     'Page Range': 'Page Range',
     Pages: 'Pages',
     'Paste URL of a GIF': 'Paste URL of a GIF',
+    'Paste URL of a meme image': 'Paste URL of a meme image',
     'Paste the entire original passage that contains your highlight':
       'Paste the entire original passage that contains your highlight',
     Photo: 'Photo',
@@ -1438,6 +1526,8 @@ export default {
     'Prompt Citation Settings': 'Prompt Citation Settings',
     'Prompt Conversation Script': 'Prompt Conversation Script',
     'Proof of Work': 'Proof of Work',
+    'Publish kind 1063 (NIP-94) for this GIF and insert the URL into your post':
+      'Publish kind 1063 (NIP-94) for this GIF and insert the URL into your post',
     'Publish to Relays': 'Publish to Relays',
     'Published By': 'Published By',
     'Published In': 'Published In',
@@ -1447,6 +1537,41 @@ export default {
     'Publisher name (optional)': 'Publisher name (optional)',
     'Quiet Tags': 'Quiet Tags',
     'RSS Feed': 'RSS Feed',
+    'RSS + Web': 'RSS + Web',
+    'RSS feed source': 'RSS feed source',
+    'All feed sources': 'All feed sources',
+    'RSS feed view mode': 'RSS feed view mode',
+    'Article URLs': 'Article URLs',
+    'Article URLs subtitle':
+      'One card per link: URLs from Nostr relays (you and people you follow) plus any RSS hit. No RSS row yet → web preview card.',
+    'RSS timeline': 'RSS timeline',
+    'RSS timeline subtitle':
+      'Every item from your subscribed feeds, newest first — classic RSS reader.',
+    URLs: 'URLs',
+    RSS: 'RSS',
+    Both: 'Both',
+    'RSS feed item label': 'RSS',
+    'Web URL item label': 'Web URL',
+    'URL thread activity': 'URL thread activity',
+    'Suppress Clawstr links in RSS previews': 'Hide clawstr.com in RSS and URL feed',
+    'Hide local, media & feed URLs from URL cards':
+      'Hide local, media, feed, document & XML links from the feed',
+    'RSS articles': 'RSS articles',
+    'Web comments': 'Web comments',
+    'Web highlights': 'Web highlights',
+    'In your bookmarks': 'In your bookmarks',
+    '{{count}} RSS entries for this URL': '{{count}} RSS entries for this URL',
+    'No comments yet': 'No comments yet',
+    'No highlights yet': 'No highlights yet',
+    'Showing {{filtered}} of {{total}} entries': 'Showing {{filtered}} of {{total}} entries',
+    standardRssFeed_spotifeed: 'Spotify playlist (Spotifeed)',
+    standardRssFeed_youtube: 'YouTube feed',
+    standardRssFeed_youtubeChannel: 'YouTube channel feed',
+    standardRssFeed_youtubePlaylist: 'YouTube playlist feed',
+    standardRssFeed_feedburner: 'FeedBurner',
+    standardRssFeed_reddit: 'Reddit RSS',
+    standardRssFeed_substack: 'Substack',
+    standardRssFeed_medium: 'Medium',
     'RSS Feed Settings': 'RSS Feed Settings',
     'Follow sets': 'Folgenlisten',
     'Follow sets settings intro':
@@ -1466,6 +1591,7 @@ export default {
     'Delete follow set?': 'Diese Folgenliste löschen?',
     'Delete follow set confirm':
       'Es wird eine Löschanfrage (Kind 5) für die Liste gesendet. Relays, die sie annehmen, entfernen die Liste; andere Clients können noch zwischengespeicherte Daten anzeigen, bis sie neu laden.',
+    'Remove feed': 'Remove feed',
     'RSS Feeds': 'RSS Feeds',
     'RSS feeds exported to OPML file': 'RSS feeds exported to OPML file',
     'RSS feeds saved': 'RSS feeds saved',
@@ -1518,6 +1644,7 @@ export default {
     'Search logs...': 'Search logs...',
     'Search notes, threads, long-form…': 'Search notes, threads, long-form…',
     'Search on GifBuddy': 'Search on GifBuddy',
+    'Search on Meme Amigo': 'Search on Meme Amigo',
     'Search posts...': 'Search posts...',
     'Search threads by title, content, tags, npub, author...':
       'Search threads by title, content, tags, npub, author...',
@@ -1569,10 +1696,6 @@ export default {
     'Subscribed to topic (local)': 'Subscribed to topic (local)',
     'Subscribing...': 'Subscribing...',
     Summary: 'Summary',
-    'Unknown note reference tags': 'Referenz-Tags (e, p, q, a)',
-    'Starred spells': 'Markierte Sprüche',
-    'Spell star add title': 'Spruch markieren (wird zu deinen Nostr-Lesezeichen hinzugefügt)',
-    'Spell star remove title': 'Markierung aufheben (aus Nostr-Lesezeichen entfernen)',
     'Supported Event Types': 'Supported Event Types',
     'Take a note': 'Take a note',
     'The full prompt conversation (optional)': 'The full prompt conversation (optional)',
@@ -1580,6 +1703,14 @@ export default {
       'The main editor above should contain only the text you want to highlight. This field should contain the full quote or paragraph for context.',
     'These relays were found from your NIP-05 identifier and signer. You can add them to your relay list.':
       'These relays were found from your NIP-05 identifier and signer. You can add them to your relay list.',
+    'This GIF comes from kind 1063 (NIP-94 file metadata). Choosing it still publishes your own kind 1063 to your write relays (and fast write relays as fallback) so your relays index the URL.':
+      'This GIF comes from kind 1063 (NIP-94 file metadata). Choosing it still publishes your own kind 1063 to your write relays (and fast write relays as fallback) so your relays index the URL.',
+    'This GIF was found in a kind 1 note. Notes are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.':
+      'This GIF was found in a kind 1 note. Notes are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.',
+    'This GIF was found in a kind 1111 comment. Comments are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.':
+      'This GIF was found in a kind 1111 comment. Comments are not NIP-94 GIF index entries; publish kind 1063 yourself if you want it discoverable as file metadata.',
+    'This GIF was found in a Nostr event of kind {{kind}}.':
+      'This GIF was found in a Nostr event of kind {{kind}}.',
     'This file could be either audio or video. Please select the correct type:':
       'This file could be either audio or video. Please select the correct type:',
     'This store does not contain replaceable events':
@@ -1689,6 +1820,26 @@ export default {
     threads: 'threads',
     'topic1, topic2, topic3': 'topic1, topic2, topic3',
     '{{count}} relay(s) selected': '{{count}} relay(s) selected',
-    '🔞 NSFW 🔞': '🔞 NSFW 🔞'
+    '🔞 NSFW 🔞': '🔞 NSFW 🔞',
+    'Choose a suggested topic or type your own. It becomes a normalized tag (e.g. my-topic).':
+      'Choose a suggested topic or type your own. It becomes a normalized tag (e.g. my-topic).',
+    'Failed to refresh': 'Failed to refresh',
+    'Invalid article link.': 'Invalid article link.',
+    Likes: 'Likes',
+    'Loading…': 'Loading…',
+    'Missing pubkey': 'Missing pubkey',
+    'No RSS feed list found on relays': 'No RSS feed list found on relays',
+    'Pinned posts': 'Pinned posts',
+    'Publishing...': 'Publishing...',
+    'RSS article': 'RSS article',
+    'RSS feed list refreshed': 'RSS feed list refreshed',
+    'Save or discard your changes before refreshing from relays':
+      'Save or discard your changes before refreshing from relays',
+    'Suggested topics': 'Suggested topics',
+    'Synthetic event (no author)': 'Synthetic event (no author)',
+    'Topic is required': 'Topic is required',
+    'Type a topic or pick from the list': 'Type a topic or pick from the list',
+    profileEditorRefreshCacheHint: 'profileEditorRefreshCacheHint',
+    startupSessionHydrating: 'startupSessionHydrating'
   }
 }

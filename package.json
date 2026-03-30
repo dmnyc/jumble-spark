@@ -23,6 +23,8 @@
     "test:run": "vitest run",
     "i18n:sync": "npx tsx scripts/sync-i18n-locales.ts && prettier --write \"src/i18n/locales/*.ts\"",
     "i18n:audit": "npx tsx scripts/i18n-audit.ts",
+    "i18n:gaps": "npx tsx scripts/export-en-parity-gaps.ts",
+    "i18n:translate-de": "PYTHONUNBUFFERED=1 .venv-i18n/bin/python scripts/auto_translate_i18n.py de",
     "electron:dev": "concurrently -k -n vite,electron -c blue,green \"vite --host\" \"wait-on http://127.0.0.1:5173 && cross-env NODE_ENV=development electron .\"",
     "build:electron": "tsc -b && vite build --base ./",
     "electron:pack": "npm run build:electron && electron-builder"
