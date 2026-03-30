@@ -656,6 +656,26 @@ class IndexedDbService {
     })
   }
 
+  async deleteMuteDecryptedTags(id: string): Promise<void> {
+    await this.initPromise
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        return resolve()
+      }
+      const transaction = this.db.transaction(StoreNames.MUTE_DECRYPTED_TAGS, 'readwrite')
+      const store = transaction.objectStore(StoreNames.MUTE_DECRYPTED_TAGS)
+      const req = store.delete(id)
+      req.onsuccess = () => {
+        transaction.commit()
+        resolve()
+      }
+      req.onerror = (event) => {
+        transaction.commit()
+        reject(event)
+      }
+    })
+  }
+
   async iterateProfileEvents(callback: (event: Event) => Promise<void>): Promise<void> {
     await this.initPromise
     if (!this.db) {

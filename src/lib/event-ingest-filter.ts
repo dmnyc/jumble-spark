@@ -1,5 +1,5 @@
 import { ExtendedKind } from '@/constants'
-import { getRelayUrlFromRelayReviewEvent, getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
+import { getRelayUrlFromRelayReviewEvent } from '@/lib/event-metadata'
 import type { Event as NEvent } from 'nostr-tools'
 import { kinds } from 'nostr-tools'
 
@@ -23,14 +23,12 @@ export function isStringifiedJsonObjectContentNostrEvent(
 }
 
 /**
- * Kind-31987 noise: missing `d` (relay URL) or a parseable `rating` tag (see {@link getStarsFromRelayReviewEvent}).
- * Content may be JSON or prose; structure is validated on tags, not `content`.
+ * Kind-31987 noise: missing `d` (relay URL). Rating formats differ across clients; do not drop at ingest
+ * (feeds and cards already treat unknown ratings as zero stars).
  */
 export function isIncompleteRelayReviewIngest(event: NEvent): boolean {
   if (event.kind !== ExtendedKind.RELAY_REVIEW) return false
-  if (!getRelayUrlFromRelayReviewEvent(event)) return true
-  if (!getStarsFromRelayReviewEvent(event)) return true
-  return false
+  return !getRelayUrlFromRelayReviewEvent(event)
 }
 
 /** Single gate for subscribe/cache/IDB read paths: drop kind-1 JSON-object spam and malformed relay reviews. */

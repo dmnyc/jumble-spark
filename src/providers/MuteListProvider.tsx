@@ -69,20 +69,16 @@ export function MuteListProvider({ children }: { children: ReactNode }) {
     const storedDecryptedTags = await indexedDb.getMuteDecryptedTags(muteListEvent.id)
 
     if (storedDecryptedTags) {
-      return storedDecryptedTags
+      const cached = z.array(z.array(z.string())).safeParse(storedDecryptedTags)
+      if (cached.success) return cached.data
+      try {
+        await indexedDb.deleteMuteDecryptedTags(muteListEvent.id)
+      } catch {
+        /* ignore */
+      }
     }
 
-    let plainText: string
-    try {
-      plainText = await nip04Decrypt(muteListEvent.pubkey, muteListEvent.content)
-    } catch (error) {
-      logMuteListPrivateIssueOnce(
-        muteListEvent.id,
-        'Mute list private section could not be decrypted (public mutes still apply). Use a signing-capable login for private mutes.',
-        { cause: error instanceof Error ? error.message : String(error) }
-      )
-      return []
-    }
+    const plainText = await nip04Decrypt(muteListEvent.pubkey, muteListEvent.content)
 
     if (!plainText.trim()) {
       logMuteListPrivateIssueOnce(
@@ -98,6 +94,11 @@ export function MuteListProvider({ children }: { children: ReactNode }) {
       await indexedDb.putMuteDecryptedTags(muteListEvent.id, privateTags)
       return privateTags
     } catch (error) {
+      try {
+        await indexedDb.deleteMuteDecryptedTags(muteListEvent.id)
+      } catch {
+        /* ignore */
+      }
       logMuteListPrivateIssueOnce(
         muteListEvent.id,
         'Mute list decrypted but private payload was not valid JSON (public mutes still apply).',

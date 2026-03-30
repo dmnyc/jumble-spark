@@ -55,8 +55,9 @@ export const MAX_CONCURRENT_SUBS_PER_RELAY = 7
  * How many timeline shards may open relay subscriptions at once. Each shard sends one REQ per relay
  * in its list; with 6 shards in parallel a popular relay can see 6+ SUBs from this app alone, and a
  * second feed wave (remount / strict mode) pushes past strict relay caps (e.g. nostr.sovbit.host ≤10).
+ * 3 is a modest bump for faster multi-shard home loads; lower to 2 if a relay complains about SUB count.
  */
-export const TIMELINE_SHARD_SUBSCRIBE_CONCURRENCY = 2
+export const TIMELINE_SHARD_SUBSCRIBE_CONCURRENCY = 3
 
 /** Max relays to publish each event to (outboxes first, then targets' inboxes, then extras). */
 export const MAX_PUBLISH_RELAYS = 20

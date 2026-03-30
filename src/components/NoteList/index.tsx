@@ -93,6 +93,12 @@ if (import.meta.env.DEV && import.meta.hot) {
   import.meta.hot.on('vite:beforeFullReload', bumpSuppressRelayEmptyFeedToast)
 }
 const SHOW_COUNT = 20 // Increased from 10 to show more events at once, reducing scroll load frequency
+/**
+ * When building visible rows, scan this many merged-timeline events at most. Previously we only looked at the first
+ * {@link showCount} events then filtered — with “posts only”, kind filters, and mutes, most of those could be hidden
+ * so the feed showed 2–4 notes while 100+ were already loaded (felt like a crawl).
+ */
+const MAX_TIMELINE_EVENTS_SCAN_FOR_VISIBLE = 2500
 /** Hard cap after merging parallel one-shot fetches (e.g. interests = one REQ per topic). */
 const ONE_SHOT_MERGED_CAP =100
 /** Max events kept after merging parallel full-search REQ results across relays. */
@@ -672,30 +678,33 @@ const NoteList = forwardRef(
 
     const filteredEvents = useMemo(() => {
       const idSet = new Set<string>()
+      const out: Event[] = []
+      const target = showCount
+      const maxScan = Math.min(
+        timelineEventsForFilter.length,
+        Math.min(MAX_TIMELINE_EVENTS_SCAN_FOR_VISIBLE, Math.max(target * 60, 400))
+      )
 
-      return timelineEventsForFilter.slice(0, showCount).filter((evt) => {
+      for (let i = 0; i < maxScan && out.length < target; i++) {
+        const evt = timelineEventsForFilter[i]
         if (applyKindPickerInUi) {
-          if (!showKinds.includes(evt.kind)) return false
-          // Kind 1: show only OPs if showKind1OPs, only replies if showKind1Replies
+          if (!showKinds.includes(evt.kind)) continue
           if (evt.kind === kinds.ShortTextNote) {
             const isReply = isReplyNoteEvent(evt)
-            if (isReply && !showKind1Replies) return false
-            if (!isReply && !showKind1OPs) return false
+            if (isReply && !showKind1Replies) continue
+            if (!isReply && !showKind1OPs) continue
           }
-          // Kind 1111 (comments): show only if showKind1111
-          if (evt.kind === ExtendedKind.COMMENT && !showKind1111) return false
-          // Git Republic releases: same visibility as kind-1 OPs
-          if (evt.kind === ExtendedKind.GIT_RELEASE && !showKind1OPs) return false
+          if (evt.kind === ExtendedKind.COMMENT && !showKind1111) continue
+          if (evt.kind === ExtendedKind.GIT_RELEASE && !showKind1OPs) continue
         }
-        if (shouldHideEvent(evt)) return false
+        if (shouldHideEvent(evt)) continue
 
         const id = isReplaceableEvent(evt.kind) ? getReplaceableCoordinateFromEvent(evt) : evt.id
-        if (idSet.has(id)) {
-          return false
-        }
+        if (idSet.has(id)) continue
         idSet.add(id)
-        return true
-      })
+        out.push(evt)
+      }
+      return out
     }, [
       timelineEventsForFilter,
       showCount,

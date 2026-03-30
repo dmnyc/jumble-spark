@@ -1289,7 +1289,13 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }
 
   const nip04Decrypt = async (pubkey: string, cipherText: string) => {
-    return signer?.nip04Decrypt(pubkey, cipherText) ?? ''
+    if (!signer) return ''
+    try {
+      return (await signer.nip04Decrypt(pubkey, cipherText)) ?? ''
+    } catch {
+      // Extensions often throw (padding / wrong key) while nsec path returns ''; keep call sites simple.
+      return ''
+    }
   }
 
   const checkLogin = async <T,>(cb?: () => T): Promise<T | void> => {

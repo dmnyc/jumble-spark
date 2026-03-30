@@ -133,23 +133,30 @@ function CodeBlock({ id, code, language }: { id: string; code: string; language:
   const codeRef = useRef<HTMLDivElement>(null)
   
   useEffect(() => {
+    let cancelled = false
     const initHighlight = async () => {
-      if (typeof window !== 'undefined' && codeRef.current) {
-        try {
-          const hljs = await import('highlight.js')
-          const codeElement = codeRef.current.querySelector('code')
-          if (codeElement) {
-            hljs.default.highlightElement(codeElement)
-          }
-        } catch (error) {
+      if (typeof window === 'undefined') return
+      try {
+        const hljs = await import('highlight.js')
+        if (cancelled) return
+        const root = codeRef.current
+        if (!root) return
+        const codeElement = root.querySelector('code')
+        if (codeElement) {
+          hljs.default.highlightElement(codeElement)
+        }
+      } catch (error) {
+        if (!cancelled) {
           logger.error('Error loading highlight.js:', error)
         }
       }
     }
-    
-    // Small delay to ensure DOM is ready
-    const timeoutId = setTimeout(initHighlight, 0)
-    return () => clearTimeout(timeoutId)
+
+    const timeoutId = window.setTimeout(initHighlight, 0)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+    }
   }, [code, language])
   
   return (

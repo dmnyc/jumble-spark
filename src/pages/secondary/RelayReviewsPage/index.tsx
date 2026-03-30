@@ -26,6 +26,19 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
   }, [hideTitlebar, registerPrimaryPanelRefresh, bumpFeed])
 
   const normalizedUrl = useMemo(() => (url ? normalizeUrl(url) : undefined), [url])
+  /** `d` tag values vary by client (raw vs normalized URL); REQ should OR-match like {@link RelayReviewsPreview}. */
+  const relayReviewDTags = useMemo(() => {
+    const raw = url?.trim()
+    const norm = normalizedUrl?.trim()
+    const uniq: string[] = []
+    const add = (s: string | undefined) => {
+      const t = s?.trim()
+      if (t && !uniq.includes(t)) uniq.push(t)
+    }
+    add(raw)
+    add(norm)
+    return uniq
+  }, [url, normalizedUrl])
   /** Stable identity for session feed snapshot (decoupled from FAST_READ_RELAY_URLS JSON churn). */
   const relayReviewsFeedSubscriptionKey = useMemo(
     () =>
@@ -33,14 +46,18 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
     [normalizedUrl]
   )
   const reviewsSubRequests = useMemo<TFeedSubRequest[]>(() => {
-    if (!normalizedUrl) return []
+    if (!normalizedUrl || relayReviewDTags.length === 0) return []
     return [
       {
         urls: [normalizedUrl, ...FAST_READ_RELAY_URLS],
-        filter: { '#d': [normalizedUrl] }
+        filter: {
+          kinds: [ExtendedKind.RELAY_REVIEW],
+          '#d': relayReviewDTags,
+          limit: 100
+        }
       }
     ]
-  }, [normalizedUrl])
+  }, [normalizedUrl, relayReviewDTags])
   const title = useMemo(
     () => (url ? t('Reviews for {{relay}}', { relay: simplifyUrl(url) }) : undefined),
     [url, t]
@@ -63,6 +80,7 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
         showKinds={[ExtendedKind.RELAY_REVIEW]}
         subRequests={reviewsSubRequests}
         feedSubscriptionKey={relayReviewsFeedSubscriptionKey}
+        useFilterAsIs
       />
     </SecondaryPageLayout>
   )
