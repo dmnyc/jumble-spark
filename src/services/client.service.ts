@@ -57,6 +57,10 @@ import {
   isIndexRelayTransportFailure,
   publishEventToIndexRelay
 } from '@/lib/index-relay-http'
+import {
+  relayFiltersUseCapitalLetterTagKeys,
+  relayUrlsStripExtendedTagReqBlocked
+} from '@/lib/relay-extended-tag-req-blocks'
 import { stripLocalNetworkRelaysFromRelayList } from '@/lib/relay-list-sanitize'
 import { isHttpRelayUrl, isLocalNetworkUrl, normalizeAnyRelayUrl, normalizeHttpRelayUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import { isSafari } from '@/lib/utils'
@@ -1829,6 +1833,12 @@ class ClientService extends EventTarget {
       const stripped = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
       relays = relaysAfterSocialKindBlockedStrip(originalDedupedRelays, stripped)
     }
+    if (relayFiltersUseCapitalLetterTagKeys(filters)) {
+      relays = relayUrlsStripExtendedTagReqBlocked(relays)
+      if (relays.length === 0) {
+        relays = relayUrlsStripExtendedTagReqBlocked([...FAST_READ_RELAY_URLS])
+      }
+    }
     relays = this.relayUrlsAfterStrikesOrRecover(relays)
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -2153,7 +2163,13 @@ class ClientService extends EventTarget {
       relayReqLog?: { groupId: string; onBatchEnd?: (rows: RelayOpTerminalRow[]) => void }
     } = {}
   ) {
-    const relays = Array.from(new Set(urls))
+    let relays = Array.from(new Set(urls))
+    if (relayFiltersUseCapitalLetterTagKeys(filter as Filter)) {
+      relays = relayUrlsStripExtendedTagReqBlocked(relays)
+      if (relays.length === 0) {
+        relays = relayUrlsStripExtendedTagReqBlocked([...FAST_READ_RELAY_URLS])
+      }
+    }
     const key = this.generateTimelineKey(relays, filter)
     let timeline = this.timelines[key]
 

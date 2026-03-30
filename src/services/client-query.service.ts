@@ -1,4 +1,5 @@
 import {
+  FAST_READ_RELAY_URLS,
   FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT,
   FIRST_RELAY_RESULT_GRACE_MS,
   relayFilterIncludesSocialKindBlockedKind,
@@ -9,6 +10,10 @@ import {
   RELAY_POOL_CONNECTION_TIMEOUT_MS,
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
+import {
+  relayFiltersUseCapitalLetterTagKeys,
+  relayUrlsStripExtendedTagReqBlocked
+} from '@/lib/relay-extended-tag-req-blocks'
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import { queueRelayAuthSign } from '@/lib/relay-auth-sign-queue'
 import {
@@ -460,6 +465,12 @@ export class QueryService {
       const stripped = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
       relays = relaysAfterSocialKindBlockedStrip(originalDedupedRelays, stripped)
     }
+    if (relayFiltersUseCapitalLetterTagKeys(filters)) {
+      relays = relayUrlsStripExtendedTagReqBlocked(relays)
+      if (relays.length === 0) {
+        relays = relayUrlsStripExtendedTagReqBlocked([...FAST_READ_RELAY_URLS])
+      }
+    }
     if (this.shouldSkipRelayForSession) {
       relays = relays.filter((url) => {
         const n = normalizeUrl(url) || url
@@ -692,7 +703,6 @@ export class QueryService {
     const originalDedupedRelays = Array.from(new Set(urls))
     let relays = originalDedupedRelays
     if (relays.length === 0) {
-      const { FAST_READ_RELAY_URLS } = await import('@/constants')
       relays = [...FAST_READ_RELAY_URLS]
     }
     const filters = Array.isArray(filter) ? filter : [filter]
@@ -703,6 +713,12 @@ export class QueryService {
       const socialKindBlockedSet = new Set(SOCIAL_KIND_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u))
       const stripped = relays.filter((url) => !socialKindBlockedSet.has(normalizeUrl(url) || url))
       relays = relaysAfterSocialKindBlockedStrip(originalDedupedRelays, stripped)
+    }
+    if (relayFiltersUseCapitalLetterTagKeys(filters)) {
+      relays = relayUrlsStripExtendedTagReqBlocked(relays)
+      if (relays.length === 0) {
+        relays = relayUrlsStripExtendedTagReqBlocked([...FAST_READ_RELAY_URLS])
+      }
     }
     const { onevent, ...queryOpts } = options ?? {}
     return this.query(relays, filter, onevent, queryOpts)

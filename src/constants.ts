@@ -273,7 +273,12 @@ export const SOCIAL_KIND_BLOCKED_RELAY_URLS = [
   'wss://hist.nostr.land',
 ]
 
-/** Relays that reject #e (and similar) tag filters; skip for reply/quote/stats fetches. */
+/**
+ * Relays that reject certain tag filters in REQs (e.g. `#e` on some stacks) and, on nostr.sovbit.host,
+ * filter keys whose tag letter is uppercase (`#E`, `#A`, `#I`, …). Skip for reply/quote/stats fetches and
+ * whenever filters use a capital letter after `#` in a tag key (see `relayFiltersUseCapitalLetterTagKeys` in
+ * `relay-extended-tag-req-blocks.ts`).
+ */
 export const E_TAG_FILTER_BLOCKED_RELAY_URLS = [
   'wss://nostr.v0l.io',
   'wss://nostr.sovbit.host'
