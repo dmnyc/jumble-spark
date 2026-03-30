@@ -1689,7 +1689,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   subRequests={subRequests}
                   feedSubscriptionKey={spellFeedSubscriptionKey}
                   hostPrimaryPageName="spells"
-                  showKinds={showKinds}
+                  showKinds={
+                    selectedFauxSpell === 'notifications' ? NOTIFICATION_SPELL_KINDS : showKinds
+                  }
                   spellFeedInstrumentToken={spellFeedInstrumentToken}
                   onSpellFeedFirstPaint={handleSpellFeedFirstPaint}
                   timelineLoadingSafetyTimeoutMs={

@@ -148,6 +148,7 @@ const Relay = forwardRef<
         subRequests={relayFeedSubRequests}
         useFilterAsIs
         allowKindlessRelayExplore
+        showAllKinds
         showFeedClientFilter
         hostPrimaryPageName={hostPrimaryPageName}
       />

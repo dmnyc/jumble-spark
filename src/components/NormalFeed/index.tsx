@@ -28,10 +28,20 @@ const NormalFeed = forwardRef<TNoteListRef, {
   mergeTimelineWhenSubRequestFiltersMatch?: boolean
   /** Home favorite-relays chip scope; see {@link NoteList} `feedTimelineScopeKey`. */
   feedTimelineScopeKey?: string
-  /** Single-relay Explore / chip: kindless REQ (see `SINGLE_RELAY_KINDLESS_REQ_LIMIT` in constants), no feed kind filter. */
+  /** Single-relay Explore / chip: kindless REQ (see `SINGLE_RELAY_KINDLESS_REQ_LIMIT` in constants). */
   useFilterAsIs?: boolean
   clientSideKindFilter?: boolean
   allowKindlessRelayExplore?: boolean
+  /**
+   * Default true (home following, favorites, sets, single-relay chip): kind picker narrows visible rows.
+   * Ignored when {@link showAllKinds} is effectively true.
+   */
+  withKindFilter?: boolean
+  /**
+   * When true (relay explorer page), list shows the full relay batch. When omitted, uses KindFilter "All Events"
+   * ({@link useKindFilter} / persisted bypass) on home feeds.
+   */
+  showAllKinds?: boolean
   /**
    * Client-side 🔍 feed filter. When omitted: hidden on main following, shown on relay explore and non-main feeds.
    */
@@ -56,6 +66,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
     useFilterAsIs = false,
     clientSideKindFilter = false,
     allowKindlessRelayExplore = false,
+    withKindFilter = true,
+    showAllKinds: showAllKindsProp,
     showFeedClientFilter: showFeedClientFilterProp,
     hostPrimaryPageName,
     onSingleRelayKindlessEmpty,
@@ -122,8 +134,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
     [showFeedClientFilterProp, isMainFeed, allowKindlessRelayExplore, useFilterAsIs]
   )
 
+  const listShowAllKinds = showAllKindsProp ?? feedKindFilterBypass
+
   /** Include kind picker deps for single-relay chips (kindless REQ + client-side kinds). */
-  const subHeaderFilterDepsKey = `${allowKindlessRelayExplore ? 'kle' : 'std'}|${showKindsKey}|${feedKindFilterBypass}`
+  const subHeaderFilterDepsKey = `${allowKindlessRelayExplore ? 'kle' : 'std'}|${showKindsKey}|${feedKindFilterBypass}|${listShowAllKinds ? 'all' : 'k'}`
 
   const tabsElement = useMemo(
     () => (
@@ -209,6 +223,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
           showKind1Replies={showKind1Replies}
           showKind1111={showKind1111}
           seeAllFeedEvents={feedKindFilterBypass}
+          withKindFilter={withKindFilter}
+          showAllKinds={listShowAllKinds}
           subRequests={subRequests}
           hideReplies={listMode === 'posts'}
           hideUntrustedNotes={hideUntrustedNotes}

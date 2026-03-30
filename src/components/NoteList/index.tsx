@@ -215,7 +215,17 @@ const NoteList = forwardRef(
       showKind1111 = true,
       seeAllFeedEvents = false,
       /**
-       * Single-relay Explore / home chip: REQ omits `kinds`, limit 200, no feed kind filter (relay decides what to send).
+       * Default true: kind picker + kind-1 / 1111 splits narrow visible rows. False only when {@link showAllKinds}
+       * should win without listing every kind (rare).
+       */
+      withKindFilter = true,
+      /**
+       * True on relay explorer and when KindFilter "All Events" is on (home): merged timeline is not narrowed to
+       * {@link showKinds} for display or live merge.
+       */
+      showAllKinds = false,
+      /**
+       * Single-relay Explore / home chip: REQ omits `kinds`, relay limit (see `SINGLE_RELAY_KINDLESS_REQ_LIMIT`).
        */
       allowKindlessRelayExplore = false,
       filterMutedNotes = true,
@@ -256,8 +266,8 @@ const NoteList = forwardRef(
       timelineLoadingSafetyTimeoutMs,
       /**
        * With {@link useFilterAsIs}: omit relay `kinds` when the subrequest filter has none. Kindless relay feeds
-       * merge the full batch; the kind picker still applies in the list via {@link applyKindPickerInUi}. Other
-       * `useFilterAsIs` paths may still narrow merged batches to {@link showKinds}.
+       * merge the full batch; {@link withKindFilter} + {@link showAllKinds} control whether {@link showKinds}
+       * narrows merge and visible rows. Other `useFilterAsIs` paths may still narrow merged batches to {@link showKinds}.
        */
       clientSideKindFilter = false,
       /**
@@ -306,6 +316,8 @@ const NoteList = forwardRef(
       showKind1111?: boolean
       /** Omit REQ kinds and skip client-side kind filtering (main feed testing). Ignored when useFilterAsIs. */
       seeAllFeedEvents?: boolean
+      withKindFilter?: boolean
+      showAllKinds?: boolean
       allowKindlessRelayExplore?: boolean
       filterMutedNotes?: boolean
       hideReplies?: boolean
@@ -580,7 +592,7 @@ const NoteList = forwardRef(
         JSON.stringify({
           feed: timelineSubscriptionKey,
           ...(allowKindlessRelayExplore
-            ? { relayKindless: true }
+            ? { relayKindless: true, showAllKinds }
             : {
                 kinds: showKindsKey,
                 op: showKind1OPs,
@@ -596,7 +608,8 @@ const NoteList = forwardRef(
         showKind1Replies,
         showKind1111,
         seeAllFeedEvents,
-        allowKindlessRelayExplore
+        allowKindlessRelayExplore,
+        showAllKinds
       ]
     )
 
@@ -615,17 +628,18 @@ const NoteList = forwardRef(
     useFilterAsIsRef.current = useFilterAsIs
     const clientSideKindFilterRef = useRef(clientSideKindFilter)
     clientSideKindFilterRef.current = clientSideKindFilter
+    const showAllKindsRef = useRef(showAllKinds)
+    showAllKindsRef.current = showAllKinds
+    const withKindFilterRef = useRef(withKindFilter)
+    withKindFilterRef.current = withKindFilter
 
     /**
-     * When to apply kind picker + kind-1/1111/GitRelease visibility to visible rows. Kindless relay REQs merge
-     * the full relay batch; this still filters what the list shows (unlike standalone relay explore, which sets
-     * {@link allowKindlessRelayExplore} without {@link clientSideKindFilter} and shows the firehose).
+     * When to apply kind picker + kind-1 OP|reply / 1111 / GitRelease splits to visible rows.
+     * Home feeds default to {@link withKindFilter}; relay explorer and KindFilter "All Events" use {@link showAllKinds}.
      */
     const applyKindPickerInUi = useMemo(
-      () =>
-        !seeAllFeedEvents &&
-        (!allowKindlessRelayExplore || (useFilterAsIs && clientSideKindFilter)),
-      [seeAllFeedEvents, allowKindlessRelayExplore, useFilterAsIs, clientSideKindFilter]
+      () => withKindFilter && !showAllKinds && !seeAllFeedEvents,
+      [withKindFilter, showAllKinds, seeAllFeedEvents]
     )
 
     const shouldHideEvent = useCallback(
@@ -1304,15 +1318,14 @@ const NoteList = forwardRef(
         }
 
         /**
-         * Kindless relay REQ (`allowKindlessRelayExplore`): never drop events here — relays return many kinds;
-         * merging only rows in {@link showKinds} left almost nothing in the timeline (e.g. christpill 200 events → 1
-         * visible) while relay explore showed the full firehose. {@link applyKindPickerInUi} / {@link filteredEvents}
-         * still apply the kind picker for what the user sees.
+         * Kindless relay REQ: when {@link showAllKinds} is true (explorer / "All Events"), keep the full batch;
+         * otherwise narrow to {@link showKinds} so the merged timeline matches {@link applyKindPickerInUi}.
          */
         const narrowLiveBatch = (evs: Event[]) => {
           if (seeAllFeedEventsRef.current) return evs
-          if (allowKindlessRelayExploreRef.current) return evs
+          if (allowKindlessRelayExploreRef.current && showAllKindsRef.current) return evs
           if (!useFilterAsIsRef.current || !clientSideKindFilterRef.current) return evs
+          if (!withKindFilterRef.current) return evs
           return evs.filter((e) => showKinds.includes(e.kind))
         }
 
@@ -1349,7 +1362,13 @@ const NoteList = forwardRef(
             let merged = [...byId.values()]
               .sort((a, b) => b.created_at - a.created_at)
               .slice(0, cap)
-            if (useFilterAsIs && clientSideKindFilter && !seeAllFeedEventsRef.current) {
+            if (
+              useFilterAsIs &&
+              clientSideKindFilter &&
+              withKindFilter &&
+              !seeAllFeedEventsRef.current &&
+              (!allowKindlessRelayExplore || !showAllKinds)
+            ) {
               merged = merged.filter((e) => showKinds.includes(e.kind))
             }
             if (sessionSnap?.length && !userPulledRefresh) {
@@ -1579,21 +1598,25 @@ const NoteList = forwardRef(
             onNew: (event: Event) => {
               if (!effectActive) return
               feedRelayReturnedAnyEventRef.current = true
-              if (!seeAllFeedEventsRef.current && !allowKindlessRelayExploreRef.current) {
-                if (!useFilterAsIsRef.current && !showKinds.includes(event.kind)) return
-                if (
-                  clientSideKindFilterRef.current &&
-                  useFilterAsIsRef.current &&
-                  !showKinds.includes(event.kind)
-                )
-                  return
-                if (event.kind === kinds.ShortTextNote) {
-                  const isReply = isReplyNoteEvent(event)
-                  if (isReply && !showKind1Replies) return
-                  if (!isReply && !showKind1OPs) return
+              if (!seeAllFeedEventsRef.current && withKindFilterRef.current) {
+                const kindlessFirehose =
+                  allowKindlessRelayExploreRef.current && showAllKindsRef.current
+                if (!kindlessFirehose) {
+                  if (!useFilterAsIsRef.current && !showKinds.includes(event.kind)) return
+                  if (
+                    clientSideKindFilterRef.current &&
+                    useFilterAsIsRef.current &&
+                    !showKinds.includes(event.kind)
+                  )
+                    return
+                  if (event.kind === kinds.ShortTextNote) {
+                    const isReply = isReplyNoteEvent(event)
+                    if (isReply && !showKind1Replies) return
+                    if (!isReply && !showKind1OPs) return
+                  }
+                  if (event.kind === ExtendedKind.COMMENT && !showKind1111) return
+                  if (event.kind === ExtendedKind.GIT_RELEASE && !showKind1OPs) return
                 }
-                if (event.kind === ExtendedKind.COMMENT && !showKind1111) return
-                if (event.kind === ExtendedKind.GIT_RELEASE && !showKind1OPs) return
               }
               if (shouldHideEventRef.current(event)) return
               if (pubkey && event.pubkey === pubkey) {
@@ -1693,6 +1716,8 @@ const NoteList = forwardRef(
       oneShotFirstRelayGraceMs,
       clientSideKindFilter,
       allowKindlessRelayExplore,
+      showAllKinds,
+      withKindFilter,
       onSingleRelayKindlessEmpty
     ])
 
@@ -1971,7 +1996,9 @@ const NoteList = forwardRef(
             const narrowLoadMore =
               useFilterAsIsRef.current &&
               clientSideKindFilterRef.current &&
-              !seeAllFeedEventsRef.current
+              withKindFilterRef.current &&
+              !seeAllFeedEventsRef.current &&
+              (!allowKindlessRelayExploreRef.current || !showAllKindsRef.current)
             let toAppend = narrowLoadMore
               ? fetchBatch.filter((e) => showKindsRef.current.includes(e.kind))
               : fetchBatch

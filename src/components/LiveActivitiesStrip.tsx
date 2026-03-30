@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import { useLiveActivitiesOptional } from '@/providers/LiveActivitiesProvider'
 import { useUserPreferences } from '@/providers/UserPreferencesProvider'
 import { ExternalLink } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 type TPlacement = 'sidebar' | 'mobile'
@@ -37,11 +37,21 @@ export default function LiveActivitiesStrip({ placement }: { placement: TPlaceme
     return () => window.clearInterval(id)
   }, [items.length, reduceMotion])
 
+  useLayoutEffect(() => {
+    if (items.length === 0) return
+    setSlide((s) => Math.min(s, items.length - 1))
+  }, [items.length])
+
   if (!showLiveActivitiesBanner || items.length === 0) {
     return null
   }
 
-  const current = items[slide]!
+  // `items` can shrink without a new array identity; `slide` may then be out of range until effects run.
+  const displayIndex = Math.min(slide, items.length - 1)
+  const current = items[displayIndex]
+  if (!current) {
+    return null
+  }
 
   return (
     <div
@@ -100,7 +110,7 @@ export default function LiveActivitiesStrip({ placement }: { placement: TPlaceme
               aria-label={t('liveActivities.goToSlide', { n: i + 1 })}
               className={cn(
                 'size-1.5 rounded-full transition-colors',
-                i === slide ? 'bg-primary' : 'bg-muted-foreground/40 hover:bg-muted-foreground/60'
+                i === displayIndex ? 'bg-primary' : 'bg-muted-foreground/40 hover:bg-muted-foreground/60'
               )}
               onClick={(e) => {
                 e.preventDefault()
