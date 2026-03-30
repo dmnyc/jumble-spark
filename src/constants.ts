@@ -162,6 +162,14 @@ export const StorageKey = {
   SHOW_PUBLISH_SUCCESS_TOASTS: 'showPublishSuccessToasts',
   /** When not `'false'`, show NIP-53 live activity banner (default on). */
   SHOW_LIVE_ACTIVITIES_BANNER: 'showLiveActivitiesBanner',
+  /** Persist timeline notes/reactions to IndexedDB (platform defaults; disable for relay-only). */
+  EVENT_ARCHIVE_ENABLED: 'eventArchiveEnabled',
+  /** Max approximate archive size (MB). `0` in UI means “use platform default”. */
+  EVENT_ARCHIVE_MAX_MB: 'eventArchiveMaxMb',
+  /** Max rows in event archive. `0` means use platform default. */
+  EVENT_ARCHIVE_MAX_EVENTS: 'eventArchiveMaxEvents',
+  /** In-memory session LRU max (events). Platform default if unset. */
+  SESSION_EVENT_LRU_MAX: 'sessionEventLruMax',
   /** Temporary draft cache: new notes and replies. Persisted after 30s idle; restored on refresh; cleared on logout/switch. */
   POST_EDITOR_DRAFT: 'postEditorDraft',
   MEDIA_UPLOAD_SERVICE: 'mediaUploadService', // deprecated

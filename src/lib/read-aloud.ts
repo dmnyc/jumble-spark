@@ -1,4 +1,10 @@
 import { ExtendedKind, READ_ALOUD_TTS_URL } from '@/constants'
+import {
+  buildPiperTtsCacheKey,
+  getPiperTtsCacheBudget,
+  getPiperTtsCacheTtlMs
+} from '@/lib/piper-tts-cache-policy'
+import indexedDb from '@/services/indexed-db.service'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { Event, kinds } from 'nostr-tools'
@@ -294,12 +300,26 @@ async function fetchPiperTtsBlobForChunk(
     throw new Error(`Part ${chunkIndex + 1} of ${totalChunks}: TTS URL not configured`)
   }
 
+  const speed = 1
+  const ttlMs = getPiperTtsCacheTtlMs()
+  const budget = getPiperTtsCacheBudget()
+  let cacheKey: string | undefined
+  try {
+    cacheKey = await buildPiperTtsCacheKey(url, text, speed)
+    const hit = await indexedDb.getPiperTtsBlobCache(cacheKey, ttlMs)
+    if (hit && hit.size > 0) {
+      return hit
+    }
+  } catch {
+    /* IndexedDB or crypto unavailable — fetch without cache */
+  }
+
   let response: Response
   try {
     response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, speed: 1 }),
+      body: JSON.stringify({ text, speed }),
       signal
     })
   } catch (e) {
@@ -326,6 +346,19 @@ async function fetchPiperTtsBlobForChunk(
   if (!blob.size) {
     logger.warn('[ReadAloud] Piper returned empty body', { endpoint: readAloudEndpointForLog() })
     throw new Error(`Part ${chunkIndex + 1} of ${totalChunks}: empty audio response`)
+  }
+
+  if (cacheKey) {
+    try {
+      const mime = blob.type || response.headers.get('Content-Type') || 'audio/wav'
+      await indexedDb.putPiperTtsBlobCache(cacheKey, blob, mime, {
+        ttlMs,
+        maxEntries: budget.maxEntries,
+        maxBytes: budget.maxBytes
+      })
+    } catch {
+      /* cache write failure should not break playback */
+    }
   }
 
   return blob

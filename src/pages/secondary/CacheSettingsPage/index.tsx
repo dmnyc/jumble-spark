@@ -1,4 +1,5 @@
 import CacheRelaysSetting from '@/components/CacheRelaysSetting'
+import EventArchiveCacheSettings from '@/components/EventArchiveCacheSettings'
 import { RefreshButton } from '@/components/RefreshButton'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
@@ -30,6 +31,7 @@ const CacheSettingsPage = forwardRef(
       >
         <div key={contentKey} className="px-4 py-3">
           <CacheRelaysSetting />
+          <EventArchiveCacheSettings />
         </div>
       </SecondaryPageLayout>
     )

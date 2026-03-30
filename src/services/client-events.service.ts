@@ -19,6 +19,13 @@ import { LRUCache } from 'lru-cache'
 import indexedDb from './indexed-db.service'
 import type { QueryService } from './client-query.service'
 import client from './client.service'
+import {
+  invalidateArchiveFootprintCache,
+  loadArchivedEventForFetch,
+  prefetchArchivedEvents,
+  queuePersistSeenEvent
+} from './event-archive.service'
+import { getDefaultSessionLruMaxSync } from '@/lib/event-archive-config'
 import { shouldDropEventOnIngest } from '@/lib/event-ingest-filter'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 import { normalizeUrl } from '@/lib/url'
@@ -54,8 +61,8 @@ export class EventService {
    * In-memory session cache: events seen this tab session (timelines, queries, fetches).
    * Larger cap + no TTL so navigation and repeat fetches reuse data until reload.
    */
-  /** Large cap: timelines + note-stats (reactions, replies, zaps, reposts per note) share one LRU. */
-  private sessionEventCache = new LRUCache<string, NEvent>({ max: 5_000 })
+  /** Timelines + note-stats; cap is platform-aware (see Cache settings). */
+  private sessionEventCache = new LRUCache<string, NEvent>({ max: getDefaultSessionLruMaxSync() })
   /** Latest kind-0 per pubkey from {@link sessionEventCache} for batch profile short-circuit. */
   private sessionMetadataByPubkey = new Map<string, NEvent>()
   /** Callbacks waiting for an event id to appear in {@link sessionEventCache} (e.g. embed loads before timeline caches the note). */
@@ -248,7 +255,14 @@ export class EventService {
           .filter((id) => /^[0-9a-f]{64}$/.test(id))
       )
     ]
-    const toFetch = hexIds.filter((id) => !this.getSessionEventIfAllowed(id))
+    let toFetch = hexIds.filter((id) => !this.getSessionEventIfAllowed(id))
+    if (toFetch.length === 0) return
+
+    const archived = await prefetchArchivedEvents(toFetch)
+    for (const ev of archived) {
+      if (!shouldDropEventOnIngest(ev)) this.addEventToCache(ev)
+    }
+    toFetch = toFetch.filter((id) => !this.getSessionEventIfAllowed(id))
     if (toFetch.length === 0) return
 
     const relayUrls = await buildComprehensiveRelayListForEvents(undefined, [], [], [])
@@ -367,6 +381,17 @@ export class EventService {
       }
     }
     this.notifySessionEventWaiters(id)
+    queuePersistSeenEvent(cleanEvent as NEvent)
+  }
+
+  /** Apply {@link StorageKey.SESSION_EVENT_LRU_MAX} without reload (copies entries into a new LRU). */
+  reapplySessionLruMax(): void {
+    const max = getDefaultSessionLruMaxSync()
+    const entries = [...this.sessionEventCache.entries()]
+    this.sessionEventCache = new LRUCache<string, NEvent>({ max })
+    for (const [k, v] of entries) {
+      this.sessionEventCache.set(k, v)
+    }
   }
 
   /** Kind 0 already ingested this session (e.g. from a timeline REQ). */
@@ -600,6 +625,7 @@ export class EventService {
     this.eventCacheMap.clear()
     this.sessionEventWaiters.clear()
     this.fetchEventFromBigRelaysDataloader.clearAll()
+    invalidateArchiveFootprintCache()
     logger.info('[EventService] In-memory caches cleared')
   }
 
@@ -637,6 +663,17 @@ export class EventService {
     }
 
     if (!filter) return undefined
+
+    if (filter.ids?.length === 1) {
+      const hid = filter.ids[0]!.toLowerCase()
+      if (/^[0-9a-f]{64}$/.test(hid)) {
+        const fromArchive = await loadArchivedEventForFetch(hid)
+        if (fromArchive && !shouldDropEventOnIngest(fromArchive)) {
+          this.addEventToCache(fromArchive)
+          return fromArchive
+        }
+      }
+    }
 
     // Try cache first
     if (filter.ids?.length) {

@@ -33,7 +33,7 @@ import { CloudUpload, Trash2, RefreshCw, Database, WrapText, Search, X, Triangle
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import client from '@/services/client.service'
-import indexedDb from '@/services/indexed-db.service'
+import indexedDb, { StoreNames } from '@/services/indexed-db.service'
 import postEditorCache from '@/services/post-editor-cache.service'
 import { StorageKey } from '@/constants'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -216,8 +216,9 @@ export default function CacheRelaysSetting() {
     }
 
     try {
-      // Clear IndexedDB
+      // Clear IndexedDB (all stores, including Piper read-aloud blobs)
       await indexedDb.clearAllCache()
+      await indexedDb.clearPiperTtsCache()
       
       // Clear localStorage (but keep essential settings like theme, accounts, etc.)
       // We'll only clear Jumble-specific cache keys, not all localStorage
@@ -725,6 +726,11 @@ export default function CacheRelaysSetting() {
       }
       // If neither exists, it's invalid
       return true
+    }
+
+    if (storeName === StoreNames.PIPER_TTS_CACHE) {
+      const v = item.value as { blob?: unknown; mimeType?: string } | null
+      return !(v && typeof v.mimeType === 'string' && v.blob instanceof Blob)
     }
     
     // For other stores, check if value exists

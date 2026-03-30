@@ -73,6 +73,7 @@ import {
 } from 'nostr-tools'
 import { AbstractRelay } from 'nostr-tools/abstract-relay'
 import indexedDb from './indexed-db.service'
+import { invalidateArchiveFootprintCache } from './event-archive.service'
 import { notifyLiveActivitiesPrewarmComplete } from './live-activities-prewarm-bridge'
 import nip66Service from './nip66.service'
 import { patchRelayNoticeForFetchFailures } from '@/services/relay-notice-strike'
@@ -173,6 +174,7 @@ class ClientService extends EventTarget {
     | string[]
     | undefined
   > = {}
+  private timelinePersistTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** In-flight {@link fetchRelayList} dedupe: key = viewer pubkey + target pubkey (sanitization depends on viewer). */
   private relayListRequestCache = new Map<string, Promise<TRelayList>>()
   private userIndex = new FlexSearch.Index({
@@ -1439,6 +1441,30 @@ class ClientService extends EventTarget {
 
   /** =========== Timeline =========== */
 
+  private scheduleTimelinePersist(timelineKey: string): void {
+    const prev = this.timelinePersistTimers.get(timelineKey)
+    if (prev) clearTimeout(prev)
+    const t = setTimeout(() => {
+      this.timelinePersistTimers.delete(timelineKey)
+      void this.flushTimelinePersist(timelineKey)
+    }, 1600)
+    this.timelinePersistTimers.set(timelineKey, t)
+  }
+
+  private async flushTimelinePersist(timelineKey: string): Promise<void> {
+    const tl = this.timelines[timelineKey]
+    if (!tl || Array.isArray(tl) || !tl.refs?.length) return
+    try {
+      await indexedDb.putTimelinePersistedState(timelineKey, {
+        refs: [...tl.refs],
+        filter: { ...(tl.filter as object) } as Record<string, unknown>,
+        urls: [...tl.urls]
+      })
+    } catch (e) {
+      logger.warn('[ClientService] Timeline persist failed', { timelineKey: timelineKey.slice(0, 12), e })
+    }
+  }
+
   private generateTimelineKey(urls: string[], filter: Filter) {
     const stableFilter: any = {}
     Object.entries(filter)
@@ -2089,6 +2115,24 @@ class ClientService extends EventTarget {
       }
     }
 
+    void (async () => {
+      try {
+        const st = await indexedDb.getTimelinePersistedState(key)
+        if (!st?.refs?.length) return
+        const list = await indexedDb.getArchivedEventsByIds(st.refs.map((r) => r[0]))
+        if (list.length === 0) return
+        for (const ev of list) {
+          if (shouldDropEventOnIngest(ev)) continue
+          if (eventIds.has(ev.id)) continue
+          eventIds.add(ev.id)
+          events.push(ev)
+        }
+        flushStreamingSnapshot()
+      } catch (err) {
+        logger.warn('[ClientService] Timeline disk hydrate failed', err)
+      }
+    })()
+
     const handleTimelineEose = (eosed: boolean) => {
       if (!eosed) return
       if (eosedAt != null) return
@@ -2125,6 +2169,7 @@ class ClientService extends EventTarget {
         }
       }
       onEvents([...events], true)
+      that.scheduleTimelinePersist(key)
     }
 
     const subCloser = this.subscribe(relays, filter, {
@@ -2161,6 +2206,7 @@ class ClientService extends EventTarget {
             timeline.refs = events
               .map((e) => [e.id, e.created_at] as TTimelineRef)
               .sort((a, b) => b[1] - a[1])
+            that.scheduleTimelinePersist(key)
           }
           return
         }
@@ -2175,6 +2221,7 @@ class ClientService extends EventTarget {
 
         if (timeline.refs.length === 0) {
           timeline.refs = events.map((e) => [e.id, e.created_at] as TTimelineRef).sort((a, b) => b[1] - a[1])
+          that.scheduleTimelinePersist(key)
           return
         }
 
@@ -2191,6 +2238,7 @@ class ClientService extends EventTarget {
         if (idx >= timeline.refs.length) return
 
         timeline.refs.splice(idx, 0, [evt.id, evt.created_at])
+        that.scheduleTimelinePersist(key)
       },
       oneose: handleTimelineEose,
       onclose: onClose
@@ -2247,6 +2295,7 @@ class ClientService extends EventTarget {
       timeline.refs.push(...newRefs)
     }
 
+    this.scheduleTimelinePersist(key)
     return events
   }
 
@@ -2420,6 +2469,10 @@ class ClientService extends EventTarget {
     this.eventService.addEventToCache(event)
   }
 
+  reapplySessionLruFromSettings(): void {
+    this.eventService.reapplySessionLruMax()
+  }
+
   peekSessionCachedEvent(noteId: string): NEvent | undefined {
     return this.eventService.peekSessionCachedEvent(noteId)
   }
@@ -2548,6 +2601,7 @@ class ClientService extends EventTarget {
     if (removed > 0) {
       logger.info('[ClientService] Removed tombstoned events from cache', { count: removed })
     }
+    invalidateArchiveFootprintCache()
     dispatchTombstonesUpdated()
   }
 
@@ -2613,6 +2667,7 @@ class ClientService extends EventTarget {
             count: removed
           })
         }
+        invalidateArchiveFootprintCache()
         dispatchTombstonesUpdated()
       }
     } catch (e) {

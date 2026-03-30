@@ -625,6 +625,25 @@ export default {
     successes: 'successes',
     None: 'None',
     'Cache & offline storage': 'Cache & offline storage',
+    'eventArchive.sectionTitle': 'Notes & feed archive',
+    'eventArchive.sectionBlurb':
+      'Keeps notes, reactions, and timeline order on disk so feeds can load offline or on slow links. Replaceable data (profiles, relay lists, publications) stays in its existing stores — this archive only fills gaps for “firehose” events. Turn off to rely on relays only.',
+    'eventArchive.defaultsMobile':
+      'This device profile uses small defaults: about {{lru}} events in memory, ~{{mb}} MB / {{ev}} archived events (reactions/zaps drop first).',
+    'eventArchive.defaultsElectron':
+      'Desktop app defaults: ~{{lru}} in-memory events, ~{{mb}} MB / {{ev}} archived events.',
+    'eventArchive.defaultsDesktopWeb':
+      'Desktop browser defaults: ~{{lru}} in-memory events, ~{{mb}} MB / {{ev}} archived events.',
+    'eventArchive.enablePersist': 'Persist feed events to disk',
+    'eventArchive.maxMb': 'Max archive size (MB), blank = default for this device',
+    'eventArchive.maxEvents': 'Max archived events, blank = default',
+    'eventArchive.sessionLru': 'In-memory session cache (event count), blank = default',
+    'eventArchive.effectiveSummary':
+      'Currently: {{enabled}} — ~{{mb}} MB budget, {{events}} events, {{lru}} session LRU.',
+    'eventArchive.on': 'on',
+    'eventArchive.off': 'off',
+    'eventArchive.apply': 'Apply cache settings',
+    'eventArchive.appliedToast': 'Cache settings saved. Session memory updated.',
     'Paste or drop media files to upload': 'Paste or drop media files to upload',
     Preview: 'Preview',
     'You are about to publish an event signed by [{{eventAuthorName}}]. You are currently logged in as [{{currentUsername}}]. Are you sure?':

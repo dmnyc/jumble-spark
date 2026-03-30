@@ -10,6 +10,28 @@ import { kinds } from 'nostr-tools'
 import { isReplaceableEvent, getReplaceableCoordinateFromEvent } from '@/lib/event'
 import logger from '@/lib/logger'
 
+/** Hot archive row in {@link StoreNames.EVENT_ARCHIVE}. */
+export type TArchivedEventRow = {
+  key: string
+  value: Event
+  addedAt: number
+  lastAccessAt: number
+  approxBytes: number
+  archiveTier: number
+}
+
+/** Persisted feed state for cold-start (filter JSON must round-trip). */
+export type TTimelinePersistedPayload = {
+  refs: [string, number][]
+  filter: Record<string, unknown>
+  urls: string[]
+}
+
+export type TPiperTtsCacheValue = {
+  blob: Blob
+  mimeType: string
+}
+
 type TValue<T = any> = {
   key: string
   value: T | null
@@ -58,11 +80,17 @@ export const StoreNames = {
   /** Tombstone list for deleted events (kind 5). Key: event id or replaceable coordinate. */
   TOMBSTONE_LIST: 'tombstoneList',
   /** NIP-58 badge definitions (kind 30009). Key: pubkey:d */
-  BADGE_DEFINITION_EVENTS: 'badgeDefinitionEvents'
+  BADGE_DEFINITION_EVENTS: 'badgeDefinitionEvents',
+  /** Hot timeline / REQ events (non-replaceable kinds not stored elsewhere). Key: event id hex. */
+  EVENT_ARCHIVE: 'eventArchive',
+  /** Persisted timeline refs + filter for cold-start hydration. Key: {@link ClientService.generateTimelineKey} hash. */
+  TIMELINE_STATE: 'timelineState',
+  /** Piper / read-aloud WAV blobs keyed by SHA-256 of endpoint + text + speed. */
+  PIPER_TTS_CACHE: 'piperTtsCache'
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 31
+const DB_VERSION = 33
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -83,6 +111,9 @@ function ensureMissingObjectStores(db: IDBDatabase): void {
       const store = db.createObjectStore(storeName, { keyPath: 'key' })
       store.createIndex('feedUrl', 'feedUrl', { unique: false })
       store.createIndex('pubDate', 'pubDate', { unique: false })
+    } else if (storeName === StoreNames.EVENT_ARCHIVE) {
+      const store = db.createObjectStore(storeName, { keyPath: 'key' })
+      store.createIndex('eviction', ['archiveTier', 'lastAccessAt'], { unique: false })
     } else {
       db.createObjectStore(storeName, { keyPath: 'key' })
     }
@@ -259,6 +290,16 @@ class IndexedDbService {
           }
           if (!db.objectStoreNames.contains(StoreNames.BADGE_DEFINITION_EVENTS)) {
             db.createObjectStore(StoreNames.BADGE_DEFINITION_EVENTS, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.EVENT_ARCHIVE)) {
+            const arc = db.createObjectStore(StoreNames.EVENT_ARCHIVE, { keyPath: 'key' })
+            arc.createIndex('eviction', ['archiveTier', 'lastAccessAt'], { unique: false })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.TIMELINE_STATE)) {
+            db.createObjectStore(StoreNames.TIMELINE_STATE, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(StoreNames.PIPER_TTS_CACHE)) {
+            db.createObjectStore(StoreNames.PIPER_TTS_CACHE, { keyPath: 'key' })
           }
           ensureMissingObjectStores(db)
         }
@@ -1234,6 +1275,10 @@ class IndexedDbService {
     }
   }
 
+  /**
+   * Clears every object store in the `jumble` database, including
+   * {@link StoreNames.PIPER_TTS_CACHE} (read-aloud / Piper WAV blobs).
+   */
   async clearAllCache(): Promise<void> {
     await this.initPromise
     if (!this.db) {
@@ -1334,6 +1379,11 @@ class IndexedDbService {
         reject(event)
       }
     })
+  }
+
+  /** Clear cached Piper / read-aloud audio blobs. No-op if the store is absent. */
+  async clearPiperTtsCache(): Promise<void> {
+    await this.clearStore(StoreNames.PIPER_TTS_CACHE)
   }
 
   async clearStore(storeName: string): Promise<void> {
@@ -2102,6 +2152,362 @@ class IndexedDbService {
     })
   }
 
+  /** Hot archive row (kinds already persisted in replaceable stores should not use this). */
+  async putArchivedEventRow(
+    event: Event,
+    archiveTier: number,
+    approxBytes: number
+  ): Promise<void> {
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.EVENT_ARCHIVE)) return
+    const id = /^[0-9a-f]{64}$/i.test(event.id) ? event.id.toLowerCase() : event.id
+    const clean = { ...event }
+    delete (clean as any).relayStatuses
+    const now = Date.now()
+    const row: TArchivedEventRow = {
+      key: id,
+      value: clean as Event,
+      addedAt: now,
+      lastAccessAt: now,
+      approxBytes: Math.max(80, approxBytes),
+      archiveTier
+    }
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.EVENT_ARCHIVE, 'readwrite')
+      const store = tx.objectStore(StoreNames.EVENT_ARCHIVE)
+      const put = store.put(row)
+      put.onsuccess = () => {
+        tx.commit()
+        resolve()
+      }
+      put.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+  }
+
+  async touchArchivedEventAccess(eventId: string): Promise<void> {
+    const id = eventId.toLowerCase()
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.EVENT_ARCHIVE)) return
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.EVENT_ARCHIVE, 'readwrite')
+      const store = tx.objectStore(StoreNames.EVENT_ARCHIVE)
+      const get = store.get(id)
+      get.onsuccess = () => {
+        const row = get.result as TArchivedEventRow | undefined
+        if (!row?.value) {
+          tx.commit()
+          resolve()
+          return
+        }
+        row.lastAccessAt = Date.now()
+        const put = store.put(row)
+        put.onsuccess = () => {
+          tx.commit()
+          resolve()
+        }
+        put.onerror = (e) => {
+          tx.commit()
+          reject(idbEventToError(e))
+        }
+      }
+      get.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+  }
+
+  async getArchivedEventById(eventId: string, touchAccess: boolean): Promise<Event | undefined> {
+    const id = eventId.toLowerCase()
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.EVENT_ARCHIVE)) return undefined
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.EVENT_ARCHIVE, touchAccess ? 'readwrite' : 'readonly')
+      const store = tx.objectStore(StoreNames.EVENT_ARCHIVE)
+      const get = store.get(id)
+      get.onsuccess = () => {
+        const row = get.result as TArchivedEventRow | undefined
+        const ev = row?.value
+        if (touchAccess && row && ev) {
+          row.lastAccessAt = Date.now()
+          const put = store.put(row)
+          put.onsuccess = () => {
+            tx.commit()
+            resolve(ev)
+          }
+          put.onerror = (e) => {
+            tx.commit()
+            reject(idbEventToError(e))
+          }
+          return
+        }
+        tx.commit()
+        resolve(ev)
+      }
+      get.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+  }
+
+  async getArchivedEventsByIds(ids: string[]): Promise<Event[]> {
+    const uniq = [...new Set(ids.map((x) => x.toLowerCase()))].filter((x) => /^[0-9a-f]{64}$/.test(x))
+    if (uniq.length === 0) return []
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.EVENT_ARCHIVE)) return []
+    const out: Event[] = []
+    await Promise.all(
+      uniq.map(
+        (id) =>
+          new Promise<void>((resolve, reject) => {
+            const tx = this.db!.transaction(StoreNames.EVENT_ARCHIVE, 'readonly')
+            const get = tx.objectStore(StoreNames.EVENT_ARCHIVE).get(id)
+            get.onsuccess = () => {
+              const row = get.result as TArchivedEventRow | undefined
+              if (row?.value) out.push(row.value)
+              tx.commit()
+              resolve()
+            }
+            get.onerror = (e) => {
+              tx.commit()
+              reject(idbEventToError(e))
+            }
+          })
+      )
+    )
+    return out
+  }
+
+  async deleteArchivedEvent(eventId: string): Promise<void> {
+    const id = eventId.toLowerCase()
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.EVENT_ARCHIVE)) return
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.EVENT_ARCHIVE, 'readwrite')
+      const del = tx.objectStore(StoreNames.EVENT_ARCHIVE).delete(id)
+      del.onsuccess = () => {
+        tx.commit()
+        resolve()
+      }
+      del.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+  }
+
+  /** Delete lowest (tier, then oldest access) row for archive eviction. */
+  async deleteNextEvictionArchiveCandidate(): Promise<{ id: string; approxBytes: number } | null> {
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.EVENT_ARCHIVE)) return null
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.EVENT_ARCHIVE, 'readwrite')
+      const store = tx.objectStore(StoreNames.EVENT_ARCHIVE)
+      const idx = store.index('eviction')
+      const req = idx.openCursor()
+      req.onsuccess = () => {
+        const cursor = req.result as IDBCursorWithValue | null
+        if (!cursor) {
+          tx.commit()
+          resolve(null)
+          return
+        }
+        const row = cursor.value as TArchivedEventRow
+        const id = row.key
+        const approxBytes = row.approxBytes ?? 0
+        cursor.delete()
+        tx.commit()
+        resolve({ id, approxBytes })
+      }
+      req.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+  }
+
+  async getArchiveFootprint(): Promise<{ count: number; bytes: number }> {
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.EVENT_ARCHIVE)) {
+      return { count: 0, bytes: 0 }
+    }
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.EVENT_ARCHIVE, 'readonly')
+      const store = tx.objectStore(StoreNames.EVENT_ARCHIVE)
+      const req = store.openCursor()
+      let count = 0
+      let bytes = 0
+      req.onsuccess = () => {
+        const cursor = req.result as IDBCursorWithValue | null
+        if (!cursor) {
+          tx.commit()
+          resolve({ count, bytes })
+          return
+        }
+        const row = cursor.value as TArchivedEventRow
+        count++
+        bytes += row.approxBytes ?? 0
+        cursor.continue()
+      }
+      req.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+  }
+
+  async putTimelinePersistedState(
+    timelineKey: string,
+    payload: TTimelinePersistedPayload
+  ): Promise<void> {
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.TIMELINE_STATE)) return
+    const row = this.formatValue(timelineKey, payload)
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.TIMELINE_STATE, 'readwrite')
+      const put = tx.objectStore(StoreNames.TIMELINE_STATE).put(row)
+      put.onsuccess = () => {
+        tx.commit()
+        resolve()
+      }
+      put.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+  }
+
+  async getTimelinePersistedState(timelineKey: string): Promise<TTimelinePersistedPayload | null> {
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.TIMELINE_STATE)) return null
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.TIMELINE_STATE, 'readonly')
+      const get = tx.objectStore(StoreNames.TIMELINE_STATE).get(timelineKey)
+      get.onsuccess = () => {
+        const row = get.result as TValue<TTimelinePersistedPayload> | undefined
+        tx.commit()
+        resolve(row?.value ?? null)
+      }
+      get.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+  }
+
+  async getPiperTtsBlobCache(cacheKey: string, ttlMs: number): Promise<Blob | null> {
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.PIPER_TTS_CACHE)) return null
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.PIPER_TTS_CACHE, 'readwrite')
+      const store = tx.objectStore(StoreNames.PIPER_TTS_CACHE)
+      const get = store.get(cacheKey)
+      get.onsuccess = () => {
+        const row = get.result as TValue<TPiperTtsCacheValue> | undefined
+        if (!row?.value?.blob) {
+          tx.commit()
+          resolve(null)
+          return
+        }
+        if (Date.now() - row.addedAt > ttlMs) {
+          const del = store.delete(cacheKey)
+          del.onsuccess = () => {
+            tx.commit()
+            resolve(null)
+          }
+          del.onerror = () => {
+            tx.commit()
+            resolve(null)
+          }
+          return
+        }
+        tx.commit()
+        resolve(row.value.blob)
+      }
+      get.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+  }
+
+  async putPiperTtsBlobCache(
+    cacheKey: string,
+    blob: Blob,
+    mimeType: string,
+    opts: { ttlMs: number; maxEntries: number; maxBytes: number }
+  ): Promise<void> {
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.PIPER_TTS_CACHE)) return
+    const row = this.formatValue(cacheKey, { blob, mimeType })
+    await new Promise<void>((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.PIPER_TTS_CACHE, 'readwrite')
+      const put = tx.objectStore(StoreNames.PIPER_TTS_CACHE).put(row)
+      put.onsuccess = () => {
+        tx.commit()
+        resolve()
+      }
+      put.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+    await this.prunePiperTtsBlobCache(opts.ttlMs, opts.maxEntries, opts.maxBytes)
+  }
+
+  /** Drop expired Piper blobs, then oldest rows until under entry / byte caps. */
+  async prunePiperTtsBlobCache(ttlMs: number, maxEntries: number, maxBytes: number): Promise<void> {
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.PIPER_TTS_CACHE)) return
+    const now = Date.now()
+    const rows: Array<{ key: string; addedAt: number; bytes: number }> = []
+
+    await new Promise<void>((resolve, reject) => {
+      const tx = this.db!.transaction(StoreNames.PIPER_TTS_CACHE, 'readonly')
+      const req = tx.objectStore(StoreNames.PIPER_TTS_CACHE).openCursor()
+      req.onsuccess = () => {
+        const cursor = req.result as IDBCursorWithValue | null
+        if (!cursor) {
+          tx.commit()
+          resolve()
+          return
+        }
+        const row = cursor.value as TValue<TPiperTtsCacheValue>
+        const key = cursor.key as string
+        const bytes = row.value?.blob?.size ?? 0
+        rows.push({ key, addedAt: row.addedAt, bytes })
+        cursor.continue()
+      }
+      req.onerror = (e) => {
+        tx.commit()
+        reject(idbEventToError(e))
+      }
+    })
+
+    const toDelete = new Set<string>()
+    for (const r of rows) {
+      if (now - r.addedAt > ttlMs) toDelete.add(r.key)
+    }
+    const survivors = rows.filter((r) => !toDelete.has(r.key)).sort((a, b) => a.addedAt - b.addedAt)
+    let totalBytes = survivors.reduce((s, r) => s + r.bytes, 0)
+    let totalCount = survivors.length
+    while (totalCount > maxEntries || totalBytes > maxBytes) {
+      const victim = survivors.shift()
+      if (!victim) break
+      toDelete.add(victim.key)
+      totalBytes -= victim.bytes
+      totalCount--
+    }
+
+    for (const key of toDelete) {
+      await this.deleteStoreItem(StoreNames.PIPER_TTS_CACHE, key)
+    }
+  }
+
   /**
    * Get all tombstoned keys
    */
@@ -2149,13 +2555,12 @@ class IndexedDbService {
       // Or just event ID for non-replaceable events
       const parts = key.split(':')
       if (parts.length === 1) {
-        // Event ID - remove from publication store
-        try {
-          await this.deleteStoreItem(StoreNames.PUBLICATION_EVENTS, key)
-          removed++
-        } catch {
-          // Ignore errors
-        }
+        // Event ID - remove from publication store + hot archive
+        await Promise.allSettled([
+          this.deleteStoreItem(StoreNames.PUBLICATION_EVENTS, key),
+          this.deleteArchivedEvent(key)
+        ])
+        removed++
       } else if (parts.length >= 2) {
         // Replaceable coordinate: kind:64-hex-pubkey[:d...] (d may contain ':' per NIP-33)
         const kind = parseInt(parts[0]!, 10)
