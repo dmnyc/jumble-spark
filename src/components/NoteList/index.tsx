@@ -15,7 +15,7 @@ import {
 } from '@/lib/spell-feed-request-identity'
 import logger from '@/lib/logger'
 import { normalizeUrl } from '@/lib/url'
-import { getZapInfoFromEvent } from '@/lib/event-metadata'
+import { shouldIncludeZapReceiptAtReplyThreshold } from '@/lib/event-metadata'
 import { isTouchDevice } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useDeletedEvent } from '@/providers/DeletedEventProvider'
@@ -672,13 +672,9 @@ const NoteList = forwardRef(
         // Filter out expired events
         if (shouldFilterEvent(evt)) return true
 
-        // Filter out zap receipts below the zap threshold (superzaps)
-        if (evt.kind === ExtendedKind.ZAP_RECEIPT) {
-          const zapInfo = getZapInfoFromEvent(evt)
-          // Hide zap receipts if amount is missing, 0, or below the threshold
-          if (!zapInfo || zapInfo.amount === undefined || zapInfo.amount === 0 || zapInfo.amount < zapReplyThreshold) {
-            return true
-          }
+        // Filter out zap receipts below the zap-reply threshold (same rule as thread replies)
+        if (evt.kind === ExtendedKind.ZAP_RECEIPT && !shouldIncludeZapReceiptAtReplyThreshold(evt, zapReplyThreshold)) {
+          return true
         }
 
         if (extraShouldHideEvent?.(evt)) return true

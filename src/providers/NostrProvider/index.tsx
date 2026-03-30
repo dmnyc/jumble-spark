@@ -1105,13 +1105,17 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     if (draft.tags?.length) {
       draft.tags = draft.tags.filter((tag) => Array.isArray(tag) && tag[0] !== 'client')
     }
-    // 2) If user has allowed adding a client tag, add our own
+    // 2) If user has allowed adding a client tag, add our own (and drop prior Jumble "alt" lines —
+    //    unlike "client", we used not to strip "alt", so follow-list merges accumulated duplicates).
     const addClientTag =
       typeof options.addClientTag === 'boolean'
         ? options.addClientTag
         : (typeof window !== 'undefined' && storage.getAddClientTag())
     if (addClientTag) {
-      draft.tags = draft.tags ?? []
+      const jumbleAttributionAlt = buildAltTag()[1]
+      draft.tags = (draft.tags ?? []).filter(
+        (tag) => Array.isArray(tag) && !(tag[0] === 'alt' && tag[1] === jumbleAttributionAlt)
+      )
       draft.tags.push(buildClientTag(), buildAltTag())
     }
     let event: VerifiedEvent

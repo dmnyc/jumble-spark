@@ -78,6 +78,10 @@ export const toProfileEditor = () => '/profile-editor'
 export const toRelay = (url: string) => `/relays/${encodeURIComponent(url)}`
 export const toRelayReviews = (url: string) => `/relays/${encodeURIComponent(url)}/reviews`
 export const toMuteList = () => '/mutes'
+
+export const toBookmarksList = () => '/bookmarks'
+
+export const toPinsList = () => '/pins'
 export const toSpells = () => '/spells'
 
 export const toChachiChat = (relay: string, d: string) => {

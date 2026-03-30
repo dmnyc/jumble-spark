@@ -33,7 +33,19 @@ const navLazyFallback = React.createElement(
   'Loading…'
 )
 
-export type ViewType = 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null
+export type ViewType =
+  | 'note'
+  | 'settings'
+  | 'settings-sub'
+  | 'profile'
+  | 'hashtag'
+  | 'relay'
+  | 'following'
+  | 'mute'
+  | 'bookmarks'
+  | 'pins'
+  | 'others-relay-settings'
+  | null
 
 export interface NavigationContext {
   setPrimaryNoteView: (view: ReactNode, type: ViewType) => void
@@ -278,6 +290,8 @@ export class NavigationService {
     }
     if (viewType === 'following') return 'Following'
     if (viewType === 'mute') return 'Muted Users'
+    if (viewType === 'bookmarks') return 'Bookmarks'
+    if (viewType === 'pins') return 'Pinned notes'
     if (viewType === 'others-relay-settings') return 'Relays and Storage Settings'
     return 'Page'
   }

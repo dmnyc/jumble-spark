@@ -1,13 +1,17 @@
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useZap } from '@/providers/ZapProvider'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export default function ZapReplyThresholdInput() {
   const { t } = useTranslation()
   const { zapReplyThreshold, updateZapReplyThreshold } = useZap()
   const [zapReplyThresholdInput, setZapReplyThresholdInput] = useState(zapReplyThreshold)
+
+  useEffect(() => {
+    setZapReplyThresholdInput(zapReplyThreshold)
+  }, [zapReplyThreshold])
 
   return (
     <div className="w-full space-y-1">

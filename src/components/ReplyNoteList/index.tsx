@@ -18,7 +18,7 @@ import {
   kind1QuotesThreadRoot
 } from '@/lib/event'
 import logger from '@/lib/logger'
-import { getZapInfoFromEvent } from '@/lib/event-metadata'
+import { getZapInfoFromEvent, shouldIncludeZapReceiptAtReplyThreshold } from '@/lib/event-metadata'
 import { normalizeUrl } from '@/lib/url'
 import { shouldHideThreadResponseEvent } from '@/lib/thread-response-filter'
 import { getCachedThreadContextEvents } from '@/lib/navigation-related-events'
@@ -28,6 +28,7 @@ import { useSmartNoteNavigation, useSecondaryPage } from '@/PageManager'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/contexts/mute-list-context'
 import { useNostr } from '@/providers/NostrProvider'
+import { useZap } from '@/providers/ZapProvider'
 import { useReply } from '@/providers/ReplyProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
@@ -70,6 +71,10 @@ function partitionZapReceipts(items: NEvent[]) {
     else nonZaps.push(e)
   }
   return { zaps, nonZaps }
+}
+
+function filterZapReceiptsByReplyThreshold(zaps: NEvent[], thresholdSats: number): NEvent[] {
+  return zaps.filter((z) => shouldIncludeZapReceiptAtReplyThreshold(z, thresholdSats))
 }
 
 /** Zap receipts (9735) at top of reply feeds: largest sats first */
@@ -256,6 +261,7 @@ function ReplyNoteList({
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
   const { pubkey: userPubkey } = useNostr()
+  const { zapReplyThreshold } = useZap()
   const { blockedRelays } = useFavoriteRelays()
   const { relayUrls: browsingRelayUrls } = useCurrentRelays()
   const [rootInfo, setRootInfo] = useState<TRootInfo | undefined>(undefined)
@@ -397,7 +403,8 @@ function ReplyNoteList({
     
 
 
-    const { zaps, nonZaps } = partitionZapReceipts(replyEvents)
+    const { zaps: zapsPartitioned, nonZaps } = partitionZapReceipts(replyEvents)
+    const zaps = filterZapReceiptsByReplyThreshold(zapsPartitioned, zapReplyThreshold)
 
     // Sort notes/comments; zap receipts (9735) are always listed first, largest sats → smallest
     switch (sort) {
@@ -459,7 +466,8 @@ function ReplyNoteList({
     repliesMap,
     mutePubkeySet,
     hideContentMentioningMutedUsers,
-    sort
+    sort,
+    zapReplyThreshold
   ])
 
   const replyIdSet = useMemo(() => new Set(replies.map((r) => r.id)), [replies])

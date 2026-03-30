@@ -49,7 +49,8 @@ import { NoteDrawerContext, useNoteDrawer, useNoteDrawerOptional } from '@/conte
 import {
   PrimaryNoteViewContext,
   usePrimaryNoteView,
-  usePrimaryNoteViewOptional
+  usePrimaryNoteViewOptional,
+  type TPrimaryOverlayViewType
 } from '@/contexts/primary-note-view-context'
 import { SecondaryPageContext, useSecondaryPage, useSecondaryPageOptional } from '@/contexts/secondary-page-context'
 
@@ -88,6 +89,8 @@ const RelayPulseActiveNpubsSheetLazy = lazy(
 const SecondaryProfilePageLazy = lazy(() => import('@/pages/secondary/ProfilePage'))
 const PrimaryFollowingListPageLazy = lazy(() => import('@/pages/secondary/FollowingListPage'))
 const PrimaryMuteListPageLazy = lazy(() => import('@/pages/secondary/MuteListPage'))
+const PrimaryBookmarkListPageLazy = lazy(() => import('@/pages/secondary/BookmarkListPage'))
+const PrimaryPinListPageLazy = lazy(() => import('@/pages/secondary/PinListPage'))
 const PrimaryOthersRelaySettingsPageLazy = lazy(() => import('@/pages/secondary/OthersRelaySettingsPage'))
 const SecondaryRelayPageLazy = lazy(() => import('@/pages/secondary/RelayPage'))
 
@@ -734,6 +737,46 @@ export function useSmartMuteListNavigation() {
   return { navigateToMuteList }
 }
 
+export function useSmartBookmarkListNavigation() {
+  const { setPrimaryNoteView } = usePrimaryNoteView()
+  const { push: pushSecondaryPage } = useSecondaryPage()
+  const { isSmallScreen } = useScreenSize()
+
+  const navigateToBookmarkList = (url: string) => {
+    if (isSmallScreen) {
+      window.history.pushState(null, '', url)
+      setPrimaryNoteView(
+        suspensePrimaryPage(<PrimaryBookmarkListPageLazy index={0} hideTitlebar={true} />),
+        'bookmarks'
+      )
+    } else {
+      pushSecondaryPage(url)
+    }
+  }
+
+  return { navigateToBookmarkList }
+}
+
+export function useSmartPinListNavigation() {
+  const { setPrimaryNoteView } = usePrimaryNoteView()
+  const { push: pushSecondaryPage } = useSecondaryPage()
+  const { isSmallScreen } = useScreenSize()
+
+  const navigateToPinList = (url: string) => {
+    if (isSmallScreen) {
+      window.history.pushState(null, '', url)
+      setPrimaryNoteView(
+        suspensePrimaryPage(<PrimaryPinListPageLazy index={0} hideTitlebar={true} />),
+        'pins'
+      )
+    } else {
+      pushSecondaryPage(url)
+    }
+  }
+
+  return { navigateToPinList }
+}
+
 // Fixed: Others relay settings navigation now uses primary note view on mobile, secondary routing on desktop
 export function useSmartOthersRelaySettingsNavigation() {
   const { setPrimaryNoteView } = usePrimaryNoteView()
@@ -780,7 +823,7 @@ export function useSmartSettingsNavigation() {
 // DEPRECATED: ConditionalHomePage removed - double-panel functionality disabled
 
 // Helper function to get page title based on view type and URL
-function getPageTitle(viewType: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null, pathname: string): string {
+function getPageTitle(viewType: TPrimaryOverlayViewType | null, pathname: string): string {
   // Create a temporary navigation service instance to use the getPageTitle method
   const tempService = new NavigationService({ setPrimaryNoteView: () => {} })
   return tempService.getPageTitle(viewType, pathname)
@@ -798,7 +841,7 @@ function MainContentArea({
   primaryPages: { name: TPrimaryPageName; element: ReactNode; props?: any }[]
   currentPrimaryPage: TPrimaryPageName
   primaryNoteView: ReactNode | null
-  primaryViewType: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null
+  primaryViewType: TPrimaryOverlayViewType | null
   goBack: () => void
   onPrimaryPanelRefresh: () => void
 }) {
@@ -913,7 +956,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     secondaryStackRef.current = secondaryStack
   }, [secondaryStack])
   const [primaryNoteView, setPrimaryNoteViewState] = useState<ReactNode | null>(null)
-  const [primaryViewType, setPrimaryViewType] = useState<'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings' | null>(null)
+  const [primaryViewType, setPrimaryViewType] = useState<TPrimaryOverlayViewType | null>(null)
   const [savedPrimaryPage, setSavedPrimaryPage] = useState<TPrimaryPageName | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerNoteId, setDrawerNoteId] = useState<string | null>(null)
@@ -949,7 +992,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     }
   }, [primaryPages])
 
-  const setPrimaryNoteView = (view: ReactNode | null, type?: 'note' | 'settings' | 'settings-sub' | 'profile' | 'hashtag' | 'relay' | 'following' | 'mute' | 'others-relay-settings') => {
+  const setPrimaryNoteView = (view: ReactNode | null, type?: TPrimaryOverlayViewType) => {
     if (view && !primaryNoteView) {
       // Saving current primary page before showing overlay
       savedPrimaryPagePropsRef.current = primaryPages.find((p) => p.name === currentPrimaryPage)?.props as
@@ -1680,7 +1723,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       navigatePrimaryPage('settings')
       return
     }
-    if (primaryViewType === 'following' || primaryViewType === 'mute' || primaryViewType === 'others-relay-settings') {
+    if (primaryViewType === 'bookmarks' || primaryViewType === 'pins' || primaryViewType === 'mute') {
+      setPrimaryNoteView(null)
+      return
+    }
+    if (primaryViewType === 'following' || primaryViewType === 'others-relay-settings') {
       const currentPath = window.location.pathname
       const profileId = currentPath.replace('/users/', '').replace('/following', '').replace('/muted', '').replace('/relays', '')
       const profileUrl = `/users/${profileId}`
@@ -1912,15 +1959,15 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                       variant="ghost"
                       size="titlebar-icon"
                       title="Back to feed"
-                      onClick={() => setPrimaryNoteView(null)}
+                      onClick={goBack}
                     >
                       <ChevronLeft />
                       <div className="truncate text-lg font-semibold">
-                        {primaryViewType === 'settings' ? 'Settings' : 
-                         primaryViewType === 'settings-sub' ? 'Settings' : 
-                         primaryViewType === 'profile' ? 'Back' : 
-                         primaryViewType === 'hashtag' ? 'Hashtag' : 
-                         primaryViewType === 'note' ? getPageTitle(primaryViewType, window.location.pathname) : 'Note'}
+                        {primaryViewType === 'settings' || primaryViewType === 'settings-sub'
+                          ? 'Settings'
+                          : primaryViewType === 'profile'
+                            ? 'Back'
+                            : getPageTitle(primaryViewType, window.location.pathname)}
                       </div>
                     </Button>
                   </div>

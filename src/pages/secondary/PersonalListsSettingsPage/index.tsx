@@ -4,11 +4,13 @@ import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { cn } from '@/lib/utils'
 import {
+  useSmartBookmarkListNavigation,
   useSmartFollowingListNavigation,
   useSmartMuteListNavigation,
+  useSmartPinListNavigation,
   useSmartSettingsNavigation
 } from '@/PageManager'
-import { toFollowSetsSettings, toFollowingList, toMuteList } from '@/lib/link'
+import { toBookmarksList, toFollowSetsSettings, toFollowingList, toMuteList, toPinsList } from '@/lib/link'
 import { useNostr } from '@/providers/NostrProvider'
 import { Bookmark, ChevronRight, Pin, Users, VolumeX } from 'lucide-react'
 import { forwardRef, HTMLProps, useCallback, useEffect, useState } from 'react'
@@ -25,6 +27,8 @@ const PersonalListsSettingsPage = forwardRef(
     const { navigateToSettings } = useSmartSettingsNavigation()
     const { navigateToMuteList } = useSmartMuteListNavigation()
     const { navigateToFollowingList } = useSmartFollowingListNavigation()
+    const { navigateToBookmarkList } = useSmartBookmarkListNavigation()
+    const { navigateToPinList } = useSmartPinListNavigation()
     const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
     const [contentKey, setContentKey] = useState(0)
     const bump = useCallback(() => setContentKey((k) => k + 1), [])
@@ -47,10 +51,7 @@ const PersonalListsSettingsPage = forwardRef(
       >
         <div key={contentKey} className="min-w-0 space-y-1 px-1 pt-2">
           <p className="px-3 pb-3 text-sm text-muted-foreground">{t('Personal lists hub intro')}</p>
-          <SettingRow
-            className="clickable"
-            onClick={() => navigateToMuteList(toMuteList())}
-          >
+          <SettingRow className="clickable" onClick={() => navigateToMuteList(toMuteList())}>
             <div className="flex items-center gap-3">
               <VolumeX />
               <div>{t('Mute list')}</div>
@@ -70,31 +71,43 @@ const PersonalListsSettingsPage = forwardRef(
             </SettingRow>
           ) : null}
           {pubkey ? (
-            <SettingRow
-              className="clickable"
-              onClick={() => navigatePrimary('spells', { spell: 'bookmarks' })}
-            >
+            <SettingRow className="clickable" onClick={() => navigateToBookmarkList(toBookmarksList())}>
               <div className="flex items-center gap-3">
                 <Bookmark />
-                <div>{t('Bookmarks spell')}</div>
+                <div>{t('Bookmarks list')}</div>
               </div>
               <ChevronRight />
             </SettingRow>
           ) : null}
-          <SettingRow
-            className="clickable"
-            onClick={() => navigateToSettings(toFollowSetsSettings())}
-          >
+          {pubkey ? (
+            <SettingRow className="clickable" onClick={() => navigateToPinList(toPinsList())}>
+              <div className="flex items-center gap-3">
+                <Pin />
+                <div>{t('Pinned notes list')}</div>
+              </div>
+              <ChevronRight />
+            </SettingRow>
+          ) : null}
+          <SettingRow className="clickable" onClick={() => navigateToSettings(toFollowSetsSettings())}>
             <div className="flex items-center gap-3">
               <Users />
               <div>{t('Follow sets')}</div>
             </div>
             <ChevronRight />
           </SettingRow>
-          <div className="flex min-h-[52px] items-center gap-3 rounded-lg px-4 py-2 text-sm text-muted-foreground">
-            <Pin className="size-4 shrink-0 opacity-80" />
-            <div>{t('Pinned notes hint')}</div>
-          </div>
+          <p className="flex min-h-[52px] items-start gap-3 rounded-lg px-4 py-2 text-sm text-muted-foreground">
+            <Bookmark className="mt-0.5 size-4 shrink-0 opacity-80" />
+            <span>
+              {t('Personal lists bookmarks spell hint')}{' '}
+              <button
+                type="button"
+                className="text-primary underline-offset-4 hover:underline"
+                onClick={() => navigatePrimary('spells', { spell: 'bookmarks' })}
+              >
+                {t('Bookmarks spell')}
+              </button>
+            </span>
+          </p>
         </div>
       </SecondaryPageLayout>
     )

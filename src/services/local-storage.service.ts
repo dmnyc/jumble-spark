@@ -84,7 +84,7 @@ class LocalStorageService {
   private defaultZapSats: number = 21
   private defaultZapComment: string = 'Zap!'
   private quickZap: boolean = false
-  private zapReplyThreshold: number = 2100
+  private zapReplyThreshold: number = 1
   private accountFeedInfoMap: Record<string, TFeedInfo | undefined> = {}
   private mediaUploadService: string = DEFAULT_NIP_96_SERVICE
   private autoplay: boolean = true

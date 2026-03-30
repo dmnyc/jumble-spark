@@ -37,6 +37,8 @@ export function MuteListProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   const {
     pubkey: accountPubkey,
+    account,
+    isAccountSessionHydrating,
     muteListEvent,
     publish,
     updateMuteListEvent,
@@ -64,7 +66,12 @@ export function MuteListProvider({ children }: { children: ReactNode }) {
   }, [accountPubkey])
 
   const getPrivateTags = async (muteListEvent: Event) => {
-    if (!muteListEvent.content) return []
+    if (!muteListEvent.content?.trim()) return []
+
+    // npub-only sessions cannot decrypt; never surface a stale IDB decrypt from a prior signing session.
+    if (!account || account.signerType === 'npub') {
+      return []
+    }
 
     const storedDecryptedTags = await indexedDb.getMuteDecryptedTags(muteListEvent.id)
 
@@ -78,13 +85,19 @@ export function MuteListProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const plainText = await nip04Decrypt(muteListEvent.pubkey, muteListEvent.content)
+    // During account hydrate, mute list can be set before every downstream invariant is ready; skip
+    // decrypt and the empty-ciphertext warning, then retry when hydration finishes.
+    if (isAccountSessionHydrating) {
+      return []
+    }
+
+    const plainText = await nip04Decrypt(muteListEvent.pubkey, muteListEvent.content.trim())
 
     if (!plainText.trim()) {
       logMuteListPrivateIssueOnce(
         muteListEvent.id,
-        'Mute list has ciphertext but decryption returned empty (e.g. read-only / npub-only login). Public mutes still apply.',
-        undefined
+        'Mute list ciphertext could not be decrypted (npub-only / extension blocked NIP-04 / wrong key / corrupt payload). Public `p`/`e` mutes still apply.',
+        { signerType: account.signerType }
       )
       return []
     }
@@ -123,7 +136,7 @@ export function MuteListProvider({ children }: { children: ReactNode }) {
       setTags(muteListEvent.tags)
     }
     updateMuteTags()
-  }, [muteListEvent])
+  }, [muteListEvent, isAccountSessionHydrating, account?.signerType, account?.pubkey])
 
   const getMutePubkeys = () => {
     return Array.from(mutePubkeySet)

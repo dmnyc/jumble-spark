@@ -980,7 +980,7 @@ export default {
     'Zapped profile': 'Zapped profile',
     'Zap reply threshold': 'Zap reply threshold',
     'Zaps above this amount will appear as replies in threads':
-      'Zaps above this amount will appear as replies in threads',
+      'Only zap receipts (kind 9735) with at least this many sats are shown in home and relay feeds (with “Zaps” enabled in the kind filter) and listed under notes as zap replies.',
     'Mark as read': 'Mark as read',
     Report: 'Report',
     'Successfully report': 'Successfully reported',
@@ -1576,12 +1576,29 @@ export default {
     'Follow sets': 'Follow sets',
     'Personal Lists': 'Personal Lists',
     'Personal lists hub intro':
-      'Mute list, who you follow, NIP-51 bookmarks, and pins. Web page bookmarks (NIP-B0, kind 39701) are separate: save them from an article’s side panel or open the Bookmarks spell to see note bookmarks and web bookmarks together.',
+      'Open mute list, following, bookmarks list, or pinned notes on their own pages (like mute and following). Follow sets are below. Web page bookmarks (NIP-B0, kind 39701) are separate—save from an article’s panel or use the Bookmarks spell for a mixed feed.',
     'Mute list': 'Mute list',
     'Following list': 'Following list',
+    'Bookmarks list': 'Bookmarks list',
+    'Pinned notes list': 'Pinned notes list',
+    'Personal lists bookmarks spell hint':
+      'For a note feed from NIP-51 bookmarks, use the',
     'Bookmarks spell': 'Bookmarks spell',
     'Pinned notes hint':
       'Pinned notes: use the note menu (⋯) on a note and choose pin to profile. Pins appear on your profile.',
+    'Bookmarks list section title': 'Bookmarks list',
+    'Bookmarks list section subtitle':
+      'Events referenced by `e` / `a` tags on your kind 10003 bookmark list (newest first).',
+    'No entries in bookmark list': 'Your bookmark list is empty.',
+    'View bookmarks as feed in Spells': 'View bookmarks as a note feed in Spells',
+    'Pinned notes list section title': 'Pinned notes list',
+    'Pinned notes list section subtitle':
+      'Events referenced by `e` / `a` tags on your kind 10001 pin list (same order as on your profile).',
+    'Loading pin list': 'Loading pin list…',
+    'No pinned notes in list': 'No pinned notes in your pin list yet.',
+    "username's bookmarks": "{{username}}'s bookmarks",
+    "username's pinned notes": "{{username}}'s pinned notes",
+    'Event not loaded': 'Event not loaded',
     'No NIP-51 bookmarks or web bookmarks yet.':
       'No NIP-51 bookmarks or web bookmarks yet.',
     'Web bookmarks': 'Web bookmarks',

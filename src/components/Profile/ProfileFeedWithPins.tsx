@@ -3,7 +3,7 @@ import ProfileSearchBar from '@/components/ui/ProfileSearchBar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExtendedKind, PROFILE_POSTS_TAB_KINDS } from '@/constants'
 import { isReplyNoteEvent } from '@/lib/event'
-import { getZapInfoFromEvent } from '@/lib/event-metadata'
+import { shouldIncludeZapReceiptAtReplyThreshold } from '@/lib/event-metadata'
 import { useProfilePins } from '@/hooks/useProfilePins'
 import { useProfileTimeline } from '@/hooks/useProfileTimeline'
 import { useProfileZapPollParticipation } from '@/hooks/useProfileZapPollParticipation'
@@ -64,10 +64,7 @@ const ProfileFeedWithPins = forwardRef<{ refresh: () => void }, { pubkey: string
   const filterPredicate = useCallback(
     (event: Event) => {
       if (event.kind === ExtendedKind.ZAP_RECEIPT) {
-        const zapInfo = getZapInfoFromEvent(event)
-        if (!zapInfo?.amount || zapInfo.amount < zapReplyThreshold) {
-          return false
-        }
+        return shouldIncludeZapReceiptAtReplyThreshold(event, zapReplyThreshold)
       }
       return true
     },

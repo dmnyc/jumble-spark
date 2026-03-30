@@ -1,5 +1,5 @@
 import { ExtendedKind } from '@/constants'
-import { getZapInfoFromEvent } from '@/lib/event-metadata'
+import { shouldIncludeZapReceiptAtReplyThreshold } from '@/lib/event-metadata'
 import { kinds, Event } from 'nostr-tools'
 import { forwardRef, useMemo } from 'react'
 import { useZap } from '@/providers/ZapProvider'
@@ -34,10 +34,7 @@ const ProfileFeed = forwardRef<{ refresh: () => void; getEvents?: () => Event[] 
     const filterPredicate = useMemo(
       () => (event: Event) => {
         if (event.kind === ExtendedKind.ZAP_RECEIPT) {
-          const zapInfo = getZapInfoFromEvent(event)
-          if (!zapInfo?.amount || zapInfo.amount < zapReplyThreshold) {
-            return false
-          }
+          return shouldIncludeZapReceiptAtReplyThreshold(event, zapReplyThreshold)
         }
         return true
       },
