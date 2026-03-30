@@ -119,6 +119,52 @@ describe('parseLiveActivityEvent (NIP-53)', () => {
     expect(parseLiveActivityEvent(ev, new Set())?.joinUrl).toBe(`https://zap.stream/${naddr}`)
   })
 
+  it('30311 Corny Chat uses instance /_/integrations/nostr/<naddr> (not zap.stream)', () => {
+    const pk = 'd'.repeat(64)
+    const dVal = '1700000000123'
+    const ev = base(
+      30311,
+      [
+        ['d', dVal],
+        ['status', 'live'],
+        ['L', 'com.cornychat'],
+        ['l', 'cornychat.com', 'com.cornychat'],
+        ['r', 'https://cornychat.com/myroom'],
+        ['service', 'https://cornychat.com/myroom'],
+        ['streaming', 'https://cornychat.com/myroom'],
+        ['relays', 'wss://nos.lol']
+      ],
+      pk
+    )
+    const naddr = nip19.naddrEncode({
+      kind: 30311,
+      pubkey: pk,
+      identifier: dVal,
+      relays: ['wss://nos.lol']
+    })
+    const expected = `https://cornychat.com/_/integrations/nostr/${naddr}`
+    expect(parseLiveActivityEvent(ev, new Set())?.joinUrl).toBe(expected)
+    expect(preferredLiveJoinUrlForEvent(ev)).toBe(expected)
+  })
+
+  it('30311 Corny Chat falls back to zap.stream when `l` host disagrees with `r`', () => {
+    const pk = 'e'.repeat(64)
+    const ev = base(
+      30311,
+      [
+        ['d', 'x'],
+        ['status', 'live'],
+        ['L', 'com.cornychat'],
+        ['l', 'cornychat.com', 'com.cornychat'],
+        ['r', 'https://other.example/room'],
+        ['service', 'https://other.example/room']
+      ],
+      pk
+    )
+    const naddr = nip19.naddrEncode({ kind: 30311, pubkey: pk, identifier: 'x' })
+    expect(preferredLiveJoinUrlForEvent(ev)).toBe(`https://zap.stream/${naddr}`)
+  })
+
   it('30313 inherits join URL from parent 30312 via `a` tag', () => {
     const spacePk = 'f'.repeat(64)
     const parentAddr = `30312:${spacePk}:conf-room`

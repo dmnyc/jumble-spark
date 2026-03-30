@@ -15,6 +15,12 @@ const ZAP_STREAM_ORIGIN = 'https://zap.stream'
 /** [Nostr Nests](https://nostrnests.com/) web app loads rooms at `/:naddr` (same pattern as their share modal). */
 const NOSTR_NESTS_WEB_ORIGIN = 'https://nostrnests.com'
 
+/**
+ * [Corny Chat](https://github.com/vicariousdrama/cornychat) labels NIP-53 tickers with `L`/`com.cornychat` and serves
+ * `naddr1…` (and other bech32) at `/_/integrations/nostr/<bech32>` on each instance origin (`ui/server/app.js`).
+ */
+const CORNYCHAT_LABEL_NAMESPACE = 'com.cornychat'
+
 const EMPTY_PARENT_MAP = new Map<string, Event>()
 
 /** Max extra REQ filters when resolving 30312 parents for 30313 meetings (relay limits). */
@@ -163,18 +169,6 @@ function nostrNestsWebUrlForAddressable(ev: Event): string | undefined {
   return naddrPageUrlForAddressable(ev, NOSTR_NESTS_WEB_ORIGIN)
 }
 
-/** [Corny Chat](https://github.com/vicariousdrama/cornychat) kind-1 invites: same room URL on `r` / `service` / `streaming`; prefer `r` (explicit room link). */
-function isCornyChatKind1Invite(ev: Event): boolean {
-  if (ev.kind !== 1) return false
-  let hasL = false
-  let hasAudioServer = false
-  for (const t of ev.tags) {
-    if (t[0] === 'L' && t[1] === 'com.cornychat') hasL = true
-    if (t[0] === 'audioserver' && t[1]) hasAudioServer = true
-  }
-  return hasL || hasAudioServer
-}
-
 function firstHttpsJoinFromTagNames(ev: Event, names: readonly string[]): string | undefined {
   for (const name of names) {
     const raw = firstTagValue(ev, name)
@@ -187,23 +181,109 @@ function firstHttpsJoinFromTagNames(ev: Event, names: readonly string[]): string
   return undefined
 }
 
+/** NIP-53 30311 live ticker published by [Corny Chat](https://github.com/vicariousdrama/cornychat) (`L` label namespace). */
+function isCornyChat30311(ev: Event): boolean {
+  if (ev.kind !== 30311) return false
+  for (const t of ev.tags) {
+    if (t[0] === 'L' && t[1] === CORNYCHAT_LABEL_NAMESPACE) return true
+  }
+  return false
+}
+
+/**
+ * `l` tag value `jamHost` from Corny pantry (`['l', jamHost, 'com.cornychat']`), when present.
+ * Used to ensure `r`/`service` URLs belong to the same instance before building an integration link.
+ */
+function cornyChatJamHost(ev: Event): string | undefined {
+  for (const t of ev.tags) {
+    if (t[0] === 'l' && t[1] && t[2] === CORNYCHAT_LABEL_NAMESPACE) {
+      return t[1].trim().toLowerCase()
+    }
+  }
+  return undefined
+}
+
+/** `https://<instance>` from Corny room links in `r` / `service` / `streaming`. */
+function cornyChatWebOriginFromEvent(ev: Event): string | undefined {
+  const raw = firstHttpsJoinFromTagNames(ev, ['r', 'service', 'streaming'])
+  if (!raw) return undefined
+  try {
+    const u = new URL(raw)
+    if (u.protocol !== 'https:') return undefined
+    const jamHost = cornyChatJamHost(ev)
+    if (jamHost && u.hostname.toLowerCase() !== jamHost) return undefined
+    return u.origin
+  } catch {
+    return undefined
+  }
+}
+
+/** `https://<corny-instance>/_/integrations/nostr/<naddr>` — matches Corny’s nostr handler route. */
+function cornyChatNaddrIntegrationUrl(ev: Event): string | undefined {
+  if (!isCornyChat30311(ev)) return undefined
+  const origin = cornyChatWebOriginFromEvent(ev)
+  if (!origin) return undefined
+  const base = `${origin}/_/integrations/nostr`
+  return naddrPageUrlForAddressable(ev, base)
+}
+
+/** [Corny Chat](https://github.com/vicariousdrama/cornychat) kind-1 invites: same room URL on `r` / `service` / `streaming`; prefer `r` (explicit room link). */
+function isCornyChatKind1Invite(ev: Event): boolean {
+  if (ev.kind !== 1) return false
+  let hasL = false
+  let hasAudioServer = false
+  for (const t of ev.tags) {
+    if (t[0] === 'L' && t[1] === CORNYCHAT_LABEL_NAMESPACE) hasL = true
+    if (t[0] === 'audioserver' && t[1]) hasAudioServer = true
+  }
+  return hasL || hasAudioServer
+}
+
 /**
  * URL to open for this activity.
- * **30311:** Always use canonical [zap.stream/naddr…](https://zap.stream) when `d` is present so we never
+ * **30311 (Corny Chat):** Prefer [`origin/_/integrations/nostr/naddr…`](https://github.com/vicariousdrama/cornychat) when
+ * `L`/`com.cornychat` is present (instance origin from `r`/`service`, host checked against `l` when tagged).
+ * **30311 (other):** Always use canonical [zap.stream/naddr…](https://zap.stream) when `d` is present so we never
  * stick on stale `service`/`r` URLs publishers no longer use. zap.stream loads the same NIP-53 event and
  * plays `streaming` / etc. Fallbacks only if naddr cannot be built.
  * **30312 (Nostr Nests official MoQ):** Prefer [nostrnests.com/naddr…](https://nostrnests.com/) over `streaming` (MoQ).
  * **Kind 1 (Corny Chat invite):** Prefer `r` → `service` → `streaming` per pantry publish shape.
  * **Other 30312 / 30313:** Use tagged https URLs, bare `naddr1`, or (for 30313) parent space URLs via {@link resolveJoinUrl}.
  */
+/**
+ * Kind 30311 is shared by every NIP-53 “live stream” ticker (zap.stream, Corny Chat, etc.).
+ * There is no single tag that means “zap.stream”; we only special-case publishers that label themselves
+ * (Corny uses [`L`, `com.cornychat`](https://github.com/vicariousdrama/cornychat/blob/main/pantry/nostr/nostr.js)).
+ * Everyone else gets the zap.stream player URL, which resolves the same replaceable event by naddr.
+ */
+function joinUrlFor30311Ticker(ev: Event): string | undefined {
+  if (isCornyChat30311(ev)) {
+    const corny = cornyChatNaddrIntegrationUrl(ev)
+    if (corny) return corny
+    // Corny-labelled but unsafe/missing room URL vs `l` host, or missing `d`: fall through to zap.stream.
+  }
+  return zapStreamUrlForAddressable(ev)
+}
+
+/**
+ * Kind 30312 is the NIP-53 “meeting space” ticker (Jitsi-style rooms, Nostr Nests, etc.).
+ * [Nostr Nests](https://github.com/nostrnests/nests) official rooms use MoQ (`moq.nostrnests.com` / `moq-auth.nostrnests.com`);
+ * `streaming` there is not a normal browser page, so we open [nostrnests.com/naddr…](https://nostrnests.com/) instead.
+ * Other 30312 publishers keep using `service` / `r` / … from the generic branch below.
+ */
+function joinUrlFor30312Space(ev: Event): string | undefined {
+  if (!isNostrNestsOfficialMoq30312(ev)) return undefined
+  return nostrNestsWebUrlForAddressable(ev)
+}
+
 function pickJoinUrl(ev: Event): string | undefined {
   if (ev.kind === 30311) {
-    const zap = zapStreamUrlForAddressable(ev)
-    if (zap) return zap
+    const url = joinUrlFor30311Ticker(ev)
+    if (url) return url
   }
 
-  if (ev.kind === 30312 && isNostrNestsOfficialMoq30312(ev)) {
-    const nests = nostrNestsWebUrlForAddressable(ev)
+  if (ev.kind === 30312) {
+    const nests = joinUrlFor30312Space(ev)
     if (nests) return nests
   }
 
@@ -233,7 +313,8 @@ function pickJoinUrl(ev: Event): string | undefined {
 }
 
 /**
- * Browser join URL for NIP-53 ticker kinds and known audio-space invites (e.g. Corny Chat kind 1 with `L`/`audioserver`).
+ * Browser join URL for NIP-53 ticker kinds and known audio-space invites (e.g. Corny Chat 30311 with `L`/`com.cornychat`,
+ * or kind 1 with `L`/`audioserver`).
  * Prefer this over raw tag order when opening rooms from the feed or tooling.
  */
 export function preferredLiveJoinUrlForEvent(ev: Event): string | undefined {
