@@ -194,3 +194,19 @@ export function buildBookmarksSubRequests(bookmarkListEvent: Event | null, urls:
   const slice = ids.slice(0, cap)
   return [{ urls, filter: { ids: slice, limit: slice.length } }]
 }
+
+/** NIP-B0 web bookmarks (kind 39701) authored by the user — merged with NIP-51 id bookmarks in the Bookmarks spell. */
+export function buildWebBookmarksSpellSubRequests(pubkey: string, urls: string[]): TFeedSubRequest[] {
+  if (!pubkey || !urls.length) return []
+  const pk = /^[0-9a-f]{64}$/i.test(pubkey.trim()) ? pubkey.trim().toLowerCase() : pubkey.trim()
+  return [
+    {
+      urls,
+      filter: {
+        authors: [pk],
+        kinds: [ExtendedKind.WEB_BOOKMARK],
+        limit: FAUX_SPELL_EVENT_LIMIT
+      }
+    }
+  ]
+}

@@ -31,6 +31,7 @@ import {
   NIP22_URL_SCOPE_KIND
 } from '@/lib/rss-article'
 import { cleanUrl } from '@/lib/url'
+import { urlToWebBookmarkDTag } from '@/lib/web-bookmark-nip'
 import { randomString } from './random'
 import { generateBech32IdFromETag, tagNameEquals } from './tag'
 
@@ -899,6 +900,46 @@ export function createBookmarkDraftEvent(tags: string[][], content = ''): TDraft
     content,
     tags,
     created_at: dayjs().unix()
+  }
+}
+
+/** NIP-B0 (kind 39701): parameterized web bookmark; `d` = URL without scheme, `i`/`I` = canonical http(s) URL. */
+export function createWebBookmarkDraftEvent(options: {
+  url: string
+  title?: string
+  note?: string
+  /** Preserve first publication time when editing (unix seconds string). */
+  publishedAtUnix?: string
+  topicTags?: string[]
+}): TDraftEvent {
+  const raw = options.url.trim()
+  if (!raw) throw new Error('Web bookmark URL is required')
+  const href = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+  const canonical = canonicalizeHttpUrlForITags(canonicalizeRssArticleUrl(href))
+  const d = urlToWebBookmarkDTag(canonical)
+  if (!d) throw new Error('Invalid web bookmark URL')
+
+  const tags: string[][] = [
+    ['d', d],
+    ['I', canonical],
+    ['i', canonical]
+  ]
+  const title = options.title?.trim()
+  if (title) tags.push(['title', title])
+
+  const now = dayjs().unix()
+  tags.push(['published_at', options.publishedAtUnix ?? String(now)])
+
+  for (const topic of options.topicTags ?? []) {
+    const n = normalizeTopic(topic)
+    if (n) tags.push(['t', n])
+  }
+
+  return {
+    kind: ExtendedKind.WEB_BOOKMARK,
+    content: options.note?.trim() ?? '',
+    tags,
+    created_at: now
   }
 }
 

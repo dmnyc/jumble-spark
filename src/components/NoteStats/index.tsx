@@ -81,7 +81,7 @@ export default function NoteStats({
           {!isRssArticleRoot && !isZapPoll && (
             <ZapButton event={event} hideCount={hideInteractions} />
           )}
-          <BookmarkButton event={event} />
+          {!isRssArticleRoot && <BookmarkButton event={event} />}
           <SeenOnButton event={event} />
         </div>
       </div>
@@ -109,7 +109,7 @@ export default function NoteStats({
           )}
         </div>
         <div className="flex items-center">
-          <BookmarkButton event={event} />
+          {!isRssArticleRoot && <BookmarkButton event={event} />}
           <SeenOnButton event={event} />
         </div>
       </div>

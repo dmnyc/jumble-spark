@@ -1703,6 +1703,61 @@ class RssFeedService {
   }
 
   /**
+   * All RSS rows for these feed URLs from IndexedDB only (no network).
+   * Lets the RSS+Web UI search and filter against the full persisted cache.
+   */
+  async getCachedItemsForFeedUrls(feedUrls: string[]): Promise<RssFeedItem[]> {
+    if (feedUrls.length === 0) return []
+    await this.ensureRssFeedAttemptedKeysLoaded()
+    try {
+      const allCachedItems = await indexedDb.getRssFeedItems()
+      const normalizedRequestedUrls = new Set(feedUrls.map((u) => this.normalizeRssFeedKeyUrl(u)))
+      let cachedItems = allCachedItems.filter((item) =>
+        normalizedRequestedUrls.has(this.normalizeRssFeedKeyUrl(item.feedUrl))
+      )
+      cachedItems = cachedItems.map((item) => ({
+        ...item,
+        pubDate: this.parseItemPubDate(item)
+      }))
+      cachedItems.sort((a, b) => {
+        const dateA = a.pubDate?.getTime() || 0
+        const dateB = b.pubDate?.getTime() || 0
+        return dateB - dateA
+      })
+      return cachedItems
+    } catch (error) {
+      logger.warn('[RssFeedService] getCachedItemsForFeedUrls failed', { error })
+      return []
+    }
+  }
+
+  /**
+   * Dedupe by normalized feed URL + guid; when both have pubDate, keep the newer row.
+   */
+  mergeRssFeedItemLists(lists: RssFeedItem[][]): RssFeedItem[] {
+    const map = new Map<string, RssFeedItem>()
+    for (const list of lists) {
+      for (const item of list) {
+        const key = `${this.normalizeRssFeedKeyUrl(item.feedUrl)}:${item.guid}`
+        const existing = map.get(key)
+        const nextDate = this.parseItemPubDate(item)?.getTime() ?? 0
+        const prevDate = existing ? this.parseItemPubDate(existing)?.getTime() ?? 0 : -1
+        if (!existing || nextDate >= prevDate) {
+          map.set(key, {
+            ...item,
+            pubDate: this.parseItemPubDate(item)
+          })
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const dateA = a.pubDate?.getTime() || 0
+      const dateB = b.pubDate?.getTime() || 0
+      return dateB - dateA
+    })
+  }
+
+  /**
    * Clear cache for a specific feed or all feeds
    */
   clearCache(url?: string) {

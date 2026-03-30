@@ -73,6 +73,7 @@ export const toTranslation = () => '/settings/translation'
 export const toRssFeedSettings = () => '/settings/rss-feeds'
 export const toFollowSetsSettings = () => '/settings/follow-sets'
 export const toCacheSettings = () => '/settings/cache'
+export const toPersonalListsSettings = () => '/settings/personal-lists'
 export const toProfileEditor = () => '/profile-editor'
 export const toRelay = (url: string) => `/relays/${encodeURIComponent(url)}`
 export const toRelayReviews = (url: string) => `/relays/${encodeURIComponent(url)}/reviews`

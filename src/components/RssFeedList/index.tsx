@@ -56,6 +56,26 @@ import {
 } from '@/lib/standard-rss-feed-url'
 import { StandardRssFeedUrlInline } from '@/components/StandardRssFeedUrlRow'
 
+/** Cutoff timestamp (ms) for RSS+Web time filters; `null` = all time. */
+function getRssTimeFilterCutoffMs(timeFilter: string): number | null {
+  if (timeFilter === 'all') return null
+  const now = Date.now()
+  switch (timeFilter) {
+    case 'hour':
+      return now - 60 * 60 * 1000
+    case 'hours24':
+      return now - 24 * 60 * 60 * 1000
+    case 'hours48':
+      return now - 48 * 60 * 60 * 1000
+    case 'week':
+      return now - 7 * 24 * 60 * 60 * 1000
+    case 'month':
+      return now - 30 * 24 * 60 * 60 * 1000
+    default:
+      return null
+  }
+}
+
 function ManualRssUrlAddRow({
   className,
   onUrlAdded
@@ -193,6 +213,49 @@ export default function RssFeedList() {
 
   /** Bump to re-run relay URL discovery after publishing a kind-17 reaction. */
   const [relayDiscoveryTick, setRelayDiscoveryTick] = useState(0)
+
+  /** Subscribed feed URLs (same rules as RSS load effect) — used for IndexedDB snapshot. */
+  const resolvedFeedUrls = useMemo((): string[] => {
+    if (pubkey && rssFeedListEvent) {
+      try {
+        return rssFeedListEvent.tags
+          .filter((tag) => tag[0] === 'u' && tag[1])
+          .map((tag) => tag[1] as string)
+          .filter((url): url is string => {
+            if (typeof url !== 'string') return false
+            return url.trim().length > 0
+          })
+      } catch {
+        return []
+      }
+    }
+    return DEFAULT_RSS_FEEDS
+  }, [pubkey, rssFeedListEvent])
+
+  /** Full IndexedDB slice for current subscriptions; merged into the filter pipeline so search/time/feed use all cached rows. */
+  const [idbRssSnapshot, setIdbRssSnapshot] = useState<TRssFeedItem[]>([])
+
+  const refreshIdbRssSnapshot = useCallback(() => {
+    if (resolvedFeedUrls.length === 0) {
+      setIdbRssSnapshot([])
+      return
+    }
+    void rssFeedService.getCachedItemsForFeedUrls(resolvedFeedUrls).then(setIdbRssSnapshot)
+  }, [resolvedFeedUrls])
+
+  useEffect(() => {
+    refreshIdbRssSnapshot()
+  }, [refreshIdbRssSnapshot, items])
+
+  useEffect(() => {
+    const id = window.setInterval(() => refreshIdbRssSnapshot(), 20_000)
+    return () => clearInterval(id)
+  }, [refreshIdbRssSnapshot])
+
+  const mergedRssItems = useMemo(
+    () => rssFeedService.mergeRssFeedItemLists([items, idbRssSnapshot]),
+    [items, idbRssSnapshot]
+  )
 
   // Listen for filter toggle events
   useEffect(() => {
@@ -463,7 +526,7 @@ export default function RssFeedList() {
   const availableFeeds = useMemo(() => {
     const feedMap = new Map<string, { url: string; title: string }>()
 
-    items.forEach((item) => {
+    mergedRssItems.forEach((item) => {
       const normalizedUrl = normalizeFeedUrl(item.feedUrl)
       if (!feedMap.has(normalizedUrl)) {
         const profile = getStandardRssFeedProfile(normalizedUrl)
@@ -477,7 +540,7 @@ export default function RssFeedList() {
       }
     })
     return Array.from(feedMap.values())
-  }, [items, t])
+  }, [mergedRssItems, t])
 
   // Helper function to truncate text
   const truncateText = (text: string, maxLength: number): string => {
@@ -502,9 +565,22 @@ export default function RssFeedList() {
     }
   }
 
+  /** Single-select value for the RSS tab source dropdown (multi-select from filter popover → `__multi__`). */
+  const rssSourceDropdownValue = useMemo(() => {
+    if (selectedFeeds.includes('all') || selectedFeeds.length === 0) return 'all'
+    const urls = selectedFeeds.filter((f) => f !== 'all').map((f) => normalizeFeedUrl(f))
+    if (urls.length === 1) return urls[0]!
+    return '__multi__'
+  }, [selectedFeeds])
+
+  const onRssSourceSelect = useCallback((value: string) => {
+    if (value === 'all') setSelectedFeeds(['all'])
+    else setSelectedFeeds([value.trim().replace(/\/$/, '')])
+  }, [])
+
   /** Feed + time only (search is applied after merge so URL rows and links match too). */
   const baseFilteredItems = useMemo(() => {
-    let filtered = items
+    let filtered = mergedRssItems
 
     if (!selectedFeeds.includes('all') && selectedFeeds.length > 0) {
       const normalizedSelectedFeeds = selectedFeeds.map((f) => normalizeFeedUrl(f))
@@ -513,25 +589,8 @@ export default function RssFeedList() {
       )
     }
 
-    if (timeFilter !== 'all') {
-      const now = Date.now()
-      let cutoffTime = 0
-
-      switch (timeFilter) {
-        case 'hour':
-          cutoffTime = now - 60 * 60 * 1000
-          break
-        case 'day':
-          cutoffTime = now - 24 * 60 * 60 * 1000
-          break
-        case 'week':
-          cutoffTime = now - 7 * 24 * 60 * 60 * 1000
-          break
-        case 'month':
-          cutoffTime = now - 30 * 24 * 60 * 60 * 1000
-          break
-      }
-
+    const cutoffTime = getRssTimeFilterCutoffMs(timeFilter)
+    if (cutoffTime !== null) {
       filtered = filtered.filter((item) => {
         if (!item.pubDate) return false
         return item.pubDate.getTime() >= cutoffTime
@@ -539,7 +598,7 @@ export default function RssFeedList() {
     }
 
     return filtered
-  }, [items, selectedFeeds, timeFilter])
+  }, [mergedRssItems, selectedFeeds, timeFilter])
 
   /** When “hide clutter” is on, drop those entries from the feed (not only from URL cards). */
   const rssWebItemsRespectingClutterPref = useMemo(() => {
@@ -559,8 +618,26 @@ export default function RssFeedList() {
       item.description.toLowerCase().includes(query) ||
       (item.feedTitle || '').toLowerCase().includes(query) ||
       (item.link || '').toLowerCase().includes(query) ||
-      (item.guid || '').toLowerCase().includes(query)
+      (item.guid || '').toLowerCase().includes(query) ||
+      (item.feedUrl || '').toLowerCase().includes(query) ||
+      (item.feedDescription || '').toLowerCase().includes(query) ||
+      (item.feedImage || '').toLowerCase().includes(query)
     )
+  }, [])
+
+  /** Match article / preview URLs and hostname (e.g. "spiegel" → www.spiegel.de paths). */
+  const articleHttpUrlMatchesSearch = useCallback((url: string, q: string) => {
+    const query = q.toLowerCase().trim()
+    if (!query) return true
+    const lower = url.toLowerCase()
+    if (lower.includes(query)) return true
+    try {
+      const host = new URL(url).hostname.toLowerCase()
+      if (host.includes(query)) return true
+    } catch {
+      /* ignore */
+    }
+    return false
   }, [])
 
   type CombinedFeedRow =
@@ -640,17 +717,30 @@ export default function RssFeedList() {
     hideUnifiedClutter
   ])
 
+  /** Time window applies to URL cards too (latestPub / item pubDate), not only RSS rows. */
+  const combinedFeedRowsInTimeRange = useMemo((): CombinedFeedRow[] => {
+    const cutoff = getRssTimeFilterCutoffMs(timeFilter)
+    if (cutoff === null) return combinedFeedRows
+    return combinedFeedRows.filter((row) => {
+      if (row.kind === 'rss') {
+        const ts = row.item.pubDate?.getTime() ?? 0
+        return ts >= cutoff
+      }
+      return row.latestPub >= cutoff
+    })
+  }, [combinedFeedRows, timeFilter])
+
   const combinedFeedRowsForSearch = useMemo((): CombinedFeedRow[] => {
     const q = searchQuery.trim()
-    if (!q) return combinedFeedRows
-    return combinedFeedRows.filter((row) => {
+    if (!q) return combinedFeedRowsInTimeRange
+    return combinedFeedRowsInTimeRange.filter((row) => {
       if (row.kind === 'rss') {
         return rssItemMatchesSearch(row.item, q)
       }
-      if (row.canonicalUrl.toLowerCase().includes(q.toLowerCase())) return true
+      if (articleHttpUrlMatchesSearch(row.canonicalUrl, q)) return true
       return row.rssItems.some((it) => rssItemMatchesSearch(it, q))
     })
-  }, [combinedFeedRows, searchQuery, rssItemMatchesSearch])
+  }, [combinedFeedRowsInTimeRange, searchQuery, rssItemMatchesSearch, articleHttpUrlMatchesSearch])
 
   const urlScopeRows = useMemo((): UnifiedFeedRow[] => {
     return combinedFeedRowsForSearch
@@ -804,7 +894,7 @@ export default function RssFeedList() {
     )
   }
 
-  if (items.length === 0 && manualWebEntries.length === 0) {
+  if (mergedRssItems.length === 0 && manualWebEntries.length === 0) {
     return (
       <div className="space-y-4 px-4 py-6">
         <ManualRssUrlAddRow onUrlAdded={refreshManualWebUrls} />
@@ -880,16 +970,63 @@ export default function RssFeedList() {
             })}
           </p>
         </div>
-        <div className="relative w-full max-w-xl">
-          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground sm:h-4 sm:w-4" />
-          <Input
-            type="search"
-            placeholder={t('Search...')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 w-full pl-8 text-xs sm:h-9 sm:pl-9 sm:text-sm"
-            aria-label={t('Search...')}
-          />
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="relative w-full max-w-xl flex-1 min-w-0">
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground sm:h-4 sm:w-4" />
+            <Input
+              type="search"
+              placeholder={t('Search...')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8 w-full pl-8 text-xs sm:h-9 sm:pl-9 sm:text-sm"
+              aria-label={t('Search...')}
+            />
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex min-w-[10rem] flex-col gap-0.5">
+              <Label htmlFor="rss-time-range" className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-xs">
+                {t('Time range')}
+              </Label>
+              <Select value={timeFilter} onValueChange={setTimeFilter}>
+                <SelectTrigger id="rss-time-range" className="h-8 text-xs sm:h-9 sm:text-sm">
+                  <SelectValue placeholder={t('All time')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('All time')}</SelectItem>
+                  <SelectItem value="hour">{t('Last hour')}</SelectItem>
+                  <SelectItem value="hours24">{t('Last 24 hours')}</SelectItem>
+                  <SelectItem value="hours48">{t('Last 48 hours')}</SelectItem>
+                  <SelectItem value="week">{t('Last week')}</SelectItem>
+                  <SelectItem value="month">{t('Last month')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {feedScope === 'rss' ? (
+              <div className="flex min-w-[12rem] flex-col gap-0.5">
+                <Label htmlFor="rss-source-filter" className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-xs">
+                  {t('Filter by RSS source')}
+                </Label>
+                <Select value={rssSourceDropdownValue} onValueChange={onRssSourceSelect}>
+                  <SelectTrigger id="rss-source-filter" className="h-8 text-xs sm:h-9 sm:text-sm">
+                    <SelectValue placeholder={t('All feeds')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('All feeds')}</SelectItem>
+                    {rssSourceDropdownValue === '__multi__' ? (
+                      <SelectItem value="__multi__" disabled>
+                        {t('{{count}} feeds', { count: selectedFeeds.filter((f) => f !== 'all').length })}
+                      </SelectItem>
+                    ) : null}
+                    {availableFeeds.map((feed) => (
+                      <SelectItem key={feed.url} value={feed.url}>
+                        <span className="truncate">{feed.title}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -954,20 +1091,6 @@ export default function RssFeedList() {
                 </div>
               </PopoverContent>
             </Popover>
-
-            {/* Time Filter */}
-            <Select value={timeFilter} onValueChange={setTimeFilter}>
-              <SelectTrigger className="h-8 text-xs md:text-sm md:h-9 flex-shrink-0 w-full md:w-auto" style={{ minWidth: isSmallScreen ? '100%' : '120px' }}>
-                <SelectValue placeholder={t('All time')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('All time')}</SelectItem>
-                <SelectItem value="hour">{t('Last hour')}</SelectItem>
-                <SelectItem value="day">{t('Last day')}</SelectItem>
-                <SelectItem value="week">{t('Last week')}</SelectItem>
-                <SelectItem value="month">{t('Last month')}</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </div>
       )}

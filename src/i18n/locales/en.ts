@@ -1059,6 +1059,10 @@ export default {
     'Last day': 'Last day',
     'Last week': 'Last week',
     'Last month': 'Last month',
+    'Last 24 hours': 'Last 24 hours',
+    'Last 48 hours': 'Last 48 hours',
+    'Time range': 'Time range',
+    'Filter by RSS source': 'Filter by RSS source',
     'No items match your filters': 'No items match your filters',
     'Search...': 'Search...',
     '{{count}} feeds': '{{count}} feeds',
@@ -1570,6 +1574,29 @@ export default {
     standardRssFeed_medium: 'Medium',
     'RSS Feed Settings': 'RSS Feed Settings',
     'Follow sets': 'Follow sets',
+    'Personal Lists': 'Personal Lists',
+    'Personal lists hub intro':
+      'Mute list, who you follow, NIP-51 bookmarks, and pins. Web page bookmarks (NIP-B0, kind 39701) are separate: save them from an article’s side panel or open the Bookmarks spell to see note bookmarks and web bookmarks together.',
+    'Mute list': 'Mute list',
+    'Following list': 'Following list',
+    'Bookmarks spell': 'Bookmarks spell',
+    'Pinned notes hint':
+      'Pinned notes: use the note menu (⋯) on a note and choose pin to profile. Pins appear on your profile.',
+    'No NIP-51 bookmarks or web bookmarks yet.':
+      'No NIP-51 bookmarks or web bookmarks yet.',
+    'Web bookmarks': 'Web bookmarks',
+    'Web bookmark': 'Web bookmark',
+    'Web bookmarks NIP intro':
+      'Web bookmarks are stored as kind 39701 events, not in your NIP-51 bookmark list.',
+    'Log in to save web bookmarks':
+      'Log in to save web bookmarks for this page (NIP-B0, kind 39701).',
+    'Remove web bookmark': 'Remove web bookmark',
+    'No web bookmark for this URL yet': 'You have not saved a web bookmark for this URL yet.',
+    'Page title': 'Page title',
+    'Short description': 'Short description',
+    'Save web bookmark': 'Save web bookmark',
+    'Sign in to publish web bookmark':
+      'Please log in with a signing key to save web bookmarks.',
     'Follow sets settings intro':
       'NIP-51 follow sets (kind 30000) group people for custom feeds (for example in Spells). Lists are published to your NIP-65 outboxes and profile discovery relays.',
     'New follow set': 'New follow set',

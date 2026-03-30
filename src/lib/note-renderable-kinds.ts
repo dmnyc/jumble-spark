@@ -19,7 +19,8 @@ const RENDERABLE_NOTE_KINDS = new Set<number>([
   ExtendedKind.CITATION_EXTERNAL,
   ExtendedKind.CITATION_HARDCOPY,
   ExtendedKind.CITATION_PROMPT,
-  ExtendedKind.ZAP_POLL
+  ExtendedKind.ZAP_POLL,
+  ExtendedKind.WEB_BOOKMARK
 ])
 
 /**

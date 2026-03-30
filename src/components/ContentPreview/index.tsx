@@ -9,6 +9,7 @@ import {
   DISCUSSION_DOWNVOTE_DISPLAY,
   DISCUSSION_UPVOTE_DISPLAY
 } from '@/lib/discussion-votes'
+import { getWebBookmarkArticleUrl } from '@/lib/rss-article'
 import { cn } from '@/lib/utils'
 import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
 import { useMuteListOptional } from '@/contexts/mute-list-context'
@@ -154,6 +155,13 @@ export default function ContentPreview({
 
   if (event.kind === kinds.Highlights) {
     return withKindRow(<HighlightPreview event={event} />)
+  }
+
+  if (event.kind === ExtendedKind.WEB_BOOKMARK) {
+    const href = getWebBookmarkArticleUrl(event)
+    const title = event.tags.find((t) => t[0] === 'title')?.[1]?.trim()
+    const line = title?.trim() || href?.trim() || t('Web bookmark')
+    return withKindRow(<div className={cn('min-w-0 truncate text-sm', previewBody)}>{line}</div>)
   }
 
   if (event.kind === ExtendedKind.POLL) {

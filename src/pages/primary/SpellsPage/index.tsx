@@ -104,6 +104,7 @@ import {
   appendCuratedReadOnlyRelays,
   applyFauxSpellCapsToSubRequests,
   buildBookmarksSubRequests,
+  buildWebBookmarksSpellSubRequests,
   buildCalendarSpellFilter,
   buildDiscussionFilter,
   buildInterestsSubRequests,
@@ -868,7 +869,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     if (selectedFauxSpell === 'bookmarks') {
       if (!pubkey) return []
       const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
-      return buildBookmarksSubRequests(bookmarkListEvent, urls)
+      const idReqs = buildBookmarksSubRequests(bookmarkListEvent, urls)
+      const webReqs = buildWebBookmarksSpellSubRequests(pubkey, urls)
+      return [...idReqs, ...webReqs]
     }
     if (selectedFauxSpell === 'followPacks') {
       const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
@@ -1095,7 +1098,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return [...DEFAULT_FEED_SHOW_KINDS]
     }
     if (selectedFauxSpell === 'bookmarks') {
-      return [...DEFAULT_FEED_SHOW_KINDS]
+      const out = [...DEFAULT_FEED_SHOW_KINDS]
+      if (!out.includes(ExtendedKind.WEB_BOOKMARK)) out.push(ExtendedKind.WEB_BOOKMARK)
+      return out.sort((a, b) => a - b)
     }
     if (!selectedSpell) return [1]
     const kinds = selectedSpell.tags
@@ -1206,7 +1211,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const fauxNoteListUseFilterAsIs = useMemo(() => {
     if (!selectedFauxSpell) return true
     if (selectedFauxSpell && isFollowFeedFauxSpellId(selectedFauxSpell)) return false
-    return selectedFauxSpell !== 'bookmarks'
+    return true
   }, [selectedFauxSpell])
 
   const notificationsMentionExtraHide = useCallback(
@@ -1218,7 +1223,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   const fauxFeedEmptyMessage = useMemo(() => {
     if (!selectedFauxSpell || fauxSubRequests.length > 0) return null
     if (selectedFauxSpell === 'interests') return t('No subscribed interests yet.')
-    if (selectedFauxSpell === 'bookmarks') return t('No bookmarked notes with id tags yet.')
+    if (selectedFauxSpell === 'bookmarks')
+      return t('No NIP-51 bookmarks or web bookmarks yet.')
     if (selectedFauxSpell === 'following') return t('No follows or relays to load yet.')
     if (isFollowSetSpellId(selectedFauxSpell)) return t('Follow set feed empty')
     return t('Nothing to load for this feed.')
@@ -1699,7 +1705,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                       ? NOTIFICATION_SPELL_LOADING_SAFETY_MS
                       : undefined
                   }
-                  clientSideKindFilter={selectedFauxSpell === 'notifications'}
+                  clientSideKindFilter={
+                    selectedFauxSpell === 'notifications' || selectedFauxSpell === 'bookmarks'
+                  }
                   useFilterAsIs={fauxNoteListUseFilterAsIs}
                   oneShotFetch={false}
                   showKind1OPs={

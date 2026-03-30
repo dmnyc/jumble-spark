@@ -16,6 +16,8 @@ import GeneralSettingsPage from '@/pages/secondary/GeneralSettingsPage'
 import TranslationPage from '@/pages/secondary/TranslationPage'
 import RssFeedSettingsPage from '@/pages/secondary/RssFeedSettingsPage'
 import FollowSetsSettingsPage from '@/pages/secondary/FollowSetsSettingsPage'
+import CacheSettingsPage from '@/pages/secondary/CacheSettingsPage'
+import PersonalListsSettingsPage from '@/pages/secondary/PersonalListsSettingsPage'
 import NotePage from '@/pages/secondary/NotePage'
 import SecondaryProfilePage from '@/pages/secondary/ProfilePage'
 import FollowingListPage from '@/pages/secondary/FollowingListPage'
@@ -68,13 +70,26 @@ export class URLParser {
   }
 
   static getSettingsSubPageType(url: string): string {
-    if (url.includes('/general')) return 'general'
-    if (url.includes('/relays')) return 'relays'
-    if (url.includes('/wallet')) return 'wallet'
-    if (url.includes('/posts')) return 'posts'
-    if (url.includes('/translation')) return 'translation'
-    if (url.includes('/rss-feeds')) return 'rss-feeds'
-    return 'general'
+    try {
+      const pathOnly = url.split('?')[0].split('#')[0]
+      const parts = pathOnly.split('/').filter(Boolean)
+      if (parts[0] !== 'settings') return 'general'
+      const sub = parts[1] ?? ''
+      const known = new Set([
+        'general',
+        'relays',
+        'wallet',
+        'posts',
+        'translation',
+        'rss-feeds',
+        'follow-sets',
+        'cache',
+        'personal-lists'
+      ])
+      return known.has(sub) ? sub : 'general'
+    } catch {
+      return 'general'
+    }
   }
 }
 
@@ -134,6 +149,10 @@ export class ComponentFactory {
         return React.createElement(RssFeedSettingsPage, { index: 0, hideTitlebar: true })
       case 'follow-sets':
         return React.createElement(FollowSetsSettingsPage, { index: 0, hideTitlebar: true })
+      case 'cache':
+        return React.createElement(CacheSettingsPage, { index: 0, hideTitlebar: true })
+      case 'personal-lists':
+        return React.createElement(PersonalListsSettingsPage, { index: 0, hideTitlebar: true })
       default:
         return React.createElement(GeneralSettingsPage, { index: 0, hideTitlebar: true })
     }

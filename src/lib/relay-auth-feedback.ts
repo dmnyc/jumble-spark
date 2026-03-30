@@ -22,6 +22,10 @@ function relayLabel(url: string): string {
 
 /** User-visible result after the relay responds to NIP-42 AUTH (`OK` / failure). */
 export function notifyRelayNip42Accepted(url: string, okReason?: string): void {
+  const key = sessionKeyForRelay(url)
+  if (!key || nip42NotifiedAccept.has(key)) return
+  nip42NotifiedAccept.add(key)
+
   const relay = relayLabel(url)
   const detailSuffix = okReason?.trim() ? ` (${okReason.trim()})` : ''
   toast.success(

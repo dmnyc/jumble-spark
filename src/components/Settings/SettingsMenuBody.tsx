@@ -7,7 +7,7 @@ import {
   toTranslation,
   toWallet,
   toRssFeedSettings,
-  toFollowSetsSettings
+  toPersonalListsSettings
 } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import { useSmartSettingsNavigation } from '@/PageManager'
@@ -101,10 +101,10 @@ export default function SettingsMenuBody({ className }: { className?: string }) 
         </SettingItem>
       )}
       {!!pubkey && (
-        <SettingItem className="clickable" onClick={() => navigateToSettings(toFollowSetsSettings())}>
+        <SettingItem className="clickable" onClick={() => navigateToSettings(toPersonalListsSettings())}>
           <div className="flex items-center gap-4">
             <Users />
-            <div>{t('Follow sets')}</div>
+            <div>{t('Personal Lists')}</div>
           </div>
           <ChevronRight />
         </SettingItem>

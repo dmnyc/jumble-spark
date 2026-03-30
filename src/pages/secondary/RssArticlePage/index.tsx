@@ -1,5 +1,6 @@
 import NoteInteractions from '@/components/NoteInteractions'
 import NoteStats from '@/components/NoteStats'
+import RssArticleWebBookmarks from '@/components/RssArticleWebBookmarks'
 import RssFeedItem from '@/components/RssFeedItem'
 import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
@@ -291,6 +292,11 @@ const RssArticlePage = forwardRef(
                 </Button>
               </div>
             ) : null}
+            {isHttpArticleUrl(articleUrl) ? (
+              <div className="w-full pt-1">
+                <RssArticleWebBookmarks articleUrl={articleUrl} />
+              </div>
+            ) : null}
             {showNostrThread && syntheticRoot ? (
               <div className="px-0 w-full">
                 <NoteStats className="mt-2" event={syntheticRoot} fetchIfNotExisting displayTopZapsAndLikes />
@@ -374,6 +380,11 @@ const RssArticlePage = forwardRef(
                 />
               ))}
             </div>
+            {isHttpArticleUrl(articleUrl) ? (
+              <div className="pt-2">
+                <RssArticleWebBookmarks articleUrl={articleUrl} />
+              </div>
+            ) : null}
           </div>
           {showNostrThread && syntheticRoot ? (
             <div className="px-4 w-full">

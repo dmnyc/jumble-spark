@@ -29,7 +29,11 @@ import type { HighlightData } from '@/components/PostEditor/HighlightEditor'
 import { Event, kinds } from 'nostr-tools'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getWebExternalReactionTargetUrl, isRssThreadSyntheticParentEvent } from '@/lib/rss-article'
+import {
+  getWebBookmarkArticleUrl,
+  getWebExternalReactionTargetUrl,
+  isRssThreadSyntheticParentEvent
+} from '@/lib/rss-article'
 import { CreateHighlightContext } from './CreateHighlightContext'
 import SelectionHighlightTrigger from './SelectionHighlightTrigger'
 import AudioPlayer from '../AudioPlayer'
@@ -181,6 +185,32 @@ export default function Note({
         <div>Context: {event.tags.find(tag => tag[0] === 'context')?.[1] || 'No context found'}</div>
       </div>
     }
+  } else if (event.kind === ExtendedKind.WEB_BOOKMARK) {
+    const href = getWebBookmarkArticleUrl(event)
+    const title = event.tags.find((tag) => tag[0] === 'title')?.[1]?.trim()
+    content = (
+      <>
+        {title ? (
+          <h3 className="mt-2 text-base font-semibold leading-snug break-words">{title}</h3>
+        ) : null}
+        {href ? (
+          <div className="mt-2 not-prose max-w-full space-y-2">
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-primary underline-offset-4 hover:underline break-all"
+            >
+              {href}
+            </a>
+            <WebPreview url={href} className="w-full" />
+          </div>
+        ) : null}
+        {event.content?.trim() ? (
+          <p className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap break-words">{event.content}</p>
+        ) : null}
+      </>
+    )
   } else if (event.kind === ExtendedKind.WIKI_ARTICLE) {
     content = showFull ? (
       <AsciidocArticle className="mt-2" event={event} />
