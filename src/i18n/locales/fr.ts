@@ -1531,6 +1531,8 @@ export default {
     'Article URLs': 'Article URLs',
     'Article URLs subtitle':
       'One card per link: URLs from Nostr relays (you and people you follow) plus any RSS hit. No RSS row yet → web preview card.',
+    'Article URLs Nostr manual subtitle':
+      'Only links from Nostr relay discovery or URLs you added. Items that exist only because they appeared in subscribed RSS feeds are not listed here — use RSS or Both.',
     'RSS timeline': 'RSS timeline',
     'RSS timeline subtitle':
       'Every item from your subscribed feeds, newest first — classic RSS reader.',
@@ -1548,6 +1550,7 @@ export default {
     'Web highlights': 'Web highlights',
     'In your bookmarks': 'In your bookmarks',
     '{{count}} RSS entries for this URL': '{{count}} RSS entries for this URL',
+    '{{count}} entries for this article URL': '{{count}} entries for this article URL',
     'No comments yet': 'No comments yet',
     'No highlights yet': 'No highlights yet',
     'Showing {{filtered}} of {{total}} entries': 'Showing {{filtered}} of {{total}} entries',

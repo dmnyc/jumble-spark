@@ -566,7 +566,13 @@ export default function RssFeedList() {
   }, [rssWebItemsRespectingClutterPref, searchQuery, rssItemMatchesSearch, suppressClawstrLinks])
 
   type CombinedFeedRow =
-    | { kind: 'web'; canonicalUrl: string; rssItems: TRssFeedItem[]; latestPub: number }
+    | {
+        kind: 'web'
+        canonicalUrl: string
+        rssItems: TRssFeedItem[]
+        latestPub: number
+        fromNostrOrManual: boolean
+      }
     | { kind: 'rss'; item: TRssFeedItem }
 
   type UnifiedFeedRow =
@@ -655,8 +661,8 @@ export default function RssFeedList() {
   }, [combinedFeedRows, searchQuery, rssItemMatchesSearch])
 
   /**
-   * URLs-only view: one card per grouped article URL (same rows as “Both”), including RSS-sourced URLs
-   * and full `rssItems` for titles/snippets — previously RSS-only rows were hidden and `rssItems` was cleared.
+   * URLs-only: Nostr/manual article URLs only (`fromNostrOrManual`), not URL cards that exist solely from RSS
+   * grouping. RSS-only timeline rows stay on the RSS toggle. Both: every web row plus RSS entries.
    */
   const feedDisplayBase = useMemo(():
     | { view: 'rss'; items: TRssFeedItem[] }
@@ -667,7 +673,10 @@ export default function RssFeedList() {
 
     if (feedScope === 'urls') {
       const rows: UnifiedFeedRow[] = combinedFeedRowsForSearch
-        .filter((r): r is Extract<CombinedFeedRow, { kind: 'web' }> => r.kind === 'web')
+        .filter(
+          (r): r is Extract<CombinedFeedRow, { kind: 'web' }> =>
+            r.kind === 'web' && r.fromNostrOrManual
+        )
         .map((r) => ({
           kind: 'url' as const,
           canonicalUrl: r.canonicalUrl,
@@ -1010,7 +1019,7 @@ export default function RssFeedList() {
           </>
         ) : feedScope === 'urls' ? (
           <>
-            <ArticleUrlsSection>
+            <ArticleUrlsSection subtitleKey="Article URLs Nostr manual subtitle">
               {displayedFeed.rows
                 .filter((r): r is Extract<UnifiedFeedRow, { kind: 'url' }> => r.kind === 'url')
                 .map((row) => (

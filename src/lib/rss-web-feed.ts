@@ -31,7 +31,10 @@ export const RSS_WEB_FEED_SCOPE_SETTING = 'rssWebFeedScope'
 /** IndexedDB: JSON array of `{ url, addedAt }` for URLs added from “Add URL” (no RSS row yet). */
 export const RSS_WEB_MANUAL_URLS_SETTING = 'rssWebManualUrls'
 
-/** `urls` = one card per article URL (Nostr + RSS merge). `rss` = classic chronological RSS list. `both` = mixed timeline with distinct row UIs. */
+/**
+ * `urls` = article URL cards that come from manual URLs or Nostr discovery only (not RSS-grouped links).
+ * `rss` = classic chronological RSS list only. `both` = all URL cards (RSS-enriched + Nostr/manual) plus RSS-only rows.
+ */
 export type RssWebFeedScope = 'urls' | 'rss' | 'both'
 
 /** Normalize stored scope (legacy `webOnly` / `rssOnly` / `webAndRss` included). */
@@ -298,6 +301,11 @@ export type ArticleUrlFeedWebRow = {
   canonicalUrl: string
   rssItems: RssFeedItem[]
   latestPub: number
+  /**
+   * True when this URL came from the manual list or Nostr relay discovery. False when the row exists only
+   * because RSS items were grouped by link (RSS-only article cards).
+   */
+  fromNostrOrManual: boolean
 }
 
 export function buildArticleUrlFeedRows(
@@ -308,10 +316,17 @@ export function buildArticleUrlFeedRows(
 ): { webRows: ArticleUrlFeedWebRow[]; nonHttpItems: RssFeedItem[] } {
   const { groups, nonHttpItems } = partitionRssItemsForWebFeed(filteredItems, options)
   const excludeClutter = options?.excludeClutterLinks !== false
-  const webByUrl = new Map<string, { rssItems: RssFeedItem[]; latestPub: number }>()
+  const webByUrl = new Map<
+    string,
+    { rssItems: RssFeedItem[]; latestPub: number; fromNostrOrManual: boolean }
+  >()
 
   for (const g of groups) {
-    webByUrl.set(g.canonicalUrl, { rssItems: g.items, latestPub: g.latestPub })
+    webByUrl.set(g.canonicalUrl, {
+      rssItems: g.items,
+      latestPub: g.latestPub,
+      fromNostrOrManual: false
+    })
   }
 
   const mergeNostrTimestamp = (url: string, ts: number) => {
@@ -319,10 +334,11 @@ export function buildArticleUrlFeedRows(
     if (cur) {
       webByUrl.set(url, {
         ...cur,
-        latestPub: Math.max(cur.latestPub, ts)
+        latestPub: Math.max(cur.latestPub, ts),
+        fromNostrOrManual: true
       })
     } else {
-      webByUrl.set(url, { rssItems: [], latestPub: ts })
+      webByUrl.set(url, { rssItems: [], latestPub: ts, fromNostrOrManual: true })
     }
   }
 
@@ -342,7 +358,8 @@ export function buildArticleUrlFeedRows(
       kind: 'web' as const,
       canonicalUrl,
       rssItems: v.rssItems,
-      latestPub: v.latestPub
+      latestPub: v.latestPub,
+      fromNostrOrManual: v.fromNostrOrManual
     })
   )
   webRows.sort((a, b) => b.latestPub - a.latestPub)
