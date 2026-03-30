@@ -14,6 +14,7 @@ import {
   mergeRelayPriorityLayers,
   relayUrlsLocalsFirst
 } from '@/lib/relay-url-priority'
+import { normalizeAnyRelayUrl } from '@/lib/url'
 
 const blockedSet = (blockedRelays: string[]) =>
   new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
@@ -179,6 +180,11 @@ export function augmentSubRequestsWithFavoritesFastReadAndInbox(
   options?: ReadRelayPriorityOptions
 ): TFeedSubRequest[] {
   const max = options?.maxRelays ?? MAX_REQ_RELAY_URLS
+  const userReadSocialExempt = new Set<string>()
+  for (const u of userInboxReadRelays) {
+    const n = normalizeAnyRelayUrl(u) || u.trim()
+    if (n) userReadSocialExempt.add(n)
+  }
   return requests.map((r) => {
     const useSubUrls = options?.mergeSubrequestRelayUrls !== false
     const foldIntoAuthor = options?.mergeSubrequestRelaysIntoAuthorTier === true
@@ -221,7 +227,8 @@ export function augmentSubRequestsWithFavoritesFastReadAndInbox(
     return {
       ...r,
       urls: mergeRelayPriorityLayers(layers, blockedRelays, max, {
-        applySocialKindBlockedFilter: applySocial
+        applySocialKindBlockedFilter: applySocial,
+        exemptNormUrlsFromSocialKindBlock: userReadSocialExempt
       })
     }
   })

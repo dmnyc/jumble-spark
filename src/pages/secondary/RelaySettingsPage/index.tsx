@@ -25,9 +25,36 @@ import { useTranslation } from 'react-i18next'
 const RelaySettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
   const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
+  const { account, relayList } = useNostr()
   const [contentKey, setContentKey] = useState(0)
   const bump = useCallback(() => setContentKey((k) => k + 1), [])
   const [tabValue, setTabValue] = useState('favorite-relays')
+  const [jsonOpen, setJsonOpen] = useState(false)
+  const [jsonPayload, setJsonPayload] = useState<unknown>(null)
+
+  const openRelayListJson = useCallback(async () => {
+    const pk = account?.pubkey
+    if (!pk) {
+      setJsonPayload({ error: 'Not logged in' })
+      setJsonOpen(true)
+      return
+    }
+    const [k10002, k10432, k10243] = await Promise.all([
+      indexedDb.getReplaceableEvent(pk, kinds.RelayList).catch(() => null),
+      indexedDb.getReplaceableEvent(pk, ExtendedKind.CACHE_RELAYS).catch(() => null),
+      indexedDb.getReplaceableEvent(pk, ExtendedKind.HTTP_RELAY_LIST).catch(() => null)
+    ])
+    setJsonPayload({
+      pubkey: pk,
+      mergedRelayList: relayList,
+      kind10002_mailbox_fromIndexedDb: k10002 ?? null,
+      kind10432_cacheRelays_fromIndexedDb: k10432 ?? null,
+      kind10243_httpRelayList_fromIndexedDb: k10243 ?? null,
+      note:
+        'Merged list is from the client cache service. IndexedDB values are your locally stored replaceable lists.'
+    })
+    setJsonOpen(true)
+  }, [account?.pubkey, relayList])
 
   useEffect(() => {
     switch (window.location.hash) {

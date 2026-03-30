@@ -53,6 +53,12 @@ function socialKindBlockedNormSet(): Set<string> {
 export type MergeRelayPriorityLayersOptions = {
   /** When true, drop {@link SOCIAL_KIND_BLOCKED_RELAY_URLS} before applying the max cap. */
   applySocialKindBlockedFilter?: boolean
+  /**
+   * Normalized relay URLs that stay in the stack even when {@link applySocialKindBlockedFilter} is on — e.g. the
+   * user’s NIP-65 read list — so an explicit inbox still appears under “Seen on”. ({@link READ_ONLY_RELAY_URLS} such as
+   * aggr are a separate concern: no publishes, but they are not in {@link SOCIAL_KIND_BLOCKED_RELAY_URLS}.)
+   */
+  exemptNormUrlsFromSocialKindBlock?: Set<string>
 }
 
 /**
@@ -68,13 +74,20 @@ export function mergeRelayPriorityLayers(
   const socialBlocked = mergeOpts?.applySocialKindBlockedFilter
     ? socialKindBlockedNormSet()
     : new Set<string>()
+  const socialExempt = mergeOpts?.exemptNormUrlsFromSocialKindBlock
   const seen = new Set<string>()
   const out: string[] = []
   for (const layer of layers) {
     for (const u of layer) {
       // Must not use {@link normalizeUrl}: it turns http(s) index relays into ws(s), which then hit the WS pool.
       const n = normalizeAnyRelayUrl(u) || u.trim()
-      if (!n || blocked.has(n) || socialBlocked.has(n) || seen.has(n)) continue
+      if (!n || blocked.has(n) || seen.has(n)) continue
+      if (
+        socialBlocked.has(n) &&
+        !(socialExempt?.has(n) ?? false)
+      ) {
+        continue
+      }
       seen.add(n)
       out.push(n)
       if (out.length >= max) return out
@@ -131,6 +144,11 @@ export function buildPrioritizedReadRelayUrls(opts: {
 }): string[] {
   const max = opts.maxRelays ?? MAX_REQ_RELAY_URLS
   const applySocial = opts.applySocialKindBlockedFilter !== false
+  const exemptFromSocial = new Set<string>()
+  for (const u of opts.userReadRelays ?? []) {
+    const n = normalizeAnyRelayUrl(u) || u.trim()
+    if (n) exemptFromSocial.add(n)
+  }
   const layers = buildReadRelayPriorityLayers({
     userReadRelays: opts.userReadRelays,
     userWriteRelays: opts.userWriteRelays,
@@ -138,7 +156,8 @@ export function buildPrioritizedReadRelayUrls(opts: {
     favoriteRelays: opts.favoriteRelays
   })
   return mergeRelayPriorityLayers(layers, opts.blockedRelays, max, {
-    applySocialKindBlockedFilter: applySocial
+    applySocialKindBlockedFilter: applySocial,
+    exemptNormUrlsFromSocialKindBlock: exemptFromSocial
   })
 }
 

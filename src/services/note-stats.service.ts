@@ -257,7 +257,7 @@ class NoteStatsService {
       seen.add(n)
     }
 
-    // 1. Broad search index / aggregator relays
+    // 1. Search / discovery relay set (includes read-only index mirrors; see READ_ONLY_RELAY_URLS in constants)
     SEARCHABLE_RELAY_URLS.forEach(add)
 
     // 2. Default fast read set (includes e.g. theforest — not in SEARCHABLE)
@@ -294,9 +294,10 @@ class NoteStatsService {
   }
 
   /**
-   * Split REQ batches so “social” kinds (1 / 11 / 1111) do not strip aggregator relays from the
-   * same subscription as reactions and zaps ({@link relayFilterIncludesSocialKindBlockedKind}).
-   * RSS URL threads also need `#r` + kind 7 for NIP-73 page-targeted likes.
+   * Split REQ batches: filters that include social kinds (1 / 11 / 1111) trigger
+   * {@link relayFilterIncludesSocialKindBlockedKind} and drop {@link SOCIAL_KIND_BLOCKED_RELAY_URLS}; keep reactions,
+   * zaps, and `#r` queries in separate batches so read-only index relays ({@link READ_ONLY_RELAY_URLS}) still answer
+   * where appropriate. RSS URL threads also need `#r` + kind 7 for NIP-73 page-targeted likes.
    */
   private buildFilterGroups(
     event: Event,

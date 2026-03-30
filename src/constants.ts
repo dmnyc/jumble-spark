@@ -230,12 +230,24 @@ export const BOOKSTR_RELAY_URLS = [
 
 /**
  * Block-list order (applied in sequence when building relay lists):
- * 1. READ_ONLY — never publish
- * 2. SOCIAL_KIND_BLOCKED — skip for REQ/publish that target {@link SOCIAL_KIND_BLOCKED_KINDS}
+ * 1. READ_ONLY — never publish (search mirrors, index relays, NIP-42 read-only aggregators)
+ * 2. SOCIAL_KIND_BLOCKED — skip for REQ/publish that touch {@link SOCIAL_KIND_BLOCKED_KINDS} (see list below)
  * 3. E_TAG_FILTER_BLOCKED — skip for reply/quote/stats fetches (#e, #a, #q filters)
  */
-/** Relays that must never be used for publishing (read-only aggregators, etc.). */
-export const READ_ONLY_RELAY_URLS = ['wss://aggr.nostr.land']
+/**
+ * Relays that must never receive publishes: search engines, index mirrors, and similar endpoints that only ingest
+ * or aggregate for read. Distinct from {@link SOCIAL_KIND_BLOCKED_RELAY_URLS} (kind-coverage limits, not write policy).
+ */
+export const READ_ONLY_RELAY_URLS = [
+  'wss://aggr.nostr.land',
+  'wss://relay.nostr.watch',
+  'wss://relaypag.es',
+  'wss://relay.noswhere.com',
+  'wss://search.nos.today',
+  'wss://trending.nostr.wine',
+  'wss://sendit.nosflare.com',
+  'wss://relay.nip46.com'
+]
 
 /**
  * Relays that reject or poorly serve “social” kinds (short notes, discussions, URL comments).
@@ -244,7 +256,6 @@ export const READ_ONLY_RELAY_URLS = ['wss://aggr.nostr.land']
  */
 export const SOCIAL_KIND_BLOCKED_RELAY_URLS = [
   'wss://thecitadel.nostr1.com',
-  'wss://hist.nostr.land',
   'wss://profiles.nostr1.com',
   'wss://purplepag.es',
   'wss://relay.nsec.app',
@@ -252,12 +263,7 @@ export const SOCIAL_KIND_BLOCKED_RELAY_URLS = [
   'wss://spatia-arcana.com',
   'wss://relay.wikifreedia.xyz',
   'wss://relay.gifbuddy.lol',
-  'wss://relay.noswhere.com',
-  'wss://aggr.nostr.land',
-  'wss://search.nos.today',
-  'wss://trending.nostr.wine',
-  'wss://sendit.nosflare.com',
-  'wss://relay.nip46.com'
+  'wss://hist.nostr.land',
 ]
 
 /** Relays that reject #e (and similar) tag filters; skip for reply/quote/stats fetches. */
@@ -439,8 +445,9 @@ export const THREAD_BACKLINK_STREAM_KINDS_WITHOUT_HIGHLIGHT: readonly number[] =
   THREAD_BACKLINK_STREAM_KINDS.filter((k) => k !== kinds.Highlights)
 
 /**
- * Kinds aligned with {@link SOCIAL_KIND_BLOCKED_RELAY_URLS}: omit those relays when querying or publishing
- * these kinds (or when `kinds` is omitted on a filter — see {@link relayFilterIncludesSocialKindBlockedKind}).
+ * When a filter touches these kinds (or omits `kinds`), omit {@link SOCIAL_KIND_BLOCKED_RELAY_URLS} from the relay
+ * stack — those relays do not carry this note/comment surface (kinds **1** / **1111** / **11** per relay policy).
+ * @see {@link relayFilterIncludesSocialKindBlockedKind}
  */
 export const SOCIAL_KIND_BLOCKED_KINDS: readonly number[] = [
   kinds.ShortTextNote,

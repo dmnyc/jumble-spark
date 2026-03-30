@@ -176,8 +176,9 @@ export function isRssWebUnifiedClutterUrl(url: string): boolean {
 }
 
 /**
- * Split filters: kind 1/1111 in `social` strip aggregator relays from the whole REQ; reactions and
- * `#r` queries stay in `nonSocial` so aggr and similar still answer.
+ * Split filters: `social` uses kinds that match {@link relayFilterIncludesSocialKindBlockedKind} and therefore omit
+ * {@link SOCIAL_KIND_BLOCKED_RELAY_URLS}; `nonSocial` keeps reactions / `#r` on batches that do not apply that strip.
+ * Read-only index relays ({@link READ_ONLY_RELAY_URLS}) are unrelated to the social-kind block list.
  */
 export function buildRssArticleUrlThreadInteractionFilterGroups(
   canonicalArticleUrl: string,

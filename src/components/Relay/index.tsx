@@ -52,6 +52,20 @@ const Relay = forwardRef<
     }
   }, [normalizedUrl])
 
+  /**
+   * Session strikes skip a relay for reads until cleared. Refresh in the titlebar already clears; without this,
+   * opening the panel on a striked relay subscribed too late or showed an empty feed while the banner confused users.
+   * Runs after child effects so the NoteList ref is ready for {@link refresh}.
+   */
+  useEffect(() => {
+    if (!normalizedUrl) return
+    if (!client.clearSessionRelayStrikeForUrl(normalizedUrl)) return
+    setStrikeCount(0)
+    if (typeof noteListRef !== 'function') {
+      noteListRef.current?.refresh()
+    }
+  }, [normalizedUrl])
+
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedInput(searchInput)

@@ -20,9 +20,21 @@ const FollowingListPage = forwardRef(({ id, index, hideTitlebar = false }: { id?
   const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
   const [listRefreshNonce, setListRefreshNonce] = useState(0)
   const { profile } = useFetchProfile(id)
-  const { followings } = useFetchFollowings(profile?.pubkey, listRefreshNonce)
+  const { followings, followListEvent } = useFetchFollowings(profile?.pubkey, listRefreshNonce)
+  const [jsonOpen, setJsonOpen] = useState(false)
+  const [followJsonPayload, setFollowJsonPayload] = useState<unknown>(null)
 
   const bumpList = useCallback(() => setListRefreshNonce((n) => n + 1), [])
+
+  const openFollowingListJson = useCallback(() => {
+    setFollowJsonPayload({
+      pubkey: profile?.pubkey ?? null,
+      contactsKind3Event: followListEvent ?? null,
+      derivedFollowingPubkeys: followings,
+      note: 'Following pubkeys are derived from `p` tags on the kind 3 contacts event when present.'
+    })
+    setJsonOpen(true)
+  }, [profile?.pubkey, followListEvent, followings])
 
   useEffect(() => {
     if (!hideTitlebar) {
@@ -56,7 +68,7 @@ const FollowingListPage = forwardRef(({ id, index, hideTitlebar = false }: { id?
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setJsonOpen(true)}>
+                <DropdownMenuItem onClick={() => openFollowingListJson()}>
                   <Code className="size-4 mr-2" />
                   {t('View JSON')}
                 </DropdownMenuItem>
