@@ -18,6 +18,7 @@ import { utf8Decoder } from 'nostr-tools/utils'
 import client from './client.service'
 import { queryService, replaceableEventService } from './client.service'
 import { getProfileFromEvent } from '@/lib/event-metadata'
+import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 import logger from '@/lib/logger'
 
 export type TRecentSupporter = { pubkey: string; amount: number; comment?: string }
@@ -82,8 +83,9 @@ class LightningService {
       comment
     })
     const zapRequest = await client.signer.signEvent(zapRequestDraft)
-    const zapRequestRes = await fetch(
-      `${callback}?amount=${amount}&nostr=${encodeURI(JSON.stringify(zapRequest))}&lnurl=${lnurl}`
+    const zapRequestRes = await fetchWithTimeout(
+      `${callback}?amount=${amount}&nostr=${encodeURI(JSON.stringify(zapRequest))}&lnurl=${lnurl}`,
+      { timeoutMs: 25_000 }
     )
     const zapRequestResBody = await zapRequestRes.json()
     if (zapRequestResBody.error) {
@@ -205,8 +207,9 @@ class LightningService {
       comment
     })
     const zapRequest = await client.signer.signEvent(zapRequestDraft)
-    const zapRequestRes = await fetch(
-      `${callback}?amount=${amount}&nostr=${encodeURI(JSON.stringify(zapRequest))}&lnurl=${lnurl}`
+    const zapRequestRes = await fetchWithTimeout(
+      `${callback}?amount=${amount}&nostr=${encodeURI(JSON.stringify(zapRequest))}&lnurl=${lnurl}`,
+      { timeoutMs: 25_000 }
     )
     const zapRequestResBody = await zapRequestRes.json()
     if (zapRequestResBody.error) {
@@ -354,7 +357,7 @@ class LightningService {
         lnurl = utf8Decoder.decode(data)
       }
 
-      const res = await fetch(lnurl)
+      const res = await fetchWithTimeout(lnurl, { timeoutMs: 15_000 })
       const body = await res.json()
 
       if (body.allowsNostr && body.nostrPubkey) {

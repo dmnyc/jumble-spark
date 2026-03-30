@@ -3,6 +3,7 @@ import './polyfill'
 import './services/lightning.service'
 import './lib/error-suppression'
 import './lib/debug-utils'
+import { fetchWithTimeout } from './lib/fetch-with-timeout'
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -68,7 +69,7 @@ async function bootstrap() {
     storage.initAsync(),
     (async () => {
       try {
-        const r = await fetch('/config.json')
+        const r = await fetchWithTimeout('/config.json', { timeoutMs: 10_000 })
         if (r.ok) {
           window.__RUNTIME_CONFIG__ = (await r.json()) as {
             NIP66_MONITOR_NPUB?: string

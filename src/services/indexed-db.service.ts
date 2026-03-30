@@ -90,7 +90,7 @@ export const StoreNames = {
 }
 
 /** Schema version we expect. When adding stores or migrations, bump this. */
-const DB_VERSION = 33
+const DB_VERSION = 34
 
 /** Max age for profile and payment info cache before we refetch (5 min). */
 const PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -132,6 +132,13 @@ class IndexedDbService {
 
   private db: IDBDatabase | null = null
   private initPromise: Promise<void> | null = null
+  /** Browser timer id (DOM `setTimeout` returns a number). */
+  private cleanupTimer: number | null = null
+
+  /** First TTL sweep after DB open (profile / relay list rows). */
+  private static readonly CLEANUP_INITIAL_DELAY_MS = 60 * 1000
+  /** Repeat TTL sweeps on this interval so pruning is not a one-shot. */
+  private static readonly CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 
   init(): Promise<void> {
     if (!this.initPromise) {
@@ -171,7 +178,7 @@ class IndexedDbService {
             }
             openWithStored.onsuccess = () => {
               this.db = openWithStored.result
-              setTimeout(() => this.cleanUp(), 1000 * 60)
+              this.scheduleNextCleanUp(IndexedDbService.CLEANUP_INITIAL_DELAY_MS)
               resolve()
             }
             openWithStored.onupgradeneeded = () => {
@@ -187,7 +194,7 @@ class IndexedDbService {
 
       request.onsuccess = () => {
         this.db = request.result
-        setTimeout(() => this.cleanUp(), 1000 * 60)
+        this.scheduleNextCleanUp(IndexedDbService.CLEANUP_INITIAL_DELAY_MS)
         resolve()
       }
 
@@ -300,6 +307,9 @@ class IndexedDbService {
           }
           if (!db.objectStoreNames.contains(StoreNames.PIPER_TTS_CACHE)) {
             db.createObjectStore(StoreNames.PIPER_TTS_CACHE, { keyPath: 'key' })
+          }
+          if (event.oldVersion < 34) {
+            // v34: app-side changes (fetch timeouts, timeline hydrate order, discussion list cap)
           }
           ensureMissingObjectStores(db)
         }
@@ -1288,7 +1298,7 @@ class IndexedDbService {
     const allStoreNames = Array.from(this.db.objectStoreNames)
     const transaction = this.db.transaction(allStoreNames, 'readwrite')
     
-    await Promise.allSettled(
+    const clearResults = await Promise.allSettled(
       allStoreNames.map(storeName => {
         return new Promise<void>((resolve, reject) => {
           const store = transaction.objectStore(storeName)
@@ -1298,6 +1308,15 @@ class IndexedDbService {
         })
       })
     )
+    for (let i = 0; i < clearResults.length; i++) {
+      const r = clearResults[i]
+      if (r?.status === 'rejected') {
+        logger.warn('[IndexedDB] clearAllCache failed for store', {
+          store: allStoreNames[i],
+          error: r.reason
+        })
+      }
+    }
   }
 
   async getStoreInfo(): Promise<Record<string, number>> {
@@ -1306,25 +1325,30 @@ class IndexedDbService {
       return {}
     }
 
-    const storeInfo: Record<string, number> = {}
     const allStoreNames = Array.from(this.db.objectStoreNames)
-    
-    await Promise.allSettled(
-      allStoreNames.map(storeName => {
-        return new Promise<void>((resolve, reject) => {
-          const transaction = this.db!.transaction(storeName, 'readonly')
-          const store = transaction.objectStore(storeName)
-          const request = store.count()
-          request.onsuccess = () => {
-            storeInfo[storeName] = request.result
-            resolve()
-          }
-          request.onerror = (event) => reject(idbEventToError(event))
-        })
-      })
-    )
+    if (allStoreNames.length === 0) {
+      return {}
+    }
 
-    return storeInfo
+    return new Promise((resolve, reject) => {
+      const storeInfo: Record<string, number> = {}
+      const tx = this.db!.transaction(allStoreNames, 'readonly')
+      let pending = allStoreNames.length
+
+      for (const storeName of allStoreNames) {
+        const req = tx.objectStore(storeName).count()
+        req.onsuccess = () => {
+          storeInfo[storeName] = req.result
+          pending--
+          if (pending === 0) {
+            resolve(storeInfo)
+          }
+        }
+        req.onerror = (ev) => {
+          reject(idbEventToError(ev))
+        }
+      }
+    })
   }
 
   async getStoreItems(storeName: string): Promise<TValue<any>[]> {
@@ -1614,12 +1638,26 @@ class IndexedDbService {
     })
   }
 
+  private scheduleNextCleanUp(delayMs: number): void {
+    if (typeof window === 'undefined') return
+    if (this.cleanupTimer !== null) {
+      clearTimeout(this.cleanupTimer)
+      this.cleanupTimer = null
+    }
+    if (!this.db) return
+    this.cleanupTimer = window.setTimeout(() => {
+      this.cleanupTimer = null
+      void this.cleanUp()
+    }, delayMs)
+  }
+
   private async cleanUp() {
     await this.initPromise
     if (!this.db) {
       return
     }
 
+    try {
     const stores = [
       { name: StoreNames.PROFILE_EVENTS, expirationTimestamp: Date.now() - 1000 * 60 * 60 * 24 }, // 1 day
       { name: StoreNames.PAYMENT_INFO_EVENTS, expirationTimestamp: Date.now() - PROFILE_AND_PAYMENT_CACHE_MAX_AGE_MS }, // 5 min
@@ -1650,7 +1688,7 @@ class IndexedDbService {
       existingStores.map((store) => store.name),
       'readwrite'
     )
-    await Promise.allSettled(
+    const sweepResults = await Promise.allSettled(
       existingStores.map(({ name, expirationTimestamp }) => {
         if (expirationTimestamp < 0) {
           return Promise.resolve()
@@ -1677,6 +1715,22 @@ class IndexedDbService {
         })
       })
     )
+    for (let i = 0; i < sweepResults.length; i++) {
+      const r = sweepResults[i]
+      if (r?.status === 'rejected') {
+        logger.warn('[IndexedDB] cleanUp store sweep failed', {
+          store: existingStores[i]?.name,
+          error: r.reason
+        })
+      }
+    }
+    } catch (error) {
+      logger.warn('[IndexedDB] cleanUp failed', { error })
+    } finally {
+      if (this.db) {
+        this.scheduleNextCleanUp(IndexedDbService.CLEANUP_INTERVAL_MS)
+      }
+    }
   }
 
   /**

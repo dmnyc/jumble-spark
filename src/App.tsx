@@ -26,6 +26,7 @@ import { UserPreferencesProvider } from '@/providers/UserPreferencesProvider'
 import { UserTrustProvider } from '@/providers/UserTrustProvider'
 import { ZapProvider } from '@/providers/ZapProvider'
 import StartupSessionBanner from '@/components/StartupSessionBanner'
+import VersionUpdateBanner from '@/components/VersionUpdateBanner'
 import { PageManager } from './PageManager'
 
 export default function App(): JSX.Element {
@@ -37,6 +38,7 @@ export default function App(): JSX.Element {
           <DeletedEventProvider>
             <NostrProvider>
               <div className="flex min-h-[100dvh] flex-col">
+                <VersionUpdateBanner />
                 <StartupSessionBanner />
                 <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                   <ZapProvider>

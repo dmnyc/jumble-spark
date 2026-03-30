@@ -6,6 +6,7 @@
  * the Vite same-origin proxy `/dev-index-relay` → `VITE_DEV_INDEX_RELAY_TARGET` (default in `vite.config.ts`).
  * Production and remote HTTPS relays are unchanged; those need CORS on the relay or a real reverse proxy.
  */
+import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 import logger from '@/lib/logger'
 import { normalizeHttpRelayUrl } from '@/lib/url'
 import type { Filter, Event as NEvent } from 'nostr-tools'
@@ -170,14 +171,15 @@ export async function queryIndexRelay(
   for (const f of filters) {
     const body = nostrFilterToIndexRelayBody(filterForIndexRelay(f))
     try {
-      const res = await fetch(endpoint, {
+      const res = await fetchWithTimeout(endpoint, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(body),
-        signal: options?.signal
+        signal: options?.signal,
+        timeoutMs: 25_000
       })
       if (!res.ok) {
         sawHardFailure = true
@@ -231,7 +233,7 @@ export async function publishEventToIndexRelay(
   const base = devProxyLoopbackIndexRelayBase(normalizeHttpRelayUrl(baseUrl) || baseUrl)
   const endpoint = indexRelayPublishUrl(base)
   try {
-    const res = await fetch(endpoint, {
+    const res = await fetchWithTimeout(endpoint, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -248,7 +250,8 @@ export async function publishEventToIndexRelay(
           sig: event.sig
         }
       }),
-      signal: options?.signal
+      signal: options?.signal,
+      timeoutMs: 25_000
     })
     if (!res.ok) {
       if (isDevViteIndexRelayProxyPath(endpoint) && res.status === 500) {

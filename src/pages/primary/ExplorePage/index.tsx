@@ -3,7 +3,6 @@ import ExploreFavoriteRelays from '@/components/Explore/ExploreFavoriteRelays'
 import ExploreRelayReviews from '@/components/Explore/ExploreRelayReviews'
 import FollowingFavoriteRelayList from '@/components/FollowingFavoriteRelayList'
 import Tabs from '@/components/Tabs'
-import VersionUpdateBanner from '@/components/VersionUpdateBanner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toRelay } from '@/lib/link'
@@ -138,9 +137,6 @@ const ExplorePage = forwardRef<TPageRef>((_, ref) => {
       displayScrollToTopButton
     >
       <div className="min-w-0 pt-2">
-        <div className="px-2">
-          <VersionUpdateBanner />
-        </div>
         {tab === 'explore' && (
           <div key={contentRefreshKey} className="min-w-0">
             <ExploreFavoriteRelays />

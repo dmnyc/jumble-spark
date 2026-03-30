@@ -1,7 +1,6 @@
 import BookmarkList from '@/components/BookmarkList'
 import RelayInfo from '@/components/RelayInfo'
 import { RefreshButton } from '@/components/RefreshButton'
-import VersionUpdateBanner from '@/components/VersionUpdateBanner'
 import { Button } from '@/components/ui/button'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
@@ -197,7 +196,6 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
       displayScrollToTopButton
     >
       <div className="min-w-0 pt-2">
-        <VersionUpdateBanner />
         {content}
       </div>
     </PrimaryPageLayout>

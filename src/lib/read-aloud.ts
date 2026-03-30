@@ -5,6 +5,7 @@ import {
   getPiperTtsCacheTtlMs
 } from '@/lib/piper-tts-cache-policy'
 import indexedDb from '@/services/indexed-db.service'
+import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { Event, kinds } from 'nostr-tools'
@@ -316,11 +317,12 @@ async function fetchPiperTtsBlobForChunk(
 
   let response: Response
   try {
-    response = await fetch(url, {
+    response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, speed }),
-      signal
+      signal,
+      timeoutMs: 120_000
     })
   } catch (e) {
     if (isAbortError(e)) {

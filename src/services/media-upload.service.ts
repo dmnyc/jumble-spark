@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 import { simplifyUrl } from '@/lib/url'
 import { TDraftEvent, TMediaUploadServiceConfig } from '@/types'
 import { BlossomClient } from 'blossom-client-sdk'
@@ -122,7 +123,10 @@ class MediaUploadService {
     }
     let uploadUrl = this.nip96ServiceUploadUrlMap.get(service)
     if (!uploadUrl) {
-      const response = await fetch(`${service}/.well-known/nostr/nip96.json`)
+      const response = await fetchWithTimeout(`${service}/.well-known/nostr/nip96.json`, {
+        signal: options?.signal,
+        timeoutMs: 15_000
+      })
       if (!response.ok) {
         throw new Error(
           `${simplifyUrl(service)} does not work, please try another service in your settings`

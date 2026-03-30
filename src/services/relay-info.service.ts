@@ -3,6 +3,7 @@ import indexDb from '@/services/indexed-db.service'
 import { TAwesomeRelayCollection, TRelayInfo } from '@/types'
 import DataLoader from 'dataloader'
 import FlexSearch from 'flexsearch'
+import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 import logger from '@/lib/logger'
 
 class RelayInfoService {
@@ -97,8 +98,9 @@ class RelayInfoService {
 
     this.awesomeRelayCollections = (async () => {
       try {
-        const res = await fetch(
-          'https://raw.githubusercontent.com/CodyTseng/awesome-nostr-relays/master/dist/collections.json'
+        const res = await fetchWithTimeout(
+          'https://raw.githubusercontent.com/CodyTseng/awesome-nostr-relays/master/dist/collections.json',
+          { timeoutMs: 20_000 }
         )
         if (!res.ok) {
           throw new Error('Failed to fetch awesome relay collections')
@@ -146,8 +148,9 @@ class RelayInfoService {
   private async fetchRelayNip11(url: string) {
     try {
       logger.debug('Fetching NIP-11 metadata', { url })
-      const res = await fetch(url.replace('ws://', 'http://').replace('wss://', 'https://'), {
-        headers: { Accept: 'application/nostr+json' }
+      const res = await fetchWithTimeout(url.replace('ws://', 'http://').replace('wss://', 'https://'), {
+        headers: { Accept: 'application/nostr+json' },
+        timeoutMs: 12_000
       })
       return res.json() as Omit<TRelayInfo, 'url' | 'shortUrl'>
     } catch {

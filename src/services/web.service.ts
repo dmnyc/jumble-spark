@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 import { buildViteProxySitesFetchUrl, urlLooksLikeViteProxyRequest } from '@/lib/vite-proxy-url'
 import { TWebMetadata } from '@/types'
 import DataLoader from 'dataloader'
@@ -20,11 +21,9 @@ const HTML_FETCH_HEADERS = {
 }
 
 async function tryFetchHtml(fetchUrl: string, timeoutMs: number): Promise<string | null> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const res = await fetch(fetchUrl, {
-      signal: controller.signal,
+    const res = await fetchWithTimeout(fetchUrl, {
+      timeoutMs,
       mode: 'cors',
       credentials: 'omit',
       headers: HTML_FETCH_HEADERS
@@ -36,8 +35,6 @@ async function tryFetchHtml(fetchUrl: string, timeoutMs: number): Promise<string
     return html
   } catch {
     return null
-  } finally {
-    clearTimeout(timeoutId)
   }
 }
 

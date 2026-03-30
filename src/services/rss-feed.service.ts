@@ -1,4 +1,5 @@
 import { DEFAULT_RSS_FEEDS } from '@/constants'
+import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
 import { cleanUrl } from '@/lib/url'
 import logger from '@/lib/logger'
@@ -317,64 +318,38 @@ class RssFeedService {
    */
   private async fetchWithStrategy(originalUrl: string, strategy: { name: string; getUrl: (url: string) => string }, externalSignal?: AbortSignal): Promise<string> {
     const fetchUrl = strategy.getUrl(originalUrl)
-    
-    // Check if external signal is already aborted
+
     if (externalSignal?.aborted) {
       throw new DOMException('The operation was aborted.', 'AbortError')
     }
 
-    const controller = new AbortController()
-    // Use a longer timeout for RSS feeds (30 seconds) since they can be slow
-    // Don't abort on timeout - just log a warning, let the fetch continue
-    const timeoutId = setTimeout(() => {
-      logger.warn('[RssFeedService] Fetch taking longer than expected', { 
-        url: originalUrl, 
-        strategy: strategy.name,
-        elapsed: '30s'
-      })
-      // Don't abort - just log. The fetch will continue or fail naturally
-    }, 30000) // 30 second warning (but don't abort)
-
-    // If external signal is provided, abort our controller when external signal aborts
-    if (externalSignal) {
-      externalSignal.addEventListener('abort', () => {
-        clearTimeout(timeoutId)
-        controller.abort()
-      }, { once: true })
-    }
-
     try {
-      const res = await fetch(fetchUrl, {
-        signal: controller.signal,
+      const res = await fetchWithTimeout(fetchUrl, {
+        signal: externalSignal,
+        timeoutMs: 60_000,
         mode: 'cors',
         credentials: 'omit',
         headers: {
-          'Accept': 'application/rss+xml, application/xml, application/atom+xml, text/xml, */*'
+          Accept: 'application/rss+xml, application/xml, application/atom+xml, text/xml, */*'
         }
       })
-
-      clearTimeout(timeoutId)
 
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`)
       }
 
       const xmlText = await res.text()
-      
-      // Validate that we got XML content
+
       if (!xmlText || xmlText.trim().length === 0) {
         throw new Error('Empty response')
       }
 
-      // Basic validation - check if it looks like XML
       if (!xmlText.trim().startsWith('<')) {
         throw new Error('Response does not appear to be XML')
       }
 
       return xmlText
     } catch (error) {
-      clearTimeout(timeoutId)
-      // Re-throw abort errors as-is
       if (error instanceof DOMException && error.name === 'AbortError') {
         throw error
       }

@@ -17,62 +17,93 @@ export default function VersionUpdateBanner() {
       return
     }
 
-    let registration: ServiceWorkerRegistration | null = null
+    /**
+     * Workbox is built with skipWaiting + clientsClaim, so `registration.waiting` is almost never
+     * set — the new worker activates immediately. The reliable signal is `controllerchange`.
+     * Skip the first such event when we started without a controller (first install for this origin).
+     */
+    let ignoreNextControllerChange = !navigator.serviceWorker.controller
+    let cancelled = false
+    const cleanups: Array<() => void> = []
 
-    const checkForUpdates = async () => {
-      try {
-        registration = await navigator.serviceWorker.ready
-        if (!registration) return
-
-        // Check if there's a waiting service worker (new version ready)
-        if (registration.waiting) {
-          // There's already a new version waiting
-          setUpdateAvailable(true)
+    const runCleanup = () => {
+      for (let i = cleanups.length - 1; i >= 0; i--) {
+        try {
+          cleanups[i]?.()
+        } catch {
+          // ignore
         }
+      }
+      cleanups.length = 0
+    }
 
-        // Listen for updates
-        const handleUpdateFound = () => {
-          const newWorker = registration?.installing
-          if (!newWorker) return
-
-          const handleStateChange = () => {
-            if (newWorker.state === 'installed') {
-              // New version installed
-              if (navigator.serviceWorker.controller) {
-                // There's a new version ready (not the first install)
-                setUpdateAvailable(true)
-              }
-            }
-          }
-
-          newWorker.addEventListener('statechange', handleStateChange)
-        }
-
-        registration.addEventListener('updatefound', handleUpdateFound)
-
-        // Check for updates periodically
-        const checkInterval = setInterval(() => {
-          if (registration) {
-            registration.update()
-          }
-        }, 60000) // Check every minute
-
-        // Initial update check
-        registration.update()
-
-        return () => {
-          clearInterval(checkInterval)
-          if (registration) {
-            registration.removeEventListener('updatefound', handleUpdateFound as EventListener)
-          }
-        }
-      } catch (error) {
-        // In non-secure contexts or when no SW is registered, ready can reject with "The operation is insecure"
-        logger.debug('Service worker update check skipped or failed', { error })
+    const onControllerChange = () => {
+      if (ignoreNextControllerChange) {
+        ignoreNextControllerChange = false
+        return
+      }
+      if (navigator.serviceWorker.controller) {
+        setUpdateAvailable(true)
       }
     }
 
-    checkForUpdates().catch(() => {})
+    ;(async () => {
+      try {
+        const registration = await navigator.serviceWorker.ready
+        if (cancelled || !registration) return
+
+        navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
+        cleanups.push(() => navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange))
+
+        if (registration.waiting) {
+          setUpdateAvailable(true)
+        }
+
+        const installingListeners: Array<{ worker: ServiceWorker; fn: () => void }> = []
+
+        const handleUpdateFound = () => {
+          const newWorker = registration.installing
+          if (!newWorker) return
+
+          const onState = () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              setUpdateAvailable(true)
+            }
+          }
+          // May already be `installed` before we attach (skipWaiting race)
+          onState()
+          newWorker.addEventListener('statechange', onState)
+          installingListeners.push({ worker: newWorker, fn: onState })
+        }
+
+        registration.addEventListener('updatefound', handleUpdateFound)
+        cleanups.push(() => registration.removeEventListener('updatefound', handleUpdateFound))
+        cleanups.push(() => {
+          for (const { worker, fn } of installingListeners) {
+            worker.removeEventListener('statechange', fn)
+          }
+          installingListeners.length = 0
+        })
+
+        const checkUpdate = () => {
+          if (document.hidden) return
+          registration.update().catch(() => {})
+        }
+        const interval = window.setInterval(checkUpdate, 60_000)
+        cleanups.push(() => window.clearInterval(interval))
+        document.addEventListener('visibilitychange', checkUpdate)
+        cleanups.push(() => document.removeEventListener('visibilitychange', checkUpdate))
+
+        checkUpdate()
+      } catch (error) {
+        logger.debug('Service worker update check skipped or failed', { error })
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      runCleanup()
+    }
   }, [])
 
   const handleUpdate = () => {
@@ -83,7 +114,7 @@ export default function VersionUpdateBanner() {
 
   const handleDismiss = () => {
     setIsDismissed(true)
-    // Store dismissal in localStorage to avoid showing it again this session
+    // Store dismissal in sessionStorage to avoid showing it again this session
     sessionStorage.setItem('versionUpdateDismissed', 'true')
   }
 
@@ -145,4 +176,3 @@ export default function VersionUpdateBanner() {
     </div>
   )
 }
-

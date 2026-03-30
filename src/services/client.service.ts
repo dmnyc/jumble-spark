@@ -2115,23 +2115,30 @@ class ClientService extends EventTarget {
       }
     }
 
-    void (async () => {
-      try {
-        const st = await indexedDb.getTimelinePersistedState(key)
-        if (!st?.refs?.length) return
-        const list = await indexedDb.getArchivedEventsByIds(st.refs.map((r) => r[0]))
-        if (list.length === 0) return
+    try {
+      const st = await indexedDb.getTimelinePersistedState(key)
+      if (st?.refs?.length) {
+        const hexIds = st.refs.map((r) => r[0])
+        const list = await indexedDb.getArchivedEventsByIds(hexIds)
         for (const ev of list) {
           if (shouldDropEventOnIngest(ev)) continue
           if (eventIds.has(ev.id)) continue
           eventIds.add(ev.id)
           events.push(ev)
         }
+        for (const refId of hexIds) {
+          if (eventIds.has(refId)) continue
+          const sess = that.eventService.peekSessionCachedEvent(refId)
+          if (sess && !shouldDropEventOnIngest(sess)) {
+            eventIds.add(refId)
+            events.push(sess)
+          }
+        }
         flushStreamingSnapshot()
-      } catch (err) {
-        logger.warn('[ClientService] Timeline disk hydrate failed', err)
       }
-    })()
+    } catch (err) {
+      logger.warn('[ClientService] Timeline disk hydrate failed', err)
+    }
 
     const handleTimelineEose = (eosed: boolean) => {
       if (!eosed) return

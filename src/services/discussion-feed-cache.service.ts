@@ -34,6 +34,10 @@ class DiscussionFeedCacheService {
   private discussionsListCache: CachedDiscussionsListData | null = null
   private readonly CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
   private readonly DISCUSSIONS_LIST_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes for discussions list
+  /** Cap in-memory thread caches so long sessions do not retain unbounded reply payloads. */
+  private readonly MAX_THREAD_CACHE_KEYS = 100
+  /** Cap merged discussions list `eventMap` so unbounded merges cannot grow RAM without limit. */
+  private readonly MAX_DISCUSSIONS_LIST_THREADS = 400
 
   static getInstance(): DiscussionFeedCacheService {
     if (!DiscussionFeedCacheService.instance) {
@@ -153,10 +157,62 @@ class DiscussionFeedCacheService {
 
     this.cache.set(cacheKey, cachedData)
 
+    this.trimThreadCacheIfNeeded()
+
     // Clean up stale entries periodically (every 10th set operation)
     if (this.cache.size > 50 && Math.random() < 0.1) {
       this.cleanupStaleEntries()
     }
+  }
+
+  /** Drop oldest threads by {@link CachedThreadData.timestamp} when over {@link MAX_THREAD_CACHE_KEYS}. */
+  private trimThreadCacheIfNeeded(): void {
+    if (this.cache.size <= this.MAX_THREAD_CACHE_KEYS) return
+    const entries = [...this.cache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp)
+    const overflow = this.cache.size - this.MAX_THREAD_CACHE_KEYS
+    for (let i = 0; i < overflow; i++) {
+      const key = entries[i]?.[0]
+      if (key) this.cache.delete(key)
+    }
+  }
+
+  /** Best-effort recency for discussion thread rows (unknown shapes → 0). */
+  private discussionsEntryRecency(entry: unknown): number {
+    if (!entry || typeof entry !== 'object') return 0
+    const o = entry as Record<string, unknown>
+    for (const k of ['lastReplyAt', 'lastActivityAt', 'updatedAt', 'fetchedAt']) {
+      const v = o[k]
+      if (typeof v === 'number' && v > 0) return v
+    }
+    const root = o.rootEvent ?? o.event ?? o.threadRoot
+    if (root && typeof root === 'object' && 'created_at' in root) {
+      const ca = (root as { created_at?: unknown }).created_at
+      if (typeof ca === 'number') return ca
+    }
+    return 0
+  }
+
+  /**
+   * When over {@link MAX_DISCUSSIONS_LIST_THREADS}, keep rows from the latest fetch first, then
+   * next-most-recent by {@link discussionsEntryRecency}.
+   */
+  private trimDiscussionsEventMap(
+    map: Map<string, unknown>,
+    prioritizeIds: ReadonlySet<string>
+  ): Map<string, unknown> {
+    if (map.size <= this.MAX_DISCUSSIONS_LIST_THREADS) return map
+    const entries = [...map.entries()].sort((a, b) => {
+      const pa = prioritizeIds.has(a[0]) ? 1 : 0
+      const pb = prioritizeIds.has(b[0]) ? 1 : 0
+      if (pa !== pb) return pb - pa
+      return this.discussionsEntryRecency(b[1]) - this.discussionsEntryRecency(a[1])
+    })
+    const next = new Map<string, unknown>()
+    for (let i = 0; i < this.MAX_DISCUSSIONS_LIST_THREADS && i < entries.length; i++) {
+      const row = entries[i]
+      if (row) next.set(row[0], row[1])
+    }
+    return next
   }
 
   /**
@@ -248,6 +304,7 @@ class DiscussionFeedCacheService {
    * When merge=true, ALWAYS preserves all existing threads and adds new ones
    */
   setCachedDiscussionsList(eventMap: Map<string, any>, dynamicTopics: { mainTopics: any[]; subtopics: any[]; allTopics: any[] }, merge = true): void {
+    const newIds = new Set(eventMap.keys())
     let mergedEventMap: Map<string, any>
     const existingCacheSize = this.discussionsListCache?.eventMap.size || 0
     const newDataSize = eventMap.size
@@ -279,6 +336,8 @@ class DiscussionFeedCacheService {
       mergedEventMap = new Map(eventMap)
       logger.debug('[DiscussionFeedCache] Cached new discussions list (no merge):', eventMap.size, 'threads')
     }
+
+    mergedEventMap = this.trimDiscussionsEventMap(mergedEventMap, newIds) as Map<string, any>
     
     // Store merged event map
     this.discussionsListCache = {

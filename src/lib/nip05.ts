@@ -1,6 +1,7 @@
 import { LRUCache } from 'lru-cache'
 import { buildViteProxySitesFetchUrl } from '@/lib/vite-proxy-url'
 import { isValidPubkey } from './pubkey'
+import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 import logger from '@/lib/logger'
 
 type TVerifyNip05Result = {
@@ -78,9 +79,10 @@ async function fetchWellKnownNostrJson(domain: string, name?: string): Promise<R
   const proxyServer = import.meta.env.VITE_PROXY_SERVER?.trim()
   const fetchUrl = proxyServer ? buildViteProxySitesFetchUrl(targetUrl, proxyServer) : targetUrl
   try {
-    const res = await fetch(fetchUrl, {
+    const res = await fetchWithTimeout(fetchUrl, {
       credentials: 'omit',
-      headers: { Accept: 'application/json, text/plain;q=0.9,*/*;q=0.8' }
+      headers: { Accept: 'application/json, text/plain;q=0.9,*/*;q=0.8' },
+      timeoutMs: 15_000
     })
     if (!res.ok) return null
     const data: unknown = await res.json()
