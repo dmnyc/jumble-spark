@@ -1,4 +1,5 @@
 import logger from '@/lib/logger'
+import { ExtendedKind } from '@/constants'
 import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
 import {
   readRelayPulseActiveNpubsCache,
@@ -23,8 +24,21 @@ const ACTIVE_WINDOW_SEC = 3600
 const FETCH_RETRY_DELAY_MS = 2500
 /** Wall-clock cadence while the tab is visible */
 const POLL_INTERVAL_MS = 60 * 60 * 1000
-/** Enough events to surface many distinct authors without overloading relays */
-const REQ_LIMIT = 400
+/** Event cap for relay pulse query. This is event-count (not author-count): keep high enough for >120 active npubs. */
+const REQ_LIMIT = 500
+/** Keep relay pulse focused on note-like activity to avoid expensive all-kind signature verification bursts. */
+const ACTIVE_PULSE_KINDS = [
+  kinds.ShortTextNote,
+  kinds.Repost,
+  kinds.LongFormArticle,
+  kinds.Highlights,
+  ExtendedKind.DISCUSSION,
+  ExtendedKind.PICTURE,
+  ExtendedKind.VIDEO,
+  ExtendedKind.SHORT_VIDEO,
+  ExtendedKind.COMMENT,
+  ExtendedKind.GENERIC_REPOST
+] as number[]
 
 function aggregatePubkeysByRecency(events: { pubkey: string; created_at: number }[]): string[] {
   const lastByPk = new Map<string, number>()
@@ -120,7 +134,7 @@ export function FavoriteRelaysActivityProvider({ children }: { children: React.R
       try {
         const events = await queryService.fetchEvents(
           urls,
-          { since, limit: REQ_LIMIT },
+          { since, limit: REQ_LIMIT, kinds: [...ACTIVE_PULSE_KINDS] },
           {
             firstRelayResultGraceMs: false,
             eoseTimeout: 1800,

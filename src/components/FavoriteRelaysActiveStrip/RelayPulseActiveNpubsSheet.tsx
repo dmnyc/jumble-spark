@@ -1,4 +1,5 @@
 import UserAvatar from '@/components/UserAvatar'
+import ProfileAbout from '@/components/ProfileAbout'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -11,8 +12,7 @@ import { getProfileFromEvent } from '@/lib/event-metadata'
 import { cn } from '@/lib/utils'
 import { toProfile } from '@/lib/link'
 import {
-  collectAggregatedNip05sFromKind0,
-  truncateAbout
+  collectAggregatedNip05sFromKind0
 } from '@/lib/relay-pulse-nip05'
 import { useMuteList } from '@/contexts/mute-list-context'
 import { muteSetHas } from '@/lib/mute-set'
@@ -23,12 +23,9 @@ import { Users } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-const ABOUT_PREVIEW_LEN = 250
-
 function CompactProfileCard({ event }: { event: Event }) {
   const profile = getProfileFromEvent(event)
   const nip05s = collectAggregatedNip05sFromKind0(event)
-  const about = truncateAbout(profile.about, ABOUT_PREVIEW_LEN)
   const { setActiveNpubsDrawerOpen } = useFavoriteRelaysActivity()
   const profileUrl = toProfile(event.pubkey)
   const closeDrawer = () => setActiveNpubsDrawerOpen(false)
@@ -45,11 +42,10 @@ function CompactProfileCard({ event }: { event: Event }) {
           >
             {profile.username}
           </SecondaryPageLink>
-          {about ? (
-            <p className="mt-1 text-xs leading-snug text-muted-foreground whitespace-pre-wrap break-words">
-              {about}
-            </p>
-          ) : null}
+          <ProfileAbout
+            about={profile.about}
+            className="mt-1 line-clamp-4 text-xs leading-snug text-muted-foreground break-words"
+          />
           {nip05s.length > 0 ? (
             <ul className="mt-2 space-y-0.5 text-xs">
               {nip05s.map((id) => (

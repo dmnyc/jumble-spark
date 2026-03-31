@@ -21,6 +21,7 @@ import { FAST_READ_RELAY_URLS } from '@/constants'
 import { getImetaInfosFromEvent } from '@/lib/event'
 import MarkdownArticle from '../Note/MarkdownArticle/MarkdownArticle'
 import AsciidocArticle from '../Note/AsciidocArticle/AsciidocArticle'
+import ProfileAbout from '@/components/ProfileAbout'
 
 // Helper function to get event type name
 function getEventTypeName(kind: number): string {
@@ -666,9 +667,10 @@ export default function WebPreview({ url, className }: { url: string; className?
                 <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400" />
               </a>
             </div>
-            {fetchedProfile?.about && (
-              <div className="text-base text-muted-foreground line-clamp-2 mb-1 mt-1 break-words">{fetchedProfile.about}</div>
-            )}
+            <ProfileAbout
+              about={fetchedProfile?.about}
+              className="text-base text-muted-foreground line-clamp-2 mb-1 mt-1 break-words"
+            />
             <hr className="mt-4 mb-2 border-t border-border" />
             <a
               href={cleanedUrl}

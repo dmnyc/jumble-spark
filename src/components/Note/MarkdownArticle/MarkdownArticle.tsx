@@ -15,7 +15,8 @@ import {
   isVideo,
   isAudio,
   isWebsocketUrl,
-  isPseudoNostrHttpsUrl
+  isPseudoNostrHttpsUrl,
+  isSafeMediaUrl
 } from '@/lib/url'
 import { getHttpUrlFromITags, getImetaInfosFromEvent } from '@/lib/event'
 import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
@@ -51,6 +52,38 @@ function truncateLinkText(text: string, maxLength: number = 200): string {
     return text
   }
   return text.substring(0, maxLength) + '...'
+}
+
+/**
+ * Prevent invalid nested <a> trees by downgrading anchor descendants to spans.
+ */
+function stripNestedAnchors(node: React.ReactNode, keyPrefix: string): React.ReactNode {
+  if (node === null || node === undefined || typeof node === 'boolean') return node
+  if (Array.isArray(node)) {
+    return node.map((child, idx) => stripNestedAnchors(child, `${keyPrefix}-${idx}`))
+  }
+  if (!React.isValidElement(node)) return node
+
+  const element = node as React.ReactElement<{ children?: React.ReactNode }>
+  const children = element.props?.children
+  const sanitizedChildren =
+    children === undefined
+      ? children
+      : React.Children.map(children, (child, idx) => stripNestedAnchors(child, `${keyPrefix}-${idx}`))
+
+  if (typeof element.type === 'string' && element.type.toLowerCase() === 'a') {
+    return (
+      <span key={(element.key as string) ?? `${keyPrefix}-anchor`} className="break-words">
+        {sanitizedChildren}
+      </span>
+    )
+  }
+
+  return React.cloneElement(element, undefined, sanitizedChildren)
+}
+
+function stripNestedAnchorsFromNodes(nodes: React.ReactNode[], keyPrefix: string): React.ReactNode[] {
+  return nodes.map((node, idx) => stripNestedAnchors(node, `${keyPrefix}-${idx}`))
 }
 
 /**
@@ -431,7 +464,8 @@ function normalizeSetextHeaders(content: string): string {
  * - wss:// and ws:// URLs -> hyperlinks to /relays/{url}
  * Returns both rendered nodes and a set of hashtags found in content (for deduplication)
  */
-export function parseMarkdownContent(
+// Deprecated legacy parser kept only as a fallback reference during migration.
+export function parseMarkdownContentLegacy(
   content: string,
   options: {
     eventPubkey: string
@@ -1859,10 +1893,24 @@ export function parseMarkdownContent(
       }
     } else if (pattern.type === 'markdown-link-standalone') {
       const { url } = pattern.data
-      const cleanedStandalone = cleanUrl(url) || url
+      const cleanedStandalone = cleanUrl(url)
+      if (cleanedStandalone && (isVideo(cleanedStandalone) || isAudio(cleanedStandalone))) {
+        const poster = videoPosterMap?.get(cleanedStandalone)
+        parts.push(
+          <div key={`media-standalone-${patternIdx}`} className="my-2">
+            <MediaPlayer
+              src={cleanedStandalone}
+              className="max-w-[400px]"
+              mustLoad={false}
+              poster={poster}
+            />
+          </div>
+        )
+      } else {
+        const cleanedStandaloneForPreview = cleanedStandalone || url
       if (
         suppressStandaloneWebPreviewCleanedUrls &&
-        suppressStandaloneWebPreviewCleanedUrls.has(cleanedStandalone)
+        suppressStandaloneWebPreviewCleanedUrls.has(cleanedStandaloneForPreview)
       ) {
         parts.push(
           <a
@@ -1898,10 +1946,14 @@ export function parseMarkdownContent(
           </div>
         )
       }
+      }
     } else if (pattern.type === 'markdown-link') {
       const { text, url } = pattern.data
       // Process the link text for inline formatting (bold, italic, etc.)
-      const linkContent = parseInlineMarkdown(text, `link-${patternIdx}`, footnotes, emojiInfos)
+      const linkContent = stripNestedAnchorsFromNodes(
+        parseInlineMarkdown(text, `link-${patternIdx}`, footnotes, emojiInfos),
+        `link-${patternIdx}-sanitized`
+      )
       // Markdown links should always be rendered as inline links, not block-level components
       // This ensures they don't break up the content flow when used in paragraphs
       if (isWebsocketUrl(url)) {
@@ -2780,7 +2832,28 @@ function parseMarkdownContentMarked(
   const hashtagsInContent = new Set<string>()
   const footnotes = new Map<string, string>()
   const citations: Array<{ id: string; type: string; citationId: string }> = []
-  const blockTokens = marked.lexer(content, { gfm: true, breaks: true }) as any[]
+  const contentLines: string[] = []
+  let currentFootnoteId: string | null = null
+  for (const line of content.split('\n')) {
+    const footnoteDefMatch = line.match(/^\[\^([^\]]+)\]:\s+(.+)$/)
+    if (footnoteDefMatch) {
+      currentFootnoteId = footnoteDefMatch[1]
+      footnotes.set(currentFootnoteId, footnoteDefMatch[2])
+      continue
+    }
+    // Support indented continuation lines for multi-line footnote definitions.
+    if (currentFootnoteId && /^(?:\s{2,}|\t)(.+)$/.test(line)) {
+      const continuation = line.replace(/^(?:\s{2,}|\t)/, '')
+      const prev = footnotes.get(currentFootnoteId) ?? ''
+      footnotes.set(currentFootnoteId, prev ? `${prev} ${continuation}` : continuation)
+      continue
+    }
+    currentFootnoteId = null
+    contentLines.push(line)
+  }
+
+  const contentWithoutFootnotes = contentLines.join('\n')
+  const blockTokens = marked.lexer(contentWithoutFootnotes, { gfm: true, breaks: true }) as any[]
   let codeBlockIdx = 0
 
   const collectHashtags = (text: string) => {
@@ -2834,9 +2907,9 @@ function parseMarkdownContentMarked(
           break
         case 'link': {
           const href = String(token.href ?? '')
-          const children = renderInlineTokens(
-            token.tokens ?? [{ type: 'text', text: token.text ?? href }],
-            `${key}-link`
+          const children = stripNestedAnchorsFromNodes(
+            renderInlineTokens(token.tokens ?? [{ type: 'text', text: token.text ?? href }], `${key}-link`),
+            `${key}-link-sanitized`
           )
           if (href.startsWith('payto://')) {
             out.push(
@@ -2885,6 +2958,15 @@ function parseMarkdownContentMarked(
             )
             break
           }
+          if (!isImage(cleaned) || !isSafeMediaUrl(cleaned)) {
+            // Non-HTTP image tokens (e.g. npub...) must not be passed to image/media components.
+            out.push(
+              <span key={`${key}-img-fallback`} className="break-words">
+                {src}
+              </span>
+            )
+            break
+          }
           const identifier = getImageIdentifier?.(cleaned)
           const thumbnail =
             imageThumbnailMap?.get(cleaned) ??
@@ -2922,6 +3004,8 @@ function parseMarkdownContentMarked(
 
   const renderParagraph = (token: any, key: string): React.ReactNode => {
     const paragraphText = String(token.text ?? '').trim()
+    const isNostrEventBech32 = (value: string): boolean =>
+      value.startsWith('note') || value.startsWith('nevent') || value.startsWith('naddr')
     const standaloneNostr = paragraphText.match(/^nostr:([a-z0-9]{8,})$/i)
     if (standaloneNostr) {
       const bech32Id = standaloneNostr[1]
@@ -2977,12 +3061,18 @@ function parseMarkdownContentMarked(
     }
 
     // Mixed paragraphs can contain normal text plus one or more standalone nostr lines.
-    // Render event references as embedded cards even when they are not the entire paragraph.
+    // Render standalone special lines (nostr refs, relay links, plain URLs/media) as dedicated blocks
+    // even when they are not the entire paragraph.
     const rawParagraphText = String(token.text ?? '')
     if (rawParagraphText.includes('\n')) {
       const lines = rawParagraphText.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)
-      const hasStandaloneNostrLine = lines.some((line) => /^nostr:([a-z0-9]{8,})$/i.test(line))
-      if (hasStandaloneNostrLine) {
+      const hasStandaloneSpecialLine = lines.some(
+        (line) =>
+          /^nostr:([a-z0-9]{8,})$/i.test(line) ||
+          /^wss?:\/\/\S+$/i.test(line) ||
+          /^https?:\/\/\S+$/i.test(line)
+      )
+      if (hasStandaloneSpecialLine) {
         const lineNodes = lines.map((line, lineIdx) => {
           const nostrMatch = line.match(/^nostr:([a-z0-9]{8,})$/i)
           if (!nostrMatch) {
@@ -3005,6 +3095,14 @@ function parseMarkdownContentMarked(
             if (/^https?:\/\/\S+$/i.test(line)) {
               const cleaned = cleanUrl(line)
               if (cleaned) {
+                if (isVideo(cleaned) || isAudio(cleaned)) {
+                  const poster = videoPosterMap?.get(cleaned)
+                  return (
+                    <div key={`${key}-line-media-${lineIdx}`} className="my-2">
+                      <MediaPlayer src={cleaned} poster={poster} className="max-w-[400px]" mustLoad={false} />
+                    </div>
+                  )
+                }
                 if (isPseudoNostrHttpsUrl(cleaned)) {
                   return (
                     <div key={`${key}-line-http-nostr-${lineIdx}`} className="my-2 not-prose max-w-full">
@@ -3072,9 +3170,65 @@ function parseMarkdownContentMarked(
       }
     }
 
+    // Inline nostr event IDs can appear as plain text inside a sentence (not link tokens).
+    // Split paragraph around those IDs so event references render as embedded cards.
+    const rawInlineNostrMatches = Array.from(rawParagraphText.matchAll(new RegExp(NOSTR_URI_INLINE_REGEX.source, NOSTR_URI_INLINE_REGEX.flags)))
+      .filter((m) => m.index !== undefined && isNostrEventBech32((m[1] ?? '').toLowerCase()))
+    if (rawInlineNostrMatches.length > 0) {
+      const nodes: React.ReactNode[] = []
+      let cursor = 0
+      let segmentIdx = 0
+      for (const match of rawInlineNostrMatches) {
+        const start = match.index!
+        const end = start + match[0].length
+        const bech32Id = String(match[1] ?? '')
+        const before = rawParagraphText.slice(cursor, start)
+        if (before.trim().length > 0) {
+          nodes.push(
+            <p key={`${key}-nostr-raw-segment-${segmentIdx++}`} className="mb-1 last:mb-0">
+              {parseInlineMarkdown(before, `${key}-nostr-raw-segment-${segmentIdx}`, footnotes, emojiInfos, navigateToHashtag)}
+            </p>
+          )
+        }
+        if (bech32Id.startsWith('naddr') && fullCalendarInvite && bech32Id === fullCalendarInvite.naddr) {
+          nodes.push(
+            <div key={`${key}-nostr-raw-calendar-${segmentIdx++}`} className="w-full my-2">
+              <CalendarEventContent event={fullCalendarInvite.event} className="mt-2" showRsvp />
+            </div>
+          )
+        } else {
+          nodes.push(
+            <div key={`${key}-nostr-raw-event-${segmentIdx++}`} className="w-full my-2">
+              <EmbeddedNote noteId={bech32Id} containingEvent={containingEvent} />
+            </div>
+          )
+        }
+        cursor = end
+      }
+      const after = rawParagraphText.slice(cursor)
+      if (after.trim().length > 0) {
+        nodes.push(
+          <p key={`${key}-nostr-raw-segment-${segmentIdx++}`} className="mb-1 last:mb-0">
+            {parseInlineMarkdown(after, `${key}-nostr-raw-segment-${segmentIdx}`, footnotes, emojiInfos, navigateToHashtag)}
+          </p>
+        )
+      }
+      if (nodes.length > 0) {
+        return <div key={`${key}-nostr-raw-mix`}>{nodes}</div>
+      }
+    }
+
     if (/^https?:\/\/\S+$/i.test(paragraphText)) {
       const cleaned = cleanUrl(paragraphText)
       if (cleaned) {
+        if (isVideo(cleaned) || isAudio(cleaned)) {
+          const poster = videoPosterMap?.get(cleaned)
+          return (
+            <div key={`${key}-media-url`} className="my-2">
+              <MediaPlayer src={cleaned} poster={poster} className="max-w-[400px]" mustLoad={false} />
+            </div>
+          )
+        }
         if (isPseudoNostrHttpsUrl(cleaned)) {
           return (
             <div key={`${key}-http-nostr`} className="my-2 not-prose max-w-full">
@@ -3100,9 +3254,119 @@ function parseMarkdownContentMarked(
       }
     }
 
+    const paragraphTokens = token.tokens ?? marked.Lexer.lexInline(token.text ?? '')
+    const parseNostrHref = (href: string): string | null => {
+      if (!href.toLowerCase().startsWith('nostr:')) return null
+      const raw = href.slice(6).trim()
+      if (!raw) return null
+      const bech32 = raw.split(/[?#]/)[0]?.replace(/\/+$/, '') || ''
+      return bech32 || null
+    }
+
+    // Inline nostr event links (e.g. "… nostr:naddr1…") should render embedded cards.
+    // Split paragraph into inline text segments + block embeds to avoid invalid <p><div/></p> trees.
+    if (Array.isArray(paragraphTokens) && paragraphTokens.length > 0) {
+      const hasInlineMediaImageToken = paragraphTokens.some((t) => {
+        if (t?.type !== 'image') return false
+        const cleaned = cleanUrl(String(t.href ?? ''))
+        return !!cleaned && (isVideo(cleaned) || isAudio(cleaned))
+      })
+      if (hasInlineMediaImageToken) {
+        const nodes: React.ReactNode[] = []
+        let inlineSegment: any[] = []
+        const flushInlineSegment = (segmentIdx: number) => {
+          if (inlineSegment.length === 0) return
+          nodes.push(
+            <p key={`${key}-media-inline-segment-${segmentIdx}`} className="mb-1 last:mb-0">
+              {renderInlineTokens(inlineSegment, `${key}-media-inline-segment-${segmentIdx}`)}
+            </p>
+          )
+          inlineSegment = []
+        }
+
+        let segmentIdx = 0
+        paragraphTokens.forEach((t: any, idx: number) => {
+          if (t?.type !== 'image') {
+            inlineSegment.push(t)
+            return
+          }
+          const src = String(t.href ?? '')
+          const cleaned = cleanUrl(src)
+          if (!cleaned || (!isVideo(cleaned) && !isAudio(cleaned))) {
+            inlineSegment.push(t)
+            return
+          }
+          flushInlineSegment(segmentIdx++)
+          const poster = videoPosterMap?.get(cleaned)
+          nodes.push(
+            <div key={`${key}-inline-media-${idx}`} className="my-2">
+              <MediaPlayer src={cleaned} poster={poster} className="max-w-[400px]" mustLoad={false} />
+            </div>
+          )
+        })
+
+        flushInlineSegment(segmentIdx++)
+        if (nodes.length > 0) {
+          return <div key={`${key}-inline-media-mix`}>{nodes}</div>
+        }
+      }
+
+      const hasInlineNostrEventLink = paragraphTokens.some((t) => {
+        if (t?.type !== 'link') return false
+        const bech32 = parseNostrHref(String(t.href ?? ''))
+        return !!bech32 && isNostrEventBech32(bech32)
+      })
+      if (hasInlineNostrEventLink) {
+        const nodes: React.ReactNode[] = []
+        let inlineSegment: any[] = []
+        const flushInlineSegment = (segmentIdx: number) => {
+          if (inlineSegment.length === 0) return
+          nodes.push(
+            <p key={`${key}-nostr-inline-segment-${segmentIdx}`} className="mb-1 last:mb-0">
+              {renderInlineTokens(inlineSegment, `${key}-nostr-inline-segment-${segmentIdx}`)}
+            </p>
+          )
+          inlineSegment = []
+        }
+
+        let segmentIdx = 0
+        paragraphTokens.forEach((t: any, idx: number) => {
+          if (t?.type !== 'link') {
+            inlineSegment.push(t)
+            return
+          }
+          const href = String(t.href ?? '')
+          const bech32 = parseNostrHref(href)
+          if (!bech32 || !isNostrEventBech32(bech32)) {
+            inlineSegment.push(t)
+            return
+          }
+
+          flushInlineSegment(segmentIdx++)
+          if (bech32.startsWith('naddr') && fullCalendarInvite && bech32 === fullCalendarInvite.naddr) {
+            nodes.push(
+              <div key={`${key}-nostr-inline-calendar-${idx}`} className="w-full my-2">
+                <CalendarEventContent event={fullCalendarInvite.event} className="mt-2" showRsvp />
+              </div>
+            )
+          } else {
+            nodes.push(
+              <div key={`${key}-nostr-inline-event-${idx}`} className="w-full my-2">
+                <EmbeddedNote noteId={bech32} containingEvent={containingEvent} />
+              </div>
+            )
+          }
+        })
+
+        flushInlineSegment(segmentIdx++)
+        if (nodes.length > 0) {
+          return <div key={`${key}-nostr-inline-mix`}>{nodes}</div>
+        }
+      }
+    }
+
     // If the paragraph is a single markdown image token, render it as block media/image
     // instead of wrapping in <p> (avoids invalid DOM nesting for media players).
-    const paragraphTokens = token.tokens ?? marked.Lexer.lexInline(token.text ?? '')
     if (Array.isArray(paragraphTokens) && paragraphTokens.length === 1 && paragraphTokens[0]?.type === 'image') {
       const imageToken = paragraphTokens[0]
       const src = String(imageToken.href ?? '')
@@ -3114,6 +3378,13 @@ function parseMarkdownContentMarked(
             <div key={`${key}-media-block`} className="my-2">
               <MediaPlayer src={src} poster={poster} className="max-w-[400px]" />
             </div>
+          )
+        }
+        if (!isImage(cleaned) || !isSafeMediaUrl(cleaned)) {
+          return (
+            <p key={`${key}-img-inline-fallback`} className="mb-1 last:mb-0">
+              {renderInlineTokens(paragraphTokens, `${key}-img-inline-fallback`)}
+            </p>
           )
         }
         const identifier = getImageIdentifier?.(cleaned)
@@ -3219,14 +3490,35 @@ function parseMarkdownContentMarked(
         }
         case 'list': {
           const ListTag = token.ordered ? 'ol' : 'ul'
-          const listClass = token.ordered ? 'list-decimal list-outside my-2 ml-6' : 'list-disc list-inside my-2 space-y-1'
+          const listClass = token.ordered
+            ? 'list-decimal list-outside my-2 ml-6'
+            : 'list-disc list-outside my-2 ml-6 space-y-1'
+          const renderListItemContent = (item: any, itemKey: string): React.ReactNode => {
+            const itemTokens = item.tokens ?? [{ type: 'text', text: item.text ?? '' }]
+            if (itemTokens.length === 1) {
+              const single = itemTokens[0]
+              if (single.type === 'text') {
+                return renderInlineTokens(
+                  single.tokens ?? marked.Lexer.lexInline(single.text ?? ''),
+                  `${itemKey}-inline`
+                )
+              }
+              if (single.type === 'paragraph') {
+                return renderInlineTokens(
+                  single.tokens ?? marked.Lexer.lexInline(single.text ?? ''),
+                  `${itemKey}-inline`
+                )
+              }
+            }
+            return renderBlockTokens(itemTokens, itemKey)
+          }
           nodes.push(
             React.createElement(
               ListTag,
               { key: `${key}-list`, className: listClass },
               (token.items ?? []).map((item: any, itemIdx: number) => (
                 <li key={`${key}-li-${itemIdx}`}>
-                  {renderBlockTokens(item.tokens ?? [{ type: 'text', text: item.text ?? '' }], `${key}-li-${itemIdx}`)}
+                  {renderListItemContent(item, `${key}-li-${itemIdx}`)}
                 </li>
               ))
             )
@@ -3285,6 +3577,34 @@ function parseMarkdownContentMarked(
   }
 
   const nodes = renderBlockTokens(blockTokens, 'marked-root')
+  if (footnotes.size > 0) {
+    nodes.push(
+      <div key="footnotes-section" className="mt-8 pt-4 border-t border-gray-300 dark:border-gray-700">
+        <h3 className="text-lg font-semibold mb-4">Footnotes</h3>
+        <ol className="list-decimal list-inside space-y-2">
+          {Array.from(footnotes.entries()).map(([id, text]) => (
+            <li key={`footnote-${id}`} id={`footnote-${id}`} className="text-sm text-gray-700 dark:text-gray-300">
+              <span className="font-semibold">[{id}]:</span>{' '}
+              <span>{parseInlineMarkdown(text, `footnote-${id}`, footnotes, emojiInfos, navigateToHashtag)}</span>{' '}
+              <a
+                href={`#footnote-ref-${id}`}
+                className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs"
+                onClick={(e) => {
+                  e.preventDefault()
+                  const refElement = document.getElementById(`footnote-ref-${id}`)
+                  if (refElement) {
+                    refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  }
+                }}
+              >
+                ↩
+              </a>
+            </li>
+          ))}
+        </ol>
+      </div>
+    )
+  }
   return { nodes, hashtagsInContent, footnotes, citations }
 }
 
@@ -3374,9 +3694,9 @@ function parseInlineMarkdown(
 
       if (token.type === 'link') {
         const href = String(token.href ?? '')
-        const children = renderTokens(
-          token.tokens ?? [{ type: 'text', text: token.text ?? href }],
-          `${tokenKey}-link`
+        const children = stripNestedAnchorsFromNodes(
+          renderTokens(token.tokens ?? [{ type: 'text', text: token.text ?? href }], `${tokenKey}-link`),
+          `${tokenKey}-link-sanitized`
         )
         if (href.startsWith('payto://')) {
           out.push(
@@ -3460,184 +3780,9 @@ function parseInlineMarkdownLegacy(
   let lastIndex = 0
   const inlinePatterns: Array<{ index: number; end: number; type: string; data: any }> = []
   
-  // Inline code: ``code`` (double backtick) or `code` (single backtick) - process first to avoid conflicts
-  // Double backticks first
-  const doubleCodeRegex = /``([^`\n]+?)``/g
-  const doubleCodeMatches = Array.from(text.matchAll(doubleCodeRegex))
-  doubleCodeMatches.forEach(match => {
-    if (match.index !== undefined) {
-      inlinePatterns.push({
-        index: match.index,
-        end: match.index + match[0].length,
-        type: 'code',
-        data: match[1]
-      })
-    }
-  })
-  
-  // Single backtick (but not if already in double backtick)
-  const singleCodeRegex = /`([^`\n]+?)`/g
-  const singleCodeMatches = Array.from(text.matchAll(singleCodeRegex))
-  singleCodeMatches.forEach(match => {
-    if (match.index !== undefined) {
-      const isInDoubleCode = inlinePatterns.some(p => 
-        p.type === 'code' &&
-        match.index! >= p.index && 
-        match.index! < p.end
-      )
-      if (!isInDoubleCode) {
-        inlinePatterns.push({
-              index: match.index,
-              end: match.index + match[0].length,
-          type: 'code',
-          data: match[1]
-        })
-      }
-    }
-  })
-  
-  // Bold: **text** (double asterisk) or __text__ (double underscore) - process first
-  // Also handle *text* (single asterisk) as bold
-  // Allow single newlines within bold spans (but not double newlines which indicate paragraph breaks)
-  const doubleBoldAsteriskRegex = /\*\*((?:[^\n]|\n(?!\n))+\n?)\*\*/g
-  const doubleBoldAsteriskMatches = Array.from(text.matchAll(doubleBoldAsteriskRegex))
-  doubleBoldAsteriskMatches.forEach(match => {
-    if (match.index !== undefined) {
-      // Skip if already in code
-      const isInCode = inlinePatterns.some(p => 
-        p.type === 'code' &&
-        match.index! >= p.index && 
-        match.index! < p.end
-      )
-      if (!isInCode) {
-        inlinePatterns.push({
-          index: match.index,
-          end: match.index + match[0].length,
-          type: 'bold',
-          data: match[1]
-        })
-      }
-    }
-  })
-  
-  // Double underscore bold (but check if it's already italic)
-  // Allow single newlines within bold spans (but not double newlines which indicate paragraph breaks)
-  const doubleBoldUnderscoreRegex = /__((?:[^\n]|\n(?!\n))+\n?)__/g
-  const doubleBoldUnderscoreMatches = Array.from(text.matchAll(doubleBoldUnderscoreRegex))
-  doubleBoldUnderscoreMatches.forEach(match => {
-    if (match.index !== undefined) {
-      // Skip if already in code or bold
-      const isInOther = inlinePatterns.some(p => 
-        (p.type === 'code' || p.type === 'bold') &&
-        match.index! >= p.index && 
-        match.index! < p.end
-      )
-      if (!isInOther) {
-        inlinePatterns.push({
-          index: match.index,
-          end: match.index + match[0].length,
-          type: 'bold',
-          data: match[1]
-        })
-      }
-    }
-  })
-  
-  // Single asterisk bold: *text* (not part of **bold**)
-  const singleBoldAsteriskRegex = /(?<!\*)\*([^*\n]+?)\*(?!\*)/g
-  const singleBoldAsteriskMatches = Array.from(text.matchAll(singleBoldAsteriskRegex))
-  singleBoldAsteriskMatches.forEach(match => {
-    if (match.index !== undefined) {
-      // Skip if already in code, double bold, or strikethrough
-      const isInOther = inlinePatterns.some(p => 
-        (p.type === 'code' || p.type === 'bold' || p.type === 'strikethrough') &&
-        match.index! >= p.index && 
-        match.index! < p.end
-      )
-      if (!isInOther) {
-        inlinePatterns.push({
-          index: match.index,
-          end: match.index + match[0].length,
-          type: 'bold',
-          data: match[1]
-        })
-      }
-    }
-  })
-  
-  // Strikethrough: ~~text~~ (double tilde) or ~text~ (single tilde)
-  // Double tildes first
-  const doubleStrikethroughRegex = /~~(.+?)~~/g
-  const doubleStrikethroughMatches = Array.from(text.matchAll(doubleStrikethroughRegex))
-  doubleStrikethroughMatches.forEach(match => {
-    if (match.index !== undefined) {
-      // Skip if already in code or bold
-      const isInOther = inlinePatterns.some(p => 
-        (p.type === 'code' || p.type === 'bold') &&
-        match.index! >= p.index && 
-        match.index! < p.end
-      )
-      if (!isInOther) {
-        inlinePatterns.push({
-          index: match.index,
-          end: match.index + match[0].length,
-          type: 'strikethrough',
-          data: match[1]
-        })
-      }
-    }
-  })
-  
-  // Single tilde strikethrough
-  const singleStrikethroughRegex = /(?<!~)~([^~\n]+?)~(?!~)/g
-  const singleStrikethroughMatches = Array.from(text.matchAll(singleStrikethroughRegex))
-  singleStrikethroughMatches.forEach(match => {
-    if (match.index !== undefined) {
-      // Skip if already in code, bold, or double strikethrough
-      const isInOther = inlinePatterns.some(p => 
-        (p.type === 'code' || p.type === 'bold' || p.type === 'strikethrough') &&
-        match.index! >= p.index && 
-        match.index! < p.end
-      )
-      if (!isInOther) {
-        inlinePatterns.push({
-          index: match.index,
-          end: match.index + match[0].length,
-          type: 'strikethrough',
-          data: match[1]
-        })
-      }
-    }
-  })
-  
-  // Italic: _text_ (single underscore) or __text__ (double underscore, but bold takes priority)
-  // Single underscore italic (not part of __bold__)
-  const singleItalicUnderscoreRegex = /(?<!_)_([^_\n]+?)_(?!_)/g
-  const singleItalicUnderscoreMatches = Array.from(text.matchAll(singleItalicUnderscoreRegex))
-  singleItalicUnderscoreMatches.forEach(match => {
-    if (match.index !== undefined) {
-      // Skip if already in code, bold, or strikethrough
-      const isInOther = inlinePatterns.some(p => 
-        (p.type === 'code' || p.type === 'bold' || p.type === 'strikethrough') &&
-        match.index! >= p.index && 
-        match.index! < p.end
-      )
-      if (!isInOther) {
-        inlinePatterns.push({
-          index: match.index,
-          end: match.index + match[0].length,
-          type: 'italic',
-          data: match[1]
-        })
-      }
-    }
-  })
-  
-  // Double underscore italic (only if not already bold)
-  // Note: __text__ is bold by default, but if user wants it italic, we can add it
-  // For now, we'll keep __text__ as bold only, and _text_ as italic
-  
-  // Markdown links: [text](url) - but not images (process after code/bold/italic to avoid conflicts)
+  // Legacy helper is intentionally narrowed to non-standard enrichments.
+  // Standard markdown emphasis/code is handled by marked in parseInlineMarkdown().
+  // Markdown links are still recognized here for plain-text/fallback inline fragments.
   const markdownLinkRegex = /\[([^\]]+)\]\(([^)]+)\)/g
   const markdownLinkMatches = Array.from(text.matchAll(markdownLinkRegex))
   markdownLinkMatches.forEach(match => {
@@ -3658,15 +3803,39 @@ function parseInlineMarkdownLegacy(
       }
     }
   })
+
+  // Footnote references: [^id]
+  // Only render as clickable refs when the referenced definition exists.
+  const footnoteRefRegex = /\[\^([^\]]+)\]/g
+  const footnoteRefMatches = Array.from(text.matchAll(footnoteRefRegex))
+  footnoteRefMatches.forEach(match => {
+    if (match.index !== undefined) {
+      const footnoteId = match[1]
+      if (!_footnotes.has(footnoteId)) return
+      const isInOther = inlinePatterns.some(p =>
+        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
+        match.index! >= p.index &&
+        match.index! < p.end
+      )
+      if (!isInOther) {
+        inlinePatterns.push({
+          index: match.index,
+          end: match.index + match[0].length,
+          type: 'footnote-ref',
+          data: footnoteId
+        })
+      }
+    }
+  })
   
   // Hashtags: #tag (process after code/bold/italic/links to avoid conflicts)
   const hashtagRegex = /#([a-zA-Z0-9_]+)/g
   const hashtagMatches = Array.from(text.matchAll(hashtagRegex))
   hashtagMatches.forEach(match => {
     if (match.index !== undefined) {
-      // Skip if already in code, bold, italic, strikethrough, link, relay-url, nostr, or payto
+      // Skip if already in another inline custom pattern
       const isInOther = inlinePatterns.some(p => 
-        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
+        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
         match.index! >= p.index && 
         match.index! < p.end
       )
@@ -3688,9 +3857,9 @@ function parseInlineMarkdownLegacy(
       const url = match[0]
       // Only process if it's actually a websocket URL
       if (isWebsocketUrl(url)) {
-        // Skip if already in code, bold, italic, strikethrough, link, hashtag, or nostr
+        // Skip if already in another inline custom pattern
         const isInOther = inlinePatterns.some(p => 
-          (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr') &&
+          (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
           match.index! >= p.index && 
           match.index! < p.end
         )
@@ -3717,9 +3886,9 @@ function parseInlineMarkdownLegacy(
       const isProfileType = bech32Id.startsWith('npub') || bech32Id.startsWith('nprofile')
       
       if (isProfileType) {
-        // Skip if already in code, bold, italic, strikethrough, link, hashtag, or relay-url
+        // Skip if already in another inline custom pattern
         const isInOther = inlinePatterns.some(p => 
-          (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
+          (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
           match.index! >= p.index && 
           match.index! < p.end
         )
@@ -3743,7 +3912,7 @@ function parseInlineMarkdownLegacy(
       const parsed = parsePaytoUri(fullMatch)
       if (!parsed) return
       const isInOther = inlinePatterns.some(p =>
-        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
+        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
         match.index! >= p.index &&
         match.index! < p.end
       )
@@ -3763,7 +3932,7 @@ function parseInlineMarkdownLegacy(
   emojiMatches.forEach(match => {
     if (match.index !== undefined) {
       const isInOther = inlinePatterns.some(p =>
-        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto' || p.type === 'emoji') &&
+        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto' || p.type === 'emoji') &&
         match.index! >= p.index &&
         match.index! < p.end
       )
@@ -3809,22 +3978,8 @@ function parseInlineMarkdownLegacy(
       }
     }
     
-    // Render pattern
-    if (pattern.type === 'bold') {
-      parts.push(<strong key={`${keyPrefix}-bold-${i}`}>{pattern.data}</strong>)
-    } else if (pattern.type === 'italic') {
-      parts.push(<em key={`${keyPrefix}-italic-${i}`}>{pattern.data}</em>)
-    } else if (pattern.type === 'strikethrough') {
-      parts.push(<del key={`${keyPrefix}-strikethrough-${i}`} className="line-through">{pattern.data}</del>)
-    } else if (pattern.type === 'code') {
-      parts.push(
-        <InlineCode 
-          key={`${keyPrefix}-code-${i}`}
-          keyPrefix={`${keyPrefix}-code-${i}`}
-          code={pattern.data}
-        />
-      )
-    } else if (pattern.type === 'link') {
+    // Render custom inline pattern
+    if (pattern.type === 'link') {
       const { text, url } = pattern.data
       if (url.startsWith('payto://')) {
         parts.push(
@@ -3869,6 +4024,26 @@ function parseInlineMarkdownLegacy(
         >
           #{tag}
         </a>
+      )
+    } else if (pattern.type === 'footnote-ref') {
+      const footnoteId = pattern.data
+      parts.push(
+        <sup key={`${keyPrefix}-footnote-${i}`} className="footnote-ref">
+          <a
+            href={`#footnote-${footnoteId}`}
+            id={`footnote-ref-${footnoteId}`}
+            className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs"
+            onClick={(e) => {
+              e.preventDefault()
+              const footnoteElement = document.getElementById(`footnote-${footnoteId}`)
+              if (footnoteElement) {
+                footnoteElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              }
+            }}
+          >
+            [{footnoteId}]
+          </a>
+        </sup>
       )
     } else if (pattern.type === 'relay-url') {
       // Render relay URLs as inline links (green to match theme)
@@ -4363,7 +4538,13 @@ export default function MarkdownArticle({
       suppressStandaloneWebPreviewCleanedUrls:
         webPreviewSuppressCleanedSet.size > 0 ? webPreviewSuppressCleanedSet : undefined
     }
-    const result = parseMarkdownContentMarked(preprocessedContent, parseOptions)
+    let result
+    try {
+      result = parseMarkdownContentMarked(preprocessedContent, parseOptions)
+    } catch (error) {
+      logger.error('Marked parser failed, falling back to legacy parser:', error)
+      result = parseMarkdownContentLegacy(preprocessedContent, parseOptions)
+    }
     // Return nodes and hashtags (footnotes are already included in nodes)
     return { nodes: result.nodes, hashtagsInContent: result.hashtagsInContent }
   }, [

@@ -1,7 +1,9 @@
 import NormalFeed from '@/components/NormalFeed'
 import type { TNoteListRef } from '@/components/NoteList'
 import { augmentSubRequestsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
+import { getPubkeysFromPTags } from '@/lib/tag'
 import { normalizeUrl } from '@/lib/url'
+import logger from '@/lib/logger'
 import { useFeed } from '@/providers/FeedProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
@@ -17,7 +19,7 @@ const FollowingFeed = forwardRef<
     onSubHeaderRefresh?: () => void
   }
 >(function FollowingFeed({ setSubHeader, onSubHeaderRefresh }, ref) {
-  const { pubkey, relayList } = useNostr()
+  const { pubkey, relayList, followListEvent } = useNostr()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { feedInfo } = useFeed()
   const [subRequests, setSubRequests] = useState<TFeedSubRequest[]>([])
@@ -60,27 +62,54 @@ const FollowingFeed = forwardRef<
   )
 
   useEffect(() => {
+    let cancelled = false
     async function init() {
       if (feedInfo.feedType !== 'following' || !pubkey) {
         setSubRequests([])
         return
       }
 
-      const followings = await client.fetchFollowings(pubkey)
-      const raw = await client.generateSubRequestsForPubkeys([pubkey, ...followings], pubkey)
-      setSubRequests(
-        augmentSubRequestsWithFavoritesFastReadAndInbox(
+      let followings: string[] = []
+      try {
+        followings = await client.fetchFollowings(pubkey)
+      } catch (error) {
+        // Failsafe: keep follows feed usable when contacts fetch relay calls fail transiently.
+        followings = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
+        logger.warn('[FollowingFeed] fetchFollowings failed; using cached follow list fallback', {
+          error,
+          fallbackCount: followings.length
+        })
+      }
+
+      try {
+        const raw = await client.generateSubRequestsForPubkeys([pubkey, ...followings], pubkey)
+        const augmented = augmentSubRequestsWithFavoritesFastReadAndInbox(
           raw,
           favoriteRelays,
           blockedRelays,
           relayList?.read ?? [],
           { userWriteRelays: relayList?.write ?? [] }
         )
-      )
+        if (!cancelled) setSubRequests(augmented)
+      } catch (error) {
+        logger.error('[FollowingFeed] generateSubRequestsForPubkeys failed', error)
+        if (!cancelled) setSubRequests([])
+      }
     }
 
     void init()
-  }, [feedInfo.feedType, pubkey, favoriteRelaysKey, blockedRelaysKey, relayReadKey, relayWriteKey])
+    return () => {
+      cancelled = true
+    }
+  }, [
+    feedInfo.feedType,
+    pubkey,
+    followListEvent?.id,
+    favoriteRelaysKey,
+    blockedRelaysKey,
+    relayReadKey,
+    relayWriteKey
+  ])
 
   return (
     <NormalFeed

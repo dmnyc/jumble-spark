@@ -1,6 +1,7 @@
 import JsonViewDialog from '@/components/JsonViewDialog'
 import MuteButton from '@/components/MuteButton'
 import Nip05 from '@/components/Nip05'
+import ProfileAbout from '@/components/ProfileAbout'
 import { RefreshButton } from '@/components/RefreshButton'
 import {
   AlertDialog,
@@ -234,7 +235,7 @@ function UserItem({ pubkey }: { pubkey: string }) {
           skeletonClassName="h-4"
         />
         <Nip05 pubkey={pubkey} />
-        <div className="truncate text-muted-foreground text-sm">{profile?.about}</div>
+        <ProfileAbout about={profile?.about} className="line-clamp-2 text-muted-foreground text-sm break-words" />
       </div>
       <div className="flex gap-2 items-center">
         {switching ? (
