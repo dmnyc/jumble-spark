@@ -45,7 +45,7 @@ import { queryService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import dayjs from 'dayjs'
 import type { Event } from 'nostr-tools'
-import { Pencil, Plus, Trash2, Users } from 'lucide-react'
+import { Eraser, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -73,6 +73,8 @@ const FollowSetsSettingsPage = forwardRef(
     const [formPubkeys, setFormPubkeys] = useState<string[]>([])
     const [deleteTarget, setDeleteTarget] = useState<Event | null>(null)
     const [deleting, setDeleting] = useState(false)
+    const [cleanTarget, setCleanTarget] = useState<Event | null>(null)
+    const [cleaning, setCleaning] = useState(false)
 
     const canSignEvents = account != null && account.signerType !== 'npub'
 
@@ -216,6 +218,31 @@ const FollowSetsSettingsPage = forwardRef(
       })
     }
 
+    const handleConfirmClean = async () => {
+      if (!cleanTarget) return
+      await checkLogin(async () => {
+        setCleaning(true)
+        try {
+          const fields = extractFollowSetEditorFields(cleanTarget)
+          let createdAt = dayjs().unix()
+          if (createdAt === cleanTarget.created_at) {
+            await new Promise((r) => setTimeout(r, 1100))
+            createdAt = dayjs().unix()
+          }
+          const tags = buildFollowSetTags({ d: fields.d, pubkeys: [] })
+          const draft = createFollowSetDraftEvent(tags, '', createdAt)
+          await publish(draft)
+          toast.success(t('List cleaned'))
+          setCleanTarget(null)
+          await loadLists()
+        } catch (e) {
+          showPublishingError(e instanceof Error ? e : new Error(String(e)))
+        } finally {
+          setCleaning(false)
+        }
+      })
+    }
+
     return (
       <SecondaryPageLayout
         ref={ref}
@@ -267,6 +294,17 @@ const FollowSetsSettingsPage = forwardRef(
                         </div>
                       </div>
                       <div className="flex shrink-0 gap-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCleanTarget(ev)}
+                          title={t('Clean list')}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Eraser className="size-4" />
+                          <span className="sr-only">{t('Clean list')}</span>
+                        </Button>
                         <Button
                           type="button"
                           variant="outline"
@@ -384,6 +422,28 @@ const FollowSetsSettingsPage = forwardRef(
                 }}
               >
                 {deleting ? t('loading...') : t('Delete')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={!!cleanTarget} onOpenChange={(o) => !o && setCleanTarget(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('Clean this list?')}</AlertDialogTitle>
+              <AlertDialogDescription>{t('Clean list confirm')}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={cleaning}>{t('Cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={cleaning}
+                onClick={(e) => {
+                  e.preventDefault()
+                  void handleConfirmClean()
+                }}
+              >
+                {cleaning ? t('loading...') : t('Clean list')}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

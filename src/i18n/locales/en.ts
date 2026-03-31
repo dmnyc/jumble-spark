@@ -1654,6 +1654,14 @@ export default {
     'Delete follow set?': 'Delete this follow set?',
     'Delete follow set confirm':
       'This sends a deletion request (kind 5) for the list. Relays that accept it will drop the list; other clients may still show a cached copy until they refresh.',
+    'Clean list': 'Clean list',
+    'Clean this list?': 'Clean this list?',
+    'Clean list confirm':
+      'This will publish a fresh, empty replacement for this list (all entries removed). This cannot be undone.',
+    'Clean follows list confirm with backup':
+      'Before cleaning your follows (kind 3), the current list snapshot will be published to follows history relays. Then a fresh, empty follows list will be published. Continue?',
+    'List cleaned': 'List cleaned',
+    'Failed to clean list': 'Failed to clean list',
     'Remove feed': 'Remove feed',
     'RSS Feeds': 'RSS Feeds',
     'RSS feeds exported to OPML file': 'RSS feeds exported to OPML file',

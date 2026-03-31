@@ -2,6 +2,16 @@ import JsonViewDialog from '@/components/JsonViewDialog'
 import MuteButton from '@/components/MuteButton'
 import Nip05 from '@/components/Nip05'
 import { RefreshButton } from '@/components/RefreshButton'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -15,24 +25,31 @@ import Username from '@/components/Username'
 import { useFetchProfile } from '@/hooks'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
+import { buildAccountListRelayUrlsForMerge } from '@/lib/account-list-relay-urls'
+import { createMuteListDraftEvent } from '@/lib/draft-event'
 import { useMuteList } from '@/contexts/mute-list-context'
 import indexedDb from '@/services/indexed-db.service'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
-import { Code, Lock, MoreVertical, Unlock } from 'lucide-react'
+import { Code, Eraser, Lock, MoreVertical, Unlock } from 'lucide-react'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import NotFoundPage from '../NotFoundPage'
 
 const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
   const { t } = useTranslation()
   const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
-  const { profile, pubkey, muteListEvent } = useNostr()
+  const { profile, pubkey, muteListEvent, publish, updateMuteListEvent } = useNostr()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { getMutePubkeys } = useMuteList()
   const [jsonOpen, setJsonOpen] = useState(false)
   const [jsonPayload, setJsonPayload] = useState<unknown>(null)
   const mutePubkeys = useMemo(() => getMutePubkeys(), [pubkey])
   const [visibleMutePubkeys, setVisibleMutePubkeys] = useState<string[]>([])
   const [listRefreshKey, setListRefreshKey] = useState(0)
+  const [cleanConfirmOpen, setCleanConfirmOpen] = useState(false)
+  const [cleaning, setCleaning] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const bumpList = useCallback(() => setListRefreshKey((k) => k + 1), [])
@@ -98,6 +115,28 @@ const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: numb
     }
   }, [visibleMutePubkeys, mutePubkeys])
 
+  const handleCleanList = useCallback(async () => {
+    if (!pubkey || cleaning) return
+    setCleaning(true)
+    try {
+      const comprehensiveRelays = await buildAccountListRelayUrlsForMerge({
+        accountPubkey: pubkey,
+        favoriteRelays: favoriteRelays ?? [],
+        blockedRelays
+      })
+      const draft = createMuteListDraftEvent([], '')
+      const published = await publish(draft, { specifiedRelayUrls: comprehensiveRelays })
+      await updateMuteListEvent(published, [])
+      bumpList()
+      toast.success(t('List cleaned'))
+    } catch (e) {
+      toast.error(t('Failed to clean list') + ': ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setCleaning(false)
+      setCleanConfirmOpen(false)
+    }
+  }, [pubkey, cleaning, favoriteRelays, blockedRelays, publish, updateMuteListEvent, bumpList, t])
+
   if (!profile) {
     return <NotFoundPage />
   }
@@ -123,6 +162,13 @@ const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: numb
                   <Code className="size-4 mr-2" />
                   {t('View JSON')}
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => setCleanConfirmOpen(true)}
+                >
+                  <Eraser className="size-4 mr-2" />
+                  {t('Clean list')}
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -135,6 +181,27 @@ const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: numb
         isOpen={jsonOpen}
         onClose={() => setJsonOpen(false)}
       />
+      <AlertDialog open={cleanConfirmOpen} onOpenChange={setCleanConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Clean this list?')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('Clean list confirm')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cleaning}>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={cleaning}
+              onClick={(e) => {
+                e.preventDefault()
+                void handleCleanList()
+              }}
+            >
+              {cleaning ? t('loading...') : t('Clean list')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <div key={listRefreshKey} className="space-y-2 px-4 pt-2">
         {visibleMutePubkeys.map((pubkey, index) => (
           <UserItem key={`${index}-${pubkey}`} pubkey={pubkey} />

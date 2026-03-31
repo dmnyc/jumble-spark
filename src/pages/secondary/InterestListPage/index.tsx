@@ -1,5 +1,15 @@
 import JsonViewDialog from '@/components/JsonViewDialog'
 import { RefreshButton } from '@/components/RefreshButton'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -11,6 +21,7 @@ import {
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { buildAccountListRelayUrlsForMerge } from '@/lib/account-list-relay-urls'
+import { createInterestListDraftEvent } from '@/lib/draft-event'
 import { normalizeTopic } from '@/lib/discussion-topics'
 import { toNoteList } from '@/lib/link'
 import { fetchLatestReplaceableListEvent } from '@/lib/replaceable-list-latest'
@@ -20,7 +31,7 @@ import { useInterestList } from '@/providers/InterestListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import client from '@/services/client.service'
-import { Code, MoreVertical, Trash2 } from 'lucide-react'
+import { Code, Eraser, MoreVertical, Trash2 } from 'lucide-react'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -33,12 +44,14 @@ const InterestListPage = forwardRef(
     const { t } = useTranslation()
     const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
     const { navigateToHashtag } = useSmartHashtagNavigation()
-    const { profile, pubkey, interestListEvent, updateInterestListEvent } = useNostr()
+    const { profile, pubkey, interestListEvent, publish, updateInterestListEvent } = useNostr()
     const { favoriteRelays, blockedRelays } = useFavoriteRelays()
     const { subscribedTopics, subscribe, unsubscribe, changing } = useInterestList()
     const [topicInput, setTopicInput] = useState('')
     const [jsonOpen, setJsonOpen] = useState(false)
     const [jsonPayload, setJsonPayload] = useState<unknown>(null)
+    const [cleanConfirmOpen, setCleanConfirmOpen] = useState(false)
+    const [cleaning, setCleaning] = useState(false)
 
     const topicsSorted = useMemo(
       () => [...subscribedTopics].sort((a, b) => a.localeCompare(b)),
@@ -92,6 +105,27 @@ const InterestListPage = forwardRef(
       setTopicInput('')
     }
 
+    const handleCleanList = useCallback(async () => {
+      if (!pubkey || cleaning) return
+      setCleaning(true)
+      try {
+        const comprehensiveRelays = await buildAccountListRelayUrlsForMerge({
+          accountPubkey: pubkey,
+          favoriteRelays: favoriteRelays ?? [],
+          blockedRelays
+        })
+        const draft = createInterestListDraftEvent([], '')
+        const published = await publish(draft, { specifiedRelayUrls: comprehensiveRelays })
+        await updateInterestListEvent(published)
+        toast.success(t('List cleaned'))
+      } catch (e) {
+        toast.error(t('Failed to clean list') + ': ' + (e instanceof Error ? e.message : String(e)))
+      } finally {
+        setCleaning(false)
+        setCleanConfirmOpen(false)
+      }
+    }, [pubkey, cleaning, favoriteRelays, blockedRelays, publish, updateInterestListEvent, t])
+
     if (!profile || !pubkey) {
       return <NotFoundPage />
     }
@@ -124,6 +158,13 @@ const InterestListPage = forwardRef(
                     <Code className="mr-2 size-4" />
                     {t('View JSON')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => setCleanConfirmOpen(true)}
+                  >
+                    <Eraser className="mr-2 size-4" />
+                    {t('Clean list')}
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -132,6 +173,27 @@ const InterestListPage = forwardRef(
         displayScrollToTopButton
       >
         <JsonViewDialog value={jsonPayload} isOpen={jsonOpen} onClose={() => setJsonOpen(false)} />
+        <AlertDialog open={cleanConfirmOpen} onOpenChange={setCleanConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('Clean this list?')}</AlertDialogTitle>
+              <AlertDialogDescription>{t('Clean list confirm')}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={cleaning}>{t('Cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={cleaning}
+                onClick={(e) => {
+                  e.preventDefault()
+                  void handleCleanList()
+                }}
+              >
+                {cleaning ? t('loading...') : t('Clean list')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <div className="min-w-0 space-y-3 px-3 pb-4 pt-2">
           <p className="text-sm text-muted-foreground">{t('Interests list section subtitle')}</p>
           <form onSubmit={(ev) => void onAddTopic(ev)} className="flex flex-wrap items-center gap-2">

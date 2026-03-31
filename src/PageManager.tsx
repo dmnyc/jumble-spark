@@ -981,6 +981,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
   const [savedPrimaryPage, setSavedPrimaryPage] = useState<TPrimaryPageName | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerNoteId, setDrawerNoteId] = useState<string | null>(null)
+  const [singlePaneSheetOpen, setSinglePaneSheetOpen] = useState(false)
   const [panelMode, setPanelMode] = useState<'single' | 'double'>(() => storage.getPanelMode())
   /** Latest primary page for async callbacks (drawer-close timer) without resubscribing effects on every primary change. */
   const currentPrimaryPageRef = useRef<TPrimaryPageName>(currentPrimaryPage)
@@ -1924,15 +1925,30 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     }
   }
 
-  const clearSecondaryPages = () => {
-    if (secondaryStackRef.current.length === 0) return
-    const stackLength = secondaryStackRef.current.length
-    flushSync(() => {
-      setSecondaryStack([])
-    })
+  const hardCloseSecondaryPanel = useCallback(() => {
+    if (drawerOpen) setDrawerOpen(false)
+    setSinglePaneSheetOpen(false)
+    setSecondaryStack((prev) => (prev.length ? [] : prev))
     secondaryStackRef.current = []
-    window.history.go(-stackLength)
+    const page = currentPrimaryPageRef.current
+    replaceHistoryWithPrimaryPageUrl(
+      page,
+      primaryPagePropsRef.current.get(page) as { spell?: string } | undefined
+    )
+  }, [drawerOpen])
+
+  const clearSecondaryPages = () => {
+    hardCloseSecondaryPanel()
   }
+
+  useEffect(() => {
+    const shouldBeOpen =
+      panelMode === 'single' &&
+      !isSmallScreen &&
+      secondaryStack.length > 0 &&
+      !drawerOpen
+    setSinglePaneSheetOpen(shouldBeOpen)
+  }, [panelMode, isSmallScreen, secondaryStack.length, drawerOpen])
 
   const primaryPageContextValue: PrimaryPageContextValue = {
     navigate: navigatePrimaryPage,
@@ -2167,14 +2183,18 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               />
             )}
             {/* Generic drawer for secondary stack in single-pane mode (for relay pages, etc.) */}
-            {panelMode === 'single' && !isSmallScreen && secondaryStack.length > 0 && !drawerOpen && (
+            {panelMode === 'single' &&
+              !isSmallScreen &&
+              secondaryStack.length > 0 &&
+              !drawerOpen && (
               <Sheet
-                open={true}
+                open={singlePaneSheetOpen}
                 registerWithModalManager={false}
                 onOpenChange={(open) => {
                   if (!open) {
-                    // Close drawer and go back
-                    popSecondaryPage()
+                    setSinglePaneSheetOpen(false)
+                    // Close side panel immediately and clear the whole secondary stack.
+                    hardCloseSecondaryPanel()
                   }
                 }}
               >

@@ -1031,27 +1031,50 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     return null
   }
 
+  const normalizeDraftEventTags = (draftEvent: TDraftEvent): TDraftEvent => {
+    const draft = JSON.parse(JSON.stringify(draftEvent)) as TDraftEvent
+    const jumbleAttributionAlt = buildAltTag()[1]
+    const existingTags = Array.isArray(draft.tags) ? draft.tags : []
+    const sanitizedTags = existingTags.filter(
+      (tag) =>
+        Array.isArray(tag) &&
+        tag[0] !== 'client' &&
+        !(tag[0] === 'alt' && tag[1] === jumbleAttributionAlt)
+    )
+    draft.tags = [...sanitizedTags, buildClientTag(), buildAltTag()]
+    return draft
+  }
+
   const setupNewUser = async (signer: ISigner) => {
     await Promise.allSettled([
-      client.publishEvent(FAST_READ_RELAY_URLS, await signer.signEvent(createFollowListDraftEvent([]))),
-      client.publishEvent(FAST_READ_RELAY_URLS, await signer.signEvent(createMuteListDraftEvent([]))),
+      client.publishEvent(
+        FAST_READ_RELAY_URLS,
+        await signer.signEvent(normalizeDraftEventTags(createFollowListDraftEvent([])))
+      ),
+      client.publishEvent(
+        FAST_READ_RELAY_URLS,
+        await signer.signEvent(normalizeDraftEventTags(createMuteListDraftEvent([])))
+      ),
       client.publishEvent(
         FAST_READ_RELAY_URLS,
         await signer.signEvent(
-          createRelayListDraftEvent(FAST_READ_RELAY_URLS.map((url) => ({ url, scope: 'both' })))
+          normalizeDraftEventTags(
+            createRelayListDraftEvent(FAST_READ_RELAY_URLS.map((url) => ({ url, scope: 'both' })))
+          )
         )
       )
     ])
   }
 
   const signEvent = async (draftEvent: TDraftEvent) => {
+    const normalizedDraft = normalizeDraftEventTags(draftEvent)
     // Add timeout to prevent hanging
     const signEventWithTimeout = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('Signing request timed out. Your Nostr extension may be waiting for authorization. Try closing this tab and restarting your browser to surface any pending authorization requests from your extension.'))
       }, 30000) // 30 second timeout
       
-      signer?.signEvent(draftEvent)
+      signer?.signEvent(normalizedDraft)
         .then((event) => {
           clearTimeout(timeout)
           resolve(event)
@@ -1100,24 +1123,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Invalid account state - pubkey is missing or invalid')
     }
 
-    const draft = JSON.parse(JSON.stringify(draftEvent)) as TDraftEvent
-    // 1) Remove any existing "client" tag so we control the only one
-    if (draft.tags?.length) {
-      draft.tags = draft.tags.filter((tag) => Array.isArray(tag) && tag[0] !== 'client')
-    }
-    // 2) If user has allowed adding a client tag, add our own (and drop prior Jumble "alt" lines —
-    //    unlike "client", we used not to strip "alt", so follow-list merges accumulated duplicates).
-    const addClientTag =
-      typeof options.addClientTag === 'boolean'
-        ? options.addClientTag
-        : (typeof window !== 'undefined' && storage.getAddClientTag())
-    if (addClientTag) {
-      const jumbleAttributionAlt = buildAltTag()[1]
-      draft.tags = (draft.tags ?? []).filter(
-        (tag) => Array.isArray(tag) && !(tag[0] === 'alt' && tag[1] === jumbleAttributionAlt)
-      )
-      draft.tags.push(buildClientTag(), buildAltTag())
-    }
+    const draft = normalizeDraftEventTags(draftEvent)
     let event: VerifiedEvent
     if (minPow > 0) {
       const unsignedEvent = await minePow({ ...draft, pubkey: account.pubkey }, minPow)

@@ -299,7 +299,8 @@ export const FAST_WRITE_RELAY_URLS = [
   'wss://relay.damus.io',
   'wss://relay.primal.net',
   'wss://thecitadel.nostr1.com',
-  'wss://nos.lol'
+  'wss://nos.lol',
+  'wss://nostr.einundzwanzig.space'
 ]
 
 /** Relays used for NIP-94 file metadata (kind 1063) / GIF discovery and publish.
