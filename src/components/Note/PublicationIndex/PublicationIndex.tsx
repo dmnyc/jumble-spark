@@ -626,7 +626,7 @@ export default function PublicationIndex({
               )
             }
 
-            const eventKind = ref.kind || ref.event.kind
+            const eventKind = ref.event?.kind ?? ref.kind ?? 0
             const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
 
             if (eventKind === ExtendedKind.PUBLICATION) {

@@ -927,25 +927,19 @@ export default function AsciidocArticle({
           return match
         })
         
-        // Handle plain HTTP/HTTPS URLs in text (not in <a> tags, not YouTube, not relay) - convert to regular links
-        // NO WebPreview conversion for AsciiDoc articles
-        const httpUrlRegex = /https?:\/\/[^\s<>"']+/g
-        htmlString = htmlString.replace(httpUrlRegex, (match) => {
-          // Only replace if not already in a tag (basic check)
-          if (!match.includes('<') && !match.includes('>')) {
-            // Skip if it's a YouTube URL or relay URL (already handled)
-            if (isYouTubeUrl(match) || isWebsocketUrl(match)) {
-              return match
-            }
-            // Skip if it's an image or media URL (handled separately)
-            if (isImage(match) || isVideo(match) || isAudio(match)) {
-              return match
-            }
-            // Convert to regular link - NO WebPreview
-            const cleanedUrl = cleanUrl(match)
-            return `<a href="${cleanedUrl}" class="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words" target="_blank" rel="noopener noreferrer">${match}</a>`
-          }
-          return match
+        // Handle plain HTTP/HTTPS URLs in text nodes only (not inside existing HTML tags/attributes).
+        // Regex-linkifying the full HTML string can corrupt existing anchor tags.
+        htmlString = htmlString.replace(/>([^<]+)</g, (_fullMatch, textContent) => {
+          const httpUrlRegex = /https?:\/\/[^\s<>"']+/g
+          const replacedText = textContent.replace(httpUrlRegex, (rawUrl: string) => {
+            // Skip URLs that are handled elsewhere.
+            if (isYouTubeUrl(rawUrl) || isWebsocketUrl(rawUrl)) return rawUrl
+            if (isImage(rawUrl) || isVideo(rawUrl) || isAudio(rawUrl)) return rawUrl
+            const cleanedUrl = cleanUrl(rawUrl)
+            if (!cleanedUrl) return rawUrl
+            return `<a href="${cleanedUrl}" class="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words" target="_blank" rel="noopener noreferrer">${rawUrl}</a>`
+          })
+          return `>${replacedText}<`
         })
         
         setParsedHtml(htmlString)

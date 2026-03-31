@@ -15,6 +15,7 @@ import type { Event } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 const PUB_SEC_LOG = '[PublicationSection]'
+const SINGLE_REF_FALLBACK_TIMEOUT_MS = 7000
 function pubLog(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return
   if (data) logger.info(`${PUB_SEC_LOG} ${message}`, data)
@@ -60,13 +61,18 @@ async function hydrateRefsFromIndexedDb(refs: PublicationSectionRef[]): Promise<
 }
 
 async function fetchSingleRefFallback(ref: PublicationSectionRef): Promise<Event | undefined> {
+  const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T | undefined> =>
+    new Promise((resolve) => {
+      const t = setTimeout(() => resolve(undefined), ms)
+      p.then((v) => resolve(v)).catch(() => resolve(undefined)).finally(() => clearTimeout(t))
+    })
   try {
     if (ref.type === 'a' && ref.coordinate) {
       const bech32 = generateBech32IdFromATag(['a', ref.coordinate, ref.relay || '', ''])
-      if (bech32) return await eventService.fetchEvent(bech32)
+      if (bech32) return await withTimeout(eventService.fetchEvent(bech32), SINGLE_REF_FALLBACK_TIMEOUT_MS)
     }
     if (ref.type === 'e' && ref.eventId) {
-      return await eventService.fetchEvent(ref.eventId)
+      return await withTimeout(eventService.fetchEvent(ref.eventId), SINGLE_REF_FALLBACK_TIMEOUT_MS)
     }
   } catch {
     /* ignore */
@@ -87,36 +93,51 @@ export function usePublicationSectionLoader(indexEvent: Event, referencesData: P
     }
     return keys
   }, [referencesData])
+  const orderedKeysSignature = useMemo(() => orderedKeys.join('|'), [orderedKeys])
 
   const [rows, setRows] = useState<Map<string, PublicationSectionRow>>(() => new Map())
   const rowsRef = useRef(rows)
   rowsRef.current = rows
 
   useEffect(() => {
-    const m = new Map<string, PublicationSectionRow>()
-    for (const ref of referencesData) {
-      const k = refKey(ref)
-      if (!k) continue
-      m.set(k, { ref, status: 'idle' })
-    }
-    setRows(m)
-  }, [referencesData])
+    // Preserve per-key load state across rerenders to avoid reinitializing rows to idle
+    // when parent components recreate reference objects.
+    setRows((prev) => {
+      const next = new Map<string, PublicationSectionRow>()
+      for (const ref of referencesData) {
+        const k = refKey(ref)
+        if (!k) continue
+        const existing = prev.get(k)
+        if (existing) {
+          next.set(k, { ...existing, ref })
+        } else {
+          next.set(k, { ref, status: 'idle' })
+        }
+      }
+      return next
+    })
+  }, [orderedKeysSignature, referencesData])
 
   const relayUrlsRef = useRef<string[]>([])
+  const searchableRelayUrlsRef = useRef<string[]>([])
   const [relayReady, setRelayReady] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const urls = await buildPublicationSectionRelayUrls(indexEvent, referencesData)
+      const [urls, searchableUrls] = await Promise.all([
+        buildPublicationSectionRelayUrls(indexEvent, referencesData, 22, false),
+        buildPublicationSectionRelayUrls(indexEvent, referencesData, 40, true)
+      ])
       if (cancelled) return
       relayUrlsRef.current = urls
+      searchableRelayUrlsRef.current = searchableUrls
       setRelayReady(true)
     })()
     return () => {
       cancelled = true
     }
-  }, [indexEvent, referencesData])
+  }, [indexEvent.id, orderedKeysSignature])
 
   const pendingRef = useRef(new Set<string>())
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -136,7 +157,11 @@ export function usePublicationSectionLoader(indexEvent: Event, referencesData: P
       for (const k of keys) {
         const row = snapshot.get(k)
         if (!row) continue
-        if (row.status === 'loaded' && row.event) continue
+        // Auto-queue should only process idle rows.
+        // - loaded rows are done
+        // - loading rows are already in-flight
+        // - error rows require explicit retry via retry button
+        if (row.status !== 'idle') continue
         refsToLoad.push(row.ref)
       }
 
@@ -202,6 +227,25 @@ export function usePublicationSectionLoader(indexEvent: Event, referencesData: P
         }
       }
 
+      stillNeed = refsToLoad.filter((r) => !resolved.has(refKey(r)))
+      if (stillNeed.length > 0) {
+        const searchableUrls = searchableRelayUrlsRef.current
+        const hasAdditionalSearchable = searchableUrls.some((u) => !urls.includes(u))
+        if (hasAdditionalSearchable) {
+          const fromSearchFallback = await batchFetchPublicationSectionEvents(stillNeed, searchableUrls)
+          pubLog('after_searchable_fallback', {
+            fromSearchFallback: fromSearchFallback.size,
+            stillNeedBefore: stillNeed.length,
+            relayCount: searchableUrls.length
+          })
+          for (const [k, ev] of fromSearchFallback) {
+            resolved.set(k, ev)
+            client.addEventToCache(ev)
+            if (isReplaceableEvent(ev.kind)) void indexedDb.putReplaceableEvent(ev)
+          }
+        }
+      }
+
       const missing = refsToLoad.filter((r) => !resolved.has(refKey(r)))
       pubLog('before_fallback', {
         missing: missing.map((r) => refKey(r)),
@@ -249,7 +293,9 @@ export function usePublicationSectionLoader(indexEvent: Event, referencesData: P
       flushInFlightRef.current = false
       // While a batch was in flight, debounced runFlush() calls may have returned early
       // (flush lock). Drain any keys that accumulated so scroll-triggered sections still load.
-      if (pendingRef.current.size > 0) {
+      // IMPORTANT: if relay URLs are not ready yet, do NOT spin in a tight retry loop.
+      // The relayReady effect will trigger requestKeys() once relays are available.
+      if (pendingRef.current.size > 0 && relayUrlsRef.current.length > 0) {
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
         debounceTimerRef.current = setTimeout(() => {
           debounceTimerRef.current = null
@@ -277,7 +323,7 @@ export function usePublicationSectionLoader(indexEvent: Event, referencesData: P
     if (!relayReady || orderedKeys.length === 0) return
     // Full list: scroll-IO may have fired before relays were ready; those keys were re-queued idle.
     requestKeys(orderedKeys)
-  }, [relayReady, orderedKeys, requestKeys])
+  }, [relayReady, orderedKeysSignature, requestKeys])
 
   const failedKeys = useMemo(
     () => [...rows.entries()].filter(([, v]) => v.status === 'error').map(([k]) => k),

@@ -2943,8 +2943,10 @@ function parseMarkdownContentMarked(
           const src = String(token.href ?? '')
           const cleaned = cleanUrl(src)
           if (!cleaned) break
+          // Inline context: avoid block image/media mounts inside <p>/<li>/<th>/<td>.
+          // Standalone image paragraphs are handled separately in renderParagraph().
+          const label = String(token.text ?? src)
           if (isVideo(cleaned) || isAudio(cleaned)) {
-            // Inline context: do NOT mount block media players inside paragraph flow.
             out.push(
               <a
                 key={`${key}-media-link`}
@@ -2953,38 +2955,25 @@ function parseMarkdownContentMarked(
                 rel="noopener noreferrer"
                 className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
               >
-                {src}
+                {label}
               </a>
             )
             break
           }
           if (!isImage(cleaned) || !isSafeMediaUrl(cleaned)) {
-            // Non-HTTP image tokens (e.g. npub...) must not be passed to image/media components.
-            out.push(
-              <span key={`${key}-img-fallback`} className="break-words">
-                {src}
-              </span>
-            )
+            out.push(<span key={`${key}-img-fallback`} className="break-words">{label}</span>)
             break
           }
-          const identifier = getImageIdentifier?.(cleaned)
-          const thumbnail =
-            imageThumbnailMap?.get(cleaned) ??
-            (identifier ? imageThumbnailMap?.get(`__img_id:${identifier}`) : undefined)
-          const imageUrl = thumbnail || src
-          const imageIdx = imageIndexMap.get(cleaned)
           out.push(
-            <Image
-              key={`${key}-img`}
-              image={{ url: imageUrl, pubkey: eventPubkey }}
-              alt={token.text || 'image'}
-              className="w-full rounded-lg cursor-zoom-in my-0"
-              classNames={{ wrapper: 'my-2 block max-w-[400px] mx-auto' }}
-              onClick={(e: React.MouseEvent) => {
-                e.stopPropagation()
-                if (typeof imageIdx === 'number') openLightbox(imageIdx)
-              }}
-            />
+            <a
+              key={`${key}-img-link`}
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+            >
+              {label}
+            </a>
           )
           break
         }

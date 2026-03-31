@@ -28,7 +28,7 @@ import { isHttpRelayUrl, normalizeHttpRelayUrl, normalizeUrl } from '@/lib/url'
 import { RelaySubscribeOpBatch } from '@/services/relay-operation-log.service'
 import { patchRelayNoticeForFetchFailures } from '@/services/relay-notice-strike'
 import type { Filter, Event as NEvent } from 'nostr-tools'
-import { SimplePool, EventTemplate, VerifiedEvent } from 'nostr-tools'
+import { SimplePool, EventTemplate, VerifiedEvent, nip19 } from 'nostr-tools'
 import type { AbstractRelay } from 'nostr-tools/abstract-relay'
 import nip66Service from './nip66.service'
 import type { ISigner, TSignerType } from '@/types'
@@ -38,6 +38,58 @@ function filterForRelay(f: Filter, relaySupportsSearch: boolean): Filter {
   if (relaySupportsSearch) return f
   const { search: _search, ...rest } = f
   return rest as Filter
+}
+
+const HEX_EVENT_ID_RE = /^[0-9a-f]{64}$/i
+
+function decodeEventRefForETagFilter(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const withoutPrefix = trimmed.toLowerCase().startsWith('nostr:') ? trimmed.slice(6).trim() : trimmed
+  if (HEX_EVENT_ID_RE.test(withoutPrefix)) return withoutPrefix.toLowerCase()
+  try {
+    const decoded = nip19.decode(withoutPrefix)
+    if (decoded.type === 'note') return decoded.data
+    if (decoded.type === 'nevent') return decoded.data.id
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function sanitizeETagFilter(filter: Filter): Filter | null {
+  const f = { ...filter } as Filter & { '#e'?: string[]; '#E'?: string[] }
+  const rawLower = Array.isArray(f['#e']) ? f['#e'] : []
+  const rawUpper = Array.isArray(f['#E']) ? f['#E'] : []
+  if (rawLower.length === 0 && rawUpper.length === 0) return f
+  const rawAll = [...rawLower, ...rawUpper]
+  const decoded = [
+    ...new Set(
+      rawAll
+        .map((v) => decodeEventRefForETagFilter(String(v)))
+        .filter((v): v is string => !!v)
+    )
+  ]
+  if (import.meta.env.DEV && decoded.length !== rawAll.length) {
+    const invalidSample = rawAll
+      .map((v) => String(v))
+      .filter((v) => !decodeEventRefForETagFilter(v))
+      .slice(0, 3)
+    logger.info('[QueryService] sanitized invalid #e/#E refs before REQ', {
+      inputCount: rawAll.length,
+      decodedCount: decoded.length,
+      invalidSample
+    })
+  }
+  if (decoded.length === 0) return null
+  f['#e'] = decoded
+  delete f['#E']
+  return f
+}
+
+function sanitizeFiltersBeforeReq(filter: Filter | Filter[]): Filter[] {
+  const asArray = Array.isArray(filter) ? filter : [filter]
+  return asArray.map(sanitizeETagFilter).filter((f): f is Filter => !!f)
 }
 
 export interface QueryOptions {
@@ -198,6 +250,10 @@ export class QueryService {
     onevent?: (evt: NEvent) => void,
     options?: QueryOptions
   ): Promise<NEvent[]> {
+    const sanitizedFilters = sanitizeFiltersBeforeReq(filter)
+    if (sanitizedFilters.length === 0) return []
+    const effectiveFilter: Filter | Filter[] =
+      Array.isArray(filter) ? sanitizedFilters : sanitizedFilters[0]
     const eoseTimeout = options?.eoseTimeout ?? 500
     const globalTimeout = options?.globalTimeout ?? 10000
     const replaceableRace = options?.replaceableRace ?? false
@@ -213,11 +269,11 @@ export class QueryService {
         globalTimeout,
         replaceableRace,
         immediateReturn,
-        filter: Array.isArray(filter) ? filter : [filter]
+        filter: sanitizedFilters
       })
     }
     
-    const filtersForGrace = Array.isArray(filter) ? filter : [filter]
+    const filtersForGrace = sanitizedFilters
     const maxLimitForGrace = Math.max(...filtersForGrace.map((f) => (f.limit ?? 0) as number), 0)
     const isSingleEventFetchForGrace = maxLimitForGrace === 1
     const useImplicitFeedFirstRelayGrace =
@@ -261,7 +317,7 @@ export class QueryService {
           : Promise.allSettled(
               httpRelayBases.map(async (base) => {
                 try {
-                  const evts = await queryIndexRelay(base, filter, {
+                  const evts = await queryIndexRelay(base, effectiveFilter, {
                     signal: abortHttp.signal,
                     onHardFailure: () => this.onRelayConnectionFailure?.(base)
                   })
@@ -339,7 +395,7 @@ export class QueryService {
 
       const wsSub = this.subscribe(
         wsQueryUrls,
-        filter,
+        effectiveFilter,
         {
         onevent: (evt) => {
           eventCount++
@@ -355,7 +411,7 @@ export class QueryService {
             firstResultTime = Date.now()
           }
 
-          const filters = Array.isArray(filter) ? filter : [filter]
+          const filters = sanitizedFilters
           const maxLimit = Math.max(...filters.map((f) => (f.limit ?? 0) as number), 0)
           const isSingleEventFetch = maxLimit === 1
           const hasIdFilter = filters.some(f => f.ids && f.ids.length > 0)
@@ -453,9 +509,13 @@ export class QueryService {
     callbacks: SubscribeCallbacks,
     relayOpMeta?: { source: string; logLevel?: 'info' | 'debug' }
   ): { close: () => void } {
+    const filters = sanitizeFiltersBeforeReq(filter)
+    if (filters.length === 0) {
+      queueMicrotask(() => callbacks.oneose?.(true))
+      return { close: () => {} }
+    }
     const originalDedupedRelays = Array.from(new Set(urls))
     let relays = originalDedupedRelays
-    const filters = Array.isArray(filter) ? filter : [filter]
 
     const stripSocialBlockedRelays =
       SOCIAL_KIND_BLOCKED_RELAY_URLS.length > 0 &&

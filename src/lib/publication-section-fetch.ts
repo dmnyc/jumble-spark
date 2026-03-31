@@ -3,8 +3,10 @@ import { publicationCoordinateLookupKeys } from '@/lib/publication-coordinate'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 import { normalizeUrl } from '@/lib/url'
 import client, { queryService } from '@/services/client.service'
+import { ExtendedKind } from '@/constants'
 import type { Event, Filter } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
+import { kinds } from 'nostr-tools'
 
 /** Parsed a/e reference from publication index tags (same shape as PublicationIndex uses). */
 export type PublicationSectionRef = {
@@ -82,7 +84,8 @@ function collectRelayHints(refs: PublicationSectionRef[]): string[] {
 export async function buildPublicationSectionRelayUrls(
   indexEvent: Event,
   refs: PublicationSectionRef[],
-  maxRelays = 22
+  maxRelays = 22,
+  includeSearchableRelays = false
 ): Promise<string[]> {
   const hints = collectRelayHints(refs)
   const urls = await buildComprehensiveRelayList({
@@ -92,7 +95,7 @@ export async function buildPublicationSectionRelayUrls(
     includeUserOwnRelays: true,
     includeProfileFetchRelays: true,
     includeFastReadRelays: true,
-    includeSearchableRelays: false,
+    includeSearchableRelays,
     includeFavoriteRelays: true,
     includeLocalRelays: true
   })
@@ -101,6 +104,13 @@ export async function buildPublicationSectionRelayUrls(
 
 const IDS_CHUNK = 44
 const D_TAGS_CHUNK = 28
+const SECTION_KIND_FALLBACK_CANDIDATES = [
+  ExtendedKind.PUBLICATION_CONTENT, // 30041
+  ExtendedKind.WIKI_ARTICLE, // 30818
+  ExtendedKind.WIKI_ARTICLE_MARKDOWN, // 30817
+  kinds.LongFormArticle, // 30023
+  kinds.ShortTextNote // 1
+] as number[]
 
 function coordinateFromEvent(ev: Event): string {
   const d = ev.tags.find((t) => t[0] === 'd')?.[1] ?? ''
@@ -214,6 +224,73 @@ export async function batchFetchPublicationSectionEvents(
     if (!hex) continue
     const ev = byId.get(hex.toLowerCase())
     if (ev) out.set(key, ev)
+  }
+
+  // Fallback for mismatched/legacy kind in `a` tags:
+  // retry unresolved refs by author + #d across common section kinds.
+  const unresolvedARefs = aRefs.filter((r) => !out.has(publicationRefKey(r)))
+  if (unresolvedARefs.length > 0) {
+    const fallbackGroups = new Map<string, { pubkey: string; dTags: string[] }>()
+    for (const r of unresolvedARefs) {
+      const pubkey = r.pubkey?.toLowerCase()
+      const idf = r.identifier ?? r.coordinate?.split(':').slice(2).join(':')
+      if (!pubkey || !idf) continue
+      let g = fallbackGroups.get(pubkey)
+      if (!g) {
+        g = { pubkey, dTags: [] }
+        fallbackGroups.set(pubkey, g)
+      }
+      g.dTags.push(idf)
+    }
+
+    const fallbackFilters: Filter[] = []
+    for (const g of fallbackGroups.values()) {
+      const uniqueD = [...new Set(g.dTags)]
+      for (let i = 0; i < uniqueD.length; i += D_TAGS_CHUNK) {
+        const dChunk = uniqueD.slice(i, i + D_TAGS_CHUNK)
+        fallbackFilters.push({
+          authors: [g.pubkey],
+          kinds: [...SECTION_KIND_FALLBACK_CANDIDATES],
+          '#d': dChunk,
+          limit: dChunk.length * SECTION_KIND_FALLBACK_CANDIDATES.length
+        })
+      }
+    }
+
+    if (fallbackFilters.length > 0) {
+      try {
+        const fallbackEvents = await queryService.fetchEvents(relayUrls, fallbackFilters, {
+          globalTimeout: 10_000,
+          eoseTimeout: 2_000,
+          firstRelayResultGraceMs: false
+        })
+        const byAuthorAndD = new Map<string, Event>()
+        for (const ev of fallbackEvents) {
+          const d = ev.tags.find((t) => t[0] === 'd')?.[1]
+          if (!d) continue
+          const k = `${ev.pubkey.toLowerCase()}:${d}`
+          const prev = byAuthorAndD.get(k)
+          if (!prev || ev.created_at > prev.created_at) byAuthorAndD.set(k, ev)
+        }
+        for (const r of unresolvedARefs) {
+          const key = publicationRefKey(r)
+          if (out.has(key)) continue
+          const pubkey = r.pubkey?.toLowerCase()
+          const idf = r.identifier ?? r.coordinate?.split(':').slice(2).join(':')
+          if (!pubkey || !idf) continue
+          const ev = byAuthorAndD.get(`${pubkey}:${idf}`)
+          if (ev) out.set(key, ev)
+        }
+      } catch (err) {
+        if (import.meta.env.DEV) {
+          logger.warn('[PublicationSection] batch_fetch_fallback_error', {
+            message: err instanceof Error ? err.message : String(err),
+            filterCount: fallbackFilters.length,
+            relayCount: relayUrls.length
+          })
+        }
+      }
+    }
   }
 
   for (const r of aRefs) {
