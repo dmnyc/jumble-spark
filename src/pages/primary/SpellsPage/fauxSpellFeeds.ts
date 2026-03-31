@@ -48,7 +48,7 @@ export function applyFauxSpellCapsToSubRequests(requests: TFeedSubRequest[]): TF
     if (Array.isArray(f.ids) && f.ids.length > FAUX_SPELL_EVENT_LIMIT) {
       f.ids = f.ids.slice(0, FAUX_SPELL_EVENT_LIMIT)
     }
-    return { urls, filter: f }
+    return { ...r, urls, filter: f }
   })
 }
 
@@ -68,9 +68,9 @@ export const NOTIFICATION_SPELL_LOADING_SAFETY_MS = 90_000
 const INTERESTS_MAX_TOPICS = 80
 
 /**
- * Max distinct `t` tag values in one filter after singular/plural expansion.
+ * Max distinct `t` tag values in one filter after case + singular/plural expansion.
  */
-const INTERESTS_MAX_TOPIC_TAG_VALUES = INTERESTS_MAX_TOPICS * 2
+const INTERESTS_MAX_TOPIC_TAG_VALUES = INTERESTS_MAX_TOPICS * 4
 
 /**
  * Put {@link READ_ONLY_RELAY_URLS} (e.g. aggr) **first**, then curated relays. Faux spells cap URL count
@@ -173,6 +173,10 @@ function pluralizeTopic(topic: string): string {
   return `${topic}s`
 }
 
+function canonicalizeRawTopicTagValue(topic: string): string {
+  return topic.trim().replace(/^#+/u, '').replace(/\s+/g, '-')
+}
+
 /**
  * One subrequest for all interests: NIP-01 treats multiple `#t` values as OR (any topic matches).
  * Expand every topic to singular+plural so feeds match either spelling on relays.
@@ -183,19 +187,21 @@ export function buildInterestsSubRequests(
   kindsList: number[] = DEFAULT_FEED_SHOW_KINDS
 ): TFeedSubRequest[] {
   if (!relayUrls.length || !rawTopics.length || !kindsList.length) return []
-  const baseTopics = Array.from(
+  const normalizedBaseTopics = Array.from(
     new Set(rawTopics.map((t) => normalizeTopic(t)).filter((t) => t.length > 0))
   ).slice(0, INTERESTS_MAX_TOPICS)
-  if (!baseTopics.length) return []
-  const topics = Array.from(
-    new Set(
-      baseTopics.flatMap((topic) => {
-        const singular = normalizeTopic(topic)
-        const plural = pluralizeTopic(singular)
-        return [singular, plural]
-      })
-    )
-  ).slice(0, INTERESTS_MAX_TOPIC_TAG_VALUES)
+  const rawCasedTopics = Array.from(
+    new Set(rawTopics.map((t) => canonicalizeRawTopicTagValue(t)).filter((t) => t.length > 0))
+  ).slice(0, INTERESTS_MAX_TOPICS)
+  if (!normalizedBaseTopics.length && !rawCasedTopics.length) return []
+  const topics = Array.from(new Set([
+    ...normalizedBaseTopics.flatMap((topic) => {
+      const singular = normalizeTopic(topic)
+      const plural = pluralizeTopic(singular)
+      return [singular, plural]
+    }),
+    ...rawCasedTopics.flatMap((topic) => [topic, pluralizeTopic(topic)])
+  ])).slice(0, INTERESTS_MAX_TOPIC_TAG_VALUES)
   if (!topics.length) return []
   return [
     {

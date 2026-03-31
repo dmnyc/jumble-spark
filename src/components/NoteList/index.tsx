@@ -205,6 +205,44 @@ function buildNoteListMappedFilterForFullSearch(
   return null
 }
 
+function eventTagValues(event: Event, tagName: string): string[] {
+  return event.tags
+    .filter((tag) => tag[0] === tagName && typeof tag[1] === 'string')
+    .map((tag) => tag[1] as string)
+}
+
+function eventMatchesSubRequestFilter(event: Event, filter: Filter): boolean {
+  const ids = Array.isArray(filter.ids) ? filter.ids : undefined
+  if (ids && ids.length > 0 && !ids.includes(event.id)) return false
+
+  const authors = Array.isArray(filter.authors) ? filter.authors : undefined
+  if (authors && authors.length > 0 && !authors.includes(event.pubkey)) return false
+
+  const kindsFilter = Array.isArray(filter.kinds) ? filter.kinds : undefined
+  if (kindsFilter && kindsFilter.length > 0 && !kindsFilter.includes(event.kind)) return false
+
+  const tagFilterEntries = Object.entries(filter).filter(([key]) => key.startsWith('#'))
+  for (const [key, values] of tagFilterEntries) {
+    if (!Array.isArray(values) || values.length === 0) continue
+    const tagName = key.slice(1)
+    const eventValues = eventTagValues(event, tagName)
+    if (eventValues.length === 0) return false
+    const matched =
+      tagName.toLowerCase() === 't'
+        ? (() => {
+            const allowed = new Set(values.map((v) => String(v).toLowerCase()))
+            return eventValues.some((v) => allowed.has(v.toLowerCase()))
+          })()
+        : (() => {
+            const allowed = new Set(values.map((v) => String(v)))
+            return eventValues.some((v) => allowed.has(v))
+          })()
+    if (!matched) return false
+  }
+
+  return true
+}
+
 const NoteList = forwardRef(
   (
     {
@@ -2422,6 +2460,23 @@ const NoteList = forwardRef(
 
     const listSourceEvents = timelineEventsForFilter
     const feedFullSearchActive = feedFullSearchEvents !== null
+    const eventReasonLabelMap = useMemo(() => {
+      const reqs = subRequestsRef.current.filter((req) => req.reasonLabel && req.reasonLabel.trim().length > 0)
+      if (!reqs.length || !clientFilteredEvents.length) return new Map<string, string>()
+      const map = new Map<string, string>()
+      for (const event of clientFilteredEvents) {
+        const labels: string[] = []
+        for (const req of reqs) {
+          if (eventMatchesSubRequestFilter(event, req.filter as Filter)) {
+            labels.push(req.reasonLabel as string)
+          }
+        }
+        if (labels.length) {
+          map.set(event.id, Array.from(new Set(labels)).join(' · '))
+        }
+      }
+      return map
+    }, [clientFilteredEvents, subRequestsKey])
 
     const list = (
       <div className="min-h-screen">
@@ -2441,6 +2496,7 @@ const NoteList = forwardRef(
             className="w-full"
             event={event}
             filterMutedNotes={filterMutedNotes}
+            bottomNoteLabel={eventReasonLabelMap.get(event.id)}
           />
         ))}
         {listSourceEvents.length === 0 &&

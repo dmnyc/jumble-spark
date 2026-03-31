@@ -14,7 +14,8 @@ const NoteCard = memo(function NoteCard({
   filterMutedNotes = true,
   pinned = false,
   hideParentNotePreview = false,
-  zapPollVoteHighlightOption
+  zapPollVoteHighlightOption,
+  bottomNoteLabel
 }: {
   event: Event
   className?: string
@@ -23,6 +24,8 @@ const NoteCard = memo(function NoteCard({
   /** When true, hide the parent/root note preview (e.g. when showing quotes of the current note). */
   hideParentNotePreview?: boolean
   zapPollVoteHighlightOption?: number
+  /** Optional label rendered at the bottom of the card (e.g. why this event is in a composed feed). */
+  bottomNoteLabel?: string
 }) {
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
@@ -44,6 +47,7 @@ const NoteCard = memo(function NoteCard({
         className={className}
         filterMutedNotes={filterMutedNotes}
         pinned={pinned}
+        bottomNoteLabel={bottomNoteLabel}
       />
     )
   }
@@ -54,6 +58,7 @@ const NoteCard = memo(function NoteCard({
       pinned={pinned}
       hideParentNotePreview={hideParentNotePreview}
       zapPollVoteHighlightOption={zapPollVoteHighlightOption}
+      bottomNoteLabel={bottomNoteLabel}
     />
   )
 }, (prevProps, nextProps) => {
@@ -65,7 +70,8 @@ const NoteCard = memo(function NoteCard({
     prevProps.filterMutedNotes === nextProps.filterMutedNotes &&
     prevProps.pinned === nextProps.pinned &&
     prevProps.hideParentNotePreview === nextProps.hideParentNotePreview &&
-    prevProps.zapPollVoteHighlightOption === nextProps.zapPollVoteHighlightOption
+    prevProps.zapPollVoteHighlightOption === nextProps.zapPollVoteHighlightOption &&
+    prevProps.bottomNoteLabel === nextProps.bottomNoteLabel
   )
 })
 

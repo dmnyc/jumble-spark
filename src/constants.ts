@@ -245,7 +245,6 @@ export const READ_ONLY_RELAY_URLS = [
   'wss://relay.noswhere.com',
   'wss://search.nos.today',
   'wss://trending.nostr.wine',
-  'wss://sendit.nosflare.com',
   'wss://relay.nip46.com'
 ]
 
@@ -342,6 +341,10 @@ export const PROFILE_RELAY_URLS = [
     'wss://profiles.nostr1.com',
     'wss://purplepag.es',
     'wss://thecitadel.nostr1.com'
+  ]
+
+  export const FOLLOWS_HISTORY_RELAY_URLS = [
+    'wss://hist.nostr.land'
   ]
 
 // Combined relay URLs for profile fetching - includes both FAST_READ_RELAY_URLS and SEARCHABLE_RELAY_URLS
@@ -606,6 +609,7 @@ export const FAUX_SPELL_ORDER = [
   'notifications',
   'discussions',
   'following',
+  'favorites',
   'followPacks',
   'media',
   'interests',

@@ -1,10 +1,10 @@
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { useNostr } from '@/providers/NostrProvider'
-import { Bell } from 'lucide-react'
+import { Star } from 'lucide-react'
 import SidebarItem from './SidebarItem'
 
-export default function NotificationButton() {
+export default function FavoritesButton() {
   const { navigate, current, currentPageProps, display } = usePrimaryPage()
   const { primaryViewType } = usePrimaryNoteView()
   const { pubkey } = useNostr()
@@ -14,16 +14,16 @@ export default function NotificationButton() {
 
   return (
     <SidebarItem
-      title="Notifications"
-      onClick={() => navigate('spells', { spell: 'notifications' })}
+      title="Favorites"
+      onClick={() => navigate('spells', { spell: 'favorites' })}
       active={
         display &&
         current === 'spells' &&
         primaryViewType === null &&
-        spell === 'notifications'
+        spell === 'favorites'
       }
     >
-      <Bell strokeWidth={3} />
+      <Star strokeWidth={3} />
     </SidebarItem>
   )
 }

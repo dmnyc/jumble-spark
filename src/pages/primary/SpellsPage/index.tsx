@@ -101,7 +101,6 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { useTranslation } from 'react-i18next'
 import CreateSpellDialog from './CreateSpellDialog'
 import {
-  appendCuratedReadOnlyRelays,
   applyFauxSpellCapsToSubRequests,
   buildBookmarksSubRequests,
   buildWebBookmarksSpellSubRequests,
@@ -280,6 +279,8 @@ function fauxSpellLabelKey(name: FauxSpellName): string {
       return 'Discussions'
     case 'following':
       return 'Following'
+    case 'favorites':
+      return 'Favorites'
     case 'followPacks':
       return 'Follow Packs'
     case 'media':
@@ -299,6 +300,7 @@ const FAUX_SPELL_ICON: Record<FauxSpellName, typeof Bell> = {
   notifications: Bell,
   discussions: MessageSquare,
   following: Users,
+  favorites: Star,
   followPacks: Gift,
   media: ImageIcon,
   interests: Hash,
@@ -398,6 +400,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
   const [followingSubRequests, setFollowingSubRequests] = useState<TFeedSubRequest[]>([])
   const [followingFeedLoading, setFollowingFeedLoading] = useState(false)
+  const [favoritesSubRequests, setFavoritesSubRequests] = useState<TFeedSubRequest[]>([])
+  const [favoritesFeedLoading, setFavoritesFeedLoading] = useState(false)
 
   const loadSpells = useCallback(async () => {
     const [events, ids] = await Promise.all([
@@ -482,13 +486,12 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
           relayList?.read ?? [],
           { userWriteRelays: relayList?.write ?? [] }
         )
-        const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
-        if (!urls.length) {
+        if (!feedUrls.length) {
           if (!cancelled) setFollowSetListEvents([])
           return
         }
         const events = await queryService.fetchEvents(
-          urls,
+          feedUrls,
           { authors: [pubkey], kinds: [ExtendedKind.FOLLOW_SET], limit: 500 },
           { eoseTimeout: 2000, globalTimeout: 15000, firstRelayResultGraceMs: false }
         )
@@ -774,11 +777,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
           relayList?.read ?? [],
           { userWriteRelays: relayList?.write ?? [] }
         )
-        const withReadOnly = merged.map((r) => ({
-          ...r,
-          urls: appendCuratedReadOnlyRelays(r.urls, blockedRelays)
-        }))
-        if (!cancelled) setFollowingSubRequests(withReadOnly)
+        if (!cancelled) setFollowingSubRequests(merged)
       } catch {
         if (!cancelled) setFollowingSubRequests([])
       } finally {
@@ -796,6 +795,114 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     relayMailboxStableKey,
     followSetCatalogLoading,
     followSetListStableKey
+  ])
+
+  const favoritesShowKinds = useMemo(() => {
+    const out = [...kindFilterShowKinds]
+    if (!out.includes(nostrKinds.Repost)) out.push(nostrKinds.Repost)
+    if (!out.includes(ExtendedKind.GENERIC_REPOST)) out.push(ExtendedKind.GENERIC_REPOST)
+    if (!out.includes(ExtendedKind.WEB_BOOKMARK)) out.push(ExtendedKind.WEB_BOOKMARK)
+    return out.sort((a, b) => a - b)
+  }, [kindFilterShowKinds])
+
+  const favoritesShowKindsKey = useMemo(() => JSON.stringify(favoritesShowKinds), [favoritesShowKinds])
+
+  useEffect(() => {
+    if (selectedFauxSpell !== 'favorites' || !pubkey) {
+      setFavoritesSubRequests([])
+      setFavoritesFeedLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setFavoritesFeedLoading(true)
+    void (async () => {
+      try {
+        const feedUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
+          favoriteRelays,
+          blockedRelays,
+          relayList?.read ?? [],
+          {
+            userWriteRelays: relayList?.write ?? [],
+            applySocialKindBlockedFilter: false
+          }
+        )
+        const topics = interestListEvent?.tags.filter((tag) => tag[0] === 't' && tag[1]).map((tag) => tag[1]!) ?? []
+        const interestReqs = buildInterestsSubRequests(feedUrls, topics, favoritesShowKinds).map((r) => ({
+          ...r,
+          reasonLabel: t('Added from interests')
+        }))
+        const idReqs = buildBookmarksSubRequests(bookmarkListEvent, feedUrls).map((r) => ({
+          ...r,
+          reasonLabel: t('Added from bookmarks list')
+        }))
+        const ownWebReqs = buildWebBookmarksSpellSubRequests(pubkey, feedUrls).map((r) => ({
+          ...r,
+          reasonLabel: t('Added from your web bookmarks')
+        }))
+
+        const authorSet = new Set<string>([pubkey, ...contacts])
+        for (const ev of followSetListEvents) {
+          if (ev.pubkey !== pubkey) continue
+          for (const author of pubkeysFromFollowSetEvent(ev)) authorSet.add(author)
+        }
+
+        const authorPubkeys = [...authorSet]
+        const followAndContactReqs = authorPubkeys.length
+          ? await client.generateSubRequestsForPubkeys(authorPubkeys, pubkey)
+          : []
+        const followAndContactAugmented = augmentSubRequestsWithFavoritesFastReadAndInbox(
+          followAndContactReqs,
+          favoriteRelays,
+          blockedRelays,
+          relayList?.read ?? [],
+          { userWriteRelays: relayList?.write ?? [] }
+        ).map((r) => ({ ...r, reasonLabel: t('Added from follows and contact lists') }))
+
+        const followsWebBookmarkReqs: TFeedSubRequest[] = authorPubkeys.length
+          ? [
+              {
+                urls: feedUrls,
+                filter: {
+                  authors: authorPubkeys,
+                  kinds: [ExtendedKind.WEB_BOOKMARK],
+                  limit: FAUX_SPELL_EVENT_LIMIT
+                },
+                reasonLabel: t('Added from follows web bookmarks')
+              }
+            ]
+          : []
+
+        if (!cancelled) {
+          setFavoritesSubRequests([
+            ...interestReqs,
+            ...idReqs,
+            ...ownWebReqs,
+            ...followsWebBookmarkReqs,
+            ...followAndContactAugmented
+          ])
+        }
+      } catch {
+        if (!cancelled) setFavoritesSubRequests([])
+      } finally {
+        if (!cancelled) setFavoritesFeedLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    selectedFauxSpell,
+    pubkey,
+    contactsSyncKey,
+    followSetListStableKey,
+    sortedFavoriteRelaysKey,
+    sortedBlockedRelaysKey,
+    relayMailboxStableKey,
+    interestListEvent?.id,
+    bookmarkListEvent?.id,
+    favoritesShowKindsKey
   ])
 
   const interestTagsStableKey = interestListEvent
@@ -822,7 +929,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   ].join('\0')
 
   const syncFauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
-    if (!selectedFauxSpell || isFollowFeedFauxSpellId(selectedFauxSpell)) return []
+    if (!selectedFauxSpell || isFollowFeedFauxSpellId(selectedFauxSpell) || selectedFauxSpell === 'favorites') return []
     /** Widen relay pool: these faux spells do not target social kinds (1 / 11 / 1111); skipping strip keeps fast-read mirrors in the stack. */
     const fauxSpellSkipSocialKindBlocked =
       selectedFauxSpell === 'calendar' ||
@@ -845,40 +952,33 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       return buildNotificationsSpellSubRequests(feedUrls, notificationsFeedPubkey)
     }
     if (selectedFauxSpell === 'discussions') {
-      // Read-only prepended in appendCuratedReadOnlyRelays so FAUX_SPELL_MAX_RELAYS still includes aggr.
-      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
-      if (!urls.length) return []
-      return [{ urls, filter: buildDiscussionFilter() }]
+      if (!feedUrls.length) return []
+      return [{ urls: feedUrls, filter: buildDiscussionFilter() }]
     }
     if (selectedFauxSpell === 'media') {
-      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
-      if (!urls.length) return []
-      return [{ urls, filter: buildMediaSpellFilter() }]
+      if (!feedUrls.length) return []
+      return [{ urls: feedUrls, filter: buildMediaSpellFilter() }]
     }
     if (selectedFauxSpell === 'calendar') {
-      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
-      if (!urls.length) return []
-      return [{ urls, filter: buildCalendarSpellFilter() }]
+      if (!feedUrls.length) return []
+      return [{ urls: feedUrls, filter: buildCalendarSpellFilter() }]
     }
     if (selectedFauxSpell === 'interests') {
       if (!pubkey || !interestListEvent) return []
       const topics = interestListEvent.tags.filter((tag) => tag[0] === 't' && tag[1]).map((tag) => tag[1]!)
-      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
-      return buildInterestsSubRequests(urls, topics, DEFAULT_FEED_SHOW_KINDS)
+      return buildInterestsSubRequests(feedUrls, topics, DEFAULT_FEED_SHOW_KINDS)
     }
     if (selectedFauxSpell === 'bookmarks') {
       if (!pubkey) return []
-      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
-      const idReqs = buildBookmarksSubRequests(bookmarkListEvent, urls)
-      const webReqs = buildWebBookmarksSpellSubRequests(pubkey, urls)
+      const idReqs = buildBookmarksSubRequests(bookmarkListEvent, feedUrls)
+      const webReqs = buildWebBookmarksSpellSubRequests(pubkey, feedUrls)
       return [...idReqs, ...webReqs]
     }
     if (selectedFauxSpell === 'followPacks') {
-      const urls = appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
-      if (!urls.length) return []
+      if (!feedUrls.length) return []
       return [
         {
-          urls,
+          urls: feedUrls,
           filter: { kinds: [ExtendedKind.FOLLOW_PACK], limit: FAUX_SPELL_EVENT_LIMIT }
         }
       ]
@@ -887,11 +987,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   }, [selectedFauxSpell, pubkey, notificationsFeedPubkey, fauxFeedRelaysDepsKey, relayMailboxStableKey])
 
   const fauxSubRequests = useMemo<TFeedSubRequest[]>(() => {
-    const base = isFollowFeedFauxSpellId(selectedFauxSpell ?? '')
-      ? followingSubRequests
-      : syncFauxSubRequests
+    const base =
+      selectedFauxSpell === 'favorites'
+        ? favoritesSubRequests
+        : isFollowFeedFauxSpellId(selectedFauxSpell ?? '')
+          ? followingSubRequests
+          : syncFauxSubRequests
     return applyFauxSpellCapsToSubRequests(base)
-  }, [selectedFauxSpell, followingSubRequests, syncFauxSubRequests])
+  }, [selectedFauxSpell, favoritesSubRequests, followingSubRequests, syncFauxSubRequests])
 
   const spellSubRequests = useMemo<TFeedSubRequest[]>(() => {
     if (!selectedSpell) return []
@@ -1097,6 +1200,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     if (selectedFauxSpell === 'interests') {
       return [...DEFAULT_FEED_SHOW_KINDS]
     }
+    if (selectedFauxSpell === 'favorites') {
+      return favoritesShowKinds
+    }
     if (selectedFauxSpell === 'bookmarks') {
       const out = [...DEFAULT_FEED_SHOW_KINDS]
       if (!out.includes(ExtendedKind.WEB_BOOKMARK)) out.push(ExtendedKind.WEB_BOOKMARK)
@@ -1108,7 +1214,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       .map((tag) => parseInt(tag[1], 10))
       .filter((n) => !Number.isNaN(n))
     return kinds.length ? kinds : [1]
-  }, [selectedFauxSpell, selectedSpell?.id, showKindsTagKey, followingShowKindsKey])
+  }, [selectedFauxSpell, selectedSpell?.id, showKindsTagKey, followingShowKindsKey, favoritesShowKindsKey])
 
   const spellMenuLabel = useCallback(
     (spell: Event) =>
@@ -1225,17 +1331,19 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     if (selectedFauxSpell === 'interests') return t('No subscribed interests yet.')
     if (selectedFauxSpell === 'bookmarks')
       return t('No NIP-51 bookmarks or web bookmarks yet.')
+    if (selectedFauxSpell === 'favorites') return t('No favorites yet.')
     if (selectedFauxSpell === 'following') return t('No follows or relays to load yet.')
     if (isFollowSetSpellId(selectedFauxSpell)) return t('Follow set feed empty')
     return t('Nothing to load for this feed.')
   }, [selectedFauxSpell, fauxSubRequests.length, t])
 
-  const showFollowFeedLoading = !!(
+  const showAsyncFauxFeedLoading = !!(
     pubkey &&
     selectedFauxSpell &&
-    isFollowFeedFauxSpellId(selectedFauxSpell) &&
-    (followingFeedLoading ||
-      (isFollowSetSpellId(selectedFauxSpell) && followSetCatalogLoading))
+    (selectedFauxSpell === 'favorites'
+      ? favoritesFeedLoading
+      : isFollowFeedFauxSpellId(selectedFauxSpell) &&
+        (followingFeedLoading || (isFollowSetSpellId(selectedFauxSpell) && followSetCatalogLoading)))
   )
 
   const spellStarAddTitle = t('Spell star add title')
@@ -1269,6 +1377,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         if (
           (name === 'notifications' ||
             name === 'following' ||
+            name === 'favorites' ||
             name === 'bookmarks' ||
             name === 'interests') &&
           !pubkey
@@ -1675,7 +1784,11 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             <div className="py-8 text-center text-muted-foreground">
               {t('Please login to view bookmarks')}
             </div>
-          ) : showFollowFeedLoading ? (
+          ) : selectedFauxSpell === 'favorites' && !pubkey ? (
+            <div className="py-8 text-center text-muted-foreground">
+              {t('Please login to view favorites')}
+            </div>
+          ) : showAsyncFauxFeedLoading ? (
             <div className="py-8 text-center text-sm text-muted-foreground">{t('loading...')}</div>
           ) : selectedFauxSpell && fauxSubRequests.length === 0 ? (
             <div className="py-8 text-center text-muted-foreground">{fauxFeedEmptyMessage}</div>
@@ -1706,7 +1819,9 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                       : undefined
                   }
                   clientSideKindFilter={
-                    selectedFauxSpell === 'notifications' || selectedFauxSpell === 'bookmarks'
+                    selectedFauxSpell === 'notifications' ||
+                    selectedFauxSpell === 'bookmarks' ||
+                    selectedFauxSpell === 'favorites'
                   }
                   useFilterAsIs={fauxNoteListUseFilterAsIs}
                   oneShotFetch={false}

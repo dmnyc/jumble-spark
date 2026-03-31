@@ -20,7 +20,8 @@ export default function MainNoteCard({
   originalNoteId,
   pinned = false,
   hideParentNotePreview = false,
-  zapPollVoteHighlightOption
+  zapPollVoteHighlightOption,
+  bottomNoteLabel
 }: {
   event: Event
   className?: string
@@ -32,6 +33,7 @@ export default function MainNoteCard({
   /** Hide the parent note preview (e.g. when showing quotes of current note). */
   hideParentNotePreview?: boolean
   zapPollVoteHighlightOption?: number
+  bottomNoteLabel?: string
 }) {
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigationOptional()
@@ -100,6 +102,9 @@ export default function MainNoteCard({
             fetchIfNotExisting={true}
             displayTopZapsAndLikes={isZapFeedCard}
           />
+        ) : null}
+        {!embedded && bottomNoteLabel ? (
+          <div className="px-4 pt-1 text-xs text-muted-foreground">{bottomNoteLabel}</div>
         ) : null}
       </div>
       {!embedded && <Separator />}

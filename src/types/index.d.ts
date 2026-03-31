@@ -6,6 +6,8 @@ export type TSubRequestFilter = Omit<Filter, 'since' | 'until'> & { limit: numbe
 export type TFeedSubRequest = {
   urls: string[]
   filter: Omit<Filter, 'since' | 'until'>
+  /** Optional UI hint used by feed UIs (e.g. Favorites) to explain why an event was included. */
+  reasonLabel?: string
 }
 
 export type TProfile = {

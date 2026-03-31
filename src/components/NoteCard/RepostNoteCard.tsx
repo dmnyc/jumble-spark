@@ -14,12 +14,14 @@ export default function RepostNoteCard({
   event,
   className,
   filterMutedNotes = true,
-  pinned = false
+  pinned = false,
+  bottomNoteLabel
 }: {
   event: Event
   className?: string
   filterMutedNotes?: boolean
   pinned?: boolean
+  bottomNoteLabel?: string
 }) {
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
@@ -90,5 +92,13 @@ export default function RepostNoteCard({
 
   if (!targetEvent || shouldHide) return null
 
-  return <MainNoteCard className={className} reposter={event.pubkey} event={targetEvent} pinned={pinned} />
+  return (
+    <MainNoteCard
+      className={className}
+      reposter={event.pubkey}
+      event={targetEvent}
+      pinned={pinned}
+      bottomNoteLabel={bottomNoteLabel}
+    />
+  )
 }

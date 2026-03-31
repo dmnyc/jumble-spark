@@ -797,12 +797,19 @@ export default {
       'No articles or publications match your search',
     'articles and publications': 'articles and publications',
     Interests: 'Interests',
+    Favorites: 'Favorites',
     Calendar: 'Calendar',
     'No subscribed interests yet.':
       'No subscribed interests yet. Add topics in settings to see them here.',
     'No bookmarked notes with id tags yet.':
       'No bookmarked notes with id tags yet. Only classic (e-tag) bookmarks load in this feed.',
     'No follows or relays to load yet.': 'No follows or relays to load yet.',
+    'No favorites yet.': 'No favorites yet. Add follows, follow sets, interests, or bookmarks.',
+    'Added from interests': 'Added from interests',
+    'Added from bookmarks list': 'Added from bookmarks list',
+    'Added from your web bookmarks': 'Added from your web bookmarks',
+    'Added from follows and contact lists': 'Added from follows and contact lists',
+    'Added from follows web bookmarks': 'Added from follows web bookmarks',
     'Nothing to load for this feed.': 'Nothing to load for this feed.',
     'No posts loaded for this feed. Try refreshing.':
       'No posts loaded for this feed. Try refreshing.',
@@ -1505,6 +1512,7 @@ export default {
     'Pin note': 'Pin note',
     'Plain text description of the query': 'Plain text description of the query',
     'Please login to view bookmarks': 'Please login to view bookmarks',
+    'Please login to view favorites': 'Please login to view favorites',
     'Please select a group': 'Please select a group',
     'Please select at least one relay': 'Please select at least one relay',
     'Please set a start date': 'Please set a start date',
