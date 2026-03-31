@@ -1,14 +1,11 @@
 import logger from '@/lib/logger'
-import { publicationCoordinateLookupKeys } from '@/lib/publication-coordinate'
+import { publicationCoordinateLookupKeys, splitPublicationCoordinate } from '@/lib/publication-coordinate'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 import { normalizeUrl } from '@/lib/url'
 import client, { queryService } from '@/services/client.service'
-import { ExtendedKind } from '@/constants'
 import type { Event, Filter } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
-import { kinds } from 'nostr-tools'
 
-/** Parsed a/e reference from publication index tags (same shape as PublicationIndex uses). */
 export type PublicationSectionRef = {
   type: 'a' | 'e'
   coordinate?: string
@@ -23,64 +20,48 @@ export function publicationRefKey(ref: PublicationSectionRef): string {
   return (ref.coordinate || ref.eventId || '').trim()
 }
 
-/**
- * Parse NIP-33 `a` coordinate `kind:64-hex-pubkey:d-identifier` where `d` may contain `:`.
- * Returns a canonical coordinate with lowercase pubkey for cache / REQ / matching.
- */
 export function parsePublicationATagCoordinate(raw: string): {
   kind: number
   pubkey: string
   identifier: string
   coordinate: string
 } | null {
-  const trimmed = raw.trim()
-  const i0 = trimmed.indexOf(':')
-  const i1 = trimmed.indexOf(':', i0 + 1)
-  if (i0 < 1 || i1 <= i0 + 1) return null
-  const kindStr = trimmed.slice(0, i0)
-  const pubkeyRaw = trimmed.slice(i0 + 1, i1)
-  const identifier = trimmed.slice(i1 + 1)
-  const kind = parseInt(kindStr, 10)
-  if (Number.isNaN(kind) || !/^[0-9a-fA-F]{64}$/.test(pubkeyRaw)) return null
-  const pubkey = pubkeyRaw.toLowerCase()
+  const parsed = splitPublicationCoordinate(raw)
+  if (!parsed) return null
   return {
-    kind,
-    pubkey,
-    identifier,
-    coordinate: `${kind}:${pubkey}:${identifier}`
+    kind: parsed.kind,
+    pubkey: parsed.pubkey,
+    identifier: parsed.d,
+    coordinate: `${parsed.kind}:${parsed.pubkey}:${parsed.d}`
   }
 }
 
 export function resolvePublicationEventIdToHex(eventId: string): string | undefined {
-  if (!eventId) return undefined
   const trimmed = eventId.trim()
+  if (!trimmed) return undefined
   if (/^[0-9a-fA-F]{64}$/.test(trimmed)) return trimmed.toLowerCase()
   try {
     const decoded = nip19.decode(trimmed)
     if (decoded.type === 'note') return decoded.data
     if (decoded.type === 'nevent') return decoded.data.id
   } catch {
-    /* ignore */
+    // ignore malformed bech32 ids
   }
   return undefined
 }
 
 function collectRelayHints(refs: PublicationSectionRef[]): string[] {
   const out: string[] = []
-  for (const r of refs) {
-    const h = r.relay?.trim()
-    if (h && (h.startsWith('wss://') || h.startsWith('ws://'))) {
-      const n = normalizeUrl(h) || h
-      out.push(n)
-    }
+  for (const ref of refs) {
+    const relay = ref.relay?.trim()
+    if (!relay) continue
+    if (!relay.startsWith('wss://') && !relay.startsWith('ws://')) continue
+    const normalized = normalizeUrl(relay) || relay
+    out.push(normalized)
   }
-  return out
+  return [...new Set(out)]
 }
 
-/**
- * Focused relay set for publication sections: hints + author + user + profile/fast read, capped.
- * Omits full SEARCHABLE list to avoid opening dozens of relays per publication.
- */
 export async function buildPublicationSectionRelayUrls(
   indexEvent: Event,
   refs: PublicationSectionRef[],
@@ -99,28 +80,25 @@ export async function buildPublicationSectionRelayUrls(
     includeFavoriteRelays: true,
     includeLocalRelays: true
   })
-  return urls.slice(0, maxRelays)
+  const prioritized = [...new Set([...hints, ...urls])]
+  return prioritized.slice(0, maxRelays)
 }
 
 const IDS_CHUNK = 44
-const D_TAGS_CHUNK = 28
-const SECTION_KIND_FALLBACK_CANDIDATES = [
-  ExtendedKind.PUBLICATION_CONTENT, // 30041
-  ExtendedKind.WIKI_ARTICLE, // 30818
-  ExtendedKind.WIKI_ARTICLE_MARKDOWN, // 30817
-  kinds.LongFormArticle, // 30023
-  kinds.ShortTextNote // 1
-] as number[]
+const D_CHUNK = 28
+const ANY_KIND_LIMIT_PER_D = 12
 
-function coordinateFromEvent(ev: Event): string {
-  const d = ev.tags.find((t) => t[0] === 'd')?.[1] ?? ''
+function dTagOf(ev: Event): string | undefined {
+  const d = ev.tags.find((t) => t[0] === 'd')?.[1]
+  return d && d.length > 0 ? d : undefined
+}
+
+function coordinateOfEvent(ev: Event): string | null {
+  const d = dTagOf(ev)
+  if (!d) return null
   return `${ev.kind}:${ev.pubkey.toLowerCase()}:${d}`
 }
 
-/**
- * One batched query: chunk `ids` filters and grouped `authors + kinds + #d` filters.
- * Caller should hydrate from IndexedDB first. Keys are {@link publicationRefKey}.
- */
 export async function batchFetchPublicationSectionEvents(
   refs: PublicationSectionRef[],
   relayUrls: string[]
@@ -128,45 +106,44 @@ export async function batchFetchPublicationSectionEvents(
   const out = new Map<string, Event>()
   if (refs.length === 0 || relayUrls.length === 0) return out
 
-  const idRefs: PublicationSectionRef[] = []
-  const hexByKey = new Map<string, string>()
-  for (const r of refs) {
-    if (r.type !== 'e' || !r.eventId) continue
-    const key = publicationRefKey(r)
-    if (!key) continue
-    const hex = resolvePublicationEventIdToHex(r.eventId)
-    if (hex) {
-      idRefs.push(r)
-      hexByKey.set(key, hex)
-    }
-  }
+  const eRefs: PublicationSectionRef[] = []
+  const eHexByKey = new Map<string, string>()
+  const aRefs = refs.filter((r) => r.type === 'a' && r.coordinate && r.pubkey && typeof r.kind === 'number')
 
-  const aRefs = refs.filter((r) => r.type === 'a' && r.coordinate && r.pubkey && r.kind != null)
-  const aGroups = new Map<string, { pubkey: string; kind: number; dTags: string[] }>()
-  for (const r of aRefs) {
-    const idf = r.identifier ?? r.coordinate!.split(':').slice(2).join(':')
-    if (!idf) continue
-    const gk = `${r.pubkey}:${r.kind}`
-    let g = aGroups.get(gk)
-    if (!g) {
-      g = { pubkey: r.pubkey!, kind: r.kind!, dTags: [] }
-      aGroups.set(gk, g)
-    }
-    g.dTags.push(idf)
+  for (const ref of refs) {
+    if (ref.type !== 'e' || !ref.eventId) continue
+    const key = publicationRefKey(ref)
+    const hex = resolvePublicationEventIdToHex(ref.eventId)
+    if (!key || !hex) continue
+    eRefs.push(ref)
+    eHexByKey.set(key, hex)
   }
 
   const filters: Filter[] = []
 
-  const hexList = [...new Set([...hexByKey.values()])].filter((id) => /^[0-9a-f]{64}$/.test(id))
-  for (let i = 0; i < hexList.length; i += IDS_CHUNK) {
-    const chunk = hexList.slice(i, i + IDS_CHUNK)
+  const ids = [...new Set([...eHexByKey.values()])]
+  for (let i = 0; i < ids.length; i += IDS_CHUNK) {
+    const chunk = ids.slice(i, i + IDS_CHUNK)
     filters.push({ ids: chunk, limit: chunk.length })
   }
 
-  for (const g of aGroups.values()) {
+  const groupedA = new Map<string, { pubkey: string; kind: number; dTags: string[] }>()
+  for (const ref of aRefs) {
+    const d = ref.identifier ?? ref.coordinate!.split(':').slice(2).join(':')
+    if (!d) continue
+    const gk = `${ref.pubkey}:${ref.kind}`
+    let g = groupedA.get(gk)
+    if (!g) {
+      g = { pubkey: ref.pubkey!, kind: ref.kind!, dTags: [] }
+      groupedA.set(gk, g)
+    }
+    g.dTags.push(d)
+  }
+
+  for (const g of groupedA.values()) {
     const uniqueD = [...new Set(g.dTags)]
-    for (let i = 0; i < uniqueD.length; i += D_TAGS_CHUNK) {
-      const dChunk = uniqueD.slice(i, i + D_TAGS_CHUNK)
+    for (let i = 0; i < uniqueD.length; i += D_CHUNK) {
+      const dChunk = uniqueD.slice(i, i + D_CHUNK)
       filters.push({
         authors: [g.pubkey.toLowerCase()],
         kinds: [g.kind],
@@ -176,126 +153,49 @@ export async function batchFetchPublicationSectionEvents(
     }
   }
 
-  if (filters.length === 0) {
-    if (import.meta.env.DEV) {
-      logger.info('[PublicationSection] batch_fetch_skip — no filters', {
-        aRefCount: aRefs.length,
-        idRefCount: idRefs.length
-      })
-    }
-    return out
-  }
-
   let events: Event[] = []
-  try {
-    events = await queryService.fetchEvents(relayUrls, filters, {
-      globalTimeout: 14_000,
-      eoseTimeout: 2_500,
-      /** Do not early-resolve after the first event; this query must wait for the full batch. */
-      firstRelayResultGraceMs: false
-    })
-  } catch (err) {
-    if (import.meta.env.DEV) {
-      logger.warn('[PublicationSection] batch_fetch_error', {
-        message: err instanceof Error ? err.message : String(err),
-        filterCount: filters.length,
-        relayCount: relayUrls.length
+  if (filters.length > 0) {
+    try {
+      events = await queryService.fetchEvents(relayUrls, filters, {
+        globalTimeout: 12_000,
+        eoseTimeout: 2_000,
+        firstRelayResultGraceMs: false
       })
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        logger.warn('[PublicationSection] batch_fetch_error', {
+          message: err instanceof Error ? err.message : String(err),
+          filterCount: filters.length,
+          relayCount: relayUrls.length
+        })
+      }
     }
-    return out
   }
 
   const byId = new Map<string, Event>()
   const byCoord = new Map<string, Event>()
   for (const ev of events) {
     byId.set(ev.id.toLowerCase(), ev)
-    const d = ev.tags.find((t) => t[0] === 'd')?.[1]
-    if (d !== undefined && d !== '') {
-      const base = coordinateFromEvent(ev)
-      for (const k of publicationCoordinateLookupKeys(base)) {
-        if (!byCoord.has(k)) byCoord.set(k, ev)
-      }
+    const coord = coordinateOfEvent(ev)
+    if (!coord) continue
+    for (const key of publicationCoordinateLookupKeys(coord)) {
+      const prev = byCoord.get(key)
+      if (!prev || ev.created_at > prev.created_at) byCoord.set(key, ev)
     }
   }
 
-  for (const r of idRefs) {
-    const key = publicationRefKey(r)
-    const hex = hexByKey.get(key)
+  for (const ref of eRefs) {
+    const key = publicationRefKey(ref)
+    const hex = eHexByKey.get(key)
     if (!hex) continue
-    const ev = byId.get(hex.toLowerCase())
+    const ev = byId.get(hex)
     if (ev) out.set(key, ev)
   }
 
-  // Fallback for mismatched/legacy kind in `a` tags:
-  // retry unresolved refs by author + #d across common section kinds.
-  const unresolvedARefs = aRefs.filter((r) => !out.has(publicationRefKey(r)))
-  if (unresolvedARefs.length > 0) {
-    const fallbackGroups = new Map<string, { pubkey: string; dTags: string[] }>()
-    for (const r of unresolvedARefs) {
-      const pubkey = r.pubkey?.toLowerCase()
-      const idf = r.identifier ?? r.coordinate?.split(':').slice(2).join(':')
-      if (!pubkey || !idf) continue
-      let g = fallbackGroups.get(pubkey)
-      if (!g) {
-        g = { pubkey, dTags: [] }
-        fallbackGroups.set(pubkey, g)
-      }
-      g.dTags.push(idf)
-    }
-
-    const fallbackFilters: Filter[] = []
-    for (const g of fallbackGroups.values()) {
-      const uniqueD = [...new Set(g.dTags)]
-      for (let i = 0; i < uniqueD.length; i += D_TAGS_CHUNK) {
-        const dChunk = uniqueD.slice(i, i + D_TAGS_CHUNK)
-        fallbackFilters.push({
-          authors: [g.pubkey],
-          kinds: [...SECTION_KIND_FALLBACK_CANDIDATES],
-          '#d': dChunk,
-          limit: dChunk.length * SECTION_KIND_FALLBACK_CANDIDATES.length
-        })
-      }
-    }
-
-    if (fallbackFilters.length > 0) {
-      try {
-        const fallbackEvents = await queryService.fetchEvents(relayUrls, fallbackFilters, {
-          globalTimeout: 10_000,
-          eoseTimeout: 2_000,
-          firstRelayResultGraceMs: false
-        })
-        const byAuthorAndD = new Map<string, Event>()
-        for (const ev of fallbackEvents) {
-          const d = ev.tags.find((t) => t[0] === 'd')?.[1]
-          if (!d) continue
-          const k = `${ev.pubkey.toLowerCase()}:${d}`
-          const prev = byAuthorAndD.get(k)
-          if (!prev || ev.created_at > prev.created_at) byAuthorAndD.set(k, ev)
-        }
-        for (const r of unresolvedARefs) {
-          const key = publicationRefKey(r)
-          if (out.has(key)) continue
-          const pubkey = r.pubkey?.toLowerCase()
-          const idf = r.identifier ?? r.coordinate?.split(':').slice(2).join(':')
-          if (!pubkey || !idf) continue
-          const ev = byAuthorAndD.get(`${pubkey}:${idf}`)
-          if (ev) out.set(key, ev)
-        }
-      } catch (err) {
-        if (import.meta.env.DEV) {
-          logger.warn('[PublicationSection] batch_fetch_fallback_error', {
-            message: err instanceof Error ? err.message : String(err),
-            filterCount: fallbackFilters.length,
-            relayCount: relayUrls.length
-          })
-        }
-      }
-    }
-  }
-
-  for (const r of aRefs) {
-    const key = publicationRefKey(r)
-    const coord = r.coordinate!
+  for (const ref of aRefs) {
+    const key = publicationRefKey(ref)
+    if (out.has(key)) continue
+    const coord = ref.coordinate!
     let ev: Event | undefined
     for (const k of publicationCoordinateLookupKeys(coord)) {
       ev = byCoord.get(k)
@@ -304,9 +204,141 @@ export async function batchFetchPublicationSectionEvents(
     if (ev) out.set(key, ev)
   }
 
+  // Relay-hint targeted pass for unresolved `a` refs.
+  const unresolvedAfterBatch = aRefs.filter((r) => !out.has(publicationRefKey(r)))
+  const byHintRelay = new Map<string, PublicationSectionRef[]>()
+  for (const ref of unresolvedAfterBatch) {
+    const relay = normalizeUrl(ref.relay || '') || ref.relay?.trim()
+    if (!relay) continue
+    const list = byHintRelay.get(relay)
+    if (list) list.push(ref)
+    else byHintRelay.set(relay, [ref])
+  }
+
+  for (const [relay, relayRefs] of byHintRelay) {
+    const hintFilters: Filter[] = []
+    const groups = new Map<string, { pubkey: string; kind: number; dTags: string[] }>()
+    for (const ref of relayRefs) {
+      const d = ref.identifier ?? ref.coordinate!.split(':').slice(2).join(':')
+      if (!d) continue
+      const gk = `${ref.pubkey}:${ref.kind}`
+      let g = groups.get(gk)
+      if (!g) {
+        g = { pubkey: ref.pubkey!.toLowerCase(), kind: ref.kind!, dTags: [] }
+        groups.set(gk, g)
+      }
+      g.dTags.push(d)
+    }
+    for (const g of groups.values()) {
+      const uniqueD = [...new Set(g.dTags)]
+      for (let i = 0; i < uniqueD.length; i += D_CHUNK) {
+        const dChunk = uniqueD.slice(i, i + D_CHUNK)
+        hintFilters.push({
+          authors: [g.pubkey],
+          kinds: [g.kind],
+          '#d': dChunk,
+          limit: dChunk.length
+        })
+      }
+    }
+    if (hintFilters.length === 0) continue
+    try {
+      const hintEvents = await queryService.fetchEvents([relay], hintFilters, {
+        globalTimeout: 8_000,
+        eoseTimeout: 1_500,
+        firstRelayResultGraceMs: false
+      })
+      const hintByCoord = new Map<string, Event>()
+      for (const ev of hintEvents) {
+        const coord = coordinateOfEvent(ev)
+        if (!coord) continue
+        for (const key of publicationCoordinateLookupKeys(coord)) {
+          const prev = hintByCoord.get(key)
+          if (!prev || ev.created_at > prev.created_at) hintByCoord.set(key, ev)
+        }
+      }
+      for (const ref of relayRefs) {
+        const key = publicationRefKey(ref)
+        if (out.has(key)) continue
+        const coord = ref.coordinate!
+        let ev: Event | undefined
+        for (const k of publicationCoordinateLookupKeys(coord)) {
+          ev = hintByCoord.get(k)
+          if (ev) break
+        }
+        if (ev) out.set(key, ev)
+      }
+    } catch {
+      // ignore per-relay hint failures
+    }
+  }
+
+  // Last fallback: author + #d across any kind.
+  const unresolvedAfterHint = aRefs.filter((r) => !out.has(publicationRefKey(r)))
+  if (unresolvedAfterHint.length > 0) {
+    const fallbackFilters: Filter[] = []
+    const groups = new Map<string, { pubkey: string; dTags: string[] }>()
+    for (const ref of unresolvedAfterHint) {
+      const d = ref.identifier ?? ref.coordinate!.split(':').slice(2).join(':')
+      if (!d) continue
+      const pk = ref.pubkey!.toLowerCase()
+      let g = groups.get(pk)
+      if (!g) {
+        g = { pubkey: pk, dTags: [] }
+        groups.set(pk, g)
+      }
+      g.dTags.push(d)
+    }
+    for (const g of groups.values()) {
+      const uniqueD = [...new Set(g.dTags)]
+      for (let i = 0; i < uniqueD.length; i += D_CHUNK) {
+        const dChunk = uniqueD.slice(i, i + D_CHUNK)
+        fallbackFilters.push({
+          authors: [g.pubkey],
+          '#d': dChunk,
+          limit: dChunk.length * ANY_KIND_LIMIT_PER_D
+        })
+      }
+    }
+    if (fallbackFilters.length > 0) {
+      try {
+        const fallbackEvents = await queryService.fetchEvents(relayUrls, fallbackFilters, {
+          globalTimeout: 10_000,
+          eoseTimeout: 2_000,
+          firstRelayResultGraceMs: false
+        })
+        const byAuthorD = new Map<string, Event[]>()
+        for (const ev of fallbackEvents) {
+          const d = dTagOf(ev)
+          if (!d) continue
+          const k = `${ev.pubkey.toLowerCase()}:${d}`
+          const arr = byAuthorD.get(k)
+          if (arr) arr.push(ev)
+          else byAuthorD.set(k, [ev])
+        }
+        for (const ref of unresolvedAfterHint) {
+          const key = publicationRefKey(ref)
+          if (out.has(key)) continue
+          const d = ref.identifier ?? ref.coordinate!.split(':').slice(2).join(':')
+          const candidates = byAuthorD.get(`${ref.pubkey!.toLowerCase()}:${d}`)
+          if (!candidates || candidates.length === 0) continue
+          const preferred = candidates.filter((ev) => ev.kind === ref.kind)
+          const src = preferred.length > 0 ? preferred : candidates
+          let newest = src[0]
+          for (let i = 1; i < src.length; i++) {
+            if (src[i].created_at > newest.created_at) newest = src[i]
+          }
+          out.set(key, newest)
+        }
+      } catch {
+        // ignore fallback errors
+      }
+    }
+  }
+
   if (import.meta.env.DEV) {
     const unmatchedA = aRefs.filter((r) => !out.has(publicationRefKey(r)))
-    const unmatchedE = idRefs.filter((r) => !out.has(publicationRefKey(r)))
+    const unmatchedE = eRefs.filter((r) => !out.has(publicationRefKey(r)))
     logger.info('[PublicationSection] batch_fetch_result', {
       relayCount: relayUrls.length,
       filterCount: filters.length,
@@ -315,11 +347,7 @@ export async function batchFetchPublicationSectionEvents(
       resolved: out.size,
       unmatchedACount: unmatchedA.length,
       unmatchedECount: unmatchedE.length,
-      unmatchedAKeys: unmatchedA.map((r) => publicationRefKey(r)).slice(0, 12),
-      sampleEventCoords: events.slice(0, 3).map((ev) => {
-        const d = ev.tags.find((t) => t[0] === 'd')?.[1]
-        return d !== undefined && d !== '' ? coordinateFromEvent(ev) : `${ev.kind}:${ev.pubkey.slice(0, 8)}…`
-      })
+      unmatchedAKeys: unmatchedA.map((r) => publicationRefKey(r)).slice(0, 12)
     })
   }
 

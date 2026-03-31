@@ -1,6 +1,6 @@
 import { ExtendedKind } from '@/constants'
 import { Event, kinds, nip19 } from 'nostr-tools'
-import { useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { usePublicationSectionLoader } from '@/hooks/usePublicationSectionLoader'
 import { parsePublicationATagCoordinate, publicationRefKey } from '@/lib/publication-section-fetch'
 import { cn } from '@/lib/utils'
@@ -78,72 +78,6 @@ function publicationSectionNotesLink(ref: {
   return null
 }
 
-const SECTION_IO_ROOT_MARGIN = '480px'
-
-/**
- * IntersectionObserver with `root: null` uses the browser viewport. Note / feed layouts scroll inside
- * `overflow-y: auto` panels ({@link SecondaryPageLayout}, {@link PrimaryPageLayout}), so section
- * placeholders never intersect the viewport while scrolling — only the first prefetch batch loads.
- */
-function findScrollPortRoot(from: HTMLElement | null): Element | null {
-  if (!from) return null
-  let el: HTMLElement | null = from.parentElement
-  while (el && el !== document.documentElement) {
-    const s = window.getComputedStyle(el)
-    if (s.overflowY === 'auto' || s.overflowY === 'scroll' || s.overflowY === 'overlay') {
-      return el
-    }
-    el = el.parentElement
-  }
-  return null
-}
-
-/** Request section payload when this block nears the visible scrollport (batched + debounced upstream). */
-function PublicationSectionBoundary({
-  sectionKey,
-  requestKeys,
-  children
-}: {
-  sectionKey: string
-  requestKeys: (keys: string[]) => void
-  children: ReactNode
-}) {
-  const rootRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!sectionKey) return
-    const el = rootRef.current
-    if (!el) return
-
-    let io: IntersectionObserver | null = null
-    let cancelled = false
-
-    const attach = () => {
-      if (cancelled) return
-      const scrollRoot = findScrollPortRoot(el)
-      io?.disconnect()
-      io = new IntersectionObserver(
-        (entries) => {
-          if (entries[0]?.isIntersecting) requestKeys([sectionKey])
-        },
-        { root: scrollRoot, rootMargin: SECTION_IO_ROOT_MARGIN, threshold: 0 }
-      )
-      io.observe(el)
-    }
-
-    attach()
-    const raf = requestAnimationFrame(() => {
-      requestAnimationFrame(attach)
-    })
-
-    return () => {
-      cancelled = true
-      cancelAnimationFrame(raf)
-      io?.disconnect()
-    }
-  }, [sectionKey, requestKeys])
-  return <div ref={rootRef}>{children}</div>
-}
-
 export default function PublicationIndex({
   event,
   className,
@@ -206,8 +140,7 @@ export default function PublicationIndex({
             kind: parsed.kind,
             pubkey: parsed.pubkey,
             identifier: parsed.identifier,
-            relay: tag[2],
-            eventId: tag[3]
+            relay: tag[2]
           })
         }
       } else if (tag[0] === 'e' && tag[1]) {
@@ -222,7 +155,7 @@ export default function PublicationIndex({
     return refs
   }, [event])
 
-  const { requestKeys, retryKeys, failedKeys, referencesWithEvents } =
+  const { retryKeys, failedKeys, referencesWithEvents } =
     usePublicationSectionLoader(event, referencesData)
 
   // Helper function to format bookstr titles (remove hyphens, title case)
@@ -527,13 +460,12 @@ export default function PublicationIndex({
         </div>
       )}
 
-      {/* Failed sections banner — batched fetch missed some payloads */}
+      {/* Failed sections banner */}
       {!isNested && failedKeys.length > 0 && referencesWithEvents.length > 0 && (
         <div className="p-4 border rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800">
           <div className="flex items-center justify-between gap-4">
             <div className="text-sm text-yellow-800 dark:text-yellow-200">
-              {failedKeys.length} section{failedKeys.length !== 1 ? 's' : ''} failed to load. Scroll near a
-              section or retry all.
+              {failedKeys.length} section{failedKeys.length !== 1 ? 's' : ''} failed to load.
             </div>
             <Button
               variant="outline"
@@ -552,7 +484,7 @@ export default function PublicationIndex({
         </div>
       )}
 
-      {/* Sections: intersection-observer triggers debounced batch REQ; placeholders until loaded */}
+      {/* Sections */}
       {referencesData.length === 0 ? (
         <div className="p-6 border rounded-lg bg-muted/30 text-center text-sm text-muted-foreground">
           This publication index has no linked sections.
@@ -568,61 +500,50 @@ export default function PublicationIndex({
             if (!ref.event) {
               if (ref.loadStatus === 'error') {
                 return (
-                  <PublicationSectionBoundary
-                    key={sectionKey || index}
-                    sectionKey={sectionKey}
-                    requestKeys={requestKeys}
-                  >
-                    <div id={sectionId} className="scroll-mt-24 p-4 border rounded-lg bg-muted/50">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm text-muted-foreground">
-                          Section {index + 1}: unable to load{' '}
-                          {notesLink ? (
-                            <a
-                              href={notesLink}
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                push(notesLink)
-                              }}
-                              className="text-primary hover:underline cursor-pointer"
-                            >
-                              {coordinate || 'unknown'}
-                            </a>
-                          ) : (
-                            <span>{coordinate || 'unknown'}</span>
-                          )}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="shrink-0"
-                          onClick={() => retryKeys([sectionKey])}
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
+                  <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 p-4 border rounded-lg bg-muted/50">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm text-muted-foreground">
+                        Section {index + 1}: unable to load{' '}
+                        {notesLink ? (
+                          <a
+                            href={notesLink}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              push(notesLink)
+                            }}
+                            className="text-primary hover:underline cursor-pointer"
+                          >
+                            {coordinate || 'unknown'}
+                          </a>
+                        ) : (
+                          <span>{coordinate || 'unknown'}</span>
+                        )}
                       </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => retryKeys([sectionKey])}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
                     </div>
-                  </PublicationSectionBoundary>
+                  </div>
                 )
               }
 
               return (
-                <PublicationSectionBoundary
+                <div
                   key={sectionKey || index}
-                  sectionKey={sectionKey}
-                  requestKeys={requestKeys}
+                  id={sectionId}
+                  className="scroll-mt-24 rounded-lg border border-dashed p-6 bg-muted/20 space-y-3"
+                  aria-busy
                 >
-                  <div
-                    id={sectionId}
-                    className="scroll-mt-24 rounded-lg border border-dashed p-6 bg-muted/20 space-y-3"
-                    aria-busy
-                  >
-                    <Skeleton className="h-5 w-2/3 max-w-md" />
-                    <Skeleton className="h-28 w-full" />
-                    <Skeleton className="h-28 w-full" />
-                  </div>
-                </PublicationSectionBoundary>
+                  <Skeleton className="h-5 w-2/3 max-w-md" />
+                  <Skeleton className="h-28 w-full" />
+                  <Skeleton className="h-28 w-full" />
+                </div>
               )
             }
 
@@ -660,10 +581,11 @@ export default function PublicationIndex({
               )
             }
 
-            if (
+            const renderAsAsciidoc =
               eventKind === ExtendedKind.PUBLICATION_CONTENT ||
               eventKind === ExtendedKind.WIKI_ARTICLE
-            ) {
+
+            if (renderAsAsciidoc) {
               return (
                 <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 pt-6 relative">
                   <div className="absolute top-0 right-0 flex items-center gap-2">
@@ -690,90 +612,29 @@ export default function PublicationIndex({
               )
             }
 
-            if (eventKind === ExtendedKind.WIKI_ARTICLE_MARKDOWN) {
-              return (
-                <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 pt-6 relative">
-                  <div className="absolute top-0 right-0 flex items-center gap-2">
-                    {!isNested && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="opacity-70 hover:opacity-100"
-                        onClick={scrollToToc}
-                        title="Back to Table of Contents"
-                      >
-                        <ArrowUp className="h-4 w-4 mr-2" />
-                        ToC
-                      </Button>
-                    )}
-                    <NoteOptions event={ref.event} />
-                  </div>
-                  <MarkdownArticle
-                    event={ref.event}
-                    hideMetadata={true}
-                    parentImageUrl={effectiveParentImageUrl}
-                  />
-                </div>
-              )
-            }
-
-            // NIP-23 long-form (30023): same markdown body path as standalone note view
-            if (eventKind === kinds.LongFormArticle) {
-              return (
-                <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 pt-6 relative">
-                  <div className="absolute top-0 right-0 flex items-center gap-2">
-                    {!isNested && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="opacity-70 hover:opacity-100"
-                        onClick={scrollToToc}
-                        title="Back to Table of Contents"
-                      >
-                        <ArrowUp className="h-4 w-4 mr-2" />
-                        ToC
-                      </Button>
-                    )}
-                    <NoteOptions event={ref.event} />
-                  </div>
-                  <MarkdownArticle
-                    event={ref.event}
-                    hideMetadata={true}
-                    parentImageUrl={effectiveParentImageUrl}
-                  />
-                </div>
-              )
-            }
-
-            // Kind 1: plain text / markdown body like {@link Note}
-            if (eventKind === kinds.ShortTextNote) {
-              return (
-                <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 pt-6 relative">
-                  <div className="absolute top-0 right-0 flex items-center gap-2">
-                    {!isNested && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="opacity-70 hover:opacity-100"
-                        onClick={scrollToToc}
-                        title="Back to Table of Contents"
-                      >
-                        <ArrowUp className="h-4 w-4 mr-2" />
-                        ToC
-                      </Button>
-                    )}
-                    <NoteOptions event={ref.event} />
-                  </div>
-                  <MarkdownArticle event={ref.event} hideMetadata={true} />
-                </div>
-              )
-            }
-
+            // All non-publication, non-AsciiDoc section kinds use markdown renderer.
             return (
-              <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 p-4 border rounded-lg">
-                <div className="text-sm text-muted-foreground">
-                  Section {index + 1}: unsupported kind {eventKind}
+              <div key={sectionKey || index} id={sectionId} className="scroll-mt-24 pt-6 relative">
+                <div className="absolute top-0 right-0 flex items-center gap-2">
+                  {!isNested && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="opacity-70 hover:opacity-100"
+                      onClick={scrollToToc}
+                      title="Back to Table of Contents"
+                    >
+                      <ArrowUp className="h-4 w-4 mr-2" />
+                      ToC
+                    </Button>
+                  )}
+                  <NoteOptions event={ref.event} />
                 </div>
+                <MarkdownArticle
+                  event={ref.event}
+                  hideMetadata={true}
+                  parentImageUrl={effectiveParentImageUrl}
+                />
               </div>
             )
           })}
