@@ -29,6 +29,7 @@ import { fetchLatestReplaceableListEvent } from '@/lib/replaceable-list-latest'
 import { normalizeUrl } from '@/lib/url'
 import { PROFILE_FETCH_RELAY_URLS } from '@/constants'
 import { queryService } from '@/services/client.service'
+import dayjs from 'dayjs'
 import { Code, Eraser, MoreVertical } from 'lucide-react'
 import { kinds } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
@@ -108,6 +109,9 @@ const BookmarkListPage = forwardRef(
       if (!pubkey || cleaning) return
       setCleaning(true)
       try {
+        if (dayjs().unix() === bookmarkListEvent?.created_at) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
         const comprehensiveRelays = await buildAccountListRelayUrlsForMerge({
           accountPubkey: pubkey,
           favoriteRelays: favoriteRelays ?? [],
@@ -124,7 +128,7 @@ const BookmarkListPage = forwardRef(
         setCleaning(false)
         setCleanConfirmOpen(false)
       }
-    }, [pubkey, cleaning, favoriteRelays, blockedRelays, publish, updateBookmarkListEvent, refreshFromRelays, t])
+    }, [pubkey, cleaning, bookmarkListEvent?.created_at, favoriteRelays, blockedRelays, publish, updateBookmarkListEvent, refreshFromRelays, t])
 
     if (!profile || !pubkey) {
       return <NotFoundPage />

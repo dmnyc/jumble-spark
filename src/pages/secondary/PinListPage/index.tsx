@@ -26,6 +26,7 @@ import { fetchNewestPinListForPubkey } from '@/lib/replaceable-list-latest'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import indexedDb from '@/services/indexed-db.service'
+import dayjs from 'dayjs'
 import { Code, Eraser, MoreVertical } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
@@ -112,6 +113,9 @@ const PinListPage = forwardRef(
       if (!pubkey || cleaning) return
       setCleaning(true)
       try {
+        if (dayjs().unix() === pinListEvent?.created_at) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
         const comprehensiveRelays = await buildAccountListRelayUrlsForMerge({
           accountPubkey: pubkey,
           favoriteRelays: favoriteRelays ?? [],
@@ -132,7 +136,7 @@ const PinListPage = forwardRef(
         setCleaning(false)
         setCleanConfirmOpen(false)
       }
-    }, [pubkey, cleaning, favoriteRelays, blockedRelays, publish, t])
+    }, [pubkey, cleaning, pinListEvent?.created_at, favoriteRelays, blockedRelays, publish, t])
 
     if (!profile || !pubkey) {
       return <NotFoundPage />

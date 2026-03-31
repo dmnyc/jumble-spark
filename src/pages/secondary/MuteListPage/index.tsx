@@ -32,6 +32,7 @@ import indexedDb from '@/services/indexed-db.service'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { Code, Eraser, Lock, MoreVertical, Unlock } from 'lucide-react'
+import dayjs from 'dayjs'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -45,7 +46,7 @@ const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: numb
   const { getMutePubkeys } = useMuteList()
   const [jsonOpen, setJsonOpen] = useState(false)
   const [jsonPayload, setJsonPayload] = useState<unknown>(null)
-  const mutePubkeys = useMemo(() => getMutePubkeys(), [pubkey])
+  const mutePubkeys = useMemo(() => getMutePubkeys(), [getMutePubkeys])
   const [visibleMutePubkeys, setVisibleMutePubkeys] = useState<string[]>([])
   const [listRefreshKey, setListRefreshKey] = useState(0)
   const [cleanConfirmOpen, setCleanConfirmOpen] = useState(false)
@@ -119,6 +120,9 @@ const MuteListPage = forwardRef(({ index, hideTitlebar = false }: { index?: numb
     if (!pubkey || cleaning) return
     setCleaning(true)
     try {
+      if (dayjs().unix() === muteListEvent?.created_at) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
       const comprehensiveRelays = await buildAccountListRelayUrlsForMerge({
         accountPubkey: pubkey,
         favoriteRelays: favoriteRelays ?? [],

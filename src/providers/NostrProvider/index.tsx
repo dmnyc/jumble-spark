@@ -1353,11 +1353,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }
 
   const updateFollowListEvent = async (followListEvent: Event) => {
-    const newFollowListEvent = await indexedDb.putReplaceableEvent(followListEvent)
-    if (newFollowListEvent.id !== followListEvent.id) return
-
-    setFollowListEvent(newFollowListEvent)
-    await client.updateFollowListCache(newFollowListEvent)
+    const stored = await indexedDb.putReplaceableEvent(followListEvent)
+    /** Always sync follow list state/cache to the IndexedDB winner. */
+    setFollowListEvent(stored)
+    await client.updateFollowListCache(stored)
   }
 
   const updateMuteListEvent = async (muteListEvent: Event, privateTags: string[][]) => {
@@ -1373,17 +1372,15 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }
 
   const updateBookmarkListEvent = async (bookmarkListEvent: Event) => {
-    const newBookmarkListEvent = await indexedDb.putReplaceableEvent(bookmarkListEvent)
-    if (newBookmarkListEvent.id !== bookmarkListEvent.id) return
-
-    setBookmarkListEvent(newBookmarkListEvent)
+    const stored = await indexedDb.putReplaceableEvent(bookmarkListEvent)
+    /** Keep bookmark UI aligned with replaceable winner from storage. */
+    setBookmarkListEvent(stored)
   }
 
   const updateInterestListEvent = async (interestListEvent: Event) => {
-    const newInterestListEvent = await indexedDb.putReplaceableEvent(interestListEvent)
-    if (newInterestListEvent.id !== interestListEvent.id) return
-
-    setInterestListEvent(newInterestListEvent)
+    const stored = await indexedDb.putReplaceableEvent(interestListEvent)
+    /** Keep interests UI aligned with replaceable winner from storage. */
+    setInterestListEvent(stored)
   }
 
   const updateFavoriteRelaysEvent = async (favoriteRelaysEvent: Event) => {

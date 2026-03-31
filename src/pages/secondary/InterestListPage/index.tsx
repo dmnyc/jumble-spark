@@ -31,6 +31,7 @@ import { useInterestList } from '@/providers/InterestListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import client from '@/services/client.service'
+import dayjs from 'dayjs'
 import { Code, Eraser, MoreVertical, Trash2 } from 'lucide-react'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -109,6 +110,9 @@ const InterestListPage = forwardRef(
       if (!pubkey || cleaning) return
       setCleaning(true)
       try {
+        if (dayjs().unix() === interestListEvent?.created_at) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
         const comprehensiveRelays = await buildAccountListRelayUrlsForMerge({
           accountPubkey: pubkey,
           favoriteRelays: favoriteRelays ?? [],
@@ -124,7 +128,7 @@ const InterestListPage = forwardRef(
         setCleaning(false)
         setCleanConfirmOpen(false)
       }
-    }, [pubkey, cleaning, favoriteRelays, blockedRelays, publish, updateInterestListEvent, t])
+    }, [pubkey, cleaning, interestListEvent?.created_at, favoriteRelays, blockedRelays, publish, updateInterestListEvent, t])
 
     if (!profile || !pubkey) {
       return <NotFoundPage />

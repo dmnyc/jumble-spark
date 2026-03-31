@@ -26,6 +26,7 @@ import { FOLLOWS_HISTORY_RELAY_URLS } from '@/constants'
 import { createFollowListDraftEvent } from '@/lib/draft-event'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
+import dayjs from 'dayjs'
 import { Code, Eraser, MoreVertical } from 'lucide-react'
 import { forwardRef, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -70,6 +71,9 @@ const FollowingListPage = forwardRef(({ id, index, hideTitlebar = false }: { id?
     if (!accountPubkey || !isOwnList || cleaning) return
     setCleaning(true)
     try {
+      if (dayjs().unix() === followListEvent?.created_at) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
       const comprehensiveRelays = await buildAccountListRelayUrlsForMerge({
         accountPubkey,
         favoriteRelays: favoriteRelays ?? [],

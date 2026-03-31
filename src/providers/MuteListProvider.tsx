@@ -138,9 +138,9 @@ export function MuteListProvider({ children }: { children: ReactNode }) {
     updateMuteTags()
   }, [muteListEvent, isAccountSessionHydrating, account?.signerType, account?.pubkey])
 
-  const getMutePubkeys = () => {
+  const getMutePubkeys = useCallback(() => {
     return Array.from(mutePubkeySet)
-  }
+  }, [mutePubkeySet])
 
   const getMuteType = useCallback(
     (pubkey: string): 'public' | 'private' | null => {
