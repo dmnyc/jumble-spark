@@ -44,6 +44,7 @@ export type ViewType =
   | 'mute'
   | 'bookmarks'
   | 'pins'
+  | 'interests'
   | 'others-relay-settings'
   | null
 
@@ -292,6 +293,7 @@ export class NavigationService {
     if (viewType === 'mute') return 'Muted Users'
     if (viewType === 'bookmarks') return 'Bookmarks'
     if (viewType === 'pins') return 'Pinned notes'
+    if (viewType === 'interests') return 'Interests'
     if (viewType === 'others-relay-settings') return 'Relays and Storage Settings'
     return 'Page'
   }

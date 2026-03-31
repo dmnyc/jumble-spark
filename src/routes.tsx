@@ -14,6 +14,7 @@ const GeneralSettingsPageLazy = lazy(() => import('./pages/secondary/GeneralSett
 const MuteListPageLazy = lazy(() => import('./pages/secondary/MuteListPage'))
 const BookmarkListPageLazy = lazy(() => import('./pages/secondary/BookmarkListPage'))
 const PinListPageLazy = lazy(() => import('./pages/secondary/PinListPage'))
+const InterestListPageLazy = lazy(() => import('./pages/secondary/InterestListPage'))
 const NoteListPageLazy = lazy(() => import('./pages/secondary/NoteListPage'))
 const NotePageLazy = lazy(() => import('./pages/secondary/NotePage'))
 const OthersRelaySettingsPageLazy = lazy(() => import('./pages/secondary/OthersRelaySettingsPage'))
@@ -89,6 +90,7 @@ const ROUTES = [
   { path: '/mutes', element: SR(MuteListPageLazy) },
   { path: '/bookmarks', element: SR(BookmarkListPageLazy) },
   { path: '/pins', element: SR(PinListPageLazy) },
+  { path: '/interests', element: SR(InterestListPageLazy) },
   { path: '/follow-packs', element: SR(FollowPacksRedirectLazy) }
 ]
 

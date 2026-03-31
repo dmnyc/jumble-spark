@@ -6,18 +6,26 @@ import { cn } from '@/lib/utils'
 import {
   useSmartBookmarkListNavigation,
   useSmartFollowingListNavigation,
+  useSmartInterestListNavigation,
   useSmartMuteListNavigation,
   useSmartPinListNavigation,
   useSmartSettingsNavigation
 } from '@/PageManager'
-import { toBookmarksList, toFollowSetsSettings, toFollowingList, toMuteList, toPinsList } from '@/lib/link'
+import {
+  toBookmarksList,
+  toFollowSetsSettings,
+  toFollowingList,
+  toInterestsList,
+  toMuteList,
+  toPinsList
+} from '@/lib/link'
 import { useNostr } from '@/providers/NostrProvider'
-import { Bookmark, ChevronRight, Pin, Users, VolumeX } from 'lucide-react'
+import { Bookmark, ChevronRight, Hash, Pin, Users, VolumeX } from 'lucide-react'
 import { forwardRef, HTMLProps, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 /**
- * Hub for Nostr “personal lists” (mute list, follows, NIP-51 bookmarks, pins) — not the same as NIP-B0 web bookmarks.
+ * Hub for Nostr “personal lists” (mute list, follows, NIP-51 bookmarks, pins, interest topics) — not the same as NIP-B0 web bookmarks.
  */
 const PersonalListsSettingsPage = forwardRef(
   ({ index, hideTitlebar = false }: { index?: number; hideTitlebar?: boolean }, ref) => {
@@ -29,6 +37,7 @@ const PersonalListsSettingsPage = forwardRef(
     const { navigateToFollowingList } = useSmartFollowingListNavigation()
     const { navigateToBookmarkList } = useSmartBookmarkListNavigation()
     const { navigateToPinList } = useSmartPinListNavigation()
+    const { navigateToInterestList } = useSmartInterestListNavigation()
     const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
     const [contentKey, setContentKey] = useState(0)
     const bump = useCallback(() => setContentKey((k) => k + 1), [])
@@ -88,6 +97,15 @@ const PersonalListsSettingsPage = forwardRef(
               <ChevronRight />
             </SettingRow>
           ) : null}
+          {pubkey ? (
+            <SettingRow className="clickable" onClick={() => navigateToInterestList(toInterestsList())}>
+              <div className="flex items-center gap-3">
+                <Hash />
+                <div>{t('Interests list')}</div>
+              </div>
+              <ChevronRight />
+            </SettingRow>
+          ) : null}
           <SettingRow className="clickable" onClick={() => navigateToSettings(toFollowSetsSettings())}>
             <div className="flex items-center gap-3">
               <Users />
@@ -105,6 +123,19 @@ const PersonalListsSettingsPage = forwardRef(
                 onClick={() => navigatePrimary('spells', { spell: 'bookmarks' })}
               >
                 {t('Bookmarks spell')}
+              </button>
+            </span>
+          </p>
+          <p className="flex min-h-[52px] items-start gap-3 rounded-lg px-4 py-2 text-sm text-muted-foreground">
+            <Hash className="mt-0.5 size-4 shrink-0 opacity-80" />
+            <span>
+              {t('Personal lists interests spell hint')}{' '}
+              <button
+                type="button"
+                className="text-primary underline-offset-4 hover:underline"
+                onClick={() => navigatePrimary('spells', { spell: 'interests' })}
+              >
+                {t('Interests spell')}
               </button>
             </span>
           </p>

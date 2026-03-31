@@ -63,9 +63,14 @@ export const NOTIFICATION_SPELL_KINDS = RENDERABLE_NOTE_KINDS_SORTED
 export const NOTIFICATION_SPELL_LOADING_SAFETY_MS = 90_000
 
 /**
- * Max distinct `t` tag values in one filter (very long `#t` arrays can hit relay limits).
+ * Max base topics from the interest list. Each base topic expands to singular+plural variants.
  */
 const INTERESTS_MAX_TOPICS = 80
+
+/**
+ * Max distinct `t` tag values in one filter after singular/plural expansion.
+ */
+const INTERESTS_MAX_TOPIC_TAG_VALUES = INTERESTS_MAX_TOPICS * 2
 
 /**
  * Put {@link READ_ONLY_RELAY_URLS} (e.g. aggr) **first**, then curated relays. Faux spells cap URL count
@@ -157,9 +162,20 @@ export function buildCalendarSpellFilter(): Filter {
   }
 }
 
+function pluralizeTopic(topic: string): string {
+  if (!topic) return topic
+  if (topic.endsWith('y') && topic.length > 1 && !/[aeiou]y$/i.test(topic)) {
+    return `${topic.slice(0, -1)}ies`
+  }
+  if (/(s|x|z|ch|sh)$/i.test(topic)) {
+    return `${topic}es`
+  }
+  return `${topic}s`
+}
+
 /**
  * One subrequest for all interests: NIP-01 treats multiple `#t` values as OR (any topic matches).
- * Same relay set as before, but a single timeline shard instead of one per hashtag.
+ * Expand every topic to singular+plural so feeds match either spelling on relays.
  */
 export function buildInterestsSubRequests(
   relayUrls: string[],
@@ -167,9 +183,19 @@ export function buildInterestsSubRequests(
   kindsList: number[] = DEFAULT_FEED_SHOW_KINDS
 ): TFeedSubRequest[] {
   if (!relayUrls.length || !rawTopics.length || !kindsList.length) return []
-  const topics = Array.from(
+  const baseTopics = Array.from(
     new Set(rawTopics.map((t) => normalizeTopic(t)).filter((t) => t.length > 0))
   ).slice(0, INTERESTS_MAX_TOPICS)
+  if (!baseTopics.length) return []
+  const topics = Array.from(
+    new Set(
+      baseTopics.flatMap((topic) => {
+        const singular = normalizeTopic(topic)
+        const plural = pluralizeTopic(singular)
+        return [singular, plural]
+      })
+    )
+  ).slice(0, INTERESTS_MAX_TOPIC_TAG_VALUES)
   if (!topics.length) return []
   return [
     {

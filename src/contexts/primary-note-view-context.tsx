@@ -11,6 +11,7 @@ export type TPrimaryOverlayViewType =
   | 'mute'
   | 'bookmarks'
   | 'pins'
+  | 'interests'
   | 'others-relay-settings'
 
 export type PrimaryNoteViewContextValue = {

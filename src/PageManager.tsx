@@ -91,6 +91,7 @@ const PrimaryFollowingListPageLazy = lazy(() => import('@/pages/secondary/Follow
 const PrimaryMuteListPageLazy = lazy(() => import('@/pages/secondary/MuteListPage'))
 const PrimaryBookmarkListPageLazy = lazy(() => import('@/pages/secondary/BookmarkListPage'))
 const PrimaryPinListPageLazy = lazy(() => import('@/pages/secondary/PinListPage'))
+const PrimaryInterestListPageLazy = lazy(() => import('@/pages/secondary/InterestListPage'))
 const PrimaryOthersRelaySettingsPageLazy = lazy(() => import('@/pages/secondary/OthersRelaySettingsPage'))
 const SecondaryRelayPageLazy = lazy(() => import('@/pages/secondary/RelayPage'))
 
@@ -775,6 +776,26 @@ export function useSmartPinListNavigation() {
   }
 
   return { navigateToPinList }
+}
+
+export function useSmartInterestListNavigation() {
+  const { setPrimaryNoteView } = usePrimaryNoteView()
+  const { push: pushSecondaryPage } = useSecondaryPage()
+  const { isSmallScreen } = useScreenSize()
+
+  const navigateToInterestList = (url: string) => {
+    if (isSmallScreen) {
+      window.history.pushState(null, '', url)
+      setPrimaryNoteView(
+        suspensePrimaryPage(<PrimaryInterestListPageLazy index={0} hideTitlebar={true} />),
+        'interests'
+      )
+    } else {
+      pushSecondaryPage(url)
+    }
+  }
+
+  return { navigateToInterestList }
 }
 
 // Fixed: Others relay settings navigation now uses primary note view on mobile, secondary routing on desktop
@@ -1723,7 +1744,12 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
       navigatePrimaryPage('settings')
       return
     }
-    if (primaryViewType === 'bookmarks' || primaryViewType === 'pins' || primaryViewType === 'mute') {
+    if (
+      primaryViewType === 'bookmarks' ||
+      primaryViewType === 'pins' ||
+      primaryViewType === 'interests' ||
+      primaryViewType === 'mute'
+    ) {
       setPrimaryNoteView(null)
       return
     }

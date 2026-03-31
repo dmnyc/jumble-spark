@@ -82,6 +82,7 @@ export const toMuteList = () => '/mutes'
 export const toBookmarksList = () => '/bookmarks'
 
 export const toPinsList = () => '/pins'
+export const toInterestsList = () => '/interests'
 export const toSpells = () => '/spells'
 
 export const toChachiChat = (relay: string, d: string) => {

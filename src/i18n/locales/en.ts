@@ -1580,11 +1580,22 @@ export default {
     'Follow sets': 'Follow sets',
     'Personal Lists': 'Personal Lists',
     'Personal lists hub intro':
-      'Open mute list, following, bookmarks list, or pinned notes on their own pages (like mute and following). Follow sets are below. Web page bookmarks (NIP-B0, kind 39701) are separate—save from an article’s panel or use the Bookmarks spell for a mixed feed.',
+      'Open mute list, following, bookmarks list, pinned notes, or your interest topics (kind 10015) on their own pages (like mute and following). Follow sets are below. Web page bookmarks (NIP-B0, kind 39701) are separate—save from an article’s panel or use the Bookmarks spell for a mixed feed.',
     'Mute list': 'Mute list',
     'Following list': 'Following list',
     'Bookmarks list': 'Bookmarks list',
     'Pinned notes list': 'Pinned notes list',
+    'Interests list': 'Interests list',
+    'Interests list section subtitle':
+      'Topics you follow for hashtag feeds and the Interests spell. Stored on Nostr as kind 10015 (`t` tags).',
+    'Interest topic placeholder': 'topic or #hashtag',
+    'Interest list add topic': 'Add topic',
+    'Interest topic invalid': 'Enter a valid topic (letters, numbers, hyphens, underscores).',
+    'No interest topics in list': 'No subscribed topics yet. Add one above or subscribe from a hashtag page.',
+    "username's interest topics": "{{username}}'s interest topics",
+    'Remove from interest list': 'Remove from interest list',
+    'Personal lists interests spell hint': 'For a combined feed of all subscribed topics, use the',
+    'Interests spell': 'Interests spell',
     'Personal lists bookmarks spell hint':
       'For a note feed from NIP-51 bookmarks, use the',
     'Bookmarks spell': 'Bookmarks spell',
