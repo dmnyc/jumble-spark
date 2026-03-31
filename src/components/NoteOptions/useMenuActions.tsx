@@ -5,6 +5,12 @@ import { buildHiveTalkJoinUrl } from '@/lib/hivetalk'
 import { toAlexandria } from '@/lib/link'
 import logger from '@/lib/logger'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
+import {
+  batchFetchPublicationSectionEvents,
+  buildPublicationSectionRelayUrls,
+  parsePublicationATagCoordinate,
+  type PublicationSectionRef
+} from '@/lib/publication-section-fetch'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
 import { speakNoteReadAloud } from '@/lib/read-aloud'
 import {
@@ -456,6 +462,136 @@ export function useMenuActions({
   }, [isArticleType, event, dTag])
 
   const menuActions: MenuAction[] = useMemo(() => {
+    const rebroadcastEntirePublication = () => {
+      const rootPublication = event
+
+      closeDrawer()
+
+      const promise = (async () => {
+        if (rootPublication.kind !== ExtendedKind.PUBLICATION) {
+          throw new Error(t('This action is only available for publications'))
+        }
+        if (allAvailableRelayUrls.length === 0) {
+          throw new Error(t('No relays available'))
+        }
+
+        const MAX_NESTED_PUBLICATIONS = 128
+        const MAX_TOTAL_REBROADCAST_EVENTS = 5000
+
+        const collectedById = new Map<string, Event>()
+        const visitedPublicationIds = new Set<string>()
+        const queue: Event[] = [rootPublication]
+        let traversedPublications = 0
+
+        while (queue.length > 0) {
+          const currentPublication = queue.shift()!
+          if (visitedPublicationIds.has(currentPublication.id)) continue
+          visitedPublicationIds.add(currentPublication.id)
+          traversedPublications++
+          collectedById.set(currentPublication.id, currentPublication)
+
+          if (traversedPublications > MAX_NESTED_PUBLICATIONS) {
+            logger.warn('[NoteOptions] Rebroadcast publication traversal capped', {
+              rootId: rootPublication.id,
+              cap: MAX_NESTED_PUBLICATIONS
+            })
+            break
+          }
+
+          const refs: PublicationSectionRef[] = []
+          for (const tag of currentPublication.tags) {
+            if (tag[0] === 'a' && tag[1]) {
+              const parsed = parsePublicationATagCoordinate(tag[1])
+              if (!parsed) continue
+              refs.push({
+                type: 'a',
+                coordinate: parsed.coordinate,
+                kind: parsed.kind,
+                pubkey: parsed.pubkey,
+                identifier: parsed.identifier,
+                relay: tag[2]
+              })
+            } else if (tag[0] === 'e' && tag[1]) {
+              refs.push({
+                type: 'e',
+                eventId: tag[1],
+                relay: tag[2]
+              })
+            }
+          }
+
+          if (refs.length === 0) continue
+
+          const primaryRelays = await buildPublicationSectionRelayUrls(currentPublication, refs, 40, false)
+          const fallbackRelays = await buildPublicationSectionRelayUrls(currentPublication, refs, 80, true)
+          const relays = [...new Set([...primaryRelays, ...fallbackRelays, ...allAvailableRelayUrls])]
+          const resolved = await batchFetchPublicationSectionEvents(refs, relays)
+
+          for (const ev of resolved.values()) {
+            if (collectedById.size >= MAX_TOTAL_REBROADCAST_EVENTS) break
+            collectedById.set(ev.id, ev)
+            if (ev.kind === ExtendedKind.PUBLICATION && !visitedPublicationIds.has(ev.id)) {
+              queue.push(ev)
+            }
+          }
+
+          if (collectedById.size >= MAX_TOTAL_REBROADCAST_EVENTS) {
+            logger.warn('[NoteOptions] Rebroadcast event collection capped', {
+              rootId: rootPublication.id,
+              cap: MAX_TOTAL_REBROADCAST_EVENTS
+            })
+            break
+          }
+        }
+
+        const uniqueEvents = [...collectedById.values()]
+        if (uniqueEvents.length === 0) {
+          throw new Error(t('No publication events found for rebroadcast'))
+        }
+
+        const BATCH_SIZE = 6
+        let acceptedEvents = 0
+        let failedEvents = 0
+        let acceptedRelayAcks = 0
+
+        for (let i = 0; i < uniqueEvents.length; i += BATCH_SIZE) {
+          const batch = uniqueEvents.slice(i, i + BATCH_SIZE)
+          const batchResults = await Promise.allSettled(
+            batch.map(async (ev) => {
+              const result = await client.publishEvent(allAvailableRelayUrls, ev)
+              if (result.successCount > 0) {
+                acceptedEvents++
+                acceptedRelayAcks += result.successCount
+              } else {
+                failedEvents++
+              }
+            })
+          )
+          for (const res of batchResults) {
+            if (res.status === 'rejected') failedEvents++
+          }
+        }
+
+        if (acceptedEvents < 1) {
+          throw new Error(t('No publication events were accepted by any relay'))
+        }
+
+        return {
+          acceptedEvents,
+          failedEvents,
+          totalEvents: uniqueEvents.length,
+          acceptedRelayAcks,
+          traversedPublications
+        }
+      })()
+
+      toastPublishPromise(promise, {
+        loading: t('Rebroadcasting entire publication...'),
+        success: () => t('Rebroadcasted entire publication'),
+        error: (err) => t('Failed to rebroadcast entire publication: {{error}}', { error: err.message })
+      })
+    }
+
     // Export functions for articles
     const exportAsMarkdown = () => {
       if (!isArticleType) return
@@ -779,6 +915,15 @@ export function useMenuActions({
             onClick: handleViewOnAlexandria
           })
         }
+      }
+
+      if (event.kind === ExtendedKind.PUBLICATION) {
+        actions.push({
+          icon: SatelliteDish,
+          label: t('Rebroadcast entire publication'),
+          onClick: rebroadcastEntirePublication,
+          separator: true
+        })
       }
     }
 

@@ -3084,6 +3084,17 @@ function parseMarkdownContentMarked(
             if (/^https?:\/\/\S+$/i.test(line)) {
               const cleaned = cleanUrl(line)
               if (cleaned) {
+                if (isYouTubeUrl(cleaned)) {
+                  return (
+                    <div key={`${key}-line-youtube-${lineIdx}`} className="my-2">
+                      <YoutubeEmbeddedPlayer
+                        url={cleaned}
+                        className="max-w-[400px]"
+                        mustLoad={false}
+                      />
+                    </div>
+                  )
+                }
                 if (isVideo(cleaned) || isAudio(cleaned)) {
                   const poster = videoPosterMap?.get(cleaned)
                   return (
@@ -3210,6 +3221,17 @@ function parseMarkdownContentMarked(
     if (/^https?:\/\/\S+$/i.test(paragraphText)) {
       const cleaned = cleanUrl(paragraphText)
       if (cleaned) {
+        if (isYouTubeUrl(cleaned)) {
+          return (
+            <div key={`${key}-youtube-url`} className="my-2">
+              <YoutubeEmbeddedPlayer
+                url={cleaned}
+                className="max-w-[400px]"
+                mustLoad={false}
+              />
+            </div>
+          )
+        }
         if (isVideo(cleaned) || isAudio(cleaned)) {
           const poster = videoPosterMap?.get(cleaned)
           return (

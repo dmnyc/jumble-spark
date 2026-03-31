@@ -52,6 +52,7 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
   const indexId = indexEvent.id
   const refsSignature = useMemo(() => signatureOfRefs(refs), [refs])
   const [relayUrls, setRelayUrls] = useState<string[]>([])
+  const [fallbackRelayUrls, setFallbackRelayUrls] = useState<string[]>([])
   const [rows, setRows] = useState<Row[]>([])
   const inflightKeysRef = useRef<Set<string>>(new Set())
   const autoLoadedSignatureRef = useRef<string | null>(null)
@@ -79,15 +80,29 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const primary = await buildPublicationSectionRelayUrls(indexEvent, refs, 22, false)
+      const primary = await buildPublicationSectionRelayUrls(indexEvent, refs, 30, false)
       if (cancelled) return
-      if (primary.length > 0) {
-        setRelayUrls(primary)
-        return
+      if (import.meta.env.DEV) {
+        logger.info('[PublicationSection] relay_urls_primary', {
+          indexId,
+          count: primary.length,
+          relays: primary
+        })
       }
-      const fallback = await buildPublicationSectionRelayUrls(indexEvent, refs, 30, true)
+      setRelayUrls(primary)
+
+      const fallback = await buildPublicationSectionRelayUrls(indexEvent, refs, 60, true)
       if (cancelled) return
-      setRelayUrls(fallback)
+      if (import.meta.env.DEV) {
+        const uniqueExtra = fallback.filter((u) => !primary.includes(u))
+        logger.info('[PublicationSection] relay_urls_searchable_fallback', {
+          indexId,
+          count: fallback.length,
+          extraCount: uniqueExtra.length,
+          relays: fallback
+        })
+      }
+      setFallbackRelayUrls(fallback)
     })().catch((err) => {
       if (import.meta.env.DEV) {
         logger.warn('[PublicationSection] relay_build_failed', {
@@ -95,7 +110,10 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
           message: err instanceof Error ? err.message : String(err)
         })
       }
-      if (!cancelled) setRelayUrls([])
+      if (!cancelled) {
+        setRelayUrls([])
+        setFallbackRelayUrls([])
+      }
     })
     return () => {
       cancelled = true
@@ -131,6 +149,14 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
     async (keys: string[]) => {
       const selectedRows = rows.filter((r) => keys.includes(r.key))
       if (selectedRows.length === 0) return
+      if (import.meta.env.DEV) {
+        logger.info('[PublicationSection] run_fetch_start', {
+          indexId,
+          keyCount: selectedRows.length,
+          keys: selectedRows.map((r) => r.key),
+          relayCount: relayUrls.length
+        })
+      }
 
       const byDb = new Map<string, Event>()
       const stillNeed: Row[] = []
@@ -169,7 +195,33 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
       }
 
       const merged = new Map<string, Event>([...byDb, ...fromNet])
-      const unresolved = stillNeed.filter((r) => !merged.has(r.key))
+      let unresolved = stillNeed.filter((r) => !merged.has(r.key))
+
+      // Second pass: unresolved refs on broader searchable relay set.
+      if (unresolved.length > 0 && fallbackRelayUrls.length > 0) {
+        const fallbackOnly = fallbackRelayUrls.filter((u) => !relayUrls.includes(u))
+        const relaysForFallback = fallbackOnly.length > 0 ? fallbackRelayUrls : []
+        if (relaysForFallback.length > 0) {
+          if (import.meta.env.DEV) {
+            logger.info('[PublicationSection] searchable_fallback_start', {
+              unresolved: unresolved.map((r) => r.key),
+              relayCount: relaysForFallback.length
+            })
+          }
+          const fromSearchFallback = await batchFetchPublicationSectionEvents(
+            unresolved,
+            relaysForFallback
+          )
+          for (const [k, ev] of fromSearchFallback) merged.set(k, ev)
+          unresolved = unresolved.filter((r) => !merged.has(r.key))
+          if (import.meta.env.DEV) {
+            logger.info('[PublicationSection] searchable_fallback_done', {
+              fromSearchFallback: fromSearchFallback.size,
+              stillNeed: unresolved.map((r) => r.key)
+            })
+          }
+        }
+      }
       const bySingle = new Map<string, Event>()
 
       await Promise.all(
@@ -219,9 +271,18 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
         .map((r) => r.key)
         .filter((k) => !merged.has(k))
 
+      if (import.meta.env.DEV) {
+        logger.info('[PublicationSection] run_fetch_done', {
+          indexId,
+          loadedCount: merged.size,
+          failedCount: failed.length,
+          failedKeys: failed
+        })
+      }
+
       applyLoadedAndFailed(merged, failed)
     },
-    [applyLoadedAndFailed, relayUrls, rows]
+    [applyLoadedAndFailed, fallbackRelayUrls, relayUrls, rows]
   )
 
   const requestKeys = useCallback(

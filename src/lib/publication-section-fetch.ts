@@ -1,4 +1,5 @@
 import logger from '@/lib/logger'
+import { FAST_READ_RELAY_URLS } from '@/constants'
 import { publicationCoordinateLookupKeys, splitPublicationCoordinate } from '@/lib/publication-coordinate'
 import { buildComprehensiveRelayList } from '@/lib/relay-list-builder'
 import { normalizeUrl } from '@/lib/url'
@@ -69,10 +70,15 @@ export async function buildPublicationSectionRelayUrls(
   includeSearchableRelays = false
 ): Promise<string[]> {
   const hints = collectRelayHints(refs)
+  const fastReadRelays = FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u).filter((u) => !!u)
+  const seenOnRelays = queryService
+    .getSeenEventRelayUrls(indexEvent.id)
+    .map((u) => normalizeUrl(u) || u)
+    .filter((u) => !!u)
   const urls = await buildComprehensiveRelayList({
     authorPubkey: indexEvent.pubkey,
     userPubkey: client.pubkey || undefined,
-    relayHints: hints,
+    relayHints: [...hints, ...seenOnRelays],
     includeUserOwnRelays: true,
     includeProfileFetchRelays: true,
     includeFastReadRelays: true,
@@ -80,16 +86,33 @@ export async function buildPublicationSectionRelayUrls(
     includeFavoriteRelays: true,
     includeLocalRelays: true
   })
-  const prioritized = [...new Set([...hints, ...urls])]
+  // Keep fast-read relays pinned at the front so slicing can never drop them.
+  const prioritized = [...new Set([...fastReadRelays, ...hints, ...seenOnRelays, ...urls])]
+  if (import.meta.env.DEV) {
+    logger.info('[PublicationSection] relay_urls_built', {
+      indexId: indexEvent.id,
+      includeSearchableRelays,
+      fastReadCount: fastReadRelays.length,
+      relayHintsCount: hints.length,
+      seenOnRelaysCount: seenOnRelays.length,
+      totalBeforeSlice: prioritized.length,
+      maxRelays,
+      hasAggr: prioritized.includes(normalizeUrl('wss://aggr.nostr.land') || 'wss://aggr.nostr.land'),
+      hasTheCitadel: prioritized.includes(
+        normalizeUrl('wss://thecitadel.nostr1.com') || 'wss://thecitadel.nostr1.com'
+      )
+    })
+  }
   return prioritized.slice(0, maxRelays)
 }
 
 const IDS_CHUNK = 44
 const D_CHUNK = 28
 const ANY_KIND_LIMIT_PER_D = 12
+const AUTHOR_KIND_SCAN_LIMIT = 200
 
 function dTagOf(ev: Event): string | undefined {
-  const d = ev.tags.find((t) => t[0] === 'd')?.[1]
+  const d = ev.tags.find((t) => (t[0] || '').trim().toLowerCase() === 'd')?.[1]
   return d && d.length > 0 ? d : undefined
 }
 
@@ -151,6 +174,22 @@ export async function batchFetchPublicationSectionEvents(
         limit: dChunk.length
       })
     }
+  }
+
+  if (import.meta.env.DEV) {
+    logger.info('[PublicationSection] batch_filters_prepared', {
+      relayCount: relayUrls.length,
+      refCount: refs.length,
+      aRefCount: aRefs.length,
+      eRefCount: eRefs.length,
+      filterCount: filters.length,
+      filterPreview: filters.slice(0, 3).map((f) => ({
+        ids: Array.isArray(f.ids) ? f.ids.length : 0,
+        authors: Array.isArray(f.authors) ? f.authors.length : 0,
+        kinds: Array.isArray(f.kinds) ? f.kinds : [],
+        d: Array.isArray(f['#d']) ? f['#d'].slice(0, 4) : []
+      }))
+    })
   }
 
   let events: Event[] = []
@@ -242,6 +281,14 @@ export async function batchFetchPublicationSectionEvents(
       }
     }
     if (hintFilters.length === 0) continue
+    if (import.meta.env.DEV) {
+      logger.info('[PublicationSection] relay_hint_pass_start', {
+        relay,
+        refCount: relayRefs.length,
+        filterCount: hintFilters.length,
+        sampleKeys: relayRefs.map((r) => publicationRefKey(r)).slice(0, 6)
+      })
+    }
     try {
       const hintEvents = await queryService.fetchEvents([relay], hintFilters, {
         globalTimeout: 8_000,
@@ -268,8 +315,22 @@ export async function batchFetchPublicationSectionEvents(
         }
         if (ev) out.set(key, ev)
       }
+      if (import.meta.env.DEV) {
+        const unresolvedAfterRelay = relayRefs
+          .map((r) => publicationRefKey(r))
+          .filter((k) => !out.has(k))
+        logger.info('[PublicationSection] relay_hint_pass_done', {
+          relay,
+          eventsReturned: hintEvents.length,
+          unresolvedAfterRelayCount: unresolvedAfterRelay.length,
+          unresolvedAfterRelay: unresolvedAfterRelay.slice(0, 8)
+        })
+      }
     } catch {
       // ignore per-relay hint failures
+      if (import.meta.env.DEV) {
+        logger.warn('[PublicationSection] relay_hint_pass_error', { relay, filterCount: hintFilters.length })
+      }
     }
   }
 
@@ -301,6 +362,13 @@ export async function batchFetchPublicationSectionEvents(
       }
     }
     if (fallbackFilters.length > 0) {
+      if (import.meta.env.DEV) {
+        logger.info('[PublicationSection] any_kind_fallback_start', {
+          relayCount: relayUrls.length,
+          filterCount: fallbackFilters.length,
+          unresolvedBefore: unresolvedAfterHint.map((r) => publicationRefKey(r)).slice(0, 12)
+        })
+      }
       try {
         const fallbackEvents = await queryService.fetchEvents(relayUrls, fallbackFilters, {
           globalTimeout: 10_000,
@@ -330,8 +398,96 @@ export async function batchFetchPublicationSectionEvents(
           }
           out.set(key, newest)
         }
+        if (import.meta.env.DEV) {
+          const unresolvedAfterAnyKind = unresolvedAfterHint
+            .map((r) => publicationRefKey(r))
+            .filter((k) => !out.has(k))
+          logger.info('[PublicationSection] any_kind_fallback_done', {
+            eventsReturned: fallbackEvents.length,
+            unresolvedAfterAnyKindCount: unresolvedAfterAnyKind.length,
+            unresolvedAfterAnyKind: unresolvedAfterAnyKind.slice(0, 10)
+          })
+        }
       } catch {
         // ignore fallback errors
+        if (import.meta.env.DEV) {
+          logger.warn('[PublicationSection] any_kind_fallback_error', { filterCount: fallbackFilters.length })
+        }
+      }
+    }
+  }
+
+  // Final robust fallback for relays that do not properly index `#d`:
+  // scan author + kind and match d-tag client-side.
+  const unresolvedAfterAll = aRefs.filter((r) => !out.has(publicationRefKey(r)))
+  if (unresolvedAfterAll.length > 0) {
+    const scanFilters: Filter[] = []
+    const scanGroups = new Map<string, { pubkey: string; kind: number }>()
+    for (const ref of unresolvedAfterAll) {
+      const key = `${ref.pubkey!.toLowerCase()}:${ref.kind!}`
+      if (!scanGroups.has(key)) {
+        scanGroups.set(key, { pubkey: ref.pubkey!.toLowerCase(), kind: ref.kind! })
+      }
+    }
+    for (const g of scanGroups.values()) {
+      scanFilters.push({
+        authors: [g.pubkey],
+        kinds: [g.kind],
+        limit: AUTHOR_KIND_SCAN_LIMIT
+      })
+    }
+    if (scanFilters.length > 0) {
+      if (import.meta.env.DEV) {
+        logger.info('[PublicationSection] author_kind_scan_start', {
+          filterCount: scanFilters.length,
+          relayCount: relayUrls.length,
+          unresolvedCount: unresolvedAfterAll.length,
+          unresolvedKeys: unresolvedAfterAll.map((r) => publicationRefKey(r)).slice(0, 10)
+        })
+      }
+      try {
+        const scanEvents = await queryService.fetchEvents(relayUrls, scanFilters, {
+          globalTimeout: 12_000,
+          eoseTimeout: 2_000,
+          firstRelayResultGraceMs: false
+        })
+        const scanByCoord = new Map<string, Event>()
+        for (const ev of scanEvents) {
+          const coord = coordinateOfEvent(ev)
+          if (!coord) continue
+          for (const k of publicationCoordinateLookupKeys(coord)) {
+            const prev = scanByCoord.get(k)
+            if (!prev || ev.created_at > prev.created_at) scanByCoord.set(k, ev)
+          }
+        }
+        for (const ref of unresolvedAfterAll) {
+          const key = publicationRefKey(ref)
+          if (out.has(key)) continue
+          const coord = ref.coordinate!
+          let ev: Event | undefined
+          for (const lk of publicationCoordinateLookupKeys(coord)) {
+            ev = scanByCoord.get(lk)
+            if (ev) break
+          }
+          if (ev) out.set(key, ev)
+        }
+        if (import.meta.env.DEV) {
+          const unresolvedAfterScan = unresolvedAfterAll
+            .map((r) => publicationRefKey(r))
+            .filter((k) => !out.has(k))
+          logger.info('[PublicationSection] author_kind_scan_done', {
+            eventsReturned: scanEvents.length,
+            resolvedTotal: out.size,
+            unresolvedAfterScanCount: unresolvedAfterScan.length,
+            unresolvedAfterScan: unresolvedAfterScan.slice(0, 10)
+          })
+        }
+      } catch {
+        if (import.meta.env.DEV) {
+          logger.warn('[PublicationSection] author_kind_scan_error', {
+            filterCount: scanFilters.length
+          })
+        }
       }
     }
   }
@@ -339,6 +495,14 @@ export async function batchFetchPublicationSectionEvents(
   if (import.meta.env.DEV) {
     const unmatchedA = aRefs.filter((r) => !out.has(publicationRefKey(r)))
     const unmatchedE = eRefs.filter((r) => !out.has(publicationRefKey(r)))
+    const sampleEvents = events.slice(0, 8).map((ev) => ({
+      id: ev.id,
+      kind: ev.kind,
+      pubkey: ev.pubkey.slice(0, 12),
+      created_at: ev.created_at,
+      tagNames: ev.tags.slice(0, 8).map((t) => String(t[0] || '')),
+      dTag: dTagOf(ev)
+    }))
     logger.info('[PublicationSection] batch_fetch_result', {
       relayCount: relayUrls.length,
       filterCount: filters.length,
@@ -347,7 +511,8 @@ export async function batchFetchPublicationSectionEvents(
       resolved: out.size,
       unmatchedACount: unmatchedA.length,
       unmatchedECount: unmatchedE.length,
-      unmatchedAKeys: unmatchedA.map((r) => publicationRefKey(r)).slice(0, 12)
+      unmatchedAKeys: unmatchedA.map((r) => publicationRefKey(r)).slice(0, 12),
+      sampleEvents
     })
   }
 

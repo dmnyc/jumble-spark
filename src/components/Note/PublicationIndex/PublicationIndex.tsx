@@ -17,6 +17,7 @@ import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { dTagToTitleCase } from '@/lib/event-metadata'
 import Image from '@/components/Image'
 import NoteOptions from '@/components/NoteOptions'
+import { upsertRenderedPublicationEvents } from '@/lib/publication-rendered-events'
 
 interface PublicationReference {
   coordinate?: string
@@ -329,6 +330,9 @@ export default function PublicationIndex({
     const loaded = referencesWithEvents
       .filter((r) => r.event)
       .map((r) => r.event!)
+    if (loaded.length > 0) {
+      upsertRenderedPublicationEvents(event.id, loaded)
+    }
     if (loaded.length === 0) return
     const t = window.setTimeout(() => {
       void indexedDb.putPublicationWithNestedEvents(event, loaded).catch((err) => {
