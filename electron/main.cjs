@@ -1,10 +1,22 @@
 'use strict'
 
-const { app, BrowserWindow, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('path')
 
 /** True when running from source (`electron .`); false when packaged. */
 const isDev = !app.isPackaged
+
+function loadRenderer(win) {
+  if (isDev) {
+    const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173'
+    void win.loadURL(devUrl)
+    if (!win.webContents.isDevToolsOpened()) {
+      win.webContents.openDevTools({ mode: 'detach' })
+    }
+    return
+  }
+  void win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -23,13 +35,7 @@ function createWindow() {
 
   win.once('ready-to-show', () => win.show())
 
-  if (isDev) {
-    const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173'
-    win.loadURL(devUrl)
-    win.webContents.openDevTools({ mode: 'detach' })
-  } else {
-    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
-  }
+  loadRenderer(win)
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http:') || url.startsWith('https:')) {
@@ -40,6 +46,13 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  ipcMain.handle('jumble:reload-app', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return false
+    loadRenderer(win)
+    return true
+  })
+
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

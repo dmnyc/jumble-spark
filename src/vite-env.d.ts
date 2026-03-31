@@ -10,6 +10,10 @@ declare global {
   interface Window {
     nostr?: TNip07
     /** Set by {@link electron/preload.cjs} when running inside Electron. */
-    jumbleElectron?: { isElectron: true }
+    jumbleElectron?: {
+      isElectron: true
+      /** Ask Electron main to reload index safely (avoids file:// history path reload issues). */
+      reloadApp?: () => Promise<boolean>
+    }
   }
 }

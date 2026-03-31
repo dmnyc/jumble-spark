@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools'
 import logger from '@/lib/logger'
+import { isJumbleElectron } from '@/lib/client-platform'
 
 /** Max events stored per feed key (matches typical initial timeline cap). */
 const MAX_EVENTS_PER_FEED = 120
@@ -46,6 +47,10 @@ export function setSessionFeedSnapshot(key: string, events: readonly Event[]): v
  */
 export function hardReloadPreservingFeedSnapshots(): void {
   persistSessionFeedSnapshotsForHardRefresh()
+  if (isJumbleElectron() && typeof window.jumbleElectron?.reloadApp === 'function') {
+    void window.jumbleElectron.reloadApp()
+    return
+  }
   window.location.reload()
 }
 

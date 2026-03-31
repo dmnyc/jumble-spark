@@ -1,6 +1,6 @@
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { useNostr } from '@/providers/NostrProvider'
-import { Bell } from 'lucide-react'
+import { Bell, Settings } from 'lucide-react'
 import BottomNavigationBarItem from './BottomNavigationBarItem'
 
 export default function NotificationsButton() {
@@ -8,7 +8,16 @@ export default function NotificationsButton() {
   const { pubkey } = useNostr()
   const spell = (currentPageProps as { spell?: string } | undefined)?.spell
 
-  if (!pubkey) return null
+  if (!pubkey) {
+    return (
+      <BottomNavigationBarItem
+        active={current === 'settings' && display}
+        onClick={() => navigate('settings')}
+      >
+        <Settings />
+      </BottomNavigationBarItem>
+    )
+  }
 
   return (
     <BottomNavigationBarItem

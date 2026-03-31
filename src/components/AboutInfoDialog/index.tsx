@@ -1,32 +1,27 @@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerTrigger } from '@/components/ui/drawer'
-import { CODY_PUBKEY, SILBERENGEL_PUBKEY } from '@/constants'
+import { Button } from '@/components/ui/button'
+import { SILBERENGEL_PUBKEY } from '@/constants'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useState, useEffect } from 'react'
-import Username from '../Username'
 import { replaceableEventService } from '@/services/client.service'
 import { getProfileFromEvent } from '@/lib/event-metadata'
 import { kinds } from 'nostr-tools'
+import { toProfile } from '@/lib/link'
 
 export default function AboutInfoDialog({ children }: { children: React.ReactNode }) {
   const { isSmallScreen } = useScreenSize()
   const [open, setOpen] = useState(false)
-  const [codyLightning, setCodyLightning] = useState<string | null>(null)
   const [silberengelLightning, setSilberengelLightning] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchProfiles = async () => {
-      const [codyProfileEvent, silberengelProfileEvent] = await Promise.all([
-        replaceableEventService.fetchReplaceableEvent(CODY_PUBKEY, kinds.Metadata),
-        replaceableEventService.fetchReplaceableEvent(SILBERENGEL_PUBKEY, kinds.Metadata)
-      ])
-      const codyProfile = codyProfileEvent ? getProfileFromEvent(codyProfileEvent) : undefined
+      const silberengelProfileEvent = await replaceableEventService.fetchReplaceableEvent(
+        SILBERENGEL_PUBKEY,
+        kinds.Metadata
+      )
       const silberengelProfile = silberengelProfileEvent ? getProfileFromEvent(silberengelProfileEvent) : undefined
-      
-      if (codyProfile?.lightningAddress) {
-        setCodyLightning(codyProfile.lightningAddress)
-      }
-      
+
       if (silberengelProfile?.lightningAddress) {
         setSilberengelLightning(silberengelProfile.lightningAddress)
       }
@@ -34,26 +29,37 @@ export default function AboutInfoDialog({ children }: { children: React.ReactNod
     fetchProfiles()
   }, [])
 
+  const openSilberengelProfile = () => {
+    setOpen(false)
+    window.location.assign(toProfile(SILBERENGEL_PUBKEY))
+  }
+
+  const openGithubFork = () => {
+    setOpen(false)
+    window.open('https://github.com/Silberengel/jumble', '_blank', 'noopener,noreferrer')
+  }
+
   const content = (
     <>
       <div className="text-xl font-semibold">Jumble 🌲</div>
       <div className="text-muted-foreground">
         A user-friendly Nostr client focused on relay feed browsing and relay discovery
       </div>
+      <div className="text-sm text-muted-foreground">
+        Version: v{import.meta.env.APP_VERSION}
+      </div>
       <div className="space-y-2">
-        <div>
-          <div className="font-medium">Main developer:</div>
-          <div className="ml-2">
-            <Username userId={CODY_PUBKEY} className="inline-block text-primary" showAt />
-            {codyLightning && (
-              <div className="text-sm text-muted-foreground">⚡ {codyLightning}</div>
-            )}
-          </div>
-        </div>
         <div>
           <div className="font-medium">Imwald branch:</div>
           <div className="ml-2">
-            <Username userId={SILBERENGEL_PUBKEY} className="inline-block text-primary" showAt />
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-primary"
+              onClick={openSilberengelProfile}
+            >
+              @silberengel
+            </Button>
             {silberengelLightning && (
               <div className="text-sm text-muted-foreground">⚡ {silberengelLightning}</div>
             )}
@@ -61,24 +67,10 @@ export default function AboutInfoDialog({ children }: { children: React.ReactNod
         </div>
       </div>
       <div>
-        Source code:{' '}
-        <a
-          href="https://github.com/CodyTseng/jumble"
-          target="_blank"
-          rel="noreferrer"
-          className="text-primary hover:underline"
-        >
-          Main repo
-        </a>
-        {' · '}
-        <a
-          href="https://github.com/Silberengel/jumble"
-          target="_blank"
-          rel="noreferrer"
-          className="text-primary hover:underline"
-        >
+        <div className="mb-1">Source code:</div>
+        <Button type="button" variant="link" className="h-auto p-0 text-primary" onClick={openGithubFork}>
           Imwald fork
-        </a>
+        </Button>
         <div className="text-sm text-muted-foreground mt-1">
           If you like Jumble, please consider giving it a star ⭐
         </div>

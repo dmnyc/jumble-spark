@@ -1,4 +1,3 @@
-import MarkdownArticle from '@/components/Note/MarkdownArticle/MarkdownArticle'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -8,7 +7,6 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { createFakeEvent } from '@/lib/event'
 import {
   isRadixDialogOpen,
   OPEN_NEW_POST_SHORTCUT_KEY,
@@ -18,6 +16,7 @@ import { cn } from '@/lib/utils'
 import postEditorService from '@/services/post-editor.service'
 import { CircleHelp } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { marked } from 'marked'
 import {
   KeyboardShortcutsHelpContext,
   useKeyboardShortcutsHelp
@@ -179,24 +178,28 @@ function ShortcutsPanel() {
 }
 
 function ReadmeOverviewPanel({ className }: { className?: string }) {
-  const readmeEvent = useMemo(
-    () =>
-      createFakeEvent({
-        id: '0'.repeat(64),
-        pubkey: '0'.repeat(64),
-        content: readmeMarkdown,
-        created_at: 0,
-        kind: 1,
-        tags: [],
-        sig: '0'.repeat(128)
-      }),
-    []
-  )
+  const readmeHtml = useMemo(() => {
+    // README is local project content; render it as regular markdown (not note-content parsing).
+    const html = marked.parse(readmeMarkdown, {
+      gfm: true,
+      breaks: true
+    })
+    const resolved = typeof html === 'string' ? html : ''
+    return resolved.replace(/<a\s+href=/g, '<a target="_blank" rel="noopener noreferrer" href=')
+  }, [])
 
   return (
-    <div className={cn('min-w-0 pt-1', className)}>
-      <MarkdownArticle event={readmeEvent} hideMetadata className="text-sm" />
-    </div>
+    <div
+      className={cn(
+        'min-w-0 pt-1 text-sm prose prose-sm dark:prose-invert max-w-none',
+        '[&_a]:text-green-600 [&_a]:dark:text-green-400 hover:[&_a]:underline',
+        '[&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded',
+        '[&_pre]:bg-muted [&_pre]:p-3 [&_pre]:rounded-lg [&_pre]:overflow-x-auto',
+        '[&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-md',
+        className
+      )}
+      dangerouslySetInnerHTML={{ __html: readmeHtml }}
+    />
   )
 }
 

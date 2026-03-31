@@ -12,7 +12,8 @@ export default function Username({
   className,
   skeletonClassName,
   withoutSkeleton = false,
-  style
+  style,
+  onNavigate
 }: {
   userId: string
   showAt?: boolean
@@ -20,6 +21,7 @@ export default function Username({
   skeletonClassName?: string
   withoutSkeleton?: boolean
   style?: React.CSSProperties
+  onNavigate?: () => void
 }) {
   const { profile, isFetching } = useFetchProfile(userId)
   const { navigateToProfile } = useSmartProfileNavigationOptional()
@@ -50,6 +52,7 @@ export default function Username({
         style={{ verticalAlign: 'baseline', ...style }}
         onClick={(e) => {
           e.stopPropagation()
+          onNavigate?.()
           navigateToProfile(toProfile(profilePubkey))
         }}
       >
@@ -72,6 +75,7 @@ export default function Username({
         style={{ verticalAlign: 'baseline', ...style }}
         onClick={(e) => {
           e.stopPropagation()
+          onNavigate?.()
           navigateToProfile(toProfile(pubkey))
         }}
       >
