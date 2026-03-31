@@ -37,6 +37,7 @@ import EmbeddedCitation from '@/components/EmbeddedCitation'
 import { preprocessMarkdownMediaLinks } from './preprocessMarkup'
 import { PAYTO_URI_REGEX, parsePaytoUri } from '@/lib/payto'
 import PaytoLink from '@/components/PaytoLink'
+import { marked } from 'marked'
 import katex from 'katex'
 import '@/styles/katex-bundle.css'
 import { isContentSpacingDebug, reprString } from '@/lib/content-spacing-debug'
@@ -430,7 +431,7 @@ function normalizeSetextHeaders(content: string): string {
  * - wss:// and ws:// URLs -> hyperlinks to /relays/{url}
  * Returns both rendered nodes and a set of hashtags found in content (for deduplication)
  */
-function parseMarkdownContent(
+export function parseMarkdownContent(
   content: string,
   options: {
     eventPubkey: string
@@ -2741,6 +2742,553 @@ function parseMarkdownContent(
 }
 
 /**
+ * Marked-driven markdown renderer (standard markdown blocks/inline), while keeping
+ * Nostr-specific enrichments (embeds, wikilinks, relay/profile navigation) custom.
+ */
+function parseMarkdownContentMarked(
+  content: string,
+  options: {
+    eventPubkey: string
+    imageIndexMap: Map<string, number>
+    openLightbox: (index: number) => void
+    navigateToHashtag: (href: string) => void
+    navigateToRelay: (url: string) => void
+    videoPosterMap?: Map<string, string>
+    imageThumbnailMap?: Map<string, string>
+    getImageIdentifier?: (url: string) => string | null
+    emojiInfos?: TEmoji[]
+    fullCalendarInvite?: { naddr: string; event: Event }
+    suppressStandaloneWebPreviewCleanedUrls?: ReadonlySet<string>
+    containingEvent?: Event
+  }
+): { nodes: React.ReactNode[]; hashtagsInContent: Set<string>; footnotes: Map<string, string>; citations: Array<{ id: string; type: string; citationId: string }> } {
+  const {
+    eventPubkey,
+    imageIndexMap,
+    openLightbox,
+    navigateToHashtag,
+    navigateToRelay,
+    videoPosterMap,
+    imageThumbnailMap,
+    getImageIdentifier,
+    emojiInfos = [],
+    fullCalendarInvite,
+    suppressStandaloneWebPreviewCleanedUrls,
+    containingEvent
+  } = options
+
+  const hashtagsInContent = new Set<string>()
+  const footnotes = new Map<string, string>()
+  const citations: Array<{ id: string; type: string; citationId: string }> = []
+  const blockTokens = marked.lexer(content, { gfm: true, breaks: true }) as any[]
+  let codeBlockIdx = 0
+
+  const collectHashtags = (text: string) => {
+    const re = /#([a-zA-Z0-9_]+)/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      hashtagsInContent.add(m[1].toLowerCase())
+    }
+  }
+
+  const renderInlineTokens = (tokens: any[], keyPrefix: string): React.ReactNode[] => {
+    const out: React.ReactNode[] = []
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i]
+      const key = `${keyPrefix}-${i}`
+      switch (token.type) {
+        case 'text':
+        case 'escape': {
+          const txt = String(token.text ?? token.raw ?? '')
+          collectHashtags(txt)
+          out.push(
+            ...parseInlineMarkdownLegacy(txt, `${key}-text`, footnotes, emojiInfos, navigateToHashtag)
+          )
+          break
+        }
+        case 'strong':
+          out.push(
+            <strong key={`${key}-strong`}>
+              {renderInlineTokens(token.tokens ?? [{ type: 'text', text: token.text ?? '' }], `${key}-strong`)}
+            </strong>
+          )
+          break
+        case 'em':
+          out.push(
+            <em key={`${key}-em`}>
+              {renderInlineTokens(token.tokens ?? [{ type: 'text', text: token.text ?? '' }], `${key}-em`)}
+            </em>
+          )
+          break
+        case 'del':
+          out.push(
+            <del key={`${key}-del`} className="line-through">
+              {renderInlineTokens(token.tokens ?? [{ type: 'text', text: token.text ?? '' }], `${key}-del`)}
+            </del>
+          )
+          break
+        case 'codespan':
+          out.push(
+            <InlineCode key={`${key}-code`} keyPrefix={`${key}-code`} code={String(token.text ?? '')} />
+          )
+          break
+        case 'link': {
+          const href = String(token.href ?? '')
+          const children = renderInlineTokens(
+            token.tokens ?? [{ type: 'text', text: token.text ?? href }],
+            `${key}-link`
+          )
+          if (href.startsWith('payto://')) {
+            out.push(
+              <PaytoLink
+                key={`${key}-payto`}
+                paytoUri={href}
+                className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+              >
+                {children}
+              </PaytoLink>
+            )
+          } else {
+            out.push(
+              <a
+                key={`${key}-href`}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+              >
+                {children}
+              </a>
+            )
+          }
+          break
+        }
+        case 'br':
+          out.push(<br key={`${key}-br`} />)
+          break
+        case 'image': {
+          const src = String(token.href ?? '')
+          const cleaned = cleanUrl(src)
+          if (!cleaned) break
+          if (isVideo(cleaned) || isAudio(cleaned)) {
+            // Inline context: do NOT mount block media players inside paragraph flow.
+            out.push(
+              <a
+                key={`${key}-media-link`}
+                href={src}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+              >
+                {src}
+              </a>
+            )
+            break
+          }
+          const identifier = getImageIdentifier?.(cleaned)
+          const thumbnail =
+            imageThumbnailMap?.get(cleaned) ??
+            (identifier ? imageThumbnailMap?.get(`__img_id:${identifier}`) : undefined)
+          const imageUrl = thumbnail || src
+          const imageIdx = imageIndexMap.get(cleaned)
+          out.push(
+            <Image
+              key={`${key}-img`}
+              image={{ url: imageUrl, pubkey: eventPubkey }}
+              alt={token.text || 'image'}
+              className="w-full rounded-lg cursor-zoom-in my-0"
+              classNames={{ wrapper: 'my-2 block max-w-[400px] mx-auto' }}
+              onClick={(e: React.MouseEvent) => {
+                e.stopPropagation()
+                if (typeof imageIdx === 'number') openLightbox(imageIdx)
+              }}
+            />
+          )
+          break
+        }
+        default: {
+          const txt = String(token.raw ?? token.text ?? '')
+          if (txt) {
+            collectHashtags(txt)
+            out.push(
+              ...parseInlineMarkdownLegacy(txt, `${key}-fallback`, footnotes, emojiInfos, navigateToHashtag)
+            )
+          }
+        }
+      }
+    }
+    return out
+  }
+
+  const renderParagraph = (token: any, key: string): React.ReactNode => {
+    const paragraphText = String(token.text ?? '').trim()
+    const standaloneNostr = paragraphText.match(/^nostr:([a-z0-9]{8,})$/i)
+    if (standaloneNostr) {
+      const bech32Id = standaloneNostr[1]
+      if (bech32Id.startsWith('npub') || bech32Id.startsWith('nprofile')) {
+        return (
+          <span key={`${key}-nostr-profile`} className="inline">
+            <EmbeddedMention userId={bech32Id} className="inline" />
+          </span>
+        )
+      }
+      if (bech32Id.startsWith('note') || bech32Id.startsWith('nevent') || bech32Id.startsWith('naddr')) {
+        if (fullCalendarInvite && bech32Id === fullCalendarInvite.naddr) {
+          return (
+            <div key={`${key}-calendar`} className="w-full my-2">
+              <CalendarEventContent event={fullCalendarInvite.event} className="mt-2" showRsvp />
+            </div>
+          )
+        }
+        return (
+          <div key={`${key}-nostr-event`} className="w-full my-2">
+            <EmbeddedNote noteId={bech32Id} containingEvent={containingEvent} />
+          </div>
+        )
+      }
+    }
+
+    const wiki = paragraphText.match(/^\[\[([^\]]+)\]\]$/)
+    if (wiki) {
+      const linkContent = wiki[1].trim()
+      if (linkContent.startsWith('book::')) {
+        return <BookstrContent key={`${key}-bookstr`} wikilink={linkContent} />
+      }
+      const target = linkContent.includes('|') ? linkContent.split('|')[0].trim() : linkContent
+      const displayText = linkContent.includes('|') ? linkContent.split('|')[1].trim() : linkContent
+      const dTag = target.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+      return <Wikilink key={`${key}-wikilink`} dTag={dTag} displayText={displayText} />
+    }
+
+    if (/^wss?:\/\/\S+$/i.test(paragraphText)) {
+      return (
+        <a
+          key={`${key}-relay`}
+          href={`/relays/${encodeURIComponent(paragraphText)}`}
+          className="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+          onClick={(e) => {
+            e.preventDefault()
+            navigateToRelay(paragraphText)
+          }}
+        >
+          {paragraphText}
+        </a>
+      )
+    }
+
+    // Mixed paragraphs can contain normal text plus one or more standalone nostr lines.
+    // Render event references as embedded cards even when they are not the entire paragraph.
+    const rawParagraphText = String(token.text ?? '')
+    if (rawParagraphText.includes('\n')) {
+      const lines = rawParagraphText.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)
+      const hasStandaloneNostrLine = lines.some((line) => /^nostr:([a-z0-9]{8,})$/i.test(line))
+      if (hasStandaloneNostrLine) {
+        const lineNodes = lines.map((line, lineIdx) => {
+          const nostrMatch = line.match(/^nostr:([a-z0-9]{8,})$/i)
+          if (!nostrMatch) {
+            if (/^wss?:\/\/\S+$/i.test(line)) {
+              return (
+                <a
+                  key={`${key}-line-relay-${lineIdx}`}
+                  href={`/relays/${encodeURIComponent(line)}`}
+                  className="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    navigateToRelay(line)
+                  }}
+                >
+                  {line}
+                </a>
+              )
+            }
+
+            if (/^https?:\/\/\S+$/i.test(line)) {
+              const cleaned = cleanUrl(line)
+              if (cleaned) {
+                if (isPseudoNostrHttpsUrl(cleaned)) {
+                  return (
+                    <div key={`${key}-line-http-nostr-${lineIdx}`} className="my-2 not-prose max-w-full">
+                      <HttpNostrAwareUrl url={cleaned} renderMode="article" containingEvent={containingEvent} />
+                    </div>
+                  )
+                }
+                if (suppressStandaloneWebPreviewCleanedUrls?.has(cleaned)) {
+                  return (
+                    <p key={`${key}-line-inline-link-${lineIdx}`} className="mb-1 last:mb-0">
+                      <a
+                        href={cleaned}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+                      >
+                        {cleaned}
+                      </a>
+                    </p>
+                  )
+                }
+                return <WebPreview key={`${key}-line-webpreview-${lineIdx}`} url={cleaned} />
+              }
+            }
+
+            return (
+              <p key={`${key}-line-${lineIdx}`} className="mb-1 last:mb-0">
+                {renderInlineTokens(marked.Lexer.lexInline(line) as any[], `${key}-line-inline-${lineIdx}`)}
+              </p>
+            )
+          }
+
+          const bech32Id = nostrMatch[1]
+          if (bech32Id.startsWith('npub') || bech32Id.startsWith('nprofile')) {
+            return (
+              <span key={`${key}-line-profile-${lineIdx}`} className="inline">
+                <EmbeddedMention userId={bech32Id} className="inline" />
+              </span>
+            )
+          }
+
+          if (bech32Id.startsWith('note') || bech32Id.startsWith('nevent') || bech32Id.startsWith('naddr')) {
+            if (fullCalendarInvite && bech32Id === fullCalendarInvite.naddr) {
+              return (
+                <div key={`${key}-line-calendar-${lineIdx}`} className="w-full my-2">
+                  <CalendarEventContent event={fullCalendarInvite.event} className="mt-2" showRsvp />
+                </div>
+              )
+            }
+            return (
+              <div key={`${key}-line-event-${lineIdx}`} className="w-full my-2">
+                <EmbeddedNote noteId={bech32Id} containingEvent={containingEvent} />
+              </div>
+            )
+          }
+
+          return (
+            <p key={`${key}-line-fallback-${lineIdx}`} className="mb-1 last:mb-0">
+              {renderInlineTokens(marked.Lexer.lexInline(line) as any[], `${key}-line-fallback-inline-${lineIdx}`)}
+            </p>
+          )
+        })
+
+        return <div key={`${key}-line-mix`}>{lineNodes}</div>
+      }
+    }
+
+    if (/^https?:\/\/\S+$/i.test(paragraphText)) {
+      const cleaned = cleanUrl(paragraphText)
+      if (cleaned) {
+        if (isPseudoNostrHttpsUrl(cleaned)) {
+          return (
+            <div key={`${key}-http-nostr`} className="my-2 not-prose max-w-full">
+              <HttpNostrAwareUrl url={cleaned} renderMode="article" containingEvent={containingEvent} />
+            </div>
+          )
+        }
+        if (suppressStandaloneWebPreviewCleanedUrls?.has(cleaned)) {
+          return (
+            <p key={`${key}-inline-link`} className="mb-1 last:mb-0">
+              <a
+                href={cleaned}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+              >
+                {cleaned}
+              </a>
+            </p>
+          )
+        }
+        return <WebPreview key={`${key}-webpreview`} url={cleaned} />
+      }
+    }
+
+    // If the paragraph is a single markdown image token, render it as block media/image
+    // instead of wrapping in <p> (avoids invalid DOM nesting for media players).
+    const paragraphTokens = token.tokens ?? marked.Lexer.lexInline(token.text ?? '')
+    if (Array.isArray(paragraphTokens) && paragraphTokens.length === 1 && paragraphTokens[0]?.type === 'image') {
+      const imageToken = paragraphTokens[0]
+      const src = String(imageToken.href ?? '')
+      const cleaned = cleanUrl(src)
+      if (cleaned) {
+        if (isVideo(cleaned) || isAudio(cleaned)) {
+          const poster = videoPosterMap?.get(cleaned)
+          return (
+            <div key={`${key}-media-block`} className="my-2">
+              <MediaPlayer src={src} poster={poster} className="max-w-[400px]" />
+            </div>
+          )
+        }
+        const identifier = getImageIdentifier?.(cleaned)
+        const thumbnail =
+          imageThumbnailMap?.get(cleaned) ??
+          (identifier ? imageThumbnailMap?.get(`__img_id:${identifier}`) : undefined)
+        const imageUrl = thumbnail || src
+        const imageIdx = imageIndexMap.get(cleaned)
+        return (
+          <Image
+            key={`${key}-img-block`}
+            image={{ url: imageUrl, pubkey: eventPubkey }}
+            alt={imageToken.text || 'image'}
+            className="w-full rounded-lg cursor-zoom-in my-0"
+            classNames={{ wrapper: 'my-2 block max-w-[400px] mx-auto' }}
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation()
+              if (typeof imageIdx === 'number') openLightbox(imageIdx)
+            }}
+          />
+        )
+      }
+    }
+
+    const inlineNodes = renderInlineTokens(paragraphTokens, `${key}-inline`)
+    return <p key={`${key}-p`} className="mb-1 last:mb-0">{inlineNodes}</p>
+  }
+
+  const renderBlockTokens = (tokens: any[], keyPrefix: string): React.ReactNode[] => {
+    const nodes: React.ReactNode[] = []
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i]
+      const key = `${keyPrefix}-${i}`
+      switch (token.type) {
+        case 'space':
+          break
+        case 'paragraph':
+          nodes.push(renderParagraph(token, key))
+          break
+        case 'heading': {
+          const level = Number(token.depth || 1)
+          const headingClass =
+            level === 1
+              ? 'text-3xl'
+              : level === 2
+                ? 'text-2xl'
+                : level === 3
+                  ? 'text-xl'
+                  : level === 4
+                    ? 'text-lg'
+                    : 'text-base'
+          nodes.push(
+            React.createElement(
+              `h${Math.min(Math.max(level, 1), 6)}`,
+              { key: `${key}-h`, className: `font-bold break-words block mt-4 mb-2 ${headingClass}` },
+              renderInlineTokens(token.tokens ?? marked.Lexer.lexInline(token.text ?? ''), `${key}-h-inline`)
+            )
+          )
+          break
+        }
+        case 'hr':
+          nodes.push(<hr key={`${key}-hr`} className="my-4 border-t border-gray-300 dark:border-gray-700" />)
+          break
+        case 'code':
+          nodes.push(
+            <CodeBlock
+              key={`${key}-code`}
+              id={`code-block-${codeBlockIdx++}`}
+              code={String(token.text ?? '')}
+              language={String(token.lang ?? '')}
+            />
+          )
+          break
+        case 'blockquote': {
+          const rawLines = String(token.raw ?? '')
+            .split('\n')
+            .filter((line) => line.trim().length > 0)
+          const isGreentext =
+            rawLines.length > 0 && rawLines.every((line) => /^>([^\s>].*)$/.test(line.trim()))
+          if (isGreentext) {
+            const lines = rawLines.map((line) => line.replace(/^>\s?/, ''))
+            nodes.push(
+              <div key={`${key}-gt`} className="greentext block my-1">
+                {lines.map((line, idx) => (
+                  <React.Fragment key={`${key}-gt-line-${idx}`}>
+                    {renderInlineTokens(marked.Lexer.lexInline(line) as any[], `${key}-gt-inline-${idx}`)}
+                    {idx < lines.length - 1 ? <br /> : null}
+                  </React.Fragment>
+                ))}
+              </div>
+            )
+          } else {
+            nodes.push(
+              <blockquote
+                key={`${key}-bq`}
+                className="border-l-4 border-gray-400 dark:border-gray-500 pl-4 pr-2 py-2 my-4 italic text-gray-700 dark:text-gray-300 bg-gray-50/50 dark:bg-gray-800/30"
+              >
+                {renderBlockTokens(token.tokens ?? [], `${key}-bq-inner`)}
+              </blockquote>
+            )
+          }
+          break
+        }
+        case 'list': {
+          const ListTag = token.ordered ? 'ol' : 'ul'
+          const listClass = token.ordered ? 'list-decimal list-outside my-2 ml-6' : 'list-disc list-inside my-2 space-y-1'
+          nodes.push(
+            React.createElement(
+              ListTag,
+              { key: `${key}-list`, className: listClass },
+              (token.items ?? []).map((item: any, itemIdx: number) => (
+                <li key={`${key}-li-${itemIdx}`}>
+                  {renderBlockTokens(item.tokens ?? [{ type: 'text', text: item.text ?? '' }], `${key}-li-${itemIdx}`)}
+                </li>
+              ))
+            )
+          )
+          break
+        }
+        case 'table': {
+          nodes.push(
+            <div key={`${key}-table-wrap`} className="my-4 overflow-x-auto">
+              <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-700">
+                <thead>
+                  <tr>
+                    {(token.header ?? []).map((cell: any, cIdx: number) => (
+                      <th
+                        key={`${key}-th-${cIdx}`}
+                        className="border border-gray-300 dark:border-gray-700 px-4 py-2 bg-gray-100 dark:bg-gray-800 font-semibold text-left"
+                      >
+                        {renderInlineTokens(cell.tokens ?? marked.Lexer.lexInline(cell.text ?? ''), `${key}-th-inline-${cIdx}`)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(token.rows ?? []).map((row: any[], rIdx: number) => (
+                    <tr key={`${key}-tr-${rIdx}`}>
+                      {row.map((cell: any, cIdx: number) => (
+                        <td key={`${key}-td-${rIdx}-${cIdx}`} className="border border-gray-300 dark:border-gray-700 px-4 py-2">
+                          {renderInlineTokens(
+                            cell.tokens ?? marked.Lexer.lexInline(cell.text ?? ''),
+                            `${key}-td-inline-${rIdx}-${cIdx}`
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+          break
+        }
+        default: {
+          if (Array.isArray(token.tokens) && token.tokens.length > 0) {
+            nodes.push(...renderBlockTokens(token.tokens, `${key}-nested`))
+          } else if (typeof token.text === 'string' && token.text.trim()) {
+            nodes.push(
+              <p key={`${key}-fallback`} className="mb-1 last:mb-0">
+                {renderInlineTokens(marked.Lexer.lexInline(token.text) as any[], `${key}-fallback-inline`)}
+              </p>
+            )
+          }
+        }
+      }
+    }
+    return nodes
+  }
+
+  const nodes = renderBlockTokens(blockTokens, 'marked-root')
+  return { nodes, hashtagsInContent, footnotes, citations }
+}
+
+/**
  * Parse inline markdown formatting (bold, italic, strikethrough, inline code, footnote references)
  * Returns an array of React nodes
  * 
@@ -2751,7 +3299,143 @@ function parseMarkdownContent(
  * - Inline code: ``code`` (double backtick) or `code` (single backtick)
  * - Footnote references: [^1] (handled at block level, but parsed here for inline context)
  */
-function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<string, string> = new Map(), emojiInfos: TEmoji[] = []): React.ReactNode[] {
+function parseInlineMarkdown(
+  text: string,
+  keyPrefix: string,
+  _footnotes: Map<string, string> = new Map(),
+  emojiInfos: TEmoji[] = [],
+  navigateToHashtag?: (href: string) => void
+): React.ReactNode[] {
+  const normalized = text.replace(/\n/g, ' ').replace(/[ \t]{2,}/g, ' ')
+  const tokens = marked.Lexer.lexInline(normalized) as any[]
+  const hasMarkdownSyntax = tokens.some((token) => token.type !== 'text' && token.type !== 'escape')
+
+  // Fast path: keep old behavior when there is no markdown syntax.
+  if (!hasMarkdownSyntax) {
+    return parseInlineMarkdownLegacy(normalized, keyPrefix, _footnotes, emojiInfos, navigateToHashtag)
+  }
+
+  const renderTokens = (list: any[], path: string): React.ReactNode[] => {
+    const out: React.ReactNode[] = []
+    for (let i = 0; i < list.length; i++) {
+      const token = list[i]
+      const tokenKey = `${path}-${i}`
+
+      if (token.type === 'text' || token.type === 'escape') {
+        out.push(
+          ...parseInlineMarkdownLegacy(
+            String(token.text ?? token.raw ?? ''),
+            `${keyPrefix}-${tokenKey}-text`,
+            _footnotes,
+            emojiInfos,
+            navigateToHashtag
+          )
+        )
+        continue
+      }
+
+      if (token.type === 'strong') {
+        out.push(
+          <strong key={`${tokenKey}-strong`}>
+            {renderTokens(token.tokens ?? [{ type: 'text', text: token.text ?? '' }], `${tokenKey}-strong`)}
+          </strong>
+        )
+        continue
+      }
+
+      if (token.type === 'em') {
+        out.push(
+          <em key={`${tokenKey}-em`}>
+            {renderTokens(token.tokens ?? [{ type: 'text', text: token.text ?? '' }], `${tokenKey}-em`)}
+          </em>
+        )
+        continue
+      }
+
+      if (token.type === 'del') {
+        out.push(
+          <del key={`${tokenKey}-del`} className="line-through">
+            {renderTokens(token.tokens ?? [{ type: 'text', text: token.text ?? '' }], `${tokenKey}-del`)}
+          </del>
+        )
+        continue
+      }
+
+      if (token.type === 'codespan') {
+        out.push(
+          <InlineCode
+            key={`${tokenKey}-code`}
+            keyPrefix={`${keyPrefix}-${tokenKey}-code`}
+            code={String(token.text ?? '')}
+          />
+        )
+        continue
+      }
+
+      if (token.type === 'link') {
+        const href = String(token.href ?? '')
+        const children = renderTokens(
+          token.tokens ?? [{ type: 'text', text: token.text ?? href }],
+          `${tokenKey}-link`
+        )
+        if (href.startsWith('payto://')) {
+          out.push(
+            <PaytoLink
+              key={`${tokenKey}-payto-link`}
+              paytoUri={href}
+              className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+            >
+              {children}
+            </PaytoLink>
+          )
+        } else {
+          out.push(
+            <a
+              key={`${tokenKey}-link`}
+              href={href}
+              className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {children}
+            </a>
+          )
+        }
+        continue
+      }
+
+      if (token.type === 'br') {
+        out.push(<br key={`${tokenKey}-br`} />)
+        continue
+      }
+
+      // Unknown/HTML token: treat as text to avoid unsafe HTML injection.
+      out.push(
+        ...parseInlineMarkdownLegacy(
+          String(token.raw ?? token.text ?? ''),
+          `${keyPrefix}-${tokenKey}-fallback`,
+          _footnotes,
+          emojiInfos,
+          navigateToHashtag
+        )
+      )
+    }
+    return out
+  }
+
+  const rendered = renderTokens(tokens, `${keyPrefix}-md`)
+  return rendered.length > 0
+    ? rendered
+    : parseInlineMarkdownLegacy(normalized, keyPrefix, _footnotes, emojiInfos, navigateToHashtag)
+}
+
+function parseInlineMarkdownLegacy(
+  text: string,
+  keyPrefix: string,
+  _footnotes: Map<string, string> = new Map(),
+  emojiInfos: TEmoji[] = [],
+  navigateToHashtag?: (href: string) => void
+): React.ReactNode[] {
   if (isContentSpacingDebug() && text.includes('nostr:')) {
     // eslint-disable-next-line no-console
     console.log('[jumble content-spacing] parseInlineMarkdown:before-normalize', {
@@ -3145,11 +3829,16 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
       if (url.startsWith('payto://')) {
         parts.push(
           <PaytoLink key={`${keyPrefix}-payto-link-${i}`} paytoUri={url} className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words">
-            {parseInlineMarkdown(text, `${keyPrefix}-link-${i}`, _footnotes, emojiInfos)}
+            {parseInlineMarkdownLegacy(text, `${keyPrefix}-link-${i}`, _footnotes, emojiInfos)}
           </PaytoLink>
         )
       } else {
-        const linkContent = parseInlineMarkdown(text, `${keyPrefix}-link-${i}`, _footnotes, emojiInfos)
+        const linkContent = parseInlineMarkdownLegacy(
+          text,
+          `${keyPrefix}-link-${i}`,
+          _footnotes,
+          emojiInfos
+        )
         parts.push(
           <a
             key={`${keyPrefix}-link-${i}`}
@@ -3171,6 +3860,12 @@ function parseInlineMarkdown(text: string, keyPrefix: string, _footnotes: Map<st
           key={`${keyPrefix}-hashtag-${i}`}
           href={`/notes?t=${tagLower}`}
           className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
+          onClick={(e) => {
+            if (!navigateToHashtag) return
+            e.stopPropagation()
+            e.preventDefault()
+            navigateToHashtag(`/notes?t=${tagLower}`)
+          }}
         >
           #{tag}
         </a>
@@ -3537,10 +4232,12 @@ export default function MarkdownArticle({
   }, [event.content])
   
   // Image gallery state
-  const [lightboxIndex, setLightboxIndex] = useState(-1)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
   
   const openLightbox = useCallback((index: number) => {
     setLightboxIndex(index)
+    setLightboxOpen(true)
   }, [])
   
   // Filter tag media to only show what's not in content
@@ -3651,7 +4348,7 @@ export default function MarkdownArticle({
 
   // Parse markdown content with post-processing for nostr: links and hashtags
   const { nodes: parsedContent, hashtagsInContent } = useMemo(() => {
-    const result = parseMarkdownContent(preprocessedContent, {
+    const parseOptions = {
       eventPubkey: event.pubkey,
       imageIndexMap,
       openLightbox,
@@ -3665,7 +4362,8 @@ export default function MarkdownArticle({
       containingEvent: event,
       suppressStandaloneWebPreviewCleanedUrls:
         webPreviewSuppressCleanedSet.size > 0 ? webPreviewSuppressCleanedSet : undefined
-    })
+    }
+    const result = parseMarkdownContentMarked(preprocessedContent, parseOptions)
     // Return nodes and hashtags (footnotes are already included in nodes)
     return { nodes: result.nodes, hashtagsInContent: result.hashtagsInContent }
   }, [
@@ -3941,8 +4639,14 @@ export default function MarkdownArticle({
       </div>
       
       {/* Image gallery lightbox */}
-      {allImages.length > 0 && lightboxIndex >= 0 && createPortal(
-        <div onClick={(e) => e.stopPropagation()}>
+      {allImages.length > 0 && lightboxOpen && createPortal(
+        <div
+          data-lightbox-overlay
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
           <Lightbox
             index={lightboxIndex}
             slides={allImages.map(({ url, alt }) => ({ 
@@ -3950,8 +4654,11 @@ export default function MarkdownArticle({
               alt: alt || url 
             }))}
             plugins={[Zoom]}
-            open={lightboxIndex >= 0}
-            close={() => setLightboxIndex(-1)}
+            open={lightboxOpen}
+            close={() => setLightboxOpen(false)}
+            on={{
+              view: ({ index }) => setLightboxIndex(index)
+            }}
             controller={{
               closeOnBackdropClick: false,
               closeOnPullUp: true,

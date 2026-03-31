@@ -921,7 +921,7 @@ function MainContentArea({
                 <RefreshButton onClick={onPrimaryPanelRefresh} />
               </div>
             </div>
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 min-h-0 overflow-hidden">
               {primaryNoteView}
             </div>
           </div>

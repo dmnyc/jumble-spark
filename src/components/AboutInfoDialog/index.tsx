@@ -2,6 +2,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerTrigger } from '@/components/ui/drawer'
 import { Button } from '@/components/ui/button'
 import { SILBERENGEL_PUBKEY } from '@/constants'
+import { useSmartProfileNavigationOptional } from '@/PageManager'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useState, useEffect } from 'react'
 import { replaceableEventService } from '@/services/client.service'
@@ -11,6 +12,7 @@ import { toProfile } from '@/lib/link'
 
 export default function AboutInfoDialog({ children }: { children: React.ReactNode }) {
   const { isSmallScreen } = useScreenSize()
+  const { navigateToProfile } = useSmartProfileNavigationOptional()
   const [open, setOpen] = useState(false)
   const [silberengelLightning, setSilberengelLightning] = useState<string | null>(null)
 
@@ -31,7 +33,7 @@ export default function AboutInfoDialog({ children }: { children: React.ReactNod
 
   const openSilberengelProfile = () => {
     setOpen(false)
-    window.location.assign(toProfile(SILBERENGEL_PUBKEY))
+    navigateToProfile(toProfile(SILBERENGEL_PUBKEY))
   }
 
   const openGithubFork = () => {

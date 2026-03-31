@@ -29,6 +29,12 @@ export const useInterestList = () => {
   return context
 }
 
+/**
+ * Optional variant for routes/components that can be mounted
+ * during transient navigation/HMR paths before providers settle.
+ */
+export const useInterestListOptional = () => useContext(InterestListContext)
+
 export function InterestListProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   const { pubkey: accountPubkey, interestListEvent, publish, updateInterestListEvent } = useNostr()

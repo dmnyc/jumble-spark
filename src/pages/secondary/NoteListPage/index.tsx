@@ -15,7 +15,7 @@ import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { useSecondaryPage } from '@/PageManager'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
-import { useInterestList } from '@/providers/InterestListProvider'
+import { useInterestListOptional } from '@/providers/InterestListProvider'
 import client from '@/services/client.service'
 import { TFeedSubRequest } from '@/types'
 import { UserRound, Plus } from 'lucide-react'
@@ -35,7 +35,9 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
   const { push } = useSecondaryPage()
   const { relayList, pubkey } = useNostr()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
-  const { isSubscribed, subscribe } = useInterestList()
+  const interestList = useInterestListOptional()
+  const isSubscribed = interestList?.isSubscribed ?? (() => false)
+  const subscribe = interestList?.subscribe ?? (async () => {})
   const [title, setTitle] = useState<React.ReactNode>(null)
   const [controls, setControls] = useState<React.ReactNode>(null)
   const [data, setData] = useState<

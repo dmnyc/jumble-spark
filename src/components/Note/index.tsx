@@ -52,7 +52,6 @@ import Highlight from './Highlight'
 
 import IValue from './IValue'
 import LiveEvent from './LiveEvent'
-import LongFormArticlePreview from './LongFormArticlePreview'
 import MarkdownArticle from './MarkdownArticle/MarkdownArticle'
 import AsciidocArticle from './AsciidocArticle/AsciidocArticle'
 import PublicationCard from './PublicationCard'
@@ -75,6 +74,27 @@ import CitationCard from '@/components/CitationCard'
 import FollowPackPreview from '../ContentPreview/FollowPackPreview'
 import CalendarEventContent from '../CalendarEventContent'
 import GitRepublicEventCard from './GitRepublicEventCard'
+
+const ASCIIDOC_CONTENT_KINDS = new Set<number>([
+  ExtendedKind.PUBLICATION_CONTENT,
+  ExtendedKind.WIKI_ARTICLE
+])
+
+function isStringifiedJsonContent(content?: string): boolean {
+  if (!content) return false
+  const trimmed = content.trim()
+  if (!trimmed) return false
+  const looksLikeJson =
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  if (!looksLikeJson) return false
+  try {
+    const parsed = JSON.parse(trimmed)
+    return parsed !== null && typeof parsed === 'object'
+  } catch {
+    return false
+  }
+}
 
 export default function Note({
   event,
@@ -159,6 +179,47 @@ export default function Note({
     event.kind === ExtendedKind.CALENDAR_EVENT_DATE ||
     event.kind === ExtendedKind.COMMENT
 
+  const renderEventContent = useCallback(
+    ({
+      hideMetadata = false,
+      className = 'mt-2'
+    }: {
+      hideMetadata?: boolean
+      className?: string
+    } = {}) => {
+      if (isStringifiedJsonContent(event.content)) {
+        return (
+          <pre
+            className={cn(
+              'rounded-md border border-border bg-muted/35 p-3 text-sm whitespace-pre-wrap break-words',
+              className
+            )}
+          >
+            {event.content}
+          </pre>
+        )
+      }
+      if (ASCIIDOC_CONTENT_KINDS.has(event.kind)) {
+        return (
+          <AsciidocArticle
+            className={className}
+            event={event}
+            hideImagesAndInfo={hideMetadata}
+          />
+        )
+      }
+      return (
+        <MarkdownArticle
+          className={className}
+          event={event}
+          hideMetadata={hideMetadata}
+          fullCalendarInvite={fullCalendarInvite}
+        />
+      )
+    },
+    [event, fullCalendarInvite]
+  )
+
   let content: React.ReactNode
   
   if (!isRenderableNoteKind(event.kind)) {
@@ -206,20 +267,18 @@ export default function Note({
             <WebPreview url={href} className="w-full" />
           </div>
         ) : null}
-        {event.content?.trim() ? (
-          <p className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap break-words">{event.content}</p>
-        ) : null}
+        {event.content?.trim() ? renderEventContent({ hideMetadata: true }) : null}
       </>
     )
   } else if (event.kind === ExtendedKind.WIKI_ARTICLE) {
     content = showFull ? (
-      <AsciidocArticle className="mt-2" event={event} />
+      renderEventContent()
     ) : (
       <WikiCard className="mt-2" event={event} />
     )
   } else if (event.kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN) {
     content = showFull ? (
-      <MarkdownArticle className="mt-2" event={event} />
+      renderEventContent()
     ) : (
       <WikiCard className="mt-2" event={event} />
     )
@@ -231,16 +290,12 @@ export default function Note({
     )
   } else if (event.kind === ExtendedKind.PUBLICATION_CONTENT) {
     content = showFull ? (
-      <AsciidocArticle className="mt-2" event={event} />
+      renderEventContent()
     ) : (
       <PublicationCard className="mt-2" event={event} />
     )
   } else if (event.kind === kinds.LongFormArticle) {
-    content = showFull ? (
-      <MarkdownArticle className="mt-2" event={event} />
-    ) : (
-      <LongFormArticlePreview className="mt-2" event={event} />
-    )
+    content = renderEventContent({ hideMetadata: true })
   } else if (event.kind === kinds.LiveEvent) {
     content = <LiveEvent className="mt-2" event={event} />
   } else if (event.kind === ExtendedKind.GROUP_METADATA) {
@@ -253,7 +308,7 @@ export default function Note({
     content = (
       <>
         <h3 className="mt-2 text-lg font-semibold leading-tight break-words">{title}</h3>
-        <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
+        {renderEventContent({ hideMetadata: true })}
       </>
     )
   } else if (
@@ -266,14 +321,14 @@ export default function Note({
   } else if (event.kind === ExtendedKind.POLL) {
     content = (
       <>
-        <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
+        {renderEventContent({ hideMetadata: true })}
         <Poll className="mt-2" event={event} />
       </>
     )
   } else if (event.kind === ExtendedKind.ZAP_POLL) {
     content = (
       <>
-        <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
+        {renderEventContent({ hideMetadata: true })}
         <ZapPoll
           className="mt-2"
           event={event}
@@ -304,14 +359,7 @@ export default function Note({
   } else if (event.kind === ExtendedKind.CALENDAR_EVENT_TIME || event.kind === ExtendedKind.CALENDAR_EVENT_DATE) {
     content = <CalendarEventContent event={event} className="mt-2" showRsvp />
   } else if (event.kind === ExtendedKind.PUBLIC_MESSAGE) {
-    content = (
-      <MarkdownArticle
-        className="mt-2"
-        event={event}
-        hideMetadata={true}
-        fullCalendarInvite={fullCalendarInvite}
-      />
-    )
+    content = renderEventContent({ hideMetadata: true })
   } else if (event.kind === ExtendedKind.ZAP_REQUEST || event.kind === ExtendedKind.ZAP_RECEIPT) {
     content = <Zap className="mt-2" event={event} />
   } else if (event.kind === ExtendedKind.FOLLOW_PACK) {
@@ -323,11 +371,9 @@ export default function Note({
   ) {
     content = <GitRepublicEventCard className="mt-2" event={event} />
   } else if (event.kind === kinds.ShortTextNote || event.kind === ExtendedKind.COMMENT) {
-    // Plain text notes use MarkdownArticle for proper markdown rendering
-    content = <MarkdownArticle className="mt-2" event={event} hideMetadata={true} />
+    content = renderEventContent({ hideMetadata: true })
   } else {
-    // Use MarkdownArticle for all other kinds
-    content = <MarkdownArticle className="mt-2" event={event} />
+    content = renderEventContent()
   }
 
   const isSyntheticRssParent = isRssThreadSyntheticParentEvent(event)
