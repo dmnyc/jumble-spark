@@ -251,33 +251,48 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
             }
             if (row.coordinate) {
               const parsed = parsePublicationATagCoordinate(row.coordinate)
-              if (!parsed) return
-              // Relay hints in `a` tags are often stale. Keep the hint first, but also try
-              // current section relay sets so one dead hinted relay cannot force a false miss.
-              const relaysToTry = dedupeRelayUrls(
-                row.relay
-                  ? [row.relay, ...relayUrls, ...fallbackRelayUrls]
-                  : [...relayUrls, ...fallbackRelayUrls]
-              )
-              const ev = await withTimeout(
-                queryService
-                  .fetchEvents(
-                    relaysToTry,
-                    {
-                      authors: [parsed.pubkey],
-                      kinds: [parsed.kind],
-                      '#d': [parsed.identifier],
-                      limit: 1
-                    },
-                    {
-                      globalTimeout: 6_000,
-                      eoseTimeout: 1_500
-                    }
-                  )
-                  .then((arr) => arr[0]),
-                SINGLE_REF_TIMEOUT_MS
-              )
-              if (ev) bySingle.set(row.key, ev)
+              if (parsed) {
+                // Relay hints in `a` tags are often stale. Keep the hint first, but also try
+                // current section relay sets so one dead hinted relay cannot force a false miss.
+                const relaysToTry = dedupeRelayUrls(
+                  row.relay
+                    ? [row.relay, ...relayUrls, ...fallbackRelayUrls]
+                    : [...relayUrls, ...fallbackRelayUrls]
+                )
+                const ev = await withTimeout(
+                  queryService
+                    .fetchEvents(
+                      relaysToTry,
+                      {
+                        authors: [parsed.pubkey],
+                        kinds: [parsed.kind],
+                        '#d': [parsed.identifier],
+                        limit: 1
+                      },
+                      {
+                        globalTimeout: 6_000,
+                        eoseTimeout: 1_500
+                      }
+                    )
+                    .then((arr) => arr[0]),
+                  SINGLE_REF_TIMEOUT_MS
+                )
+                if (ev) {
+                  bySingle.set(row.key, ev)
+                  return
+                }
+              }
+
+              // Last per-ref fallback for `a` tags: try historical snapshot id (tag[3]).
+              // Some publication chains point to a specific revision that is fetchable by id
+              // even when relays don't resolve the coordinate in current indexes.
+              if (row.eventId) {
+                const byId = await withTimeout(
+                  eventService.fetchEvent(row.eventId),
+                  SINGLE_REF_TIMEOUT_MS
+                )
+                if (byId) bySingle.set(row.key, byId)
+              }
             }
           } catch {
             // unresolved single-ref fallback

@@ -351,24 +351,47 @@ function restoredPrimaryBrowserUrl(pathname: string, fullUrlForQuery: string): s
 }
 
 // Helper function to extract noteId and context from URL
-function parseNoteUrl(url: string): { noteId: string; context?: string } {
+function extractValidNoteId(raw: string): string | null {
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(raw).trim()
+    } catch {
+      return raw.trim()
+    }
+  })()
+  const withoutPrefix = decoded.startsWith('nostr:') ? decoded.slice(6) : decoded
+  if (/^[0-9a-f]{64}$/i.test(withoutPrefix)) return withoutPrefix.toLowerCase()
+  const lower = withoutPrefix.toLowerCase()
+  if (
+    lower.startsWith('note1') ||
+    lower.startsWith('nevent1') ||
+    lower.startsWith('naddr1')
+  ) {
+    return withoutPrefix
+  }
+  return null
+}
+
+function parseNoteUrl(url: string): { noteId: string; context?: string } | null {
   // Match patterns like /discussions/notes/{noteId} or /notes/{noteId}
   const contextualMatch = url.match(
     /\/(discussions|search|profile|home|feed|spells|explore|rss|follows-latest)\/notes\/(.+)$/
   )
   if (contextualMatch) {
-    return { noteId: contextualMatch[2], context: contextualMatch[1] }
+    const noteId = extractValidNoteId(contextualMatch[2])
+    if (!noteId) return null
+    return { noteId, context: contextualMatch[1] }
   }
   
   // Match standard pattern /notes/{noteId}
   const standardMatch = url.match(/\/notes\/(.+)$/)
   if (standardMatch) {
-    return { noteId: standardMatch[1] }
+    const noteId = extractValidNoteId(standardMatch[1])
+    if (!noteId) return null
+    return { noteId }
   }
   
-  // Fallback: extract from any /notes/ pattern
-  const fallbackMatch = url.replace(/.*\/notes\//, '')
-  return { noteId: fallbackMatch || url }
+  return null
 }
 
 // Fixed: Note navigation uses drawer on mobile/single-pane, secondary panel on double-pane desktop
@@ -380,7 +403,12 @@ export function useSmartNoteNavigation() {
   
   const navigateToNote = (url: string, event?: Event, relatedEvents?: Event[]) => {
     // Extract noteId from URL (handles both /notes/{id} and /{context}/notes/{id})
-    const { noteId } = parseNoteUrl(url)
+    const parsed = parseNoteUrl(url)
+    if (!parsed) {
+      logger.warn('navigateToNote ignored invalid note URL', { url })
+      return
+    }
+    const { noteId } = parsed
     
     // If event is provided, store it in navigation event store to avoid re-fetching
     if (event) {
@@ -441,7 +469,12 @@ export function useSmartNoteNavigationOptional() {
   const { current: currentPrimaryPage } = primaryPage
 
   const navigateToNote = (url: string, event?: Event, relatedEvents?: Event[]) => {
-    const { noteId } = parseNoteUrl(url)
+    const parsed = parseNoteUrl(url)
+    if (!parsed) {
+      logger.warn('navigateToNote (optional) ignored invalid note URL', { url })
+      return
+    }
+    const { noteId } = parsed
     if (event) {
       navigationEventStore.setEvent(event)
       client.addEventToCache(event)

@@ -6,7 +6,9 @@ export class Nip07Signer implements ISigner {
 
   async init() {
     const checkInterval = 100
-    const maxAttempts = 50
+    // Some browser extensions inject `window.nostr` a bit later during startup/reload.
+    // Keep waiting longer to avoid false "no signer extension" failures on session restore.
+    const maxAttempts = 120
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (window.nostr) {

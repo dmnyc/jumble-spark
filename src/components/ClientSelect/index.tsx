@@ -77,6 +77,17 @@ function isRawHexEventId(id: string): boolean {
   return /^[0-9a-f]{64}$/i.test(id)
 }
 
+function looksLikeNip19Pointer(id: string): boolean {
+  const v = id.trim().toLowerCase()
+  return (
+    v.startsWith('note1') ||
+    v.startsWith('nevent1') ||
+    v.startsWith('naddr1') ||
+    v.startsWith('npub1') ||
+    v.startsWith('nprofile1')
+  )
+}
+
 export default function ClientSelect({
   event,
   originalNoteId,
@@ -95,13 +106,14 @@ export default function ClientSelect({
     if (event) {
       kind = event.kind
     } else if (originalNoteId && !isRawHexEventId(originalNoteId)) {
+      if (!looksLikeNip19Pointer(originalNoteId)) return ['njump']
       try {
         const pointer = nip19.decode(originalNoteId)
         if (pointer.type === 'naddr') {
           kind = pointer.data.kind
         }
       } catch (error) {
-        logger.error('Failed to decode NIP-19 pointer', { error, originalNoteId })
+        logger.warn('Ignoring invalid NIP-19 pointer for ClientSelect', { error, originalNoteId })
         return ['njump']
       }
     }
@@ -222,6 +234,9 @@ function RelayBasedGroupChatSelector({
   const { relay, id } = useMemo(() => {
     let relay: string | undefined
     if (originalNoteId && !isRawHexEventId(originalNoteId)) {
+      if (!looksLikeNip19Pointer(originalNoteId)) {
+        return { relay: clientService.getEventHint(event.id), id: getReplaceableEventIdentifier(event) }
+      }
       try {
         const pointer = nip19.decode(originalNoteId)
         if (pointer.type === 'naddr' && pointer.data.relays?.length) {

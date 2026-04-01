@@ -961,6 +961,20 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }
 
   const loginWithAccountPointer = async (act: TAccountPointer): Promise<string | null> => {
+    const fallbackToReadOnlyNpub = (pubkey: string, reason?: unknown): string => {
+      const npubSigner = new NpubSigner()
+      const npub = nip19.npubEncode(pubkey)
+      npubSigner.login(npub)
+      // Keep this fallback in-memory only; do not rewrite stored account type.
+      setAccount({ pubkey, signerType: 'npub' })
+      setSigner(npubSigner)
+      logger.warn('[NostrProvider] Signer unavailable during restore; using read-only session', {
+        pubkeySlice: pubkey.slice(0, 12),
+        reason: reason instanceof Error ? reason.message : String(reason ?? '')
+      })
+      return pubkey
+    }
+
     let account = storage.findAccount(act)
     if (!account) {
       return null
@@ -995,9 +1009,14 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         return login(browserNsecSigner, account)
       }
     } else if (account.signerType === 'nip-07') {
-      const nip07Signer = new Nip07Signer()
-      await nip07Signer.init()
-      return login(nip07Signer, account)
+      try {
+        const nip07Signer = new Nip07Signer()
+        await nip07Signer.init()
+        await nip07Signer.getPublicKey()
+        return login(nip07Signer, account)
+      } catch (err) {
+        return fallbackToReadOnlyNpub(account.pubkey, err)
+      }
     } else if (account.signerType === 'bunker') {
       if (account.bunker && account.bunkerClientSecretKey) {
         const bunkerSigner = new BunkerSigner(account.bunkerClientSecretKey)

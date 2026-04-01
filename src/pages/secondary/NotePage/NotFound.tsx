@@ -11,6 +11,11 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import logger from '@/lib/logger'
 
+function looksLikeNip19Pointer(id: string): boolean {
+  const v = id.trim().toLowerCase()
+  return v.startsWith('note1') || v.startsWith('nevent1') || v.startsWith('naddr1')
+}
+
 export default function NotFound({ 
   bech32Id, 
   onEventFound 
@@ -36,6 +41,11 @@ export default function NotFound({
         // CRITICAL: Parse relay hints from bech32 ID FIRST (highest priority)
         // These are explicit hints from the bech32 address and should always be used
         if (!/^[0-9a-f]{64}$/i.test(bech32Id)) {
+          if (!looksLikeNip19Pointer(bech32Id)) {
+            setHexEventId(null)
+            setExternalRelays([])
+            return
+          }
           try {
             const { type, data } = nip19.decode(bech32Id)
             
@@ -67,7 +77,7 @@ export default function NotFound({
               extractedHexEventId = data
             }
           } catch (err) {
-            logger.error('Failed to parse bech32 ID for relay hints', { error: err, bech32Id })
+            logger.warn('Failed to parse bech32 ID for relay hints', { error: err, bech32Id })
           }
         } else {
           extractedHexEventId = bech32Id.toLowerCase()
@@ -147,6 +157,7 @@ export default function NotFound({
         hexEventId ??
         (/^[0-9a-f]{64}$/i.test(bech32Id) ? bech32Id.toLowerCase() : null) ??
         (() => {
+          if (!looksLikeNip19Pointer(bech32Id)) return null
           try {
             const { type, data } = nip19.decode(bech32Id)
             if (type === 'note') return data as string
