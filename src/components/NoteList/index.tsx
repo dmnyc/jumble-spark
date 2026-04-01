@@ -109,6 +109,8 @@ type TFeedClientTimeUnit = 'minute' | 'day' | 'week' | 'month' | 'year'
 
 /** Client-side “who wrote this” filter on already-loaded posts. */
 type TFeedClientAuthorMode = 'everyone' | 'me' | 'npub'
+const FEED_FILTER_KIND_MIN = 0
+const FEED_FILTER_KIND_MAX = 40_000
 
 /** Short debounce: batch rapid timeline updates without delaying first paint on feeds like notifications. */
 const FEED_PROFILE_BATCH_DEBOUNCE_MS = 50
@@ -420,6 +422,7 @@ const NoteList = forwardRef(
     const [feedClientSearch, setFeedClientSearch] = useState('')
     const [feedClientAuthorMode, setFeedClientAuthorMode] = useState<TFeedClientAuthorMode>('everyone')
     const [feedClientAuthorNpubInput, setFeedClientAuthorNpubInput] = useState('')
+    const [feedClientKindInput, setFeedClientKindInput] = useState('')
     const [feedClientTimeAmount, setFeedClientTimeAmount] = useState('')
     const [feedClientTimeUnit, setFeedClientTimeUnit] = useState<TFeedClientTimeUnit>('day')
     const supportTouch = useMemo(() => isTouchDevice(), [])
@@ -518,6 +521,7 @@ const NoteList = forwardRef(
       setFeedClientSearch('')
       setFeedClientAuthorMode('everyone')
       setFeedClientAuthorNpubInput('')
+      setFeedClientKindInput('')
       setFeedClientTimeAmount('')
       setFeedClientTimeUnit('day')
       setFeedFullSearchEvents(null)
@@ -869,6 +873,19 @@ const NoteList = forwardRef(
       return null
     }, [feedClientAuthorMode, feedClientAuthorNpubInput, pubkey])
 
+    /**
+     * `null` => no kind constraint, `number` => valid kind, `undefined` => invalid non-empty input.
+     */
+    const feedClientKindFilter = useMemo<number | null | undefined>(() => {
+      const raw = feedClientKindInput.trim()
+      if (raw.length === 0) return null
+      if (!/^\d+$/.test(raw)) return undefined
+      const parsed = Number(raw)
+      if (!Number.isInteger(parsed)) return undefined
+      if (parsed < FEED_FILTER_KIND_MIN || parsed > FEED_FILTER_KIND_MAX) return undefined
+      return parsed
+    }, [feedClientKindInput])
+
     const applyClientFeedFilter = useCallback(
       (evts: Event[]) => {
         let rows = evts
@@ -890,6 +907,11 @@ const NoteList = forwardRef(
         if (feedClientMinCreatedAt !== null) {
           rows = rows.filter((e) => e.created_at >= feedClientMinCreatedAt)
         }
+        if (typeof feedClientKindFilter === 'number') {
+          rows = rows.filter((e) => e.kind === feedClientKindFilter)
+        } else if (feedClientKindFilter === undefined) {
+          rows = []
+        }
         const q = feedClientSearch.trim().toLowerCase()
         if (q) {
           rows = rows.filter((e) => {
@@ -909,6 +931,7 @@ const NoteList = forwardRef(
         feedClientAuthorNpubInput,
         pubkey,
         feedClientMinCreatedAt,
+        feedClientKindFilter,
         feedClientSearch
       ]
     )
@@ -932,6 +955,7 @@ const NoteList = forwardRef(
           (feedClientSearch.trim() ||
             (feedClientAuthorMode === 'me' && !!pubkey) ||
             (feedClientAuthorMode === 'npub' && feedClientAuthorNpubInput.trim() !== '') ||
+            feedClientKindInput.trim() !== '' ||
             feedClientMinCreatedAt !== null)
         ),
       [
@@ -939,6 +963,7 @@ const NoteList = forwardRef(
         feedClientSearch,
         feedClientAuthorMode,
         feedClientAuthorNpubInput,
+        feedClientKindInput,
         pubkey,
         feedClientMinCreatedAt
       ]
@@ -1076,12 +1101,21 @@ const NoteList = forwardRef(
       }
       const hasSearch = feedClientSearch.trim().length > 0
       const hasTime = feedClientMinCreatedAt !== null
+      const hasKind = typeof feedClientKindFilter === 'number'
       let hasAuthor = false
       if (feedClientAuthorMode === 'me' && pubkey) hasAuthor = true
       if (feedClientAuthorMode === 'npub' && inviteInputToHexPubkey(feedClientAuthorNpubInput)) {
         hasAuthor = true
       }
-      if (!hasSearch && !hasTime && !hasAuthor) {
+      if (feedClientKindFilter === undefined) {
+        toast.error(
+          t('Feed filter kind invalid', {
+            defaultValue: `Kind must be an integer between ${FEED_FILTER_KIND_MIN} and ${FEED_FILTER_KIND_MAX}.`
+          })
+        )
+        return
+      }
+      if (!hasSearch && !hasTime && !hasAuthor && !hasKind) {
         toast.error(t('Feed full search need constraint'))
         return
       }
@@ -1114,6 +1148,9 @@ const NoteList = forwardRef(
           feedClientMinCreatedAt,
           typeof finalFilter.since === 'number' ? finalFilter.since : 0
         )
+      }
+      if (hasKind) {
+        finalFilter.kinds = [feedClientKindFilter]
       }
 
       const hasRelayScope =
@@ -1157,6 +1194,7 @@ const NoteList = forwardRef(
       showFeedClientFilter,
       feedClientSearch,
       feedClientMinCreatedAt,
+      feedClientKindFilter,
       feedClientAuthorMode,
       feedClientAuthorNpubInput,
       pubkey,
@@ -2296,8 +2334,9 @@ const NoteList = forwardRef(
 
     const feedClientFilterPanelSurfaceClass =
       useFeedFilterTabRowPortal && feedClientFilterTabRowHost
-        ? 'mt-1 space-y-3 w-full min-w-[min(100vw-2rem,22rem)] max-w-md rounded-md border border-border bg-background px-3 py-3 shadow-md'
-        : 'space-y-3 border-t border-border/60 py-3'
+        ? 'mt-1 w-[min(100vw-1rem,28rem)] max-w-[calc(100vw-1rem)] space-y-3 rounded-lg border border-border bg-background p-3 shadow-lg'
+        : 'space-y-3 border-t border-border/60 px-2 py-3'
+    const feedClientFilterSectionClass = 'space-y-2 rounded-md border border-border/60 bg-muted/25 p-2.5'
 
     const feedClientFilterChrome = (
       <>
@@ -2318,7 +2357,7 @@ const NoteList = forwardRef(
         </div>
         {feedClientFilterOpen ? (
           <div id="feed-client-filter-panel" className={feedClientFilterPanelSurfaceClass}>
-            <div className="space-y-2">
+            <div className={feedClientFilterSectionClass}>
               <Label htmlFor="feed-client-search" className="text-sm font-medium">
                 {t('Search loaded posts')}
               </Label>
@@ -2331,7 +2370,31 @@ const NoteList = forwardRef(
                 className="w-full"
               />
             </div>
-            <div className="space-y-2">
+            <div className={feedClientFilterSectionClass}>
+              <Label htmlFor="feed-client-kind" className="text-sm font-medium">
+                {t('Feed filter kind', { defaultValue: 'Event kind' })}
+              </Label>
+              <Input
+                id="feed-client-kind"
+                inputMode="numeric"
+                min={FEED_FILTER_KIND_MIN}
+                max={FEED_FILTER_KIND_MAX}
+                value={feedClientKindInput}
+                onChange={(e) => {
+                  const v = e.target.value.trim()
+                  if (v === '' || /^\d+$/.test(v)) setFeedClientKindInput(v)
+                }}
+                placeholder={t('Feed filter kind placeholder', { defaultValue: 'e.g. 30023' })}
+                className="w-full sm:max-w-[11rem]"
+                aria-invalid={feedClientKindFilter === undefined ? true : undefined}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('Feed filter kind hint', {
+                  defaultValue: `Integer ${FEED_FILTER_KIND_MIN}-${FEED_FILTER_KIND_MAX}.`
+                })}
+              </p>
+            </div>
+            <div className={feedClientFilterSectionClass}>
               <Label className="text-sm font-medium">{t('Feed filter author')}</Label>
               <RadioGroup
                 value={feedClientAuthorMode}
@@ -2355,7 +2418,7 @@ const NoteList = forwardRef(
                     <span>{t('Feed filter author npub')}</span>
                   </label>
                   {feedClientAuthorMode === 'npub' ? (
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pl-6">
+                    <div className="grid gap-1.5 pl-6">
                       <span className="text-sm text-muted-foreground">
                         {t('Feed filter author npub from prefix')}
                       </span>
@@ -2365,7 +2428,7 @@ const NoteList = forwardRef(
                         onChange={(e) => setFeedClientAuthorNpubInput(e.target.value)}
                         placeholder={t('Feed filter author npub placeholder')}
                         autoComplete="off"
-                        className="min-w-[12rem] flex-1"
+                        className="w-full"
                         aria-invalid={
                           feedClientAuthorNpubInput.trim() !== '' &&
                           !inviteInputToHexPubkey(feedClientAuthorNpubInput)
@@ -2378,8 +2441,9 @@ const NoteList = forwardRef(
                 </div>
               </RadioGroup>
             </div>
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="grid min-w-0 flex-1 gap-1.5 sm:max-w-[10rem]">
+            <div className={feedClientFilterSectionClass}>
+              <div className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] items-end gap-2">
+              <div className="grid min-w-0 gap-1.5">
                 <Label htmlFor="feed-client-time-n" className="text-sm font-medium">
                   {t('Within the last')}
                 </Label>
@@ -2396,7 +2460,7 @@ const NoteList = forwardRef(
                   className="w-full"
                 />
               </div>
-              <div className="grid min-w-0 gap-1.5 sm:w-40">
+              <div className="grid min-w-0 gap-1.5">
                 <Label htmlFor="feed-client-time-unit" className="text-sm font-medium">
                   {t('Time unit')}
                 </Label>
@@ -2416,20 +2480,24 @@ const NoteList = forwardRef(
                   </SelectContent>
                 </Select>
               </div>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground">{t('Feed filter client-side hint')}</p>
-            <div className="flex flex-wrap items-center gap-2 pt-1">
+            <p className="px-0.5 text-xs leading-relaxed text-muted-foreground">
+              {t('Feed filter client-side hint')}
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
+                className="h-8"
                 disabled={feedFullSearchLoading}
                 onClick={() => void onPerformFeedFullSearch()}
               >
                 {feedFullSearchLoading ? t('Feed full search running') : t('Feed full search')}
               </Button>
               {feedFullSearchEvents !== null ? (
-                <Button type="button" variant="outline" size="sm" onClick={onClearFeedFullSearch}>
+                <Button type="button" variant="outline" size="sm" className="h-8" onClick={onClearFeedFullSearch}>
                   {t('Feed full search clear')}
                 </Button>
               ) : null}
