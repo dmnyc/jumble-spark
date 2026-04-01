@@ -1,6 +1,6 @@
 import { ExtendedKind } from '@/constants'
 import { Event, kinds, nip19 } from 'nostr-tools'
-import { useEffect, useMemo, useState, useCallback, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useCallback, useSyncExternalStore, useRef } from 'react'
 import { usePublicationSectionLoader } from '@/hooks/usePublicationSectionLoader'
 import { parsePublicationATagCoordinate, publicationRefKey } from '@/lib/publication-section-fetch'
 import { cn } from '@/lib/utils'
@@ -15,7 +15,7 @@ import indexedDb from '@/services/indexed-db.service'
 import { useSecondaryPageOptional } from '@/PageManager'
 import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { dTagToTitleCase } from '@/lib/event-metadata'
-import Image from '@/components/Image'
+import ImageWithLightbox from '@/components/ImageWithLightbox'
 import NoteOptions from '@/components/NoteOptions'
 import {
   getRenderedPublicationEventsVersion,
@@ -96,6 +96,7 @@ export default function PublicationIndex({
   className,
   isNested = false,
   parentImageUrl,
+  parentSummary,
   flattenHierarchy = false,
   chapterDepth = 0,
   publicationFootnotesContainerId
@@ -104,6 +105,7 @@ export default function PublicationIndex({
   className?: string
   isNested?: boolean
   parentImageUrl?: string
+  parentSummary?: string
   flattenHierarchy?: boolean
   chapterDepth?: number
   publicationFootnotesContainerId?: string
@@ -152,6 +154,9 @@ export default function PublicationIndex({
   const isBookstrEvent = (event.kind === ExtendedKind.PUBLICATION || event.kind === ExtendedKind.PUBLICATION_CONTENT) && !!bookMetadata.book
   const isTopLevelPublication = !isNested && event.kind === ExtendedKind.PUBLICATION
   const forceFlatHierarchy = flattenHierarchy || isBookstrEvent || isTopLevelPublication
+  const initialSectionLoadCount = isNested ? 1 : 3
+  const sectionLoadStep = isNested ? 1 : 3
+  const effectiveParentSummary = metadata.summary || parentSummary
   const resolvedPublicationFootnotesContainerId = useMemo(
     () =>
       publicationFootnotesContainerId ??
@@ -159,6 +164,8 @@ export default function PublicationIndex({
     [publicationFootnotesContainerId, isTopLevelPublication, event.id]
   )
   const [isRetrying, setIsRetrying] = useState(false)
+  const [sectionLoadCount, setSectionLoadCount] = useState(initialSectionLoadCount)
+  const lazyLoadSentinelRef = useRef<HTMLDivElement | null>(null)
 
   // Extract references from 'a' tags (addressable events) and 'e' tags (event IDs)
   const referencesData = useMemo(() => {
@@ -191,8 +198,8 @@ export default function PublicationIndex({
     return refs
   }, [event])
 
-  const { retryKeys, failedKeys, referencesWithEvents } =
-    usePublicationSectionLoader(event, referencesData)
+  const { requestKeys, retryKeys, failedKeys, referencesWithEvents } =
+    usePublicationSectionLoader(event, referencesData, { autoLoad: false })
   const renderedEventsVersion = useSyncExternalStore(
     subscribeRenderedPublicationEvents,
     getRenderedPublicationEventsVersion,
@@ -369,10 +376,29 @@ export default function PublicationIndex({
 
   // Scroll to section
   const scrollToSection = (coordinate: string) => {
-    const element = document.getElementById(`section-${coordinate.replace(/:/g, '-')}`)
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const targetId = `section-${coordinate.replace(/:/g, '-')}`
+    const sectionIndex = referencesWithEvents.findIndex(
+      (ref) => (ref.coordinate || ref.eventId || '') === coordinate
+    )
+    if (sectionIndex >= 0) {
+      setSectionLoadCount((prev) => Math.max(prev, sectionIndex + 1))
+      const key = publicationRefKey(referencesWithEvents[sectionIndex] || {})
+      if (key) requestKeys([key])
     }
+
+    let attempts = 0
+    const tryScroll = () => {
+      const element = document.getElementById(targetId)
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+      if (attempts < 8) {
+        attempts += 1
+        window.setTimeout(tryScroll, 80)
+      }
+    }
+    tryScroll()
   }
 
 
@@ -398,6 +424,41 @@ export default function PublicationIndex({
     return () => clearTimeout(t)
   }, [referencesWithEvents, event])
 
+  useEffect(() => {
+    setSectionLoadCount(initialSectionLoadCount)
+  }, [event.id, initialSectionLoadCount])
+
+  useEffect(() => {
+    const keysToRequest = referencesWithEvents
+      .slice(0, sectionLoadCount)
+      .filter((ref) => ref.loadStatus === 'idle')
+      .map((ref) => publicationRefKey(ref))
+      .filter(Boolean)
+    if (keysToRequest.length > 0) {
+      requestKeys(keysToRequest)
+    }
+  }, [referencesWithEvents, requestKeys, sectionLoadCount])
+
+  useEffect(() => {
+    const sentinel = lazyLoadSentinelRef.current
+    if (!sentinel) return
+    if (sectionLoadCount >= referencesWithEvents.length) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) return
+        setSectionLoadCount((prev) => Math.min(prev + sectionLoadStep, referencesWithEvents.length))
+      },
+      { rootMargin: '220px 0px' }
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [referencesWithEvents.length, sectionLoadCount, sectionLoadStep])
+
+  const visibleReferences = useMemo(
+    () => referencesWithEvents.slice(0, sectionLoadCount),
+    [referencesWithEvents, sectionLoadCount]
+  )
+
   const handleManualRetry = useCallback(() => {
     setIsRetrying(true)
     const keys =
@@ -407,6 +468,19 @@ export default function PublicationIndex({
     retryKeys(keys)
     window.setTimeout(() => setIsRetrying(false), 600)
   }, [failedKeys, referencesData, retryKeys])
+
+  const normalizedParentImage = (parentImageUrl || '').trim()
+  const normalizedOwnImage = (metadata.image || '').trim()
+  const normalizedParentSummary = (parentSummary || '').trim()
+  const normalizedOwnSummary = (metadata.summary || '').trim()
+  const showNestedImagePreview =
+    isNested &&
+    !!normalizedOwnImage &&
+    normalizedOwnImage !== normalizedParentImage
+  const showNestedSummaryPreview =
+    isNested &&
+    !!normalizedOwnSummary &&
+    normalizedOwnSummary !== normalizedParentSummary
 
 
   return (
@@ -436,11 +510,25 @@ export default function PublicationIndex({
                 </div>
               )}
               {(metadata.type || metadata.version || metadata.publishedOn || metadata.publishedBy) && (
-                <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  {metadata.type && <span>Type: {metadata.type}</span>}
-                  {metadata.version && <span>Version: {metadata.version}</span>}
-                  {metadata.publishedOn && <span>Published: {metadata.publishedOn}</span>}
-                  {metadata.publishedBy && <span>Publisher: {metadata.publishedBy}</span>}
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-y-1 text-xs text-muted-foreground">
+                  {[
+                    metadata.type ? { label: 'Type', value: metadata.type } : null,
+                    metadata.version ? { label: 'Version', value: metadata.version } : null,
+                    metadata.publishedOn ? { label: 'Published', value: metadata.publishedOn } : null,
+                    metadata.publishedBy ? { label: 'Publisher', value: metadata.publishedBy } : null
+                  ]
+                    .filter((item): item is { label: string; value: string } => !!item)
+                    .map((item, index) => (
+                      <div key={item.label} className="inline-flex items-center">
+                        {index > 0 && (
+                          <span aria-hidden className="mx-2 text-muted-foreground/50">
+                            ·
+                          </span>
+                        )}
+                        <span className="uppercase tracking-[0.14em] text-muted-foreground/80">{item.label}</span>
+                        <span className="ml-1.5 text-foreground/85">{item.value}</span>
+                      </div>
+                    ))}
                 </div>
               )}
               {metadata.tags.length > 0 && (
@@ -468,22 +556,26 @@ export default function PublicationIndex({
                   </a>
                 </div>
               )}
-              {metadata.summary && (
-                <blockquote className="mt-5 border-l-4 border-primary/70 pl-4 pr-2 italic text-muted-foreground text-left leading-relaxed">
-                  <p className="break-words">{metadata.summary}</p>
-                </blockquote>
-              )}
               {/* Display image for top-level 30040 publication */}
               {metadata.image && (
                 <div className="mt-5 flex justify-center">
-                  <Image
+                  <ImageWithLightbox
                     image={{ url: metadata.image, pubkey: event.pubkey }}
                     className="max-w-[400px] w-full h-auto rounded-lg"
                     classNames={{
-                      wrapper: 'rounded-lg',
-                      errorPlaceholder: 'aspect-square h-[30vh]'
+                      wrapper: 'rounded-lg'
                     }}
                   />
+                </div>
+              )}
+              {metadata.summary && (
+                <div className="mt-6 mx-auto max-w-2xl text-center">
+                  <div className="mb-2 text-[10px] uppercase tracking-[0.2em] text-muted-foreground/75">
+                    Summary
+                  </div>
+                  <p className="break-words text-sm md:text-base leading-relaxed italic text-muted-foreground">
+                    {metadata.summary}
+                  </p>
                 </div>
               )}
               <div className="mt-5 mx-auto h-px w-24 bg-border/70" />
@@ -518,6 +610,24 @@ export default function PublicationIndex({
               )}
             </div>
           </header>
+        </div>
+      )}
+      {isNested && (showNestedImagePreview || showNestedSummaryPreview) && (
+        <div className="rounded-lg border border-border/50 bg-muted/15 px-4 py-4">
+          {showNestedImagePreview && metadata.image && (
+            <div className="mb-3 flex justify-center">
+              <ImageWithLightbox
+                image={{ url: metadata.image, pubkey: event.pubkey }}
+                className="max-w-[260px] w-full h-auto rounded-lg"
+                classNames={{ wrapper: 'rounded-lg' }}
+              />
+            </div>
+          )}
+          {showNestedSummaryPreview && metadata.summary && (
+            <p className="mx-auto max-w-2xl text-sm italic leading-relaxed text-muted-foreground text-center break-words">
+              {metadata.summary}
+            </p>
+          )}
         </div>
       )}
 
@@ -571,7 +681,7 @@ export default function PublicationIndex({
         </div>
       ) : (
         <div className="space-y-8">
-          {referencesWithEvents.map((ref, index) => {
+          {visibleReferences.map((ref, index) => {
             const sectionKey = publicationRefKey(ref)
             const coordinate = ref.coordinate || ref.eventId || ''
             const sectionId = `section-${coordinate.replace(/:/g, '-')}`
@@ -629,6 +739,18 @@ export default function PublicationIndex({
 
             const eventKind = ref.event?.kind ?? ref.kind ?? 0
             const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
+            const sectionSummaryTag = ref.event.tags.find((tag) => tag[0] === 'summary')?.[1]
+            const sectionImageTag = ref.event.tags.find((tag) => tag[0] === 'image')?.[1]
+            const normalizedParentSummaryForSection = (effectiveParentSummary || '').trim()
+            const normalizedSectionSummary = (sectionSummaryTag || '').trim()
+            const normalizedParentImageForSection = (effectiveParentImageUrl || '').trim()
+            const normalizedSectionImage = (sectionImageTag || '').trim()
+            const showSectionSummaryPreview =
+              !!normalizedSectionSummary &&
+              normalizedSectionSummary !== normalizedParentSummaryForSection
+            const showSectionImagePreview =
+              !!normalizedSectionImage &&
+              normalizedSectionImage !== normalizedParentImageForSection
 
             if (eventKind === ExtendedKind.PUBLICATION) {
               const publicationTitleTag = ref.event.tags.find((tag) => tag[0] === 'title')?.[1]
@@ -706,6 +828,7 @@ export default function PublicationIndex({
                     event={ref.event}
                     isNested={true}
                     parentImageUrl={effectiveParentImageUrl}
+                    parentSummary={effectiveParentSummary}
                     flattenHierarchy={forceFlatHierarchy}
                     chapterDepth={publicationDepth}
                     publicationFootnotesContainerId={resolvedPublicationFootnotesContainerId}
@@ -736,6 +859,24 @@ export default function PublicationIndex({
                     )}
                     <NoteOptions event={ref.event} />
                   </div>
+                  {(showSectionImagePreview || showSectionSummaryPreview) && (
+                    <div className="mb-4 rounded-lg border border-border/50 bg-muted/15 px-4 py-4">
+                      {showSectionImagePreview && sectionImageTag && (
+                        <div className="mb-3 flex justify-center">
+                          <ImageWithLightbox
+                            image={{ url: sectionImageTag, pubkey: ref.event.pubkey }}
+                            className="max-w-[260px] w-full h-auto rounded-lg"
+                            classNames={{ wrapper: 'rounded-lg' }}
+                          />
+                        </div>
+                      )}
+                      {showSectionSummaryPreview && sectionSummaryTag && (
+                        <p className="mx-auto max-w-2xl text-sm italic leading-relaxed text-muted-foreground text-center break-words">
+                          {sectionSummaryTag}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <AsciidocArticle
                     event={ref.event}
                     hideImagesAndInfo={true}
@@ -772,6 +913,9 @@ export default function PublicationIndex({
               </div>
             )
           })}
+          {sectionLoadCount < referencesWithEvents.length && (
+            <div ref={lazyLoadSentinelRef} className="h-8" aria-hidden />
+          )}
         </div>
       )}
       {isTopLevelPublication && resolvedPublicationFootnotesContainerId && (

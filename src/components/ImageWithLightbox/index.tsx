@@ -72,7 +72,13 @@ export default function ImageWithLightbox({
       />
       {index >= 0 &&
         createPortal(
-          <div onClick={(e) => e.stopPropagation()}>
+          <div
+            data-lightbox-overlay
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
             <Lightbox
               index={index}
               slides={[{

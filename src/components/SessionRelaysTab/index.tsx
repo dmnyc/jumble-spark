@@ -1,10 +1,12 @@
 import client from '@/services/client.service'
 import relayInfoService from '@/services/relay-info.service'
+import { isHttpRelayUrl } from '@/lib/url'
 import { useTranslation } from 'react-i18next'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw, CheckCircle2, XCircle, Zap, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { TRelayInfo } from '@/types'
+import { useNostr } from '@/providers/NostrProvider'
 
 type SessionDebug = {
   strikedUrls: string[]
@@ -19,6 +21,7 @@ function loadDebug(): SessionDebug {
 
 export default function SessionRelaysTab() {
   const { t } = useTranslation()
+  const { httpRelayListEvent } = useNostr()
   const [debug, setDebug] = useState<SessionDebug | null>(null)
   const [relayInfoByUrl, setRelayInfoByUrl] = useState<Record<string, TRelayInfo | undefined>>({})
 
@@ -55,8 +58,6 @@ export default function SessionRelaysTab() {
     }
   }, [debug])
 
-  if (debug === null) return null
-
   const clearStrikeForUrl = (url: string) => {
     client.clearSessionRelayStrikeForUrl(url)
     refresh()
@@ -76,6 +77,40 @@ export default function SessionRelaysTab() {
     if (name) return name
     return formatRelayAddress(url)
   }
+
+  const configuredHttpRelayAddresses = useMemo(() => {
+    const out = new Set<string>()
+    if (!httpRelayListEvent) return out
+    for (const tag of httpRelayListEvent.tags) {
+      if (tag[0] !== 'r' || !tag[1]) continue
+      const raw = tag[1].trim()
+      if (!isHttpRelayUrl(raw)) continue
+      out.add(formatRelayAddress(raw).toLowerCase())
+    }
+    return out
+  }, [httpRelayListEvent])
+
+  const isHttpRelayEntry = (url: string): boolean => {
+    if (isHttpRelayUrl(url)) return true
+    const infoUrl = relayInfoByUrl[url]?.url
+    if (infoUrl && isHttpRelayUrl(infoUrl)) return true
+    return configuredHttpRelayAddresses.has(formatRelayAddress(url).toLowerCase())
+  }
+
+  if (debug === null) return null
+
+  const RelayNameWithTransport = ({ url, mono = true }: { url: string; mono?: boolean }) => (
+    <span className="min-w-0 inline-flex max-w-full items-center gap-1.5">
+      <span className={`min-w-0 truncate ${mono ? 'font-mono' : ''}`} title={url}>
+        {formatRelayLabel(url)}
+      </span>
+      {isHttpRelayEntry(url) ? (
+        <span className="shrink-0 rounded border border-border/70 bg-muted px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground">
+          HTTP
+        </span>
+      ) : null}
+    </span>
+  )
 
   return (
     <div className="space-y-6">
@@ -102,8 +137,8 @@ export default function SessionRelaysTab() {
             <li className="text-muted-foreground">{t('None')}</li>
           ) : (
             debug.presetWorking.map((url) => (
-              <li key={url} className="truncate" title={url}>
-                {formatRelayLabel(url)}
+              <li key={url} className="truncate">
+                <RelayNameWithTransport url={url} />
               </li>
             ))
           )}
@@ -124,9 +159,7 @@ export default function SessionRelaysTab() {
           ) : (
             debug.presetStriked.map((url) => (
               <li key={url} className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate font-mono" title={url}>
-                  {formatRelayLabel(url)}
-                </span>
+                <RelayNameWithTransport url={url} />
                 <Button
                   type="button"
                   variant="outline"
@@ -158,9 +191,7 @@ export default function SessionRelaysTab() {
           ) : (
             debug.scoredRelays.map(({ url, successCount, avgLatencyMs }) => (
               <li key={url} className="flex justify-between items-center gap-2 font-mono">
-                <span className="truncate min-w-0" title={url}>
-                  {formatRelayLabel(url)}
-                </span>
+                <RelayNameWithTransport url={url} />
                 <span className="shrink-0 text-muted-foreground text-xs">
                   {successCount} {t('successes')} · ~{avgLatencyMs} ms
                 </span>
@@ -178,9 +209,7 @@ export default function SessionRelaysTab() {
           <ul className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
             {debug.strikedUrls.map((url) => (
               <li key={url} className="flex items-center justify-between gap-2 text-muted-foreground">
-                <span className="min-w-0 truncate font-mono" title={url}>
-                  {formatRelayLabel(url)}
-                </span>
+                <RelayNameWithTransport url={url} />
                 <Button
                   type="button"
                   variant="outline"

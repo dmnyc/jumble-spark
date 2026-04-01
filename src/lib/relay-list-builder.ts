@@ -10,7 +10,7 @@
  */
 
 import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, PROFILE_FETCH_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
-import { normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
+import { isHttpRelayUrl, normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import { getCacheRelayUrls } from './private-relays'
 import client from '@/services/client.service'
 import logger from '@/lib/logger'
@@ -20,6 +20,7 @@ function dedupeNormalizedRelayUrls(urls: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const u of urls) {
+    if (isHttpRelayUrl(u)) continue
     const n = normalizeAnyRelayUrl(u) || u.trim()
     if (!n || seen.has(n)) continue
     seen.add(n)
@@ -95,6 +96,8 @@ export async function buildComprehensiveRelayList(options: RelayListBuilderOptio
 
   const addRelay = (url: string | undefined) => {
     if (!url) return
+    // This builder feeds WebSocket REQ/publish lists; keep HTTP relays separate.
+    if (isHttpRelayUrl(url)) return
     const normalized = normalizeAnyRelayUrl(url)
     if (!normalized) return
     // Filter blocked (case-insensitive comparison)
@@ -128,13 +131,11 @@ export async function buildComprehensiveRelayList(options: RelayListBuilderOptio
       
       if (authorRelayList) {
         const authorOutboxes = [
-          ...(authorRelayList.httpWrite || []).slice(0, 10),
           ...(authorRelayList.write || []).slice(0, 10)
         ]
         authorOutboxes.forEach(addRelay)
 
         const authorInboxes = [
-          ...(authorRelayList.httpRead || []).slice(0, 10),
           ...(authorRelayList.read || []).slice(0, 10)
         ]
         authorInboxes.forEach(addRelay)
@@ -167,11 +168,9 @@ export async function buildComprehensiveRelayList(options: RelayListBuilderOptio
       
       if (userRelayList) {
         const userRead = [
-          ...(userRelayList.httpRead || []).slice(0, 10),
           ...(userRelayList.read || []).slice(0, 10)
         ]
         const userWrite = [
-          ...(userRelayList.httpWrite || []).slice(0, 10),
           ...(userRelayList.write || []).slice(0, 10)
         ]
         userRead.forEach(addRelay)
@@ -225,7 +224,6 @@ export async function buildComprehensiveRelayList(options: RelayListBuilderOptio
       
       if (userRelayList) {
         const userInboxes = [
-          ...(userRelayList.httpRead || []).slice(0, 10),
           ...(userRelayList.read || []).slice(0, 10)
         ]
         userInboxes.forEach(addRelay)
@@ -342,6 +340,7 @@ export async function buildPollResultsReadRelayUrls(options: {
 
   const pushLayer = (urls: string[]) => {
     for (const raw of urls) {
+      if (isHttpRelayUrl(raw)) continue
       const normalized = normalizeUrl(raw) || raw?.trim()
       if (!normalized || normalizedBlocked.has(normalized.toLowerCase())) continue
       if (seenNorm.has(normalized)) continue
@@ -438,6 +437,7 @@ export async function buildReplyWriteRelayList(
 
   const addRelay = (url: string | undefined) => {
     if (!url) return
+    if (isHttpRelayUrl(url)) return
     const normalized = normalizeAnyRelayUrl(url)
     if (!normalized) return
     // Filter blocked (case-insensitive comparison)
@@ -457,13 +457,11 @@ export async function buildReplyWriteRelayList(
       
       if (opRelayList) {
         const opOutboxes = [
-          ...(opRelayList.httpWrite || []).slice(0, 10),
           ...(opRelayList.write || []).slice(0, 10)
         ]
         opOutboxes.forEach(addRelay)
 
         const opInboxes = [
-          ...(opRelayList.httpRead || []).slice(0, 10),
           ...(opRelayList.read || []).slice(0, 10)
         ]
         opInboxes.forEach(addRelay)
@@ -485,7 +483,6 @@ export async function buildReplyWriteRelayList(
       
       if (replyToRelayList) {
         const replyToInboxes = [
-          ...(replyToRelayList.httpRead || []).slice(0, 10),
           ...(replyToRelayList.read || []).slice(0, 10)
         ]
         replyToInboxes.forEach(addRelay)
@@ -507,7 +504,6 @@ export async function buildReplyWriteRelayList(
       
       if (userRelayList) {
         const userOutboxes = [
-          ...(userRelayList.httpWrite || []).slice(0, 10),
           ...(userRelayList.write || []).slice(0, 10)
         ]
         userOutboxes.forEach(addRelay)

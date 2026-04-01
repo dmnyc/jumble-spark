@@ -60,7 +60,11 @@ function dedupeRelayUrls(urls: string[]): string[] {
   return out
 }
 
-export function usePublicationSectionLoader(indexEvent: Event, refs: PublicationSectionRef[]) {
+export function usePublicationSectionLoader(
+  indexEvent: Event,
+  refs: PublicationSectionRef[],
+  options?: { autoLoad?: boolean }
+) {
   const indexId = indexEvent.id
   const refsSignature = useMemo(() => signatureOfRefs(refs), [refs])
   const [relayUrls, setRelayUrls] = useState<string[]>([])
@@ -68,6 +72,7 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
   const [rows, setRows] = useState<Row[]>([])
   const inflightKeysRef = useRef<Set<string>>(new Set())
   const autoLoadedSignatureRef = useRef<string | null>(null)
+  const autoLoad = options?.autoLoad ?? true
 
   useEffect(() => {
     const cached = indexCache.get(indexId) ?? { loaded: new Map(), failed: new Set() }
@@ -355,6 +360,7 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
   )
 
   useEffect(() => {
+    if (!autoLoad) return
     if (relayUrls.length === 0) return
     const sig = `${indexId}:${refsSignature}`
     if (autoLoadedSignatureRef.current === sig) return
@@ -365,7 +371,7 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
       logger.info('[PublicationSection] flush_start', { keys: idleKeys, relayCount: relayUrls.length })
     }
     requestKeys(idleKeys)
-  }, [indexId, refsSignature, relayUrls, rows, requestKeys])
+  }, [autoLoad, indexId, refsSignature, relayUrls, rows, requestKeys])
 
   const referencesWithEvents = useMemo(
     () =>

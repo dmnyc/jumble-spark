@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatPubkey, formatNpub, generateImageByPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { cn } from '@/lib/utils'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
+import { useFetchProfile } from '@/hooks/useFetchProfile'
 import { useNostr } from '@/providers/NostrProvider'
 import { ArrowDownUp, LogIn, LogOut, Settings, User, UserRound } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
@@ -67,6 +68,7 @@ function SidebarAccountMenu({
   const { account, profile } = useNostr()
   const { current, display } = usePrimaryPage()
   const pubkey = account?.pubkey
+  const { profile: fetchedProfile } = useFetchProfile(pubkey)
   const active = useMemo(() => current === 'profile' && display, [display, current])
 
   if (!pubkey) return null
@@ -74,7 +76,8 @@ function SidebarAccountMenu({
   const defaultAvatar = generateImageByPubkey(pubkey)
   const npub = pubkeyToNpub(pubkey)
   const fallbackUsername = npub ? formatNpub(npub) : formatPubkey(pubkey)
-  const { username, avatar } = profile || { username: fallbackUsername, avatar: defaultAvatar }
+  const resolvedProfile = fetchedProfile ?? profile
+  const { username, avatar } = resolvedProfile || { username: fallbackUsername, avatar: defaultAvatar }
 
   return (
     <DropdownMenu>
@@ -114,11 +117,14 @@ function TitlebarAccountMenu({
   onLogoutClick: () => void
 }) {
   const { t } = useTranslation()
-  const { profile } = useNostr()
+  const { account, profile } = useNostr()
+  const pubkey = account?.pubkey
+  const { profile: fetchedProfile } = useFetchProfile(pubkey)
+  const resolvedProfile = fetchedProfile ?? profile
   const { current, display } = usePrimaryPage()
   const defaultAvatar = useMemo(
-    () => (profile?.pubkey ? generateImageByPubkey(profile.pubkey) : ''),
-    [profile]
+    () => (resolvedProfile?.pubkey ? generateImageByPubkey(resolvedProfile.pubkey) : ''),
+    [resolvedProfile]
   )
   const active = useMemo(() => current === 'profile' && display, [display, current])
 
@@ -132,9 +138,9 @@ function TitlebarAccountMenu({
           title={t('Account menu')}
           aria-label={t('Account menu')}
         >
-          {profile ? (
+          {resolvedProfile ? (
             <Avatar className={cn('w-6 h-6', active ? 'ring-primary ring-1' : '')}>
-              <AvatarImage src={profile.avatar} className="object-cover object-center" />
+              <AvatarImage src={resolvedProfile.avatar} className="object-cover object-center" />
               <AvatarFallback>
                 <img src={defaultAvatar} alt="" />
               </AvatarFallback>

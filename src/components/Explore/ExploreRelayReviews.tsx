@@ -8,6 +8,7 @@ import { appendCuratedReadOnlyRelays } from '@/pages/primary/SpellsPage/fauxSpel
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
+import indexedDb, { StoreNames } from '@/services/indexed-db.service'
 import type { Event } from 'nostr-tools'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -30,6 +31,28 @@ function dedupeRelayReviewsNewestFirst(events: Event[]): Event[] {
     out.push(evt)
   }
   return out
+}
+
+async function loadCachedRelayReviews(limit: number): Promise<Event[]> {
+  const fromSession = client
+    .getSessionEventsMatchingSearch('', Math.max(limit * 2, 200), [ExtendedKind.RELAY_REVIEW])
+    .filter((e) => e.kind === ExtendedKind.RELAY_REVIEW && !!getRelayUrlFromRelayReviewEvent(e))
+  if (fromSession.length >= limit) {
+    return dedupeRelayReviewsNewestFirst(fromSession).slice(0, limit)
+  }
+
+  try {
+    const archiveRows = await indexedDb.getStoreItems(StoreNames.EVENT_ARCHIVE)
+    const fromArchive = archiveRows
+      .map((row) => row?.value as Event | undefined)
+      .filter(
+        (e): e is Event =>
+          !!e && e.kind === ExtendedKind.RELAY_REVIEW && !!getRelayUrlFromRelayReviewEvent(e)
+      )
+    return dedupeRelayReviewsNewestFirst([...fromSession, ...fromArchive]).slice(0, limit)
+  } catch {
+    return dedupeRelayReviewsNewestFirst(fromSession).slice(0, limit)
+  }
 }
 
 export default function ExploreRelayReviews() {
@@ -70,6 +93,10 @@ export default function ExploreRelayReviews() {
     setShowCount(SHOW_COUNT)
 
     void (async () => {
+      const cached = await loadCachedRelayReviews(REVIEW_QUERY_LIMIT)
+      if (!cancelled && fetchGenRef.current === gen && cached.length > 0) {
+        setEvents(cached)
+      }
       try {
         const raw = await client.fetchEvents(
           relayUrls,

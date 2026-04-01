@@ -1880,7 +1880,7 @@ class ClientService extends EventTarget {
     relayReqLog?: { groupId?: string; onBatchEnd?: (rows: RelayOpTerminalRow[]) => void }
   ) {
     const originalDedupedRelays = Array.from(new Set(urls))
-    let relays = originalDedupedRelays
+    let relays = originalDedupedRelays.filter((url) => !isHttpRelayUrl(url))
     const filters = sanitizeSubscribeFiltersBeforeReq(filter)
     if (filters.length === 0) {
       logger.debug('[relay-req] batch_skip', {
@@ -2578,7 +2578,7 @@ class ClientService extends EventTarget {
     } = {}
   ) {
     const originalDedupedRelays = Array.from(new Set(urls))
-    let relays = originalDedupedRelays
+    let relays = originalDedupedRelays.filter((url) => !isHttpRelayUrl(url))
     if (relays.length === 0) relays = [...FAST_READ_RELAY_URLS]
     const filters = Array.isArray(filter) ? filter : [filter]
     relays = withDocumentRelayUrlsForFilters(relays, filters)

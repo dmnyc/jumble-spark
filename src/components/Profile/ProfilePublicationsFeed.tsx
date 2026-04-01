@@ -1,4 +1,5 @@
 import ProfileSearchBar from '@/components/ui/ProfileSearchBar'
+import { ExtendedKind } from '@/constants'
 import { PROFILE_PUBLICATIONS_TAB_KINDS } from '@/constants'
 import { forwardRef, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -9,7 +10,11 @@ const ProfilePublicationsFeed = forwardRef<{ refresh: () => void }, { pubkey: st
   const [searchQuery, setSearchQuery] = useState('')
 
   const kindsList = useMemo(() => [...PROFILE_PUBLICATIONS_TAB_KINDS], [])
-  const cacheKey = useMemo(() => `${pubkey}-profile-publications-v2`, [pubkey])
+  const cacheKey = useMemo(() => `${pubkey}-profile-publications-v3`, [pubkey])
+  const visiblePublicationFilter = useMemo(
+    () => (event: { kind: number }) => event.kind !== ExtendedKind.PUBLICATION_CONTENT,
+    []
+  )
 
   const getKindLabel = (_kindValue: string) => t('articles and publications')
 
@@ -30,6 +35,7 @@ const ProfilePublicationsFeed = forwardRef<{ refresh: () => void }, { pubkey: st
         kindFilter="all"
         kinds={kindsList}
         cacheKey={cacheKey}
+        filterPredicate={visiblePublicationFilter}
         getKindLabel={getKindLabel}
         refreshLabel={t('Refreshing articles...')}
         emptyLabel={t('No articles or publications found')}
