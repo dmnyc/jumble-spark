@@ -1,9 +1,10 @@
 import { randomString } from '@/lib/random'
 import { cn } from '@/lib/utils'
+import logger from '@/lib/logger'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import modalManager from '@/services/modal-manager.service'
 import { TImetaInfo } from '@/types'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import Lightbox from 'yet-another-react-lightbox'
@@ -28,15 +29,59 @@ export default function ImageWithLightbox({
   const { autoLoadMedia } = useContentPolicy()
   const [display, setDisplay] = useState(autoLoadMedia)
   const [index, setIndex] = useState(-1)
+
+  const logLightboxEvent = useCallback((stage: string, details?: Record<string, unknown>) => {
+    logger.info('[LightboxTrace]', {
+      stage,
+      id,
+      imageUrl: image.url,
+      index,
+      pathname: window.location.pathname,
+      search: window.location.search,
+      hash: window.location.hash,
+      ...details
+    })
+  }, [id, image.url, index])
+
   useEffect(() => {
     if (index >= 0) {
+      logLightboxEvent('modal-register')
       modalManager.register(id, () => {
+        logLightboxEvent('modal-callback-close')
         setIndex(-1)
       })
     } else {
+      logLightboxEvent('modal-unregister')
       modalManager.unregister(id)
     }
-  }, [index])
+  }, [id, index, logLightboxEvent])
+
+  useEffect(() => {
+    if (index < 0) return
+
+    const onCaptureKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        logLightboxEvent('escape-keydown-capture', {
+          defaultPrevented: event.defaultPrevented,
+          eventPhase: event.eventPhase
+        })
+      }
+    }
+    const onPopState = (event: PopStateEvent) => {
+      logLightboxEvent('window-popstate-while-open', {
+        hasState: !!event.state,
+        state: event.state
+      })
+    }
+
+    window.addEventListener('keydown', onCaptureKeydown, true)
+    window.addEventListener('popstate', onPopState)
+
+    return () => {
+      window.removeEventListener('keydown', onCaptureKeydown, true)
+      window.removeEventListener('popstate', onPopState)
+    }
+  }, [index, logLightboxEvent])
 
   if (!display) {
     return (
@@ -53,8 +98,12 @@ export default function ImageWithLightbox({
   }
 
   const handlePhotoClick = (event: React.MouseEvent) => {
+    logLightboxEvent('thumbnail-click', {
+      defaultPreventedBefore: event.defaultPrevented
+    })
     event.stopPropagation()
     event.preventDefault()
+    logLightboxEvent('set-open-index')
     setIndex(0)
   }
 
@@ -74,10 +123,22 @@ export default function ImageWithLightbox({
         createPortal(
           <div
             data-lightbox-overlay
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              logLightboxEvent('overlay-click', { target: (e.target as HTMLElement)?.tagName })
+              e.stopPropagation()
+            }}
+            onPointerDown={(e) => {
+              logLightboxEvent('overlay-pointerdown', { target: (e.target as HTMLElement)?.tagName })
+              e.stopPropagation()
+            }}
+            onMouseDown={(e) => {
+              logLightboxEvent('overlay-mousedown', { target: (e.target as HTMLElement)?.tagName })
+              e.stopPropagation()
+            }}
+            onTouchStart={(e) => {
+              logLightboxEvent('overlay-touchstart', { target: (e.target as HTMLElement)?.tagName })
+              e.stopPropagation()
+            }}
           >
             <Lightbox
               index={index}
@@ -88,7 +149,10 @@ export default function ImageWithLightbox({
               }]}
               plugins={[Zoom, Captions]}
               open={index >= 0}
-              close={() => setIndex(-1)}
+              close={() => {
+                logLightboxEvent('lightbox-close-callback')
+                setIndex(-1)
+              }}
               controller={{
                 closeOnBackdropClick: false,
                 closeOnPullUp: true,

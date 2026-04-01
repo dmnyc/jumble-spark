@@ -3,6 +3,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet'
 import NotePage from '@/pages/secondary/NotePage'
 import { useSecondaryPage } from '@/PageManager'
 import type { Event } from 'nostr-tools'
+import logger from '@/lib/logger'
 
 interface NoteDrawerProps {
   open: boolean
@@ -44,7 +45,18 @@ export default function NoteDrawer({ open, onOpenChange, noteId, initialEvent }:
   if (!displayNoteId) return null
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} registerWithModalManager={false}>
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        logger.info('[LightboxTrace][NoteDrawer] onOpenChange', {
+          currentOpen: open,
+          nextOpen,
+          noteId: displayNoteId
+        })
+        onOpenChange(nextOpen)
+      }}
+      registerWithModalManager={false}
+    >
       <SheetContent side="right" className="w-full sm:max-w-[1042px] overflow-y-auto p-0">
         <div className="min-h-full">
           <NotePage
