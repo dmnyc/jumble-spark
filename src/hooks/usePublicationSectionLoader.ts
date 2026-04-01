@@ -48,6 +48,18 @@ function signatureOfRefs(refs: PublicationSectionRef[]): string {
   return refs.map((r) => publicationRefKey(r)).join('|')
 }
 
+function dedupeRelayUrls(urls: string[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const url of urls) {
+    const u = (url || '').trim()
+    if (!u || seen.has(u)) continue
+    seen.add(u)
+    out.push(u)
+  }
+  return out
+}
+
 export function usePublicationSectionLoader(indexEvent: Event, refs: PublicationSectionRef[]) {
   const indexId = indexEvent.id
   const refsSignature = useMemo(() => signatureOfRefs(refs), [refs])
@@ -168,7 +180,8 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
             if (row.type === 'e' && row.eventId) {
               const hex = resolvePublicationEventIdToHex(row.eventId)
               if (hex) ev = await indexedDb.getEventFromPublicationStore(hex)
-            } else if (row.coordinate) {
+            }
+            if (!ev && row.coordinate) {
               ev = await indexedDb.getPublicationEvent(row.coordinate)
             }
             if (ev) byDb.set(row.key, ev)
@@ -227,6 +240,7 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
       await Promise.all(
         unresolved.map(async (row) => {
           try {
+            // Only `e` refs are fetched by event id; `a` refs resolve by coordinate.
             if (row.type === 'e' && row.eventId) {
               const ev = await withTimeout(
                 eventService.fetchEvent(row.eventId),
@@ -238,7 +252,13 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
             if (row.coordinate) {
               const parsed = parsePublicationATagCoordinate(row.coordinate)
               if (!parsed) return
-              const relaysToTry = row.relay ? [row.relay] : relayUrls
+              // Relay hints in `a` tags are often stale. Keep the hint first, but also try
+              // current section relay sets so one dead hinted relay cannot force a false miss.
+              const relaysToTry = dedupeRelayUrls(
+                row.relay
+                  ? [row.relay, ...relayUrls, ...fallbackRelayUrls]
+                  : [...relayUrls, ...fallbackRelayUrls]
+              )
               const ev = await withTimeout(
                 queryService
                   .fetchEvents(
@@ -323,14 +343,13 @@ export function usePublicationSectionLoader(indexEvent: Event, refs: Publication
     if (relayUrls.length === 0) return
     const sig = `${indexId}:${refsSignature}`
     if (autoLoadedSignatureRef.current === sig) return
-    autoLoadedSignatureRef.current = sig
     const idleKeys = rows.filter((r) => r.status === 'idle').map((r) => r.key)
-    if (idleKeys.length > 0) {
-      if (import.meta.env.DEV) {
-        logger.info('[PublicationSection] flush_start', { keys: idleKeys, relayCount: relayUrls.length })
-      }
-      requestKeys(idleKeys)
+    if (idleKeys.length === 0) return
+    autoLoadedSignatureRef.current = sig
+    if (import.meta.env.DEV) {
+      logger.info('[PublicationSection] flush_start', { keys: idleKeys, relayCount: relayUrls.length })
     }
+    requestKeys(idleKeys)
   }, [indexId, refsSignature, relayUrls, rows, requestKeys])
 
   const referencesWithEvents = useMemo(

@@ -21,6 +21,10 @@ import { upsertRenderedPublicationEvents } from '@/lib/publication-rendered-even
 
 interface PublicationReference {
   coordinate?: string
+  /**
+   * Optional historical snapshot id (`a` tag field 4) or direct `e` tag id.
+   * For `a` references this is metadata only and MUST NOT drive section fetches.
+   */
   eventId?: string
   event?: Event
   kind?: number
@@ -138,6 +142,9 @@ export default function PublicationIndex({
           refs.push({
             type: 'a',
             coordinate: parsed.coordinate,
+            // `a[3]` is historization metadata for this coordinate revision only.
+            // Keep it for diagnostics/UI context; fetches resolve by coordinate, not by this id.
+            eventId: tag[3],
             kind: parsed.kind,
             pubkey: parsed.pubkey,
             identifier: parsed.identifier,

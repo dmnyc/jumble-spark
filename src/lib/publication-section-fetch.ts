@@ -110,6 +110,7 @@ const IDS_CHUNK = 44
 const D_CHUNK = 28
 const ANY_KIND_LIMIT_PER_D = 12
 const AUTHOR_KIND_SCAN_LIMIT = 200
+const HINT_RELAY_AUTHOR_KIND_SCAN_LIMIT = 1200
 
 function dTagOf(ev: Event): string | undefined {
   const d = ev.tags.find((t) => (t[0] || '').trim().toLowerCase() === 'd')?.[1]
@@ -134,6 +135,7 @@ export async function batchFetchPublicationSectionEvents(
   const aRefs = refs.filter((r) => r.type === 'a' && r.coordinate && r.pubkey && typeof r.kind === 'number')
 
   for (const ref of refs) {
+    // Only explicit `e` refs are resolved by id. For `a` refs, tag[3] is historization metadata only.
     if (ref.type !== 'e' || !ref.eventId) continue
     const key = publicationRefKey(ref)
     const hex = resolvePublicationEventIdToHex(ref.eventId)
@@ -330,6 +332,89 @@ export async function batchFetchPublicationSectionEvents(
       // ignore per-relay hint failures
       if (import.meta.env.DEV) {
         logger.warn('[PublicationSection] relay_hint_pass_error', { relay, filterCount: hintFilters.length })
+      }
+    }
+  }
+
+  // Secondary hint pass: some relays do not index `#d` reliably for 30040/30041.
+  // For unresolved refs with an explicit relay hint, scan that same relay by author+kind
+  // and resolve `d` client-side before doing broader multi-relay fallbacks.
+  const unresolvedAfterHintPass = aRefs.filter((r) => !out.has(publicationRefKey(r)))
+  const byHintRelayForScan = new Map<string, PublicationSectionRef[]>()
+  for (const ref of unresolvedAfterHintPass) {
+    const relay = normalizeUrl(ref.relay || '') || ref.relay?.trim()
+    if (!relay) continue
+    const list = byHintRelayForScan.get(relay)
+    if (list) list.push(ref)
+    else byHintRelayForScan.set(relay, [ref])
+  }
+
+  for (const [relay, relayRefs] of byHintRelayForScan) {
+    const groups = new Map<string, { pubkey: string; kind: number }>()
+    for (const ref of relayRefs) {
+      const key = `${ref.pubkey!.toLowerCase()}:${ref.kind!}`
+      if (!groups.has(key)) {
+        groups.set(key, { pubkey: ref.pubkey!.toLowerCase(), kind: ref.kind! })
+      }
+    }
+    const scanFilters: Filter[] = []
+    for (const g of groups.values()) {
+      scanFilters.push({
+        authors: [g.pubkey],
+        kinds: [g.kind],
+        limit: HINT_RELAY_AUTHOR_KIND_SCAN_LIMIT
+      })
+    }
+    if (scanFilters.length === 0) continue
+    if (import.meta.env.DEV) {
+      logger.info('[PublicationSection] relay_hint_author_kind_scan_start', {
+        relay,
+        refCount: relayRefs.length,
+        filterCount: scanFilters.length
+      })
+    }
+    try {
+      const scanEvents = await queryService.fetchEvents([relay], scanFilters, {
+        globalTimeout: 10_000,
+        eoseTimeout: 1_500,
+        firstRelayResultGraceMs: false
+      })
+      const scanByCoord = new Map<string, Event>()
+      for (const ev of scanEvents) {
+        const coord = coordinateOfEvent(ev)
+        if (!coord) continue
+        for (const k of publicationCoordinateLookupKeys(coord)) {
+          const prev = scanByCoord.get(k)
+          if (!prev || ev.created_at > prev.created_at) scanByCoord.set(k, ev)
+        }
+      }
+      for (const ref of relayRefs) {
+        const key = publicationRefKey(ref)
+        if (out.has(key)) continue
+        const coord = ref.coordinate!
+        let ev: Event | undefined
+        for (const lk of publicationCoordinateLookupKeys(coord)) {
+          ev = scanByCoord.get(lk)
+          if (ev) break
+        }
+        if (ev) out.set(key, ev)
+      }
+      if (import.meta.env.DEV) {
+        logger.info('[PublicationSection] relay_hint_author_kind_scan_done', {
+          relay,
+          eventsReturned: scanEvents.length,
+          unresolvedAfterScan: relayRefs
+            .map((r) => publicationRefKey(r))
+            .filter((k) => !out.has(k))
+            .slice(0, 8)
+        })
+      }
+    } catch {
+      if (import.meta.env.DEV) {
+        logger.warn('[PublicationSection] relay_hint_author_kind_scan_error', {
+          relay,
+          filterCount: scanFilters.length
+        })
       }
     }
   }

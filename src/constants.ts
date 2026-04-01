@@ -477,10 +477,23 @@ export function isSocialKindBlockedKind(kind: number): boolean {
   return SOCIAL_KIND_BLOCKED_KIND_SET.has(kind)
 }
 
-/** True when the filter is unrestricted by kind or includes any {@link SOCIAL_KIND_BLOCKED_KINDS}. */
+/**
+ * True when a filter should avoid relays that do not carry social-note surface.
+ *
+ * Important: kindless lookup filters (e.g. `ids`, `authors + #d`) are often used for
+ * publication / replaceable resolution and must keep relays like thecitadel in scope.
+ */
 export function relayFilterIncludesSocialKindBlockedKind(filter: Filter): boolean {
   const k = filter.kinds
-  if (k === undefined) return true
+  if (k === undefined) {
+    const ids = Array.isArray(filter.ids) ? filter.ids.length : 0
+    const dTags = Array.isArray((filter as Record<string, unknown>)['#d'])
+      ? ((filter as Record<string, unknown>)['#d'] as unknown[]).length
+      : 0
+    // Scoped lookups are not "broad social feed" queries.
+    if (ids > 0 || dTags > 0) return false
+    return true
+  }
   const arr = Array.isArray(k) ? k : [k]
   return arr.some((kind) => SOCIAL_KIND_BLOCKED_KIND_SET.has(kind))
 }

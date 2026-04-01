@@ -91,6 +91,7 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
         : ev.id
       const qeIdForTagFilter =
         /^[0-9a-f]{64}$/i.test(filterQeId) ? filterQeId.toLowerCase() : filterQeId
+      const qeIdIsHexEventId = /^[0-9a-f]{64}$/i.test(qeIdForTagFilter)
       const eventCoordinate = isReplaceableEvent(ev.kind)
         ? getReplaceableCoordinateFromEvent(ev)
         : `${ev.kind}:${ev.pubkey}:${ev.id}`
@@ -98,16 +99,35 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
       const highlightKinds = [kinds.Highlights] as const
       const otherBacklinkKinds = [...THREAD_BACKLINK_STREAM_KINDS_WITHOUT_HIGHLIGHT]
 
-      const { closer, timelineKey } = await client.subscribeTimeline(
-        [
-          {
-            urls: finalRelayUrls,
-            filter: { '#q': [qeIdForTagFilter], kinds: [kinds.ShortTextNote], limit: LIMIT }
-          },
-          {
-            urls: finalRelayUrls,
-            filter: { '#q': [qeIdForTagFilter], kinds: [...highlightKinds], limit: LIMIT }
-          },
+      const subRequests: { urls: string[]; filter: Filter }[] = [
+        {
+          urls: finalRelayUrls,
+          filter: { '#q': [qeIdForTagFilter], kinds: [kinds.ShortTextNote], limit: LIMIT }
+        },
+        {
+          urls: finalRelayUrls,
+          filter: { '#q': [qeIdForTagFilter], kinds: [...highlightKinds], limit: LIMIT }
+        },
+        {
+          urls: finalRelayUrls,
+          filter: {
+            '#a': [eventCoordinate],
+            kinds: [...highlightKinds],
+            limit: LIMIT
+          }
+        },
+        {
+          urls: finalRelayUrls,
+          filter: {
+            '#a': [eventCoordinate],
+            kinds: otherBacklinkKinds,
+            limit: LIMIT
+          }
+        }
+      ]
+      // `#e` tag filters must use 64-hex event ids. For replaceable roots we use `#a`/`#q` only.
+      if (qeIdIsHexEventId) {
+        subRequests.push(
           {
             urls: finalRelayUrls,
             filter: {
@@ -120,27 +140,15 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
             urls: finalRelayUrls,
             filter: {
               '#e': [qeIdForTagFilter],
-              kinds: otherBacklinkKinds,
-              limit: LIMIT
-            }
-          },
-          {
-            urls: finalRelayUrls,
-            filter: {
-              '#a': [eventCoordinate],
-              kinds: [...highlightKinds],
-              limit: LIMIT
-            }
-          },
-          {
-            urls: finalRelayUrls,
-            filter: {
-              '#a': [eventCoordinate],
               kinds: otherBacklinkKinds,
               limit: LIMIT
             }
           }
-        ],
+        )
+      }
+
+      const { closer, timelineKey } = await client.subscribeTimeline(
+        subRequests,
         {
           onEvents: (batch, eosed) => {
             if (cancelled) return
