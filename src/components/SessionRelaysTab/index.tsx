@@ -1,8 +1,10 @@
 import client from '@/services/client.service'
+import relayInfoService from '@/services/relay-info.service'
 import { useTranslation } from 'react-i18next'
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw, CheckCircle2, XCircle, Zap, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import type { TRelayInfo } from '@/types'
 
 type SessionDebug = {
   strikedUrls: string[]
@@ -18,6 +20,7 @@ function loadDebug(): SessionDebug {
 export default function SessionRelaysTab() {
   const { t } = useTranslation()
   const [debug, setDebug] = useState<SessionDebug | null>(null)
+  const [relayInfoByUrl, setRelayInfoByUrl] = useState<Record<string, TRelayInfo | undefined>>({})
 
   const refresh = useCallback(() => {
     setDebug(loadDebug())
@@ -27,6 +30,31 @@ export default function SessionRelaysTab() {
     refresh()
   }, [refresh])
 
+  useEffect(() => {
+    if (debug === null) return
+    const urls = Array.from(
+      new Set([
+        ...debug.presetWorking,
+        ...debug.presetStriked,
+        ...debug.strikedUrls,
+        ...debug.scoredRelays.map((r) => r.url)
+      ])
+    )
+    if (urls.length === 0) return
+    let cancelled = false
+    void relayInfoService.getRelayInfos(urls).then((infos) => {
+      if (cancelled) return
+      const next: Record<string, TRelayInfo | undefined> = {}
+      infos.forEach((info, idx) => {
+        next[urls[idx]!] = info
+      })
+      setRelayInfoByUrl(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [debug])
+
   if (debug === null) return null
 
   const clearStrikeForUrl = (url: string) => {
@@ -34,13 +62,19 @@ export default function SessionRelaysTab() {
     refresh()
   }
 
-  const formatUrl = (url: string) => {
+  const formatRelayAddress = (url: string) => {
     try {
       const u = new URL(url)
-      return u.hostname || url
+      return u.host || url // host keeps explicit port when present
     } catch {
       return url
     }
+  }
+
+  const formatRelayLabel = (url: string) => {
+    const name = relayInfoByUrl[url]?.name?.trim()
+    if (name) return name
+    return formatRelayAddress(url)
   }
 
   return (
@@ -69,7 +103,7 @@ export default function SessionRelaysTab() {
           ) : (
             debug.presetWorking.map((url) => (
               <li key={url} className="truncate" title={url}>
-                {formatUrl(url)}
+                {formatRelayLabel(url)}
               </li>
             ))
           )}
@@ -91,7 +125,7 @@ export default function SessionRelaysTab() {
             debug.presetStriked.map((url) => (
               <li key={url} className="flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate font-mono" title={url}>
-                  {formatUrl(url)}
+                  {formatRelayLabel(url)}
                 </span>
                 <Button
                   type="button"
@@ -125,7 +159,7 @@ export default function SessionRelaysTab() {
             debug.scoredRelays.map(({ url, successCount, avgLatencyMs }) => (
               <li key={url} className="flex justify-between items-center gap-2 font-mono">
                 <span className="truncate min-w-0" title={url}>
-                  {formatUrl(url)}
+                  {formatRelayLabel(url)}
                 </span>
                 <span className="shrink-0 text-muted-foreground text-xs">
                   {successCount} {t('successes')} · ~{avgLatencyMs} ms
@@ -145,7 +179,7 @@ export default function SessionRelaysTab() {
             {debug.strikedUrls.map((url) => (
               <li key={url} className="flex items-center justify-between gap-2 text-muted-foreground">
                 <span className="min-w-0 truncate font-mono" title={url}>
-                  {formatUrl(url)}
+                  {formatRelayLabel(url)}
                 </span>
                 <Button
                   type="button"

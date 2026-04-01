@@ -87,20 +87,8 @@ export class MacroService {
       // Step 4: Save events to cache
       if (events.length > 0) {
         try {
-          const eventsByPubkey = new Map<string, NEvent[]>()
-          for (const event of events) {
-            if (!eventsByPubkey.has(event.pubkey)) {
-              eventsByPubkey.set(event.pubkey, [])
-            }
-            eventsByPubkey.get(event.pubkey)!.push(event)
-          }
-          
-          for (const [pubkey, pubEvents] of eventsByPubkey) {
-            for (const event of pubEvents) {
-              await indexedDb.putNonReplaceableEventWithMaster(event, `${ExtendedKind.PUBLICATION}:${pubkey}:`)
-            }
-          }
-          
+          await Promise.allSettled(events.map((event) => this.persistMacroEvent(event)))
+
           logger.info(`fetchMacroEvents[${this.macroType}]: Saved events to cache`, {
             count: events.length,
             filters
@@ -126,16 +114,22 @@ export class MacroService {
   async getCachedMacroEvents(filters: MacroFilters): Promise<NEvent[]> {
     try {
       const allCached = await indexedDb.getStoreItems(StoreNames.PUBLICATION_EVENTS)
-      const cachedEvents: NEvent[] = []
+      const dedupedByCoordinate = new Map<string, NEvent>()
       
       for (const item of allCached) {
         const event = item.value as NEvent | undefined
         if (!event) continue
         
-        if (this.eventMatchesMacroFilters(event, filters)) {
-          cachedEvents.push(event)
+        if (!this.eventMatchesMacroFilters(event, filters)) {
+          continue
+        }
+        const key = this.getMacroEventDedupKey(event)
+        const existing = dedupedByCoordinate.get(key)
+        if (!existing || event.created_at > existing.created_at) {
+          dedupedByCoordinate.set(key, event)
         }
       }
+      const cachedEvents = Array.from(dedupedByCoordinate.values())
       
       logger.debug(`getCachedMacroEvents[${this.macroType}]: Found cached events`, {
         count: cachedEvents.length,
@@ -246,6 +240,22 @@ export class MacroService {
     }
 
     return true
+  }
+
+  private async persistMacroEvent(event: NEvent): Promise<void> {
+    if (event.kind === ExtendedKind.PUBLICATION || event.kind === ExtendedKind.PUBLICATION_CONTENT) {
+      await indexedDb.putReplaceableEvent(event)
+      return
+    }
+    await indexedDb.putNonReplaceableEventWithMaster(event, `${ExtendedKind.PUBLICATION}:${event.pubkey}:`)
+  }
+
+  private getMacroEventDedupKey(event: NEvent): string {
+    const d = event.tags.find((tag) => tag[0] === 'd')?.[1]
+    if (d) {
+      return `${event.kind}:${event.pubkey}:${d}`
+    }
+    return event.id
   }
 
   /**

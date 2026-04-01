@@ -800,6 +800,62 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     customEmojiService.init(userEmojiListEvent)
   }, [userEmojiListEvent])
 
+  /**
+   * If session restore temporarily fell back to read-only (`npub`) while the stored
+   * account is still `nip-07`, periodically retry reconnecting the extension signer.
+   */
+  useEffect(() => {
+    if (!account || account.signerType !== 'npub') return
+    const preferred = storage.getCurrentAccount()
+    if (!preferred || preferred.signerType !== 'nip-07') return
+    if (preferred.pubkey !== account.pubkey) return
+
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let attempts = 0
+    const maxAttempts = 6
+
+    const schedule = (ms: number) => {
+      if (cancelled) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        void tryRecover()
+      }, ms)
+    }
+
+    const tryRecover = async () => {
+      if (cancelled || attempts >= maxAttempts) return
+      attempts += 1
+      try {
+        const nip07Signer = new Nip07Signer()
+        await nip07Signer.init()
+        const pubkey = await nip07Signer.getPublicKey()
+        if (pubkey.toLowerCase() !== preferred.pubkey.toLowerCase()) {
+          throw new Error('Signer pubkey does not match current account')
+        }
+        login(nip07Signer, preferred)
+        logger.info('[NostrProvider] Recovered NIP-07 signer from read-only fallback', {
+          pubkeySlice: pubkey.slice(0, 12),
+          attempts
+        })
+        return
+      } catch (error) {
+        logger.info('[NostrProvider] NIP-07 recovery retry failed', {
+          pubkeySlice: preferred.pubkey.slice(0, 12),
+          attempts,
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
+      schedule(Math.min(10_000, attempts * 1_500))
+    }
+
+    schedule(1_200)
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [account])
+
   const hasNostrLoginHash = () => {
     return window.location.hash && window.location.hash.startsWith('#nostr-login')
   }
@@ -974,79 +1030,113 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       })
       return pubkey
     }
+    const currentAccountState = account
 
-    let account = storage.findAccount(act)
-    if (!account) {
+    let storedAccount = storage.findAccount(act)
+    if (!storedAccount) {
       return null
     }
-    if (account.signerType === 'nsec' || account.signerType === 'browser-nsec') {
-      if (account.nsec) {
+    if (storedAccount.signerType === 'nsec' || storedAccount.signerType === 'browser-nsec') {
+      if (storedAccount.nsec) {
         const browserNsecSigner = new NsecSigner()
-        browserNsecSigner.login(account.nsec)
+        browserNsecSigner.login(storedAccount.nsec)
         // Migrate to nsec
-        if (account.signerType === 'browser-nsec') {
-          storage.removeAccount(account)
-          account = { ...account, signerType: 'nsec' }
-          storage.addAccount(account)
+        if (storedAccount.signerType === 'browser-nsec') {
+          storage.removeAccount(storedAccount)
+          storedAccount = { ...storedAccount, signerType: 'nsec' }
+          storage.addAccount(storedAccount)
         }
-        return login(browserNsecSigner, account)
+        return login(browserNsecSigner, storedAccount)
       }
-    } else if (account.signerType === 'ncryptsec') {
-      if (account.ncryptsec) {
+    } else if (storedAccount.signerType === 'ncryptsec') {
+      if (storedAccount.ncryptsec) {
         const password = await askNcryptsecPassword()
         if (!password) {
           return null
         }
         let privkey: Uint8Array
         try {
-          privkey = nip49.decrypt(account.ncryptsec, password)
+          privkey = nip49.decrypt(storedAccount.ncryptsec, password)
         } catch (e) {
           toast.error(t('Login failed') + ': ' + (e as Error).message)
           return null
         }
         const browserNsecSigner = new NsecSigner()
         browserNsecSigner.login(privkey)
-        return login(browserNsecSigner, account)
+        return login(browserNsecSigner, storedAccount)
       }
-    } else if (account.signerType === 'nip-07') {
+    } else if (storedAccount.signerType === 'nip-07') {
       try {
         const nip07Signer = new Nip07Signer()
         await nip07Signer.init()
-        await nip07Signer.getPublicKey()
-        return login(nip07Signer, account)
+        const pubkey = await nip07Signer.getPublicKey()
+        if (pubkey.toLowerCase() !== storedAccount.pubkey.toLowerCase()) {
+          throw new Error('Signer pubkey does not match current account')
+        }
+        return login(nip07Signer, storedAccount)
       } catch (err) {
-        return fallbackToReadOnlyNpub(account.pubkey, err)
+        // One short retry avoids transient extension injection races on reload.
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 1200))
+          const retrySigner = new Nip07Signer()
+          await retrySigner.init()
+          const retryPubkey = await retrySigner.getPublicKey()
+          if (retryPubkey.toLowerCase() !== storedAccount.pubkey.toLowerCase()) {
+            throw new Error('Signer pubkey does not match current account')
+          }
+          return login(retrySigner, storedAccount)
+        } catch (retryErr) {
+          // If this tab already has a working nip-07 signer for the same account, keep it.
+          if (
+            currentAccountState?.pubkey === storedAccount.pubkey &&
+            currentAccountState.signerType === 'nip-07' &&
+            signer
+          ) {
+            try {
+              const currentPubkey = await signer.getPublicKey()
+              if (currentPubkey.toLowerCase() === storedAccount.pubkey.toLowerCase()) {
+                logger.info('[NostrProvider] Keeping existing NIP-07 signer after transient restore failure', {
+                  pubkeySlice: storedAccount.pubkey.slice(0, 12)
+                })
+                return storedAccount.pubkey
+              }
+            } catch {
+              // Ignore and fall through to read-only fallback.
+            }
+          }
+        }
+        return fallbackToReadOnlyNpub(storedAccount.pubkey, err)
       }
-    } else if (account.signerType === 'bunker') {
-      if (account.bunker && account.bunkerClientSecretKey) {
-        const bunkerSigner = new BunkerSigner(account.bunkerClientSecretKey)
-        const pubkey = await bunkerSigner.login(account.bunker, false)
+    } else if (storedAccount.signerType === 'bunker') {
+      if (storedAccount.bunker && storedAccount.bunkerClientSecretKey) {
+        const bunkerSigner = new BunkerSigner(storedAccount.bunkerClientSecretKey)
+        const pubkey = await bunkerSigner.login(storedAccount.bunker, false)
         if (!pubkey) {
-          storage.removeAccount(account)
+          storage.removeAccount(storedAccount)
           return null
         }
-        if (pubkey !== account.pubkey) {
-          storage.removeAccount(account)
-          account = { ...account, pubkey }
-          storage.addAccount(account)
+        if (pubkey !== storedAccount.pubkey) {
+          storage.removeAccount(storedAccount)
+          storedAccount = { ...storedAccount, pubkey }
+          storage.addAccount(storedAccount)
         }
-        return login(bunkerSigner, account)
+        return login(bunkerSigner, storedAccount)
       }
-    } else if (account.signerType === 'npub' && account.npub) {
+    } else if (storedAccount.signerType === 'npub' && storedAccount.npub) {
       const npubSigner = new NpubSigner()
-      const pubkey = npubSigner.login(account.npub)
+      const pubkey = npubSigner.login(storedAccount.npub)
       if (!pubkey) {
-        storage.removeAccount(account)
+        storage.removeAccount(storedAccount)
         return null
       }
-      if (pubkey !== account.pubkey) {
-        storage.removeAccount(account)
-        account = { ...account, pubkey }
-        storage.addAccount(account)
+      if (pubkey !== storedAccount.pubkey) {
+        storage.removeAccount(storedAccount)
+        storedAccount = { ...storedAccount, pubkey }
+        storage.addAccount(storedAccount)
       }
-      return login(npubSigner, account)
+      return login(npubSigner, storedAccount)
     }
-    storage.removeAccount(account)
+    storage.removeAccount(storedAccount)
     return null
   }
 

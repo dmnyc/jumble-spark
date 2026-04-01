@@ -462,16 +462,14 @@ export function useMenuActions({
   }, [isArticleType, event, dTag])
 
   const menuActions: MenuAction[] = useMemo(() => {
-    const rebroadcastEntirePublication = () => {
+    const rebroadcastEntirePublication = (selectedRelayUrls: string[]) => {
       const rootPublication = event
-
-      closeDrawer()
 
       const promise = (async () => {
         if (rootPublication.kind !== ExtendedKind.PUBLICATION) {
           throw new Error(t('This action is only available for publications'))
         }
-        if (allAvailableRelayUrls.length === 0) {
+        if (selectedRelayUrls.length === 0) {
           throw new Error(t('No relays available'))
         }
 
@@ -524,7 +522,7 @@ export function useMenuActions({
 
           const primaryRelays = await buildPublicationSectionRelayUrls(currentPublication, refs, 40, false)
           const fallbackRelays = await buildPublicationSectionRelayUrls(currentPublication, refs, 80, true)
-          const relays = [...new Set([...primaryRelays, ...fallbackRelays, ...allAvailableRelayUrls])]
+          const relays = [...new Set([...primaryRelays, ...fallbackRelays, ...selectedRelayUrls])]
           const resolved = await batchFetchPublicationSectionEvents(refs, relays)
 
           for (const ev of resolved.values()) {
@@ -558,7 +556,7 @@ export function useMenuActions({
           const batch = uniqueEvents.slice(i, i + BATCH_SIZE)
           const batchResults = await Promise.allSettled(
             batch.map(async (ev) => {
-              const result = await client.publishEvent(allAvailableRelayUrls, ev)
+              const result = await client.publishEvent(selectedRelayUrls, ev)
               if (result.successCount > 0) {
                 acceptedEvents++
                 acceptedRelayAcks += result.successCount
@@ -590,6 +588,102 @@ export function useMenuActions({
         success: () => t('Rebroadcasted entire publication'),
         error: (err) => t('Failed to rebroadcast entire publication: {{error}}', { error: err.message })
       })
+    }
+
+    const publicationBroadcastSubMenu: SubMenuAction[] = []
+    if (event.kind === ExtendedKind.PUBLICATION) {
+      if (allAvailableRelayUrls.length > 0) {
+        publicationBroadcastSubMenu.push({
+          label: <div className="text-left">{t('All available relays')} ({allAvailableRelayUrls.length})</div>,
+          onClick: () => {
+            closeDrawer()
+            rebroadcastEntirePublication(allAvailableRelayUrls)
+          }
+        })
+      }
+
+      const activeRelayCount =
+        monitoringListRelayCount !== null
+          ? (monitoringListRelayCount > 0 ? monitoringListRelayCount : allAvailableRelayUrls.length)
+          : null
+      publicationBroadcastSubMenu.push({
+        label: (
+          <div className="text-left">
+            {t('All active relays (monitoring list)')}
+            {activeRelayCount !== null && ` (${activeRelayCount})`}
+          </div>
+        ),
+        separator: publicationBroadcastSubMenu.length > 0,
+        onClick: () => {
+          closeDrawer()
+          const promise = (async () => {
+            let relays = await nip66Service.getPublicLivelyRelayUrls()
+            const usedMonitoringList = !!relays?.length
+            if (!relays?.length) relays = allAvailableRelayUrls
+            if (!relays?.length) throw new Error(t('No relays available'))
+            rebroadcastEntirePublication(relays)
+            return usedMonitoringList
+          })()
+          // Trigger async relay resolution immediately; rebroadcast handles its own toasts.
+          void promise.catch((err) => {
+            toast.error(t('Failed to rebroadcast entire publication: {{error}}', { error: err.message }))
+          })
+        }
+      })
+
+      if (pubkey && event.pubkey === pubkey) {
+        publicationBroadcastSubMenu.push({
+          label: <div className="text-left">{t('Write relays')}</div>,
+          separator: publicationBroadcastSubMenu.length > 0,
+          onClick: async () => {
+            closeDrawer()
+            try {
+              const relays = await client.determineTargetRelays(event)
+              if (!relays?.length) throw new Error(t('No write relays configured'))
+              rebroadcastEntirePublication(relays)
+            } catch (err) {
+              toast.error(
+                t('Failed to rebroadcast entire publication: {{error}}', {
+                  error: (err as Error).message
+                })
+              )
+            }
+          }
+        })
+      }
+
+      if (relaySets.length) {
+        publicationBroadcastSubMenu.push(
+          ...relaySets
+            .filter((set) => set.relayUrls.length)
+            .map((set, index) => ({
+              label: <div className="text-left truncate">{set.name}</div>,
+              separator: index === 0,
+              onClick: () => {
+                closeDrawer()
+                rebroadcastEntirePublication(set.relayUrls)
+              }
+            }))
+        )
+      }
+
+      if (relayUrls.length) {
+        publicationBroadcastSubMenu.push(
+          ...relayUrls.map((relay, index) => ({
+            label: (
+              <div className="flex items-center gap-2 w-full">
+                <RelayIcon url={relay} />
+                <div className="flex-1 truncate text-left">{simplifyUrl(relay)}</div>
+              </div>
+            ),
+            separator: index === 0,
+            onClick: () => {
+              closeDrawer()
+              rebroadcastEntirePublication([relay])
+            }
+          }))
+        )
+      }
     }
 
     // Export functions for articles
@@ -921,7 +1015,10 @@ export function useMenuActions({
         actions.push({
           icon: SatelliteDish,
           label: t('Rebroadcast entire publication'),
-          onClick: rebroadcastEntirePublication,
+          onClick: isSmallScreen
+            ? () => showSubMenuActions(publicationBroadcastSubMenu, t('Rebroadcast entire publication to ...'))
+            : undefined,
+          subMenu: isSmallScreen ? undefined : publicationBroadcastSubMenu,
           separator: true
         })
       }

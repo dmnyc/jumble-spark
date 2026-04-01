@@ -2,8 +2,11 @@ import {
   FAST_READ_RELAY_URLS,
   ExtendedKind,
   FAST_WRITE_RELAY_URLS,
+  DOCUMENT_RELAY_URLS,
   FIRST_RELAY_RESULT_GRACE_MS,
+  isDocumentRelayKind,
   isSocialKindBlockedKind,
+  relayFilterIncludesDocumentRelayKind,
   relayFilterIncludesSocialKindBlockedKind,
   relaysAfterSocialKindBlockedStrip,
   SOCIAL_KIND_BLOCKED_RELAY_URLS,
@@ -65,6 +68,11 @@ function sanitizeETagFilterForSubscribe(filter: Filter): Filter | null {
 function sanitizeSubscribeFiltersBeforeReq(filter: Filter | Filter[]): Filter[] {
   const asArray = Array.isArray(filter) ? filter : [filter]
   return asArray.map(sanitizeETagFilterForSubscribe).filter((f): f is Filter => !!f)
+}
+
+function withDocumentRelayUrlsForFilters(relays: string[], filters: Filter[]): string[] {
+  if (!filters.some((f) => relayFilterIncludesDocumentRelayKind(f))) return relays
+  return dedupeNormalizeRelayUrlsOrdered([...relays, ...DOCUMENT_RELAY_URLS])
 }
 
 /** Single key for `pool.seenOn` / query seen-on maps (hex ids are case-insensitive). */
@@ -758,6 +766,9 @@ class ClientService extends EventTarget {
     let relays: string[]
     if (specifiedRelayUrls?.length) {
       relays = specifiedRelayUrls
+      if (isDocumentRelayKind(event.kind)) {
+        relays = dedupeNormalizeRelayUrlsOrdered([...relays, ...DOCUMENT_RELAY_URLS])
+      }
     } else {
       // Kind 777 spells: merged write list (kind 10002 outbox + kind 10432 CACHE_RELAYS) + fast write.
       if (event.kind === ExtendedKind.SPELL) {
@@ -848,6 +859,9 @@ class ClientService extends EventTarget {
       } else if (event.kind === ExtendedKind.RSS_FEED_LIST) {
         bootstrapExtras.push(...FAST_WRITE_RELAY_URLS, ...PROFILE_FETCH_RELAY_URLS)
       }
+      if (isDocumentRelayKind(event.kind)) {
+        bootstrapExtras.push(...DOCUMENT_RELAY_URLS)
+      }
 
       if (
         event.kind === kinds.RelayList ||
@@ -920,7 +934,9 @@ class ClientService extends EventTarget {
     // Fallback for all publishing when no relays (e.g. after cache clear or fetch failure).
     // Use FAST_WRITE_RELAY_URLS so writes always have known-good write relays.
     if (!relays.length) {
-      relays = [...FAST_WRITE_RELAY_URLS]
+      relays = isDocumentRelayKind(event.kind)
+        ? dedupeNormalizeRelayUrlsOrdered([...FAST_WRITE_RELAY_URLS, ...DOCUMENT_RELAY_URLS])
+        : [...FAST_WRITE_RELAY_URLS]
       logger.info('[DetermineTargetRelays] Using default write relays (no user/extra relays)', {
         count: relays.length
       })
@@ -1880,6 +1896,8 @@ class ClientService extends EventTarget {
       }
     }
 
+    relays = withDocumentRelayUrlsForFilters(relays, filters)
+
     const stripSocialBlockedRelays =
       SOCIAL_KIND_BLOCKED_RELAY_URLS.length > 0 &&
       filters.some((f) => relayFilterIncludesSocialKindBlockedKind(f))
@@ -2563,6 +2581,7 @@ class ClientService extends EventTarget {
     let relays = originalDedupedRelays
     if (relays.length === 0) relays = [...FAST_READ_RELAY_URLS]
     const filters = Array.isArray(filter) ? filter : [filter]
+    relays = withDocumentRelayUrlsForFilters(relays, filters)
     const stripSocialBlockedRelays =
       SOCIAL_KIND_BLOCKED_RELAY_URLS.length > 0 &&
       filters.some((f) => relayFilterIncludesSocialKindBlockedKind(f))

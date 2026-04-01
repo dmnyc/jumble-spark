@@ -1,6 +1,6 @@
 import { ExtendedKind } from '@/constants'
 import { Event, kinds, nip19 } from 'nostr-tools'
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useSyncExternalStore } from 'react'
 import { usePublicationSectionLoader } from '@/hooks/usePublicationSectionLoader'
 import { parsePublicationATagCoordinate, publicationRefKey } from '@/lib/publication-section-fetch'
 import { cn } from '@/lib/utils'
@@ -17,7 +17,12 @@ import { extractBookMetadata } from '@/lib/bookstr-parser'
 import { dTagToTitleCase } from '@/lib/event-metadata'
 import Image from '@/components/Image'
 import NoteOptions from '@/components/NoteOptions'
-import { upsertRenderedPublicationEvents } from '@/lib/publication-rendered-events'
+import {
+  getRenderedPublicationEventsVersion,
+  getRenderedPublicationEventsDeep,
+  subscribeRenderedPublicationEvents,
+  upsertRenderedPublicationEvents
+} from '@/lib/publication-rendered-events'
 
 interface PublicationReference {
   coordinate?: string
@@ -50,6 +55,9 @@ interface PublicationMetadata {
   author?: string
   version?: string
   type?: string
+  source?: string
+  publishedOn?: string
+  publishedBy?: string
   tags: string[]
 }
 
@@ -87,12 +95,18 @@ export default function PublicationIndex({
   event,
   className,
   isNested = false,
-  parentImageUrl
+  parentImageUrl,
+  flattenHierarchy = false,
+  chapterDepth = 0,
+  publicationFootnotesContainerId
 }: {
   event: Event
   className?: string
   isNested?: boolean
   parentImageUrl?: string
+  flattenHierarchy?: boolean
+  chapterDepth?: number
+  publicationFootnotesContainerId?: string
 }) {
   const secondaryPage = useSecondaryPageOptional()
   const push = secondaryPage?.push ?? ((url: string) => { window.location.href = url })
@@ -113,6 +127,12 @@ export default function PublicationIndex({
         meta.version = tagValue
       } else if (tagName === 'type') {
         meta.type = tagValue
+      } else if (tagName === 'source') {
+        meta.source = tagValue
+      } else if (tagName === 'published_on') {
+        meta.publishedOn = tagValue
+      } else if (tagName === 'published_by') {
+        meta.publishedBy = tagValue
       } else if (tagName === 't' && tagValue) {
         meta.tags.push(tagValue.toLowerCase())
       }
@@ -130,6 +150,14 @@ export default function PublicationIndex({
   }, [event])
   const bookMetadata = useMemo(() => extractBookMetadata(event), [event])
   const isBookstrEvent = (event.kind === ExtendedKind.PUBLICATION || event.kind === ExtendedKind.PUBLICATION_CONTENT) && !!bookMetadata.book
+  const isTopLevelPublication = !isNested && event.kind === ExtendedKind.PUBLICATION
+  const forceFlatHierarchy = flattenHierarchy || isBookstrEvent || isTopLevelPublication
+  const resolvedPublicationFootnotesContainerId = useMemo(
+    () =>
+      publicationFootnotesContainerId ??
+      (isTopLevelPublication ? `publication-footnotes-${event.id}` : undefined),
+    [publicationFootnotesContainerId, isTopLevelPublication, event.id]
+  )
   const [isRetrying, setIsRetrying] = useState(false)
 
   // Extract references from 'a' tags (addressable events) and 'e' tags (event IDs)
@@ -165,6 +193,11 @@ export default function PublicationIndex({
 
   const { retryKeys, failedKeys, referencesWithEvents } =
     usePublicationSectionLoader(event, referencesData)
+  const renderedEventsVersion = useSyncExternalStore(
+    subscribeRenderedPublicationEvents,
+    getRenderedPublicationEventsVersion,
+    getRenderedPublicationEventsVersion
+  )
 
   // Helper function to format bookstr titles (remove hyphens, title case)
   const formatBookstrTitle = useCallback((title: string, event?: Event): string => {
@@ -190,6 +223,20 @@ export default function PublicationIndex({
   const tableOfContents = useMemo<ToCItem[]>(() => {
     const toc: ToCItem[] = []
 
+    const coordinateOfEvent = (ev: Event): string | null => {
+      const d = ev.tags.find((tag) => tag[0] === 'd')?.[1]
+      if (!d) return null
+      return `${ev.kind}:${ev.pubkey.toLowerCase()}:${d}`
+    }
+
+    const titleFromEvent = (ev: Event): string => {
+      const titleTag = ev.tags.find((tag) => tag[0] === 'title')?.[1]
+      if (titleTag) return titleTag
+      const dTag = ev.tags.find((tag) => tag[0] === 'd')?.[1]
+      if (dTag) return formatBookstrTitle(dTag, ev)
+      return 'Untitled'
+    }
+
     const titleFromIdentifier = (identifier: string, kind?: number) => {
       const raw = identifier || 'Untitled'
       if (
@@ -206,19 +253,26 @@ export default function PublicationIndex({
       return raw
     }
 
+    const knownByCoordinate = new Map<string, Event>()
+    for (const ref of referencesWithEvents) {
+      if (!ref.event) continue
+      const coord = coordinateOfEvent(ref.event)
+      if (coord) knownByCoordinate.set(coord, ref.event)
+    }
+    for (const ev of getRenderedPublicationEventsDeep(event.id)) {
+      const coord = coordinateOfEvent(ev)
+      if (coord && !knownByCoordinate.has(coord)) {
+        knownByCoordinate.set(coord, ev)
+      }
+    }
+
     for (const ref of referencesWithEvents) {
       const coord = ref.coordinate || ref.eventId || ''
       if (!coord) continue
 
       let title: string
       if (ref.event) {
-        const titleTag = ref.event.tags.find((tag) => tag[0] === 'title')?.[1]
-        const dTag = ref.event.tags.find((tag) => tag[0] === 'd')?.[1]
-        let rawTitle: string
-        if (titleTag) rawTitle = titleTag
-        else if (dTag) rawTitle = dTag
-        else rawTitle = 'Untitled'
-        title = titleTag ? rawTitle : formatBookstrTitle(rawTitle, ref.event)
+        title = titleFromEvent(ref.event)
       } else if (ref.type === 'a' && ref.kind === kinds.ShortTextNote) {
         title = 'Note'
       } else if (ref.type === 'a' && ref.identifier) {
@@ -241,35 +295,30 @@ export default function PublicationIndex({
         // Parse nested references from this publication
         for (const tag of ref.event.tags) {
           if (tag[0] === 'a' && tag[1]) {
-            const [kindStr, , identifier] = tag[1].split(':')
-            const kind = parseInt(kindStr)
+            const parsed = parsePublicationATagCoordinate(tag[1])
+            if (!parsed) continue
+            const kind = parsed.kind
             
             if (
-              !isNaN(kind) &&
-              (kind === ExtendedKind.PUBLICATION_CONTENT ||
-                kind === ExtendedKind.WIKI_ARTICLE ||
-                kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN ||
-                kind === kinds.LongFormArticle ||
-                kind === kinds.ShortTextNote ||
-                kind === ExtendedKind.PUBLICATION)
+              kind === ExtendedKind.PUBLICATION_CONTENT ||
+              kind === ExtendedKind.WIKI_ARTICLE ||
+              kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN ||
+              kind === kinds.LongFormArticle ||
+              kind === kinds.ShortTextNote ||
+              kind === ExtendedKind.PUBLICATION
             ) {
-              // For this simplified version, we'll just extract the title from the coordinate
-              const rawNestedTitle = identifier || 'Untitled'
-              // Format for bookstr events (check if kind is bookstr-related)
-              const nestedTitle =
-                kind === ExtendedKind.PUBLICATION || kind === ExtendedKind.PUBLICATION_CONTENT
-                  ? rawNestedTitle
-                      .split('-')
-                      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                      .join(' ')
-                  : kind === kinds.ShortTextNote
-                    ? 'Note'
-                    : rawNestedTitle
+              const knownNestedEvent = knownByCoordinate.get(parsed.coordinate)
+              const nestedTitle = knownNestedEvent
+                ? titleFromEvent(knownNestedEvent)
+                : kind === kinds.ShortTextNote
+                  ? 'Note'
+                  : titleFromIdentifier(parsed.identifier, kind)
               
               nestedRefs.push({
                 title: nestedTitle,
-                coordinate: tag[1],
-                kind
+                coordinate: parsed.coordinate,
+                kind,
+                event: knownNestedEvent
               })
             }
           }
@@ -284,7 +333,7 @@ export default function PublicationIndex({
     }
     
     return toc
-  }, [referencesWithEvents, formatBookstrTitle])
+  }, [referencesWithEvents, formatBookstrTitle, event.id, renderedEventsVersion])
 
   // Scroll to ToC (scroll to top of page)
   const scrollToToc = useCallback(() => {
@@ -366,62 +415,82 @@ export default function PublicationIndex({
       {!isNested && (
         <div className="prose prose-zinc max-w-none dark:prose-invert">
           <header className="mb-8 border-b pb-6">
-            <div className="flex items-start justify-between gap-4 mb-4">
-              {metadata.title && <h1 className="text-4xl font-bold leading-tight break-words flex-1">{metadata.title}</h1>}
-              {!metadata.title && isBookstrEvent && (
-                <div className="flex-1">
-                  <h1 className="text-4xl font-bold leading-tight break-words">
-                    {bookMetadata.book
+            <div className="mb-6 rounded-xl border border-border/50 bg-muted/20 px-5 py-6 text-center">
+              <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground/80 mb-2">
+                Publication
+              </div>
+              <h1 className="font-serif text-4xl md:text-5xl font-semibold leading-tight tracking-wide break-words">
+                {metadata.title ||
+                  (isBookstrEvent
+                    ? bookMetadata.book
                       ? bookMetadata.book
                           .split('-')
-                          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                          .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
                           .join(' ')
-                      : 'Bookstr Publication'}
-                  </h1>
-                </div>
-              )}
-            </div>
-            {metadata.summary && (
-              <blockquote className="border-l-4 border-primary pl-6 italic text-muted-foreground mb-4 text-lg leading-relaxed">
-                <p className="break-words">{metadata.summary}</p>
-              </blockquote>
-            )}
-            {/* Display image for top-level 30040 publication */}
-            {metadata.image && (
-              <div className="mb-4">
-                <Image
-                  image={{ url: metadata.image, pubkey: event.pubkey }}
-                  className="max-w-[400px] w-full h-auto rounded-lg"
-                  classNames={{
-                    wrapper: 'rounded-lg',
-                    errorPlaceholder: 'aspect-square h-[30vh]'
-                  }}
-                />
-              </div>
-            )}
-            <div className="text-sm text-muted-foreground space-y-1">
+                      : 'Bookstr Publication'
+                    : 'Untitled Publication')}
+              </h1>
               {metadata.author && (
-                <div>
-                  <span className="font-semibold">Author:</span> {metadata.author}
+                <div className="mt-3 text-sm text-muted-foreground">
+                  by <span className="font-medium text-foreground/90">{metadata.author}</span>
                 </div>
               )}
-              {metadata.version && !isBookstrEvent && (
-                <div>
-                  <span className="font-semibold">Version:</span> {metadata.version}
+              {(metadata.type || metadata.version || metadata.publishedOn || metadata.publishedBy) && (
+                <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {metadata.type && <span>Type: {metadata.type}</span>}
+                  {metadata.version && <span>Version: {metadata.version}</span>}
+                  {metadata.publishedOn && <span>Published: {metadata.publishedOn}</span>}
+                  {metadata.publishedBy && <span>Publisher: {metadata.publishedBy}</span>}
                 </div>
               )}
-              {metadata.type && !isBookstrEvent && (
-                <div>
-                  <span className="font-semibold">Type:</span> {metadata.type}
+              {metadata.tags.length > 0 && (
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  {metadata.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full border border-border/60 px-2.5 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground"
+                    >
+                      {tag}
+                    </span>
+                  ))}
                 </div>
               )}
+              {metadata.source && (
+                <div className="mt-4 text-xs text-muted-foreground">
+                  Source:{' '}
+                  <a
+                    href={metadata.source}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline break-all"
+                  >
+                    {metadata.source}
+                  </a>
+                </div>
+              )}
+              {metadata.summary && (
+                <blockquote className="mt-5 border-l-4 border-primary/70 pl-4 pr-2 italic text-muted-foreground text-left leading-relaxed">
+                  <p className="break-words">{metadata.summary}</p>
+                </blockquote>
+              )}
+              {/* Display image for top-level 30040 publication */}
+              {metadata.image && (
+                <div className="mt-5 flex justify-center">
+                  <Image
+                    image={{ url: metadata.image, pubkey: event.pubkey }}
+                    className="max-w-[400px] w-full h-auto rounded-lg"
+                    classNames={{
+                      wrapper: 'rounded-lg',
+                      errorPlaceholder: 'aspect-square h-[30vh]'
+                    }}
+                  />
+                </div>
+              )}
+              <div className="mt-5 mx-auto h-px w-24 bg-border/70" />
+            </div>
+            <div className="text-sm text-muted-foreground space-y-1">
               {isBookstrEvent && (
                 <>
-                  {bookMetadata.type && (
-                    <div>
-                      <span className="font-semibold">Type:</span> {bookMetadata.type}
-                    </div>
-                  )}
                   {bookMetadata.book && (
                     <div>
                       <span className="font-semibold">Book:</span> {bookMetadata.book
@@ -455,7 +524,7 @@ export default function PublicationIndex({
       {/* Table of Contents - only show for top-level publications */}
       {!isNested && tableOfContents.length > 0 && (
         <div id="publication-toc" className="border rounded-lg p-6 bg-muted/30 scroll-mt-24">
-          <h2 className="text-xl font-semibold mb-4">Table of Contents</h2>
+          <h2 className="font-serif text-2xl font-semibold tracking-wide mb-4">Table of Contents</h2>
           <nav>
             <ul className="space-y-2">
               {tableOfContents.map((item, index) => (
@@ -562,31 +631,84 @@ export default function PublicationIndex({
             const effectiveParentImageUrl = !isNested ? metadata.image : parentImageUrl
 
             if (eventKind === ExtendedKind.PUBLICATION) {
+              const publicationTitleTag = ref.event.tags.find((tag) => tag[0] === 'title')?.[1]
+              const publicationDTag = ref.event.tags.find((tag) => tag[0] === 'd')?.[1]
+              const publicationTitle = publicationTitleTag
+                ? publicationTitleTag
+                : publicationDTag
+                  ? formatBookstrTitle(publicationDTag, ref.event)
+                  : 'Publication'
+              const publicationDepth = chapterDepth + 1
+              const sectionTitleClassName =
+                publicationDepth <= 1
+                  ? 'font-serif text-2xl md:text-3xl font-semibold leading-tight tracking-wide break-words'
+                  : publicationDepth === 2
+                    ? 'font-serif text-xl md:text-2xl font-medium leading-tight tracking-wide break-words text-muted-foreground'
+                    : 'font-serif text-lg md:text-xl font-medium leading-tight tracking-wide break-words text-muted-foreground'
+              const useInlinePublicationHeader = forceFlatHierarchy
+              const publicationContainerClassName = isNested
+                ? forceFlatHierarchy
+                  ? 'scroll-mt-24 pt-6 relative'
+                  : 'border-l-4 border-primary pl-6 scroll-mt-24 pt-6 relative'
+                : 'scroll-mt-24 pt-6 relative'
               return (
                 <div
                   key={sectionKey || index}
                   id={sectionId}
-                  className="border-l-4 border-primary pl-6 scroll-mt-24 pt-6 relative"
+                  className={publicationContainerClassName}
                 >
-                  <div className="absolute top-0 right-0 flex items-center gap-2">
-                    {!isNested && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="opacity-70 hover:opacity-100"
-                        onClick={scrollToToc}
-                        title="Back to Table of Contents"
-                      >
-                        <ArrowUp className="h-4 w-4 mr-2" />
-                        ToC
-                      </Button>
-                    )}
-                    <NoteOptions event={ref.event} />
-                  </div>
+                  {useInlinePublicationHeader ? (
+                    <div className="mb-4 rounded-lg border border-border/50 bg-muted/20 px-4 py-3">
+                      <div className="flex items-start justify-end gap-2 mb-2">
+                        <div className="flex items-center gap-2 shrink-0">
+                          {!isNested && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="opacity-70 hover:opacity-100"
+                              onClick={scrollToToc}
+                              title="Back to Table of Contents"
+                            >
+                              <ArrowUp className="h-4 w-4 mr-2" />
+                              ToC
+                            </Button>
+                          )}
+                          <NoteOptions event={ref.event} />
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80 mb-1">
+                          Section
+                        </div>
+                        <h3 className={sectionTitleClassName}>
+                          {publicationTitle}
+                        </h3>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="absolute top-0 right-0 flex items-center gap-2">
+                      {!isNested && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="opacity-70 hover:opacity-100"
+                          onClick={scrollToToc}
+                          title="Back to Table of Contents"
+                        >
+                          <ArrowUp className="h-4 w-4 mr-2" />
+                          ToC
+                        </Button>
+                      )}
+                      <NoteOptions event={ref.event} />
+                    </div>
+                  )}
                   <PublicationIndex
                     event={ref.event}
                     isNested={true}
                     parentImageUrl={effectiveParentImageUrl}
+                    flattenHierarchy={forceFlatHierarchy}
+                    chapterDepth={publicationDepth}
+                    publicationFootnotesContainerId={resolvedPublicationFootnotesContainerId}
                   />
                 </div>
               )
@@ -618,6 +740,7 @@ export default function PublicationIndex({
                     event={ref.event}
                     hideImagesAndInfo={true}
                     parentImageUrl={effectiveParentImageUrl}
+                    footnotesContainerId={resolvedPublicationFootnotesContainerId}
                   />
                 </div>
               )
@@ -651,6 +774,9 @@ export default function PublicationIndex({
           })}
         </div>
       )}
+      {isTopLevelPublication && resolvedPublicationFootnotesContainerId && (
+        <div id={resolvedPublicationFootnotesContainerId} className="mt-10 space-y-8" />
+      )}
     </div>
   )
 }
@@ -671,7 +797,7 @@ function ToCItemComponent({
     <li className={cn('list-none', indentClass)}>
       <button
         onClick={() => onItemClick(item.coordinate)}
-        className="text-left text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline cursor-pointer"
+        className="font-serif text-left text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline cursor-pointer tracking-wide"
       >
         {item.title}
       </button>

@@ -337,12 +337,14 @@ export default function AsciidocArticle({
   event,
   className,
   hideImagesAndInfo = false,
-  parentImageUrl
+  parentImageUrl,
+  footnotesContainerId
 }: {
   event: Event
   className?: string
   hideImagesAndInfo?: boolean
   parentImageUrl?: string
+  footnotesContainerId?: string
 }) {
   const secondaryPage = useSecondaryPageOptional()
   const push = secondaryPage?.push ?? ((url: string) => { window.location.href = url })
@@ -967,6 +969,7 @@ export default function AsciidocArticle({
   // Track citations for footnotes and endnotes sections
   const citationsRef = useRef<Array<{ id: string; type: string; citationId: string; index: number }>>([])
   const citationIndexRef = useRef(0)
+  const citationAnchorPrefix = useMemo(() => event.id.toLowerCase(), [event.id])
   
   // Post-process rendered HTML to inject React components for nostr: links and handle hashtags
   useEffect(() => {
@@ -993,7 +996,7 @@ export default function AsciidocArticle({
         })
       }, 0)
     }
-    
+
     // Process nostr: mentions - replace placeholders with React components (inline)
     const nostrMentions = contentRef.current.querySelectorAll('.nostr-mention-placeholder[data-nostr-mention]')
     nostrMentions.forEach((element) => {
@@ -1088,6 +1091,11 @@ export default function AsciidocArticle({
     
     // Process citations - replace placeholders with React components
     // First pass: collect all citations and assign indices
+    const getCitationAnchorId = (index: number) => `citation-${citationAnchorPrefix}-${index}`
+    const getCitationRefId = (index: number) => `citation-ref-${citationAnchorPrefix}-${index}`
+    const footnotesSectionId = `footnotes-section-${citationAnchorPrefix}`
+    const referencesSectionId = `references-section-${citationAnchorPrefix}`
+
     const citationPlaceholders = Array.from(contentRef.current.querySelectorAll('.citation-placeholder[data-citation]'))
     console.log('AsciidocArticle: Found citation placeholders', {
       count: citationPlaceholders.length,
@@ -1110,7 +1118,7 @@ export default function AsciidocArticle({
       
       const citationIndex = citationIndexRef.current++
       citationsRef.current.push({
-        id: `citation-${citationIndex}`,
+        id: getCitationAnchorId(citationIndex),
         type: citationType,
         citationId,
         index: citationIndex
@@ -1166,13 +1174,13 @@ export default function AsciidocArticle({
         sup.style.display = 'inline'
         sup.style.whiteSpace = 'nowrap'
         const link = document.createElement('a')
-        link.href = `#citation-${citation.index}`
-        link.id = `citation-ref-${citation.index}`
+        link.href = `#${getCitationAnchorId(citation.index)}`
+        link.id = getCitationRefId(citation.index)
         link.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline no-underline'
         link.textContent = `[${citationNumber}]`
         link.addEventListener('click', (e) => {
           e.preventDefault()
-          const citationElement = document.getElementById(`citation-${citation.index}`)
+          const citationElement = document.getElementById(getCitationAnchorId(citation.index))
           if (citationElement) {
             citationElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
           }
@@ -1186,13 +1194,13 @@ export default function AsciidocArticle({
         sup.style.display = 'inline'
         sup.style.whiteSpace = 'nowrap'
         const link = document.createElement('a')
-        link.href = '#references-section'
-        link.id = `citation-ref-${citation.index}`
+        link.href = `#${referencesSectionId}`
+        link.id = getCitationRefId(citation.index)
         link.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline no-underline'
         link.textContent = `[${citationNumber}]`
         link.addEventListener('click', (e) => {
           e.preventDefault()
-          const refSection = document.getElementById('references-section')
+          const refSection = document.getElementById(referencesSectionId)
           if (refSection) {
             refSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
           }
@@ -1237,10 +1245,14 @@ export default function AsciidocArticle({
     }
     
     const parentContainer = contentRef.current.parentElement
+    const externalReferencesContainer = footnotesContainerId
+      ? document.getElementById(footnotesContainerId)
+      : null
+    const referencesTargetContainer = externalReferencesContainer ?? parentContainer
     
-    // Check if sections already exist
-    const existingFootnotes = parentContainer.querySelector('#footnotes-section')
-    const existingReferences = parentContainer.querySelector('#references-section')
+    // Footnotes stay at section-level. Endnotes can target publication-level container.
+    const existingFootnotes = parentContainer.querySelector(`#${footnotesSectionId}`)
+    const existingReferences = referencesTargetContainer.querySelector(`#${referencesSectionId}`)
     
     // If sections already exist and we have no new citations, preserve existing sections
     // This handles the case where useEffect runs again after placeholders are replaced
@@ -1273,8 +1285,8 @@ export default function AsciidocArticle({
     // Render footnotes section
     if (footnotes.length > 0) {
       const footnotesSection = document.createElement('div')
-      footnotesSection.id = 'footnotes-section'
-      footnotesSection.className = 'mt-8 pt-4 border-t border-gray-300 dark:border-gray-700'
+      footnotesSection.id = footnotesSectionId
+      footnotesSection.className = 'asciidoc-footnotes-section mt-8 pt-4 border-t border-gray-300 dark:border-gray-700'
       
       const h3 = document.createElement('h3')
       h3.className = 'text-lg font-semibold mb-4'
@@ -1297,14 +1309,14 @@ export default function AsciidocArticle({
         li.appendChild(citationContainer)
         
         const backLink = document.createElement('a')
-        backLink.href = `#citation-ref-${citation.index}`
+        backLink.href = `#${getCitationRefId(citation.index)}`
         backLink.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs ml-2 inline-flex items-center'
         backLink.setAttribute('aria-label', 'Return to citation')
         // Use hyperlink icon instead of emoji
         backLink.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>'
         backLink.addEventListener('click', (e) => {
           e.preventDefault()
-          const refElement = document.getElementById(`citation-ref-${citation.index}`)
+          const refElement = document.getElementById(getCitationRefId(citation.index))
           if (refElement) {
             refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
           }
@@ -1349,12 +1361,11 @@ export default function AsciidocArticle({
       })
       
       footnotesSection.appendChild(ol)
-      
-      // Insert after contentRef div - use insertAdjacentElement for more reliable insertion
+      // Footnotes always stay at the bottom of this section.
       contentRef.current.insertAdjacentElement('afterend', footnotesSection)
       
       // Verify insertion
-      const insertedFootnotes = parentContainer.querySelector('#footnotes-section')
+      const insertedFootnotes = parentContainer.querySelector(`#${footnotesSectionId}`)
       console.log('AsciidocArticle: Footnotes section created and inserted', { 
         footnotesCount: footnotes.length,
         parentTagName: parentContainer.tagName,
@@ -1368,8 +1379,8 @@ export default function AsciidocArticle({
     // Render references section
     if (endCitations.length > 0) {
       const referencesSection = document.createElement('div')
-      referencesSection.id = 'references-section'
-      referencesSection.className = 'mt-8 pt-4 border-t border-gray-300 dark:border-gray-700'
+      referencesSection.id = referencesSectionId
+      referencesSection.className = 'asciidoc-references-section mt-8 pt-4 border-t border-gray-300 dark:border-gray-700'
       
       const h3 = document.createElement('h3')
       h3.className = 'text-lg font-semibold mb-4'
@@ -1383,7 +1394,7 @@ export default function AsciidocArticle({
       
       endCitations.forEach((citation) => {
         const li = document.createElement('li')
-        li.id = `citation-end-${citation.index}`
+        li.id = `citation-end-${citationAnchorPrefix}-${citation.index}`
         li.className = 'text-sm pl-2'
         li.style.display = 'list-item'
         
@@ -1396,13 +1407,13 @@ export default function AsciidocArticle({
         citationWrapper.appendChild(citationContainer)
         
         const backLink = document.createElement('a')
-        backLink.href = `#citation-ref-${citation.index}`
+        backLink.href = `#${getCitationRefId(citation.index)}`
         backLink.className = 'text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline text-xs ml-2 inline-flex items-center'
         backLink.setAttribute('aria-label', 'Return to citation')
         backLink.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>'
         backLink.addEventListener('click', (e) => {
           e.preventDefault()
-          const refElement = document.getElementById(`citation-ref-${citation.index}`)
+          const refElement = document.getElementById(getCitationRefId(citation.index))
           if (refElement) {
             refElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
           }
@@ -1441,22 +1452,20 @@ export default function AsciidocArticle({
       })
       
       referencesSection.appendChild(ol)
-      
-      // Insert after footnotes section if it exists, otherwise after contentRef
-      const footnotesSection = parentContainer.querySelector('#footnotes-section')
-      if (footnotesSection) {
-        // Insert after footnotes section
-        footnotesSection.insertAdjacentElement('afterend', referencesSection)
+      const insertedFootnotesSection = parentContainer.querySelector(`#${footnotesSectionId}`)
+      if (insertedFootnotesSection && !externalReferencesContainer) {
+        insertedFootnotesSection.insertAdjacentElement('afterend', referencesSection)
+      } else if (externalReferencesContainer) {
+        externalReferencesContainer.appendChild(referencesSection)
       } else {
-        // No footnotes section, insert after contentRef
         contentRef.current.insertAdjacentElement('afterend', referencesSection)
       }
       
       // Verify insertion
-      const insertedReferences = parentContainer.querySelector('#references-section')
+      const insertedReferences = referencesTargetContainer.querySelector(`#${referencesSectionId}`)
       console.log('AsciidocArticle: References section created and inserted', { 
         endCitationsCount: endCitations.length,
-        hasFootnotesSection: !!footnotesSection,
+        hasFootnotesSection: !!insertedFootnotesSection,
         sectionId: referencesSection.id,
         isInDOM: !!insertedReferences,
         sectionHTML: insertedReferences?.outerHTML?.substring(0, 200)
@@ -1721,7 +1730,7 @@ export default function AsciidocArticle({
     
     // No cleanup needed here - we only clean up disconnected roots above
     // Full cleanup happens on component unmount
-  }, [parsedHtml, isLoading, navigateToHashtag, navigateToRelay])
+  }, [parsedHtml, isLoading, navigateToHashtag, navigateToRelay, footnotesContainerId, citationAnchorPrefix, event.id])
   
   // Cleanup on component unmount
   useEffect(() => {
@@ -1876,13 +1885,17 @@ export default function AsciidocArticle({
         }
         /* Academic references section formatting */
         .asciidoc-content #references-section ol,
-        .asciidoc-content #footnotes-section ol {
+        .asciidoc-content #footnotes-section ol,
+        .asciidoc-references-section ol,
+        .asciidoc-footnotes-section ol {
           list-style: decimal;
           padding-left: 1.5rem;
           list-style-position: outside;
         }
         .asciidoc-content #references-section li,
-        .asciidoc-content #footnotes-section li {
+        .asciidoc-content #footnotes-section li,
+        .asciidoc-references-section li,
+        .asciidoc-footnotes-section li {
           padding-left: 0.5rem;
           margin-bottom: 0.5rem;
           line-height: 1.6;
@@ -1890,20 +1903,26 @@ export default function AsciidocArticle({
         }
         /* Position backlink at end of first line */
         .asciidoc-content #references-section li > div > span > div:first-child,
-        .asciidoc-content #footnotes-section li > div > span > div:first-child {
+        .asciidoc-content #footnotes-section li > div > span > div:first-child,
+        .asciidoc-references-section li > div > span > div:first-child,
+        .asciidoc-footnotes-section li > div > span > div:first-child {
           position: relative;
           display: inline-block;
           width: 100%;
         }
         .asciidoc-content #references-section h3,
-        .asciidoc-content #footnotes-section h3 {
+        .asciidoc-content #footnotes-section h3,
+        .asciidoc-references-section h3,
+        .asciidoc-footnotes-section h3 {
           font-size: 1.125rem;
           font-weight: 600;
           margin-bottom: 1rem;
         }
         /* Blockquote spacing in citations */
         .asciidoc-content #references-section blockquote,
-        .asciidoc-content #footnotes-section blockquote {
+        .asciidoc-content #footnotes-section blockquote,
+        .asciidoc-references-section blockquote,
+        .asciidoc-footnotes-section blockquote {
           padding-left: 1.5rem !important;
         }
       `}</style>

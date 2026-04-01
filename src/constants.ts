@@ -229,6 +229,15 @@ export const BOOKSTR_RELAY_URLS = [
 ]
 
 /**
+ * Primary document relay for long-form/wiki/publication kinds:
+ * 30023, 30818, 30817, 30041, 30040.
+ */
+export const DOCUMENT_RELAY_URLS = [
+  'wss://thecitadel.nostr1.com',
+  'wss://relay.wikifreedia.xyz'
+] as const
+
+/**
  * Block-list order (applied in sequence when building relay lists):
  * 1. READ_ONLY — never publish (search mirrors, index relays, NIP-42 read-only aggregators)
  * 2. SOCIAL_KIND_BLOCKED — skip for REQ/publish that touch {@link SOCIAL_KIND_BLOCKED_KINDS} (see list below)
@@ -499,6 +508,30 @@ export function relayFilterIncludesSocialKindBlockedKind(filter: Filter): boolea
 }
 
 /**
+ * Document/event kinds that should always include {@link DOCUMENT_RELAY_URLS} in read/publish relay candidates.
+ */
+export const DOCUMENT_RELAY_KINDS: readonly number[] = [
+  kinds.LongFormArticle, // 30023
+  ExtendedKind.WIKI_ARTICLE, // 30818
+  ExtendedKind.WIKI_ARTICLE_MARKDOWN, // 30817
+  ExtendedKind.PUBLICATION_CONTENT, // 30041
+  ExtendedKind.PUBLICATION // 30040
+]
+
+const DOCUMENT_RELAY_KIND_SET = new Set<number>(DOCUMENT_RELAY_KINDS)
+
+export function isDocumentRelayKind(kind: number): boolean {
+  return DOCUMENT_RELAY_KIND_SET.has(kind)
+}
+
+export function relayFilterIncludesDocumentRelayKind(filter: Filter): boolean {
+  const k = filter.kinds
+  if (k === undefined) return false
+  const arr = Array.isArray(k) ? k : [k]
+  return arr.some((kind) => DOCUMENT_RELAY_KIND_SET.has(kind))
+}
+
+/**
  * After dropping {@link SOCIAL_KIND_BLOCKED_RELAY_URLS} from a relay stack: if every URL was removed but the caller
  * passed exactly one relay (e.g. a favorite-relay chip), keep it. Blended stacks still omit these relays; a
  * user-targeted single-relay feed should actually contact that relay (e.g. thecitadel for kinds the relay does carry).
@@ -581,6 +614,7 @@ export const PROFILE_FEED_KINDS = SUPPORTED_KINDS.filter(
 export const PROFILE_PUBLICATIONS_TAB_KINDS: readonly number[] = [
   kinds.LongFormArticle,
   ExtendedKind.PUBLICATION,
+  ExtendedKind.PUBLICATION_CONTENT,
   ExtendedKind.WIKI_ARTICLE,
   ExtendedKind.WIKI_ARTICLE_MARKDOWN
 ]

@@ -9,7 +9,7 @@ const ProfilePublicationsFeed = forwardRef<{ refresh: () => void }, { pubkey: st
   const [searchQuery, setSearchQuery] = useState('')
 
   const kindsList = useMemo(() => [...PROFILE_PUBLICATIONS_TAB_KINDS], [])
-  const cacheKey = useMemo(() => `${pubkey}-profile-publications`, [pubkey])
+  const cacheKey = useMemo(() => `${pubkey}-profile-publications-v2`, [pubkey])
 
   const getKindLabel = (_kindValue: string) => t('articles and publications')
 

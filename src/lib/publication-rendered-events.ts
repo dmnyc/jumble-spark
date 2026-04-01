@@ -1,6 +1,8 @@
 import type { Event } from 'nostr-tools'
 
 const renderedByPublication = new Map<string, Map<string, Event>>()
+let renderedVersion = 0
+const listeners = new Set<() => void>()
 
 function normId(id: string): string {
   return id.trim().toLowerCase()
@@ -17,6 +19,17 @@ export function upsertRenderedPublicationEvents(publicationId: string, events: E
     if (!ev?.id) continue
     byId.set(normId(ev.id), ev)
   }
+  renderedVersion += 1
+  for (const listener of listeners) listener()
+}
+
+export function subscribeRenderedPublicationEvents(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+export function getRenderedPublicationEventsVersion(): number {
+  return renderedVersion
 }
 
 export function getRenderedPublicationEvents(publicationId: string): Event[] {

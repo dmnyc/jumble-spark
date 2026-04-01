@@ -382,6 +382,19 @@ export class EventService {
     }
     this.notifySessionEventWaiters(id)
     queuePersistSeenEvent(cleanEvent as NEvent)
+    if (
+      cleanEvent.kind === ExtendedKind.PUBLICATION ||
+      cleanEvent.kind === ExtendedKind.PUBLICATION_CONTENT
+    ) {
+      // Keep publication replaceables durable for profile/publication builder cache hits.
+      void indexedDb.putReplaceableEvent(cleanEvent as NEvent).catch((error) => {
+        logger.warn('[EventService] Failed to persist publication event to IndexedDB', {
+          kind: cleanEvent.kind,
+          eventId: id,
+          error
+        })
+      })
+    }
   }
 
   /** Apply {@link StorageKey.SESSION_EVENT_LRU_MAX} without reload (copies entries into a new LRU). */
