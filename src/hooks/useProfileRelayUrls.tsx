@@ -3,7 +3,7 @@ import {
   profileAccordionRelayUrlsKey,
   profileAccordionSetRelayUrls
 } from '@/lib/profile-accordion-session-cache'
-import { buildProfileRelayUrls } from '@/lib/profile-relay-urls'
+import { buildProfileRelayUrls, getProfileRelayUrlsProvisional } from '@/lib/profile-relay-urls'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 
@@ -37,8 +37,17 @@ export function useProfileRelayUrls(pubkey: string | undefined, enabled: boolean
         }
       }
 
+      const provisional = getProfileRelayUrlsProvisional(blockedRelaysRef.current)
       const revalidateWithVisibleUrls = force && relayUrlsRef.current.length > 0
       if (!revalidateWithVisibleUrls) {
+        if (provisional.length > 0) {
+          profileAccordionSetRelayUrls(pubkey, provisional)
+          setRelayUrls(provisional)
+          setLoading(false)
+        } else {
+          setLoading(true)
+        }
+      } else {
         setLoading(true)
       }
       try {

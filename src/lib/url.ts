@@ -441,3 +441,21 @@ export function rewritePlainTextHttpUrls(
     }
   })
 }
+
+/**
+ * Relays in `full` whose normalized URL is not in `provisional` (by {@link normalizeUrl}), preserving first-seen order.
+ */
+export function subtractNormalizedRelayUrls(full: string[], provisional: string[]): string[] {
+  const prov = new Set(
+    provisional.map((u) => normalizeUrl(u) || u.trim()).filter(Boolean)
+  )
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const u of full) {
+    const n = normalizeUrl(u) || u.trim()
+    if (!n || prov.has(n) || seen.has(n)) continue
+    seen.add(n)
+    out.push(u)
+  }
+  return out
+}

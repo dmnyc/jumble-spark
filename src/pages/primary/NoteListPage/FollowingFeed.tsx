@@ -69,11 +69,29 @@ const FollowingFeed = forwardRef<
         return
       }
 
-      let followings: string[] = []
+      const augment = (raw: TFeedSubRequest[]) =>
+        augmentSubRequestsWithFavoritesFastReadAndInbox(
+          raw,
+          favoriteRelays,
+          blockedRelays,
+          relayList?.read ?? [],
+          { userWriteRelays: relayList?.write ?? [] }
+        )
+
+      const fromTags = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
+      const provisionalAuthors = [...new Set([pubkey, ...fromTags])]
+
+      try {
+        const rawProv = await client.generateSubRequestsForPubkeys(provisionalAuthors, pubkey)
+        if (!cancelled) setSubRequests(augment(rawProv))
+      } catch (error) {
+        logger.warn('[FollowingFeed] provisional generateSubRequestsForPubkeys failed', { error })
+      }
+
+      let followings: string[] = fromTags
       try {
         followings = await client.fetchFollowings(pubkey)
       } catch (error) {
-        // Failsafe: keep follows feed usable when contacts fetch relay calls fail transiently.
         followings = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
         logger.warn('[FollowingFeed] fetchFollowings failed; using cached follow list fallback', {
           error,
@@ -81,16 +99,17 @@ const FollowingFeed = forwardRef<
         })
       }
 
+      const fullAuthors = [...new Set([pubkey, ...followings])]
+      const sameSize = fullAuthors.length === provisionalAuthors.length
+      const sameSet =
+        sameSize && fullAuthors.every((p) => provisionalAuthors.includes(p)) && provisionalAuthors.every((p) => fullAuthors.includes(p))
+      if (sameSet) {
+        return
+      }
+
       try {
-        const raw = await client.generateSubRequestsForPubkeys([pubkey, ...followings], pubkey)
-        const augmented = augmentSubRequestsWithFavoritesFastReadAndInbox(
-          raw,
-          favoriteRelays,
-          blockedRelays,
-          relayList?.read ?? [],
-          { userWriteRelays: relayList?.write ?? [] }
-        )
-        if (!cancelled) setSubRequests(augmented)
+        const raw = await client.generateSubRequestsForPubkeys(fullAuthors, pubkey)
+        if (!cancelled) setSubRequests(augment(raw))
       } catch (error) {
         logger.error('[FollowingFeed] generateSubRequestsForPubkeys failed', error)
         if (!cancelled) setSubRequests([])
@@ -115,6 +134,8 @@ const FollowingFeed = forwardRef<
     <NormalFeed
       ref={ref}
       subRequests={subRequests}
+      preserveTimelineOnSubRequestsChange
+      mergeTimelineWhenSubRequestFiltersMatch
       isMainFeed
       setSubHeader={setSubHeader}
       onSubHeaderRefresh={onSubHeaderRefresh}

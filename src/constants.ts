@@ -84,7 +84,7 @@ export const RELAY_READ_ONLY_POOL_CONNECT_TIMEOUT_MS = 45_000
 export const RELAY_NIP42_PUBLISH_ACK_TIMEOUT_MS = 90_000
 
 /** Multi-relay queries and timeline initial REQ: after the first event, wait this long then close (query) or finalize EOSE (live feed) while keeping the subscription open for new events. */
-export const FIRST_RELAY_RESULT_GRACE_MS = 5000
+export const FIRST_RELAY_RESULT_GRACE_MS = 2000
 
 /** Legacy name: was used to cap spell NoteList skeleton time; loading now ends on EOSE / first events / safety timeouts. Kept for forks. */
 export const SPELL_FEED_LOADING_MAX_MS = 1000

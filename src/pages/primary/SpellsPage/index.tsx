@@ -51,6 +51,7 @@ import {
   FIRST_RELAY_RESULT_GRACE_MS,
 } from '@/constants'
 import { filterEventsExcludingTombstones, isUserInEventMentions } from '@/lib/event'
+import { getPubkeysFromPTags } from '@/lib/tag'
 import { formatPubkey, normalizeHexPubkey } from '@/lib/pubkey'
 import {
   augmentSubRequestsWithFavoritesFastReadAndInbox,
@@ -314,7 +315,15 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 ) {
   const { t } = useTranslation()
   const { navigate: navigatePrimary } = usePrimaryPage()
-  const { pubkey, account, relayList, attemptDelete, bookmarkListEvent, interestListEvent } = useNostr()
+  const {
+    pubkey,
+    account,
+    relayList,
+    attemptDelete,
+    bookmarkListEvent,
+    interestListEvent,
+    followListEvent
+  } = useNostr()
   const { addBookmark, removeBookmark } = useBookmarks()
   const { hideUntrustedNotifications } = useUserTrust()
   const { isSmallScreen } = useScreenSize()
@@ -399,9 +408,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   }, [spellProp, logSpellFeedPickerSelection])
 
   const [followingSubRequests, setFollowingSubRequests] = useState<TFeedSubRequest[]>([])
-  const [followingFeedLoading, setFollowingFeedLoading] = useState(false)
   const [favoritesSubRequests, setFavoritesSubRequests] = useState<TFeedSubRequest[]>([])
-  const [favoritesFeedLoading, setFavoritesFeedLoading] = useState(false)
 
   const loadSpells = useCallback(async () => {
     const [events, ids] = await Promise.all([
@@ -733,7 +740,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   useEffect(() => {
     if (!pubkey || !isFollowFeedFauxSpellId(selectedFauxSpell)) {
       setFollowingSubRequests([])
-      setFollowingFeedLoading(false)
       return
     }
 
@@ -744,18 +750,46 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
 
     if (followSetD && followSetCatalogLoading) {
       setFollowingSubRequests([])
-      setFollowingFeedLoading(true)
       return
     }
 
     let cancelled = false
-    setFollowingFeedLoading(true)
     void (async () => {
+      const augment = (raw: TFeedSubRequest[]) =>
+        augmentSubRequestsWithFavoritesFastReadAndInbox(
+          raw,
+          favoriteRelays,
+          blockedRelays,
+          relayList?.read ?? [],
+          { userWriteRelays: relayList?.write ?? [] }
+        )
       try {
-        let authorPubkeys: string[]
         if (selectedFauxSpell === 'following') {
-          const followings = await client.fetchFollowings(pubkey)
-          authorPubkeys = [pubkey, ...followings]
+          const fromTags = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
+          const provisionalAuthors = [...new Set([pubkey, ...fromTags])]
+          try {
+            const rawProv = await client.generateSubRequestsForPubkeys(provisionalAuthors, pubkey)
+            if (!cancelled) setFollowingSubRequests(augment(rawProv))
+          } catch {
+            /* refined wave may still succeed */
+          }
+
+          let followings = fromTags
+          try {
+            followings = await client.fetchFollowings(pubkey)
+          } catch {
+            followings = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
+          }
+          const fullAuthors = [...new Set([pubkey, ...followings])]
+          const sameSet =
+            fullAuthors.length === provisionalAuthors.length &&
+            fullAuthors.every((p) => provisionalAuthors.includes(p)) &&
+            provisionalAuthors.every((p) => fullAuthors.includes(p))
+          if (sameSet) {
+            return
+          }
+          const req = await client.generateSubRequestsForPubkeys(fullAuthors, pubkey)
+          if (!cancelled) setFollowingSubRequests(augment(req))
         } else if (followSetD) {
           const ev = followSetListEvents.find((e) => getFollowSetDTag(e) === followSetD)
           if (!ev) {
@@ -763,25 +797,14 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             return
           }
           const listed = pubkeysFromFollowSetEvent(ev)
-          authorPubkeys = [pubkey, ...listed]
+          const authorPubkeys = [pubkey, ...listed]
+          const req = await client.generateSubRequestsForPubkeys(authorPubkeys, pubkey)
+          if (!cancelled) setFollowingSubRequests(augment(req))
         } else {
           if (!cancelled) setFollowingSubRequests([])
-          return
         }
-
-        const req = await client.generateSubRequestsForPubkeys(authorPubkeys, pubkey)
-        const merged = augmentSubRequestsWithFavoritesFastReadAndInbox(
-          req,
-          favoriteRelays,
-          blockedRelays,
-          relayList?.read ?? [],
-          { userWriteRelays: relayList?.write ?? [] }
-        )
-        if (!cancelled) setFollowingSubRequests(merged)
       } catch {
         if (!cancelled) setFollowingSubRequests([])
-      } finally {
-        if (!cancelled) setFollowingFeedLoading(false)
       }
     })()
     return () => {
@@ -794,7 +817,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     sortedBlockedRelaysKey,
     relayMailboxStableKey,
     followSetCatalogLoading,
-    followSetListStableKey
+    followSetListStableKey,
+    followListEvent?.id
   ])
 
   const favoritesShowKinds = useMemo(() => {
@@ -810,12 +834,10 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
   useEffect(() => {
     if (selectedFauxSpell !== 'favorites' || !pubkey) {
       setFavoritesSubRequests([])
-      setFavoritesFeedLoading(false)
       return
     }
 
     let cancelled = false
-    setFavoritesFeedLoading(true)
     void (async () => {
       try {
         const feedUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
@@ -841,6 +863,39 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
           reasonLabel: t('Added from your web bookmarks')
         }))
 
+        const augmentFollow = (raw: TFeedSubRequest[]) =>
+          augmentSubRequestsWithFavoritesFastReadAndInbox(
+            raw,
+            favoriteRelays,
+            blockedRelays,
+            relayList?.read ?? [],
+            { userWriteRelays: relayList?.write ?? [] }
+          ).map((r) => ({ ...r, reasonLabel: t('Added from follows and contact lists') }))
+
+        const quickFollowRaw = await client.generateSubRequestsForPubkeys([pubkey], pubkey)
+        const quickFollowAug = augmentFollow(quickFollowRaw)
+        const followsWebQuick: TFeedSubRequest[] = [
+          {
+            urls: feedUrls,
+            filter: {
+              authors: [pubkey],
+              kinds: [ExtendedKind.WEB_BOOKMARK],
+              limit: FAUX_SPELL_EVENT_LIMIT
+            },
+            reasonLabel: t('Added from follows web bookmarks')
+          }
+        ]
+
+        if (!cancelled) {
+          setFavoritesSubRequests([
+            ...interestReqs,
+            ...idReqs,
+            ...ownWebReqs,
+            ...followsWebQuick,
+            ...quickFollowAug
+          ])
+        }
+
         const authorSet = new Set<string>([pubkey, ...contacts])
         for (const ev of followSetListEvents) {
           if (ev.pubkey !== pubkey) continue
@@ -851,13 +906,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         const followAndContactReqs = authorPubkeys.length
           ? await client.generateSubRequestsForPubkeys(authorPubkeys, pubkey)
           : []
-        const followAndContactAugmented = augmentSubRequestsWithFavoritesFastReadAndInbox(
-          followAndContactReqs,
-          favoriteRelays,
-          blockedRelays,
-          relayList?.read ?? [],
-          { userWriteRelays: relayList?.write ?? [] }
-        ).map((r) => ({ ...r, reasonLabel: t('Added from follows and contact lists') }))
+        const followAndContactAugmented = augmentFollow(followAndContactReqs)
 
         const followsWebBookmarkReqs: TFeedSubRequest[] = authorPubkeys.length
           ? [
@@ -884,8 +933,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         }
       } catch {
         if (!cancelled) setFavoritesSubRequests([])
-      } finally {
-        if (!cancelled) setFavoritesFeedLoading(false)
       }
     })()
 
@@ -1337,13 +1384,11 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     return t('Nothing to load for this feed.')
   }, [selectedFauxSpell, fauxSubRequests.length, t])
 
-  const showAsyncFauxFeedLoading = !!(
-    pubkey &&
-    selectedFauxSpell &&
-    (selectedFauxSpell === 'favorites'
-      ? favoritesFeedLoading
-      : isFollowFeedFauxSpellId(selectedFauxSpell) &&
-        (followingFeedLoading || (isFollowSetSpellId(selectedFauxSpell) && followSetCatalogLoading)))
+  const spellFauxMergeTimeline = useMemo(
+    () =>
+      selectedFauxSpell === 'favorites' ||
+      (!!selectedFauxSpell && isFollowFeedFauxSpellId(selectedFauxSpell)),
+    [selectedFauxSpell]
   )
 
   const spellStarAddTitle = t('Spell star add title')
@@ -1788,8 +1833,6 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             <div className="py-8 text-center text-muted-foreground">
               {t('Please login to view favorites')}
             </div>
-          ) : showAsyncFauxFeedLoading ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">{t('loading...')}</div>
           ) : selectedFauxSpell && fauxSubRequests.length === 0 ? (
             <div className="py-8 text-center text-muted-foreground">{fauxFeedEmptyMessage}</div>
           ) : selectedFauxSpell && fauxSubRequests.length > 0 ? (
@@ -1808,6 +1851,8 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
                   subRequests={subRequests}
                   feedSubscriptionKey={spellFeedSubscriptionKey}
                   hostPrimaryPageName="spells"
+                  preserveTimelineOnSubRequestsChange={spellFauxMergeTimeline}
+                  mergeTimelineWhenSubRequestFiltersMatch={spellFauxMergeTimeline}
                   showKinds={
                     selectedFauxSpell === 'notifications' ? NOTIFICATION_SPELL_KINDS : showKinds
                   }

@@ -7,6 +7,24 @@ import { E_TAG_FILTER_BLOCKED_RELAY_URLS, PROFILE_FETCH_RELAY_URLS } from '@/con
 import client from '@/services/client.service'
 import { normalizeUrl } from '@/lib/url'
 
+/**
+ * Immediate relay stack before NIP-65 outboxes resolve (accordion / fast first paint).
+ */
+export function getProfileRelayUrlsProvisional(blockedRelays: string[] = []): string[] {
+  const blocked = new Set(
+    [...blockedRelays, ...E_TAG_FILTER_BLOCKED_RELAY_URLS].map((u) => (normalizeUrl(u) || u).toLowerCase())
+  )
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const u of PROFILE_FETCH_RELAY_URLS) {
+    const n = normalizeUrl(u) || u
+    if (!n || blocked.has(n.toLowerCase()) || seen.has(n)) continue
+    seen.add(n)
+    out.push(n)
+  }
+  return out
+}
+
 export async function buildProfileRelayUrls(
   pubkey: string,
   blockedRelays: string[] = []

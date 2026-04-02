@@ -365,3 +365,58 @@ export async function fetchProfileAccordionBundle(args: {
 export function profileAccordionBundleCacheKey(urls: string[]): string {
   return profileAccordionRelayUrlsKey(urls)
 }
+
+function badgeMergeKey(b: TProfileBadge): string {
+  return `${b.a}|${b.awardId}`
+}
+
+/** Merge two accordion bundles (e.g. provisional relays + delta-only second fetch). */
+export function mergeProfileAccordionBundles(
+  base: ProfileAccordionBundle,
+  add: ProfileAccordionBundle
+): ProfileAccordionBundle {
+  const zapByPr = new Map(base.zaps.map((z) => [z.pr, z]))
+  for (const z of add.zaps) {
+    if (!zapByPr.has(z.pr)) zapByPr.set(z.pr, z)
+  }
+  const zaps = [...zapByPr.values()].sort((a, b) => b.amount - a.amount)
+
+  const reactionsByPubkey = new Map<string, Event>()
+  for (const e of base.reactions) {
+    reactionsByPubkey.set(e.pubkey, e)
+  }
+  for (const e of add.reactions) {
+    const prev = reactionsByPubkey.get(e.pubkey)
+    if (!prev || e.created_at > prev.created_at) reactionsByPubkey.set(e.pubkey, e)
+  }
+  const reactions = [...reactionsByPubkey.values()].sort((a, b) => b.created_at - a.created_at)
+
+  const commentById = new Map(base.comments.map((c) => [c.id, c]))
+  for (const c of add.comments) {
+    if (!commentById.has(c.id)) commentById.set(c.id, c)
+  }
+  const comments = [...commentById.values()].sort((a, b) => b.created_at - a.created_at)
+
+  const packByKey = new Map(base.followPacks.map((p) => [replaceableEventDedupeKey(p.event), p]))
+  for (const p of add.followPacks) {
+    const k = replaceableEventDedupeKey(p.event)
+    const prev = packByKey.get(k)
+    if (!prev || p.event.created_at > prev.event.created_at) packByKey.set(k, p)
+  }
+  const followPacks = [...packByKey.values()].sort((a, b) => b.event.created_at - a.event.created_at)
+
+  const badgeByKey = new Map(base.badges.map((b) => [badgeMergeKey(b), b]))
+  for (const b of add.badges) {
+    const k = badgeMergeKey(b)
+    if (!badgeByKey.has(k)) badgeByKey.set(k, b)
+  }
+  const badges = [...badgeByKey.values()]
+
+  const reportById = new Map(base.reports.map((r) => [r.id, r]))
+  for (const r of add.reports) {
+    if (!reportById.has(r.id)) reportById.set(r.id, r)
+  }
+  const reports = [...reportById.values()].sort((a, b) => b.created_at - a.created_at)
+
+  return { zaps, reactions, comments, badges, followPacks, reports }
+}

@@ -813,6 +813,7 @@ export default {
     'Nothing to load for this feed.': 'Nothing to load for this feed.',
     'No posts loaded for this feed. Try refreshing.':
       'No posts loaded for this feed. Try refreshing.',
+    'Looking for more events…': 'Looking for more events…',
     'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.':
       'Relays returned no events for this feed. They may be offline, slow, or not indexing these notes.',
     'Per-relay timeline results ({{count}} connections)':

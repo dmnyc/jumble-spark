@@ -1,5 +1,6 @@
 import {
   fetchProfileAccordionBundle,
+  mergeProfileAccordionBundles,
   profileAccordionBundleCacheKey,
   type ProfileAccordionBundle
 } from '@/lib/profile-accordion-fetch'
@@ -7,10 +8,16 @@ import {
   profileAccordionGetCachedBadges,
   profileAccordionGetCachedFollowPacks,
   profileAccordionGetCachedInteractions,
-  profileAccordionGetCachedReports
+  profileAccordionGetCachedReports,
+  profileAccordionRelayUrlsKey,
+  profileAccordionSetBadges,
+  profileAccordionSetFollowPacks,
+  profileAccordionSetInteractions,
+  profileAccordionSetReports
 } from '@/lib/profile-accordion-session-cache'
+import { subtractNormalizedRelayUrls } from '@/lib/url'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 const EMPTY: ProfileAccordionBundle = {
   zaps: [],
@@ -59,11 +66,16 @@ export function useProfileAccordionData(opts: {
   const [data, setData] = useState<ProfileAccordionBundle>(EMPTY)
   const [loading, setLoading] = useState(false)
   const reqId = useRef(0)
+  const lastSuccessfulRelayUrlsRef = useRef<string[]>([])
 
   const relayKey = useMemo(
     () => profileAccordionBundleCacheKey(relayUrls ?? []),
     [relayUrls]
   )
+
+  useEffect(() => {
+    lastSuccessfulRelayUrlsRef.current = []
+  }, [pubkey])
 
   const runFetch = useCallback(
     async (force: boolean, overrideUrls?: string[]) => {
@@ -86,11 +98,52 @@ export function useProfileAccordionData(opts: {
         })
         if (id !== reqId.current) return
         setData(bundle)
+        lastSuccessfulRelayUrlsRef.current = urls
       } finally {
         if (id === reqId.current) setLoading(false)
       }
     },
     [pubkey, relayUrls, viewerPubkey, favoriteRelays, blockedRelays]
+  )
+
+  const runMergeFetch = useCallback(
+    async (fullRelayUrls: string[], deltaUrls: string[], base: ProfileAccordionBundle) => {
+      const pk = pubkey?.trim()
+      if (!pk || !deltaUrls.length) return
+      const id = ++reqId.current
+      setLoading(true)
+      try {
+        const deltaB = await fetchProfileAccordionBundle({
+          pubkey: pk,
+          urls: deltaUrls,
+          viewerPubkey,
+          favoriteRelays: favoriteRelays ?? [],
+          blockedRelays,
+          force: true,
+          onPartial: (partial) => {
+            if (id !== reqId.current) return
+            setData(mergeProfileAccordionBundles(base, partial))
+          }
+        })
+        if (id !== reqId.current) return
+        const merged = mergeProfileAccordionBundles(base, deltaB)
+        setData(merged)
+        const fullKey = profileAccordionBundleCacheKey(fullRelayUrls)
+        profileAccordionSetInteractions(pk, fullKey, {
+          zaps: merged.zaps,
+          reactions: merged.reactions,
+          comments: merged.comments
+        })
+        profileAccordionSetBadges(pk, fullKey, merged.badges)
+        profileAccordionSetFollowPacks(pk, fullKey, merged.followPacks)
+        const viewer = viewerPubkey?.trim()
+        if (viewer) profileAccordionSetReports(pk, viewer, merged.reports)
+        lastSuccessfulRelayUrlsRef.current = fullRelayUrls
+      } finally {
+        if (id === reqId.current) setLoading(false)
+      }
+    },
+    [pubkey, viewerPubkey, favoriteRelays, blockedRelays]
   )
 
   const refresh = useCallback(
@@ -109,11 +162,29 @@ export function useProfileAccordionData(opts: {
     if (cached) {
       setData(cached)
       setLoading(false)
+      lastSuccessfulRelayUrlsRef.current = relayUrls
       return
     }
+
+    const prevSucc = lastSuccessfulRelayUrlsRef.current
+    if (
+      prevSucc.length > 0 &&
+      profileAccordionRelayUrlsKey(prevSucc) !== profileAccordionRelayUrlsKey(relayUrls)
+    ) {
+      const delta = subtractNormalizedRelayUrls(relayUrls, prevSucc)
+      if (delta.length > 0) {
+        const prevKey = profileAccordionBundleCacheKey(prevSucc)
+        const base = readFullCache(pk, prevKey, viewerPubkey)
+        if (base) {
+          void runMergeFetch(relayUrls, delta, base)
+          return
+        }
+      }
+    }
+
     setLoading(true)
     void runFetch(false)
-  }, [enabled, pubkey, relayKey, relayUrls, viewerPubkey, runFetch])
+  }, [enabled, pubkey, relayKey, relayUrls, viewerPubkey, runFetch, runMergeFetch])
 
   return {
     ...data,

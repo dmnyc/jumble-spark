@@ -23,7 +23,6 @@ const RelaysFeed = forwardRef<
   const { feedInfo, relayUrls } = useFeed()
   const { showKinds } = useKindFilterOrDefaults()
   const [areAlgoRelays, setAreAlgoRelays] = useState(false)
-  const [relayAlgoReady, setRelayAlgoReady] = useState(false)
   /** After kindless single-relay REQ EOSEs with no events, re-subscribe with the normal kind list. */
   const [singleRelayKindFallback, setSingleRelayKindFallback] = useState(false)
 
@@ -39,11 +38,10 @@ const RelaysFeed = forwardRef<
 
   useEffect(() => {
     if (relayUrls.length === 0) {
-      setRelayAlgoReady(false)
+      setAreAlgoRelays(false)
       return
     }
     let cancelled = false
-    setRelayAlgoReady(false)
 
     const init = async () => {
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -62,8 +60,6 @@ const RelaysFeed = forwardRef<
         setAreAlgoRelays(areAlgo)
       } catch (_error) {
         if (!cancelled) setAreAlgoRelays(false)
-      } finally {
-        if (!cancelled) setRelayAlgoReady(true)
       }
     }
 
@@ -148,7 +144,6 @@ const RelaysFeed = forwardRef<
       ref={ref}
       subRequests={subRequests}
       areAlgoRelays={areAlgoRelays}
-      relayCapabilityReady={relayAlgoReady}
       isMainFeed
       setSubHeader={setSubHeader}
       onSubHeaderRefresh={onSubHeaderRefresh}

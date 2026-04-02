@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Event } from 'nostr-tools'
 import { CALENDAR_EVENT_KINDS, ExtendedKind, isSocialKindBlockedKind } from '@/constants'
 import { buildProfilePageReadRelayUrls } from '@/lib/favorites-feed-relays'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeUrl, subtractNormalizedRelayUrls } from '@/lib/url'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 
 type ProfileTimelineMemoryEntry = {
@@ -202,15 +202,13 @@ export function useProfileTimeline({
       }
 
       const hasCalendarKinds = kinds.some((k) => CALENDAR_EVENT_KINDS.includes(k))
-      const authorRl = await client.fetchRelayList(pubkey).catch(() => ({
-        read: [] as string[],
-        write: [] as string[]
-      }))
-      const feedRelayUrls = buildProfilePageReadRelayUrls(
+      const socialKinds = kinds.some(isSocialKindBlockedKind)
+      const emptyAuthor = { read: [] as string[], write: [] as string[] }
+      const provisionalFeedUrls = buildProfilePageReadRelayUrls(
         favoriteRelays,
         blockedRelays,
-        authorRl,
-        kinds.some(isSocialKindBlockedKind)
+        emptyAuthor,
+        socialKinds
       )
 
       const startWave = async (subRequests: ReturnType<typeof buildSubRequests>) => {
@@ -240,12 +238,31 @@ export function useProfileTimeline({
         }
       }
 
-      if (feedRelayUrls.length === 0) {
+      if (provisionalFeedUrls.length === 0) {
         if (!cancelled) setIsLoading(false)
         return
       }
 
-      void startWave(buildSubRequests([feedRelayUrls], pubkey, kinds, limit, hasCalendarKinds))
+      void startWave(
+        buildSubRequests([provisionalFeedUrls], pubkey, kinds, limit, hasCalendarKinds)
+      )
+
+      void (async () => {
+        const authorRl = await client.fetchRelayList(pubkey).catch(() => ({
+          read: [] as string[],
+          write: [] as string[]
+        }))
+        if (cancelled) return
+        const fullFeedUrls = buildProfilePageReadRelayUrls(
+          favoriteRelays,
+          blockedRelays,
+          authorRl,
+          socialKinds
+        )
+        const deltaUrls = subtractNormalizedRelayUrls(fullFeedUrls, provisionalFeedUrls)
+        if (cancelled || deltaUrls.length === 0) return
+        await startWave(buildSubRequests([deltaUrls], pubkey, kinds, limit, hasCalendarKinds))
+      })()
     }
 
     void subscribe()

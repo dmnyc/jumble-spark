@@ -1531,6 +1531,9 @@ const NoteList = forwardRef(
               ? ALGO_LIMIT
               : LIMIT
 
+          // New REQ wave (incl. delta relays with same feed key): outcomes stay stale until this wave ends.
+          setFeedSubscribeRelayOutcomes([])
+
           timelineSubscribePromise = client.subscribeTimeline(
             mappedSubRequests as Array<{ urls: string[]; filter: TSubRequestFilter }>,
             {
@@ -2528,6 +2531,23 @@ const NoteList = forwardRef(
 
     const listSourceEvents = timelineEventsForFilter
     const feedFullSearchActive = feedFullSearchEvents !== null
+    const showRelaySubscribeWavePendingBanner =
+      !oneShotFetch &&
+      !feedFullSearchActive &&
+      subRequests.length > 0 &&
+      relayCapabilityReady &&
+      timelineKey != null &&
+      feedSubscribeRelayOutcomes.length === 0 &&
+      feedTimelineEmptyUiReady
+    const relayWavePendingBannerEl = showRelaySubscribeWavePendingBanner ? (
+      <div
+        className="mb-2 rounded border border-border/40 bg-muted/15 px-3 py-1.5 text-center text-xs text-muted-foreground"
+        role="status"
+        aria-live="polite"
+      >
+        {t('Looking for more events…')}
+      </div>
+    ) : null
     const eventReasonLabelMap = useMemo(() => {
       const reqs = subRequestsRef.current.filter((req) => req.reasonLabel && req.reasonLabel.trim().length > 0)
       if (!reqs.length || !clientFilteredEvents.length) return new Map<string, string>()
@@ -2548,6 +2568,7 @@ const NoteList = forwardRef(
 
     const list = (
       <div className="min-h-screen">
+        {relayWavePendingBannerEl}
         {feedClientFilterActive && filteredEvents.length > 0 && clientFilteredEvents.length === 0 ? (
           <div className="px-2 py-8 text-center text-sm text-muted-foreground">
             {t('No loaded posts match your filters.')}

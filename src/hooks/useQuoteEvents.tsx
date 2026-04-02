@@ -11,6 +11,7 @@ import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
+import type { TSubRequestFilter } from '@/types'
 import dayjs from 'dayjs'
 import { Event, kinds } from 'nostr-tools'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -99,7 +100,7 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
       const highlightKinds = [kinds.Highlights] as const
       const otherBacklinkKinds = [...THREAD_BACKLINK_STREAM_KINDS_WITHOUT_HIGHLIGHT]
 
-      const subRequests: { urls: string[]; filter: Filter }[] = [
+      const subRequests: { urls: string[]; filter: TSubRequestFilter }[] = [
         {
           urls: finalRelayUrls,
           filter: { '#q': [qeIdForTagFilter], kinds: [kinds.ShortTextNote], limit: LIMIT }
