@@ -289,6 +289,8 @@ const NoteList = forwardRef(
        * avoid a loading reset.
        */
       mergeTimelineWhenSubRequestFiltersMatch = false,
+      /** Home following: second {@link client.subscribeTimeline} merged into the primary composite key (delta relays / new authors). */
+      followingFeedDeltaSubRequests,
       /**
        * When set with {@link preserveTimelineOnSubRequestsChange}: home relay chip / feed mode identity.
        * If this string changes (e.g. single relay → all favorites), the timeline is cleared even when the new
@@ -376,6 +378,7 @@ const NoteList = forwardRef(
       feedSubscriptionKey?: string
       preserveTimelineOnSubRequestsChange?: boolean
       mergeTimelineWhenSubRequestFiltersMatch?: boolean
+      followingFeedDeltaSubRequests?: TFeedSubRequest[]
       feedTimelineScopeKey?: string
       spellFeedInstrumentToken?: number
       onSpellFeedFirstPaint?: (detail: { eventCount: number; firstEventId: string }) => void
@@ -507,6 +510,77 @@ const NoteList = forwardRef(
       )
     }, [subRequests])
 
+    const followingFeedDeltaSubRequestsKey = useMemo(
+      () =>
+        JSON.stringify(
+          (followingFeedDeltaSubRequests ?? []).map((req) => ({
+            urls: [...req.urls].map((u) => normalizeUrl(u) || u).filter(Boolean).sort(),
+            filter: stableSpellFeedFilterKey(req.filter)
+          }))
+        ),
+      [followingFeedDeltaSubRequests]
+    )
+
+    const mapLiveSubRequestsForTimeline = useCallback(
+      (requests: TFeedSubRequest[]) => {
+        const defaultKinds = showKinds.length > 0 ? showKinds : [kinds.ShortTextNote]
+        const seeAllNoSpell = seeAllFeedEvents && !useFilterAsIs
+        return requests.map(({ urls, filter }) => {
+          const baseLimit = filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT)
+          if (useFilterAsIs) {
+            const hasKindsInRequest = Array.isArray(filter.kinds) && filter.kinds.length > 0
+            if (allowKindlessRelayExplore && urls.length === 1 && !hasKindsInRequest) {
+              const finalFilter: Filter = {
+                ...filter,
+                limit: filter.limit ?? RELAY_EXPLORE_LIMIT
+              }
+              delete finalFilter.kinds
+              return { urls, filter: finalFilter }
+            }
+            const finalFilter: Filter = { ...filter, limit: baseLimit }
+            if (clientSideKindFilter) {
+              if (hasKindsInRequest) {
+                finalFilter.kinds = filter.kinds
+              } else {
+                delete finalFilter.kinds
+              }
+            } else if (hasKindsInRequest) {
+              finalFilter.kinds = filter.kinds
+            } else {
+              finalFilter.kinds = defaultKinds
+            }
+            return { urls, filter: finalFilter }
+          }
+          if (seeAllNoSpell) {
+            const { kinds: _omitKinds, ...rest } = filter
+            return {
+              urls,
+              filter: {
+                ...rest,
+                limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
+              }
+            }
+          }
+          return {
+            urls,
+            filter: {
+              ...filter,
+              kinds: defaultKinds,
+              limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
+            }
+          }
+        })
+      },
+      [
+        allowKindlessRelayExplore,
+        areAlgoRelays,
+        clientSideKindFilter,
+        seeAllFeedEvents,
+        showKinds,
+        useFilterAsIs
+      ]
+    )
+
     /** Feed identity for scoping client filter state (timeline key minus unrelated churn where possible). */
     const feedClientFilterScopeKey = useMemo(
       () => feedTimelineScopeKey ?? feedSubscriptionKey ?? subRequestsKey,
@@ -559,6 +633,7 @@ const NoteList = forwardRef(
     const feedTimelineScopePrevRef = useRef<string | undefined>(undefined)
     /** Detect pull-to-refresh so preserve-mode feeds still clear; unrelated dep changes must not clear. */
     const timelineEffectLastRefreshCountRef = useRef(refreshCount)
+    const followingFeedDeltaCloserRef = useRef<(() => void) | null>(null)
 
     useLayoutEffect(() => {
       setFeedTimelineEmptyUiReady(false)
@@ -1315,55 +1390,9 @@ const NoteList = forwardRef(
         setHasMore(true)
         consecutiveEmptyRef.current = 0 // Reset counter on refresh
 
-        const defaultKinds = showKinds.length > 0 ? showKinds : [kinds.ShortTextNote]
-
         const seeAllNoSpell = seeAllFeedEventsRef.current && !useFilterAsIsRef.current
 
-        const mappedSubRequests = subRequestsRef.current.map(({ urls, filter }) => {
-          const baseLimit = filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT)
-          if (useFilterAsIs) {
-            const hasKindsInRequest = Array.isArray(filter.kinds) && filter.kinds.length > 0
-            if (allowKindlessRelayExplore && urls.length === 1 && !hasKindsInRequest) {
-              const finalFilter: Filter = {
-                ...filter,
-                limit: filter.limit ?? RELAY_EXPLORE_LIMIT
-              }
-              delete finalFilter.kinds
-              return { urls, filter: finalFilter }
-            }
-            const finalFilter: Filter = { ...filter, limit: baseLimit }
-            if (clientSideKindFilter) {
-              if (hasKindsInRequest) {
-                finalFilter.kinds = filter.kinds
-              } else {
-                delete finalFilter.kinds
-              }
-            } else if (hasKindsInRequest) {
-              finalFilter.kinds = filter.kinds
-            } else {
-              finalFilter.kinds = defaultKinds
-            }
-            return { urls, filter: finalFilter }
-          }
-          if (seeAllNoSpell) {
-            const { kinds: _omitKinds, ...rest } = filter
-            return {
-              urls,
-              filter: {
-                ...rest,
-                limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
-              }
-            }
-          }
-          return {
-            urls,
-            filter: {
-              ...filter,
-              kinds: defaultKinds,
-              limit: areAlgoRelays ? ALGO_LIMIT : LIMIT
-            }
-          }
-        })
+        const mappedSubRequests = mapLiveSubRequestsForTimeline(subRequestsRef.current)
 
         const filterMissingKinds = (f: Filter) => !f.kinds || f.kinds.length === 0
         const invalidFilters = mappedSubRequests.filter(({ urls, filter: f }) => {
@@ -1755,6 +1784,8 @@ const NoteList = forwardRef(
       const snapshotKeyForCleanup = sessionSnapshotIdentityKey
       return () => {
         effectActive = false
+        followingFeedDeltaCloserRef.current?.()
+        followingFeedDeltaCloserRef.current = null
         setSessionFeedSnapshot(snapshotKeyForCleanup, eventsRef.current)
         if (timelinePrefetchDebounceRef.current) {
           clearTimeout(timelinePrefetchDebounceRef.current)
@@ -1793,7 +1824,190 @@ const NoteList = forwardRef(
       allowKindlessRelayExplore,
       showAllKinds,
       withKindFilter,
-      onSingleRelayKindlessEmpty
+      onSingleRelayKindlessEmpty,
+      mapLiveSubRequestsForTimeline
+    ])
+
+    useEffect(() => {
+      if (oneShotFetch) return
+      const deltas = followingFeedDeltaSubRequests ?? []
+      if (deltas.length === 0) {
+        followingFeedDeltaCloserRef.current?.()
+        followingFeedDeltaCloserRef.current = null
+        return
+      }
+      const tk = timelineKey
+      if (!tk) return
+
+      let deltaActive = true
+      const mappedDelta = mapLiveSubRequestsForTimeline(deltas)
+      const seeAllNoSpellDelta = seeAllFeedEventsRef.current && !useFilterAsIsRef.current
+      const filterMissingKindsDelta = (f: Filter) => !f.kinds || f.kinds.length === 0
+      const invalidDelta = mappedDelta.filter(({ urls, filter: f }) => {
+        if (seeAllNoSpellDelta) return false
+        if (!filterMissingKindsDelta(f)) return false
+        if (useFilterAsIs && clientSideKindFilter && timelineFilterHasNonKindScope(f)) return false
+        if (useFilterAsIs && allowKindlessRelayExplore && urls.length === 1) return false
+        return true
+      })
+      if (invalidDelta.length > 0) {
+        logger.warn('[NoteList] following feed delta: invalid filters, skipping wave', {
+          invalidCount: invalidDelta.length
+        })
+        followingFeedDeltaCloserRef.current?.()
+        followingFeedDeltaCloserRef.current = null
+        return
+      }
+
+      const eventCapDelta = allowKindlessRelayExplore
+        ? RELAY_EXPLORE_LIMIT
+        : areAlgoRelays
+          ? ALGO_LIMIT
+          : LIMIT
+
+      const narrowDeltaBatch = (evs: Event[]) => {
+        if (seeAllFeedEventsRef.current) return evs
+        if (allowKindlessRelayExploreRef.current && showAllKindsRef.current) return evs
+        if (!useFilterAsIsRef.current || !clientSideKindFilterRef.current) return evs
+        if (!withKindFilterRef.current) return evs
+        return evs.filter((e) => showKindsRef.current.includes(e.kind))
+      }
+
+      void (async () => {
+        try {
+          const { closer, timelineKey: deltaTk } = await client.subscribeTimeline(
+            mappedDelta as Array<{ urls: string[]; filter: TSubRequestFilter }>,
+            {
+              onEvents: (batch: Event[], eosed: boolean) => {
+                if (!deltaActive) return
+                if (batch.length > 0) {
+                  feedRelayReturnedAnyEventRef.current = true
+                }
+                const narrowed = narrowDeltaBatch(batch)
+                const paintDoneBefore = feedPaintLiveRelayDoneRef.current
+                if (!feedPaintLiveRelayDoneRef.current) {
+                  if (narrowed.length > 0) {
+                    feedPaintLiveRelayDoneRef.current = true
+                    feedPaintRelayPendingRef.current = true
+                    feedPaintRelayMetaRef.current = {
+                      variant: 'live_subscription',
+                      mode: 'rows',
+                      narrowedInBatch: narrowed.length,
+                      batchIncoming: batch.length,
+                      eosed
+                    }
+                  } else if (eosed) {
+                    feedPaintLiveRelayDoneRef.current = true
+                    feedPaintRelayPendingRef.current = true
+                    feedPaintRelayMetaRef.current = {
+                      variant: 'live_subscription',
+                      mode: 'eose_no_visible_rows',
+                      batchIncoming: batch.length,
+                      eosed
+                    }
+                  }
+                }
+                if (!paintDoneBefore && feedPaintLiveRelayDoneRef.current) {
+                  setFeedEmptyToastGateTick((n) => n + 1)
+                  setFeedTimelineEmptyUiReady(true)
+                }
+                if (batch.length > 0) {
+                  if (narrowed.length > 0) {
+                    setEvents((prev) => {
+                      const next = mergeEventBatchesById(prev, narrowed, eventCapDelta)
+                      lastEventsForTimelinePrefetchRef.current = next
+                      return next
+                    })
+                    setLoading(false)
+                  } else if (eosed) {
+                    setLoading(false)
+                  }
+                } else if (eosed) {
+                  setLoading(false)
+                }
+                if (!areAlgoRelays && eosed) {
+                  setHasMore(true)
+                }
+              },
+              onNew: (event: Event) => {
+                if (!deltaActive) return
+                feedRelayReturnedAnyEventRef.current = true
+                if (!seeAllFeedEventsRef.current && withKindFilterRef.current) {
+                  const kindlessFirehose =
+                    allowKindlessRelayExploreRef.current && showAllKindsRef.current
+                  if (!kindlessFirehose) {
+                    if (!useFilterAsIsRef.current && !showKinds.includes(event.kind)) return
+                    if (
+                      clientSideKindFilterRef.current &&
+                      useFilterAsIsRef.current &&
+                      !showKinds.includes(event.kind)
+                    )
+                      return
+                    if (event.kind === kinds.ShortTextNote) {
+                      const isReply = isReplyNoteEvent(event)
+                      if (isReply && !showKind1Replies) return
+                      if (!isReply && !showKind1OPs) return
+                    }
+                    if (event.kind === ExtendedKind.COMMENT && !showKind1111) return
+                    if (event.kind === ExtendedKind.GIT_RELEASE && !showKind1OPs) return
+                  }
+                }
+                if (shouldHideEventRef.current(event)) return
+                if (pubkey && event.pubkey === pubkey) {
+                  setEvents((oldEvents) =>
+                    oldEvents.some((e) => e.id === event.id) ? oldEvents : [event, ...oldEvents]
+                  )
+                } else {
+                  setNewEvents((oldEvents) =>
+                    [event, ...oldEvents].sort((a, b) => b.created_at - a.created_at)
+                  )
+                }
+              }
+            },
+            {
+              startLogin,
+              needSort: !areAlgoRelays,
+              firstRelayResultGraceMs: FIRST_RELAY_RESULT_GRACE_MS
+            }
+          )
+          if (!deltaActive) {
+            closer()
+            return
+          }
+          const addedLeaves = client.appendTimelinesToComposite(tk, deltaTk)
+          const innerClose = closer
+          const tkForLeafRemoval = tk
+          followingFeedDeltaCloserRef.current = () => {
+            innerClose()
+            if (tkForLeafRemoval && addedLeaves.length > 0) {
+              client.removeTimelineLeavesFromComposite(tkForLeafRemoval, addedLeaves)
+            }
+          }
+        } catch (e) {
+          logger.warn('[NoteList] following feed delta subscribe failed', { error: e })
+        }
+      })()
+
+      return () => {
+        deltaActive = false
+        followingFeedDeltaCloserRef.current?.()
+        followingFeedDeltaCloserRef.current = null
+      }
+    }, [
+      followingFeedDeltaSubRequestsKey,
+      timelineKey,
+      oneShotFetch,
+      mapLiveSubRequestsForTimeline,
+      areAlgoRelays,
+      allowKindlessRelayExplore,
+      useFilterAsIs,
+      clientSideKindFilter,
+      startLogin,
+      pubkey,
+      showKinds,
+      showKind1OPs,
+      showKind1Replies,
+      showKind1111
     ])
 
     const oneShotDebugPrevLoadingRef = useRef(false)

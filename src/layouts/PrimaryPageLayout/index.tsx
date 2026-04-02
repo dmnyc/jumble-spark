@@ -1,4 +1,5 @@
 import ScrollToTopButton from '@/components/ScrollToTopButton'
+import { ReadOnlySessionIndicator } from '@/components/ReadOnlySessionIndicator'
 import { Titlebar } from '@/components/Titlebar'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import type { TPrimaryPageName } from '@/PageManager'
@@ -159,7 +160,10 @@ function PrimaryPageTitlebar({
 }) {
   return (
     <Titlebar className="p-1" hideBottomBorder={hideBottomBorder}>
-      {children}
+      <div className="flex h-full w-full min-w-0 items-center gap-2">
+        <ReadOnlySessionIndicator variant="titlebar" />
+        <div className="relative min-h-0 min-w-0 flex-1 h-full">{children}</div>
+      </div>
     </Titlebar>
   )
 }

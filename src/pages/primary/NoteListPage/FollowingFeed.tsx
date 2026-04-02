@@ -1,6 +1,7 @@
 import NormalFeed from '@/components/NormalFeed'
 import type { TNoteListRef } from '@/components/NoteList'
 import { augmentSubRequestsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
+import { buildFollowingFeedDeltaSubRequests } from '@/lib/following-feed-delta'
 import { getPubkeysFromPTags } from '@/lib/tag'
 import { normalizeUrl } from '@/lib/url'
 import logger from '@/lib/logger'
@@ -23,6 +24,7 @@ const FollowingFeed = forwardRef<
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { feedInfo } = useFeed()
   const [subRequests, setSubRequests] = useState<TFeedSubRequest[]>([])
+  const [deltaSubRequests, setDeltaSubRequests] = useState<TFeedSubRequest[]>([])
 
   const favoriteRelaysKey = useMemo(
     () =>
@@ -61,13 +63,21 @@ const FollowingFeed = forwardRef<
     [relayList?.write]
   )
 
+  const followingFeedSubscriptionKey = useMemo(
+    () => (pubkey ? `home-following:${pubkey.toLowerCase()}` : undefined),
+    [pubkey]
+  )
+
   useEffect(() => {
     let cancelled = false
     async function init() {
       if (feedInfo.feedType !== 'following' || !pubkey) {
         setSubRequests([])
+        setDeltaSubRequests([])
         return
       }
+
+      setDeltaSubRequests([])
 
       const augment = (raw: TFeedSubRequest[]) =>
         augmentSubRequestsWithFavoritesFastReadAndInbox(
@@ -80,13 +90,16 @@ const FollowingFeed = forwardRef<
 
       const fromTags = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
       const provisionalAuthors = [...new Set([pubkey, ...fromTags])]
+      const provisionalAuthorLower = provisionalAuthors.map((p) => p.toLowerCase())
 
+      let rawProv: TFeedSubRequest[] = []
       try {
-        const rawProv = await client.generateSubRequestsForPubkeys(provisionalAuthors, pubkey)
-        if (!cancelled) setSubRequests(augment(rawProv))
+        rawProv = await client.generateSubRequestsForPubkeys(provisionalAuthors, pubkey)
       } catch (error) {
         logger.warn('[FollowingFeed] provisional generateSubRequestsForPubkeys failed', { error })
       }
+      const provAug = augment(rawProv)
+      if (!cancelled) setSubRequests(provAug)
 
       let followings: string[] = fromTags
       try {
@@ -100,19 +113,25 @@ const FollowingFeed = forwardRef<
       }
 
       const fullAuthors = [...new Set([pubkey, ...followings])]
-      const sameSize = fullAuthors.length === provisionalAuthors.length
-      const sameSet =
-        sameSize && fullAuthors.every((p) => provisionalAuthors.includes(p)) && provisionalAuthors.every((p) => fullAuthors.includes(p))
-      if (sameSet) {
-        return
-      }
 
       try {
-        const raw = await client.generateSubRequestsForPubkeys(fullAuthors, pubkey)
-        if (!cancelled) setSubRequests(augment(raw))
+        const rawFull = await client.generateSubRequestsForPubkeys(fullAuthors, pubkey)
+        if (cancelled) return
+        const fullAug = augment(rawFull)
+        const delta = buildFollowingFeedDeltaSubRequests(fullAug, provAug, provisionalAuthorLower)
+        if (!cancelled) {
+          setDeltaSubRequests(delta)
+          if (delta.length > 0) {
+            logger.info('[FollowingFeed] delta wave subRequests', {
+              deltaShardCount: delta.length,
+              provisionalShardCount: provAug.length,
+              fullShardCount: fullAug.length
+            })
+          }
+        }
       } catch (error) {
-        logger.error('[FollowingFeed] generateSubRequestsForPubkeys failed', error)
-        if (!cancelled) setSubRequests([])
+        logger.error('[FollowingFeed] full generateSubRequestsForPubkeys failed', error)
+        if (!cancelled) setDeltaSubRequests([])
       }
     }
 
@@ -134,8 +153,9 @@ const FollowingFeed = forwardRef<
     <NormalFeed
       ref={ref}
       subRequests={subRequests}
+      followingFeedDeltaSubRequests={deltaSubRequests}
+      feedSubscriptionKey={followingFeedSubscriptionKey}
       preserveTimelineOnSubRequestsChange
-      mergeTimelineWhenSubRequestFiltersMatch
       isMainFeed
       setSubHeader={setSubHeader}
       onSubHeaderRefresh={onSubHeaderRefresh}

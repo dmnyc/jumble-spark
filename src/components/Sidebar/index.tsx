@@ -16,6 +16,7 @@ import { FavoriteRelaysActiveStripSidebar } from '@/components/FavoriteRelaysAct
 import PaneModeToggle from './PaneModeToggle'
 import DownloadDesktopSidebarButton from './DownloadDesktopSidebarButton'
 import LiveActivitiesStrip from '@/components/LiveActivitiesStrip'
+import { ReadOnlySessionIndicator } from '@/components/ReadOnlySessionIndicator'
 
 export default function PrimaryPageSidebar() {
   const { isSmallScreen } = useScreenSize()
@@ -33,6 +34,7 @@ export default function PrimaryPageSidebar() {
             </div>
           </div>
         </div>
+        <ReadOnlySessionIndicator variant="sidebar" />
         <div className="max-xl:hidden w-full min-w-0 px-1">
           <LiveActivitiesStrip placement="sidebar" />
         </div>

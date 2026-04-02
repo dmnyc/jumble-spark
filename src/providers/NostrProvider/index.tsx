@@ -21,6 +21,7 @@ import {
 import { getLatestEvent, minePow } from '@/lib/event'
 import { getHttpRelayListFromEvent, getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
+import { LoginRequiredError } from '@/lib/nostr-errors'
 import { normalizeHttpRelayUrl, normalizeUrl } from '@/lib/url'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
@@ -86,6 +87,12 @@ function blockedRelayUrlsFromEvent(blockedRelaysEvent: Event | null): string[] {
   return out
 }
 
+const NIP07_SIGNER_PUBKEY_MISMATCH_MSG = 'Signer pubkey does not match current account'
+
+function isNip07SignerPubkeyMismatchError(e: unknown): boolean {
+  return e instanceof Error && e.message === NIP07_SIGNER_PUBKEY_MISMATCH_MSG
+}
+
 export function NostrProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   const [accounts, setAccounts] = useState<TAccountPointer[]>(
@@ -98,6 +105,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   const [openLoginDialog, setOpenLoginDialog] = useState(false)
   const [ncryptsecPasswordOpen, setNcryptsecPasswordOpen] = useState(false)
   const ncryptsecPasswordResolveRef = useRef<((value: string | null) => void) | null>(null)
+  /** One toast per mismatch episode; cleared after a successful NIP-07 login. */
+  const nip07KeyMismatchToastShownRef = useRef(false)
   const [profile, setProfile] = useState<TProfile | null>(null)
 
   // Cleanup on page unload to prevent extension UI issues
@@ -831,7 +840,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         await nip07Signer.init()
         const pubkey = await nip07Signer.getPublicKey()
         if (pubkey.toLowerCase() !== preferred.pubkey.toLowerCase()) {
-          throw new Error('Signer pubkey does not match current account')
+          throw new Error(NIP07_SIGNER_PUBKEY_MISMATCH_MSG)
         }
         login(nip07Signer, preferred)
         logger.info('[NostrProvider] Recovered NIP-07 signer from read-only fallback', {
@@ -840,6 +849,14 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         })
         return
       } catch (error) {
+        if (isNip07SignerPubkeyMismatchError(error)) {
+          if (!nip07KeyMismatchToastShownRef.current) {
+            nip07KeyMismatchToastShownRef.current = true
+            toast.error(t('nip07.extensionKeyMismatch'), { duration: 12_000 })
+          }
+          attempts = maxAttempts
+          return
+        }
         logger.info('[NostrProvider] NIP-07 recovery retry failed', {
           pubkeySlice: preferred.pubkey.slice(0, 12),
           attempts,
@@ -875,6 +892,9 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }
 
   const login = (signer: ISigner, act: TAccount) => {
+    if (act.signerType === 'nip-07') {
+      nip07KeyMismatchToastShownRef.current = false
+    }
     const newAccounts = storage.addAccount(act)
     setAccounts(newAccounts)
     storage.switchAccount(act)
@@ -1071,10 +1091,11 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         await nip07Signer.init()
         const pubkey = await nip07Signer.getPublicKey()
         if (pubkey.toLowerCase() !== storedAccount.pubkey.toLowerCase()) {
-          throw new Error('Signer pubkey does not match current account')
+          throw new Error(NIP07_SIGNER_PUBKEY_MISMATCH_MSG)
         }
         return login(nip07Signer, storedAccount)
       } catch (err) {
+        let lastNip07Err: unknown = err
         // One short retry avoids transient extension injection races on reload.
         try {
           await new Promise((resolve) => setTimeout(resolve, 1200))
@@ -1082,10 +1103,11 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
           await retrySigner.init()
           const retryPubkey = await retrySigner.getPublicKey()
           if (retryPubkey.toLowerCase() !== storedAccount.pubkey.toLowerCase()) {
-            throw new Error('Signer pubkey does not match current account')
+            throw new Error(NIP07_SIGNER_PUBKEY_MISMATCH_MSG)
           }
           return login(retrySigner, storedAccount)
         } catch (retryErr) {
+          lastNip07Err = retryErr
           // If this tab already has a working nip-07 signer for the same account, keep it.
           if (
             currentAccountState?.pubkey === storedAccount.pubkey &&
@@ -1104,6 +1126,13 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
               // Ignore and fall through to read-only fallback.
             }
           }
+        }
+        if (
+          (isNip07SignerPubkeyMismatchError(err) || isNip07SignerPubkeyMismatchError(lastNip07Err)) &&
+          !nip07KeyMismatchToastShownRef.current
+        ) {
+          nip07KeyMismatchToastShownRef.current = true
+          toast.error(t('nip07.extensionKeyMismatch'), { duration: 12_000 })
         }
         return fallbackToReadOnlyNpub(storedAccount.pubkey, err)
       }
@@ -1224,7 +1253,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     { minPow = 0, ...options }: TPublishOptions = {}
   ) => {
     if (!account || !signer || account.signerType === 'npub') {
-      throw new Error('You need to login first')
+      setOpenLoginDialog(true)
+      throw new LoginRequiredError()
     }
     
     // Validate account state before publishing
@@ -1355,8 +1385,9 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }
 
   const attemptDelete = async (targetEvent: Event) => {
-    if (!signer) {
-      throw new Error(t('You need to login first'))
+    if (!signer || account?.signerType === 'npub') {
+      setOpenLoginDialog(true)
+      return
     }
     if (account?.pubkey !== targetEvent.pubkey) {
       throw new Error(t('You can only delete your own notes'))
@@ -1413,11 +1444,14 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const checkLogin = async <T,>(cb?: () => T): Promise<T | void> => {
-    if (signer) {
-      return cb && cb()
+  const checkLogin = async <T,>(cb?: () => T | Promise<T>): Promise<T | void> => {
+    if (!signer || account?.signerType === 'npub') {
+      setOpenLoginDialog(true)
+      return
     }
-    return setOpenLoginDialog(true)
+    if (cb) {
+      return await cb()
+    }
   }
 
   const updateRelayListEvent = async (relayListEvent: Event) => {

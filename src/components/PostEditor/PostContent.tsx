@@ -40,6 +40,7 @@ import { useReply } from '@/providers/ReplyProvider'
 import { canonicalizeRssArticleUrl, getArticleUrlFromCommentITags } from '@/lib/rss-article'
 import { normalizeUrl, rewritePlainTextHttpUrls } from '@/lib/url'
 import logger from '@/lib/logger'
+import { LoginRequiredError } from '@/lib/nostr-errors'
 import postEditorCache from '@/services/post-editor-cache.service'
 import storage from '@/services/local-storage.service'
 import { TPollCreateData } from '@/types'
@@ -1160,6 +1161,9 @@ export default function PostContent({
         onPublishSuccess?.()
         close()
       } catch (error) {
+        if (error instanceof LoginRequiredError) {
+          return
+        }
         // AggregateError = "Failed to publish to any relay" is already logged in NostrProvider with relayStatuses; avoid duplicate noise
         if (!(error instanceof AggregateError && error.message === 'Failed to publish to any relay')) {
           logger.error('Publishing error', { error })

@@ -26,6 +26,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
    */
   preserveTimelineOnSubRequestsChange?: boolean
   mergeTimelineWhenSubRequestFiltersMatch?: boolean
+  /** Home following: second subscribe wave (delta relays / new authors); see {@link NoteList}. */
+  followingFeedDeltaSubRequests?: TFeedSubRequest[]
+  /** Stable subscription identity; see {@link NoteList} `feedSubscriptionKey`. */
+  feedSubscriptionKey?: string
   /** Home favorite-relays chip scope; see {@link NoteList} `feedTimelineScopeKey`. */
   feedTimelineScopeKey?: string
   /** Single-relay Explore / chip: kindless REQ (see `SINGLE_RELAY_KINDLESS_REQ_LIMIT` in constants). */
@@ -62,6 +66,8 @@ const NormalFeed = forwardRef<TNoteListRef, {
     onSubHeaderRefresh,
     preserveTimelineOnSubRequestsChange = false,
     mergeTimelineWhenSubRequestFiltersMatch = false,
+    followingFeedDeltaSubRequests,
+    feedSubscriptionKey,
     feedTimelineScopeKey,
     useFilterAsIs = false,
     clientSideKindFilter = false,
@@ -230,8 +236,10 @@ const NormalFeed = forwardRef<TNoteListRef, {
           hideUntrustedNotes={hideUntrustedNotes}
           areAlgoRelays={areAlgoRelays}
           relayCapabilityReady={relayCapabilityReady}
+          feedSubscriptionKey={feedSubscriptionKey}
           preserveTimelineOnSubRequestsChange={preserveTimelineOnSubRequestsChange}
           mergeTimelineWhenSubRequestFiltersMatch={mergeTimelineWhenSubRequestFiltersMatch}
+          followingFeedDeltaSubRequests={followingFeedDeltaSubRequests}
           feedTimelineScopeKey={feedTimelineScopeKey}
           useFilterAsIs={useFilterAsIs}
           clientSideKindFilter={clientSideKindFilter}

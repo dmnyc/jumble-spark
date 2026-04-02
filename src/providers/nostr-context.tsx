@@ -51,7 +51,7 @@ export type TNostrContext = {
   nip04Encrypt: (pubkey: string, plainText: string) => Promise<string>
   nip04Decrypt: (pubkey: string, cipherText: string) => Promise<string>
   startLogin: () => void
-  checkLogin: <T>(cb?: () => T) => Promise<T | void>
+  checkLogin: <T>(cb?: () => T | Promise<T>) => Promise<T | void>
   updateRelayListEvent: (relayListEvent: Event) => Promise<void>
   updateCacheRelayListEvent: (cacheRelayListEvent: Event) => Promise<void>
   updateHttpRelayListEvent: (httpRelayListEvent: Event) => Promise<void>

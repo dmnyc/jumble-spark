@@ -1,4 +1,5 @@
 import ScrollToTopButton from '@/components/ScrollToTopButton'
+import { ReadOnlySessionIndicator } from '@/components/ReadOnlySessionIndicator'
 import { Titlebar } from '@/components/Titlebar'
 import { Button } from '@/components/ui/button'
 import {
@@ -162,26 +163,33 @@ export function SecondaryPageTitlebar({
 }): JSX.Element {
   if (titlebar) {
     return (
-      <Titlebar className="p-1" hideBottomBorder={hideBottomBorder}>
-        {titlebar}
+      <Titlebar
+        className="flex min-w-0 items-center gap-2 p-1"
+        hideBottomBorder={hideBottomBorder}
+      >
+        <ReadOnlySessionIndicator variant="titlebar" />
+        <div className="min-h-0 min-w-0 flex-1 h-full">{titlebar}</div>
       </Titlebar>
     )
   }
   return (
     <Titlebar
-      className="flex gap-1 p-1 items-center justify-between font-semibold"
+      className="flex min-w-0 gap-1 p-1 items-center font-semibold"
       hideBottomBorder={hideBottomBorder}
     >
-      {hideBackButton ? (
-        <div className="flex gap-2 items-center pl-3 w-fit truncate text-lg font-semibold">
-          {title}
-        </div>
-      ) : (
-        <div className="flex items-center flex-1 w-0">
-          <BackButton>{title}</BackButton>
-        </div>
-      )}
-      <div className="flex-shrink-0">{controls}</div>
+      <ReadOnlySessionIndicator variant="titlebar" />
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-1">
+        {hideBackButton ? (
+          <div className="flex gap-2 items-center pl-2 w-fit truncate text-lg font-semibold">
+            {title}
+          </div>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center">
+            <BackButton>{title}</BackButton>
+          </div>
+        )}
+        <div className="flex-shrink-0">{controls}</div>
+      </div>
     </Titlebar>
   )
 }

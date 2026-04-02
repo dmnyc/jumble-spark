@@ -1816,6 +1816,30 @@ class ClientService extends EventTarget {
   }
 
   /**
+   * Append another {@link subscribeTimeline} composite’s leaf keys onto `primaryCompositeKey` so
+   * {@link loadMoreTimeline} fans out to both waves. Removes `secondaryCompositeKey` from the map after merge.
+   * Returns the leaf keys that were appended (for removal when the delta wave closes).
+   */
+  appendTimelinesToComposite(primaryCompositeKey: string, secondaryCompositeKey: string): string[] {
+    const primary = this.timelines[primaryCompositeKey]
+    const secondary = this.timelines[secondaryCompositeKey]
+    if (!Array.isArray(primary) || !Array.isArray(secondary)) return []
+    const added = secondary.slice()
+    this.timelines[primaryCompositeKey] = [...primary, ...added]
+    delete this.timelines[secondaryCompositeKey]
+    return added
+  }
+
+  /** Undo part of {@link appendTimelinesToComposite} when a delta subscription is torn down. */
+  removeTimelineLeavesFromComposite(compositeKey: string, leafKeys: string[]): void {
+    if (leafKeys.length === 0) return
+    const t = this.timelines[compositeKey]
+    if (!Array.isArray(t)) return
+    const drop = new Set(leafKeys)
+    this.timelines[compositeKey] = t.filter((k) => !drop.has(k))
+  }
+
+  /**
    * Check if a timeline has more events available (either cached or from network)
    */
   hasMoreTimelineEvents(key: string, until: number): boolean {

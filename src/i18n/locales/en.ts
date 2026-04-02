@@ -310,6 +310,12 @@ export default {
     'Login with Bunker': 'Login with Bunker',
     'Login with Private Key': 'Login with Private Key',
     'Login with npub (read-only)': 'Login with npub (read-only)',
+    readOnlySession: {
+      label: 'Read-only',
+      labelShort: 'R/O',
+      hint:
+        'Browsing without a signing key. Sign in with an extension, nsec, or another method to post, react, and edit.'
+    },
     'reload notes': 'reload notes',
     'Logged in Accounts': 'Logged in Accounts',
     'Add an Account': 'Add an Account',
@@ -1442,6 +1448,8 @@ export default {
     'Log in to run this spell (it uses $me or $contacts).':
       'Log in to run this spell (it uses $me or $contacts).',
     'Login failed': 'Login failed',
+    'nip07.extensionKeyMismatch':
+      'Your browser wallet is using a different key than this saved account. Select the matching key in the extension, or log in to add this wallet as an account. Retrying will not help until the keys match.',
     'Login to configure RSS feeds': 'Login to configure RSS feeds',
     'Long-form Article': 'Long-form Article',
     'Mailbox relays saved': 'Mailbox relays saved',
