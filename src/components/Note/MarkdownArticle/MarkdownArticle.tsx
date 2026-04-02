@@ -54,6 +54,183 @@ function truncateLinkText(text: string, maxLength: number = 200): string {
   return text.substring(0, maxLength) + '...'
 }
 
+type ParsedMathDelimiter = { expression: string; displayMode: boolean } | null
+
+/**
+ * Marked's inline lexer treats `\\{`, `\\}`, `\\#`, `\\%`, `\\_`, etc. as markdown escapes and
+ * removes the backslash. That breaks TeX inside `$...$` / `$$...$$` (e.g. set literals `\\{...\\}`).
+ * We swap `\\` for this private-use character only inside math spans before lexInline, then
+ * restore in {@link normalizeLatexExpression} before KaTeX.
+ */
+const MATH_BACKSLASH_SENTINEL = '\uE15C'
+
+function normalizeLatexExpression(input: string): string {
+  let s = input.trim()
+  if (s.includes(MATH_BACKSLASH_SENTINEL)) {
+    s = s.split(MATH_BACKSLASH_SENTINEL).join('\\')
+  }
+  return s
+}
+
+function isLikelyCurrency(value: string): boolean {
+  return /^\d+(?:[.,]\d+)?$/.test(value.trim())
+}
+
+/** Inline `$…$` that is clearly shell/code/CSS/prose, not TeX — avoids KaTeX error styling on junk spans. */
+function isLikelyNonTexInlineDollar(expression: string): boolean {
+  const t = expression.trim()
+  if (t.includes('`')) return true
+  if (t.includes('${')) return true
+  if (t.includes('"')) return true
+  // Long “math” with none of \^_{} — e.g. CSS vars paired across a line break, or shell prose
+  if (!/[\\^_{}]/.test(t) && t.length > 18 && !/^[\d.,\s]+$/.test(t)) return true
+  return false
+}
+
+function parseDelimitedMath(value: string): ParsedMathDelimiter {
+  const trimmed = value.trim()
+  if (trimmed.length < 3) return null
+
+  if (trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length > 4) {
+    const expression = trimmed.slice(2, -2).trim()
+    if (!expression) return null
+    return { expression, displayMode: true }
+  }
+
+  if (trimmed.startsWith('$') && trimmed.endsWith('$') && trimmed.length > 2) {
+    const expression = trimmed.slice(1, -1).trim()
+    if (!expression || isLikelyCurrency(expression)) return null
+    return { expression, displayMode: false }
+  }
+
+  return null
+}
+
+function collectMathInlinePatterns(text: string): Array<{ index: number; end: number; type: 'math-inline' | 'math-block'; data: string }> {
+  const patterns: Array<{ index: number; end: number; type: 'math-inline' | 'math-block'; data: string }> = []
+
+  let i = 0
+  while (i < text.length) {
+    if (text[i] !== '$' || (i > 0 && text[i - 1] === '\\')) {
+      i++
+      continue
+    }
+
+    const isDouble = text[i + 1] === '$'
+    const openLen = isDouble ? 2 : 1
+    const type = isDouble ? 'math-block' : 'math-inline'
+    const start = i
+    let j = i + openLen
+    let foundEnd = -1
+
+    while (j < text.length) {
+      if (text[j] === '\\') {
+        j += 2
+        continue
+      }
+
+      if (isDouble) {
+        if (text[j] === '$' && text[j + 1] === '$') {
+          foundEnd = j
+          break
+        }
+        j++
+      } else {
+        if (text[j] === '$') {
+          foundEnd = j
+          break
+        }
+        j++
+      }
+    }
+
+    if (foundEnd === -1) {
+      i++
+      continue
+    }
+
+    const end = foundEnd + openLen
+    const expression = text.slice(start + openLen, foundEnd).trim()
+    if (!expression || (!isDouble && isLikelyCurrency(expression))) {
+      i = end
+      continue
+    }
+    if (!isDouble && isLikelyNonTexInlineDollar(expression)) {
+      i = start + 1
+      continue
+    }
+
+    patterns.push({ index: start, end, type, data: expression })
+    i = end
+  }
+
+  return patterns
+}
+
+function protectTeXBackslashesInMathForMarkdown(content: string): string {
+  const patterns = collectMathInlinePatterns(content)
+  if (patterns.length === 0) return content
+  let result = ''
+  let cursor = 0
+  for (const p of patterns) {
+    const openLen = p.type === 'math-block' ? 2 : 1
+    const innerStart = p.index + openLen
+    const innerEnd = p.end - openLen
+    result += content.slice(cursor, innerStart)
+    result += content.slice(innerStart, innerEnd).replace(/\\/g, MATH_BACKSLASH_SENTINEL)
+    cursor = innerEnd
+  }
+  result += content.slice(cursor)
+  return result
+}
+
+function lexInlineProtected(source: string): any[] {
+  return marked.Lexer.lexInline(protectTeXBackslashesInMathForMarkdown(source), {
+    gfm: true,
+    breaks: true
+  }) as any[]
+}
+
+function isMathLanguage(language: string): boolean {
+  const normalized = language.trim().toLowerCase()
+  return normalized === 'latex' ||
+    normalized === 'tex' ||
+    normalized === 'math' ||
+    normalized === 'asciimath'
+}
+
+function MathExpression({
+  expression,
+  displayMode,
+  keyPrefix,
+  className
+}: {
+  expression: string
+  displayMode: boolean
+  keyPrefix: string
+  /** Merged after base display/inline classes (e.g. layout when wrapped with trailing punctuation). */
+  className?: string
+}) {
+  try {
+    const rendered = katex.renderToString(normalizeLatexExpression(expression), {
+      throwOnError: false,
+      displayMode
+    })
+    const baseClass = displayMode ? 'block my-2 overflow-x-auto' : 'inline'
+    return (
+      <span
+        key={keyPrefix}
+        className={[baseClass, className].filter(Boolean).join(' ')}
+        dangerouslySetInnerHTML={{ __html: rendered }}
+      />
+    )
+  } catch (error) {
+    logger.error('Error rendering TeX expression:', error)
+    const delimiters = displayMode ? ['$$', '$$'] : ['$', '$']
+    return <span key={keyPrefix}>{`${delimiters[0]}${expression}${delimiters[1]}`}</span>
+  }
+}
+
 /**
  * Prevent invalid nested <a> trees by downgrading anchor descendants to spans.
  */
@@ -114,27 +291,12 @@ function unescapeJsonContent(content: string): string {
   // Regex: /\\\\n/g (in source: four backslashes + n)
   unescaped = unescaped.replace(/\\\\n/g, '\n')
   
-  // Handle single-escaped newlines: \n -> newline
-  // This handles cases where the content has literal \n that should be newlines
-  // But we need to be careful not to break actual newlines that are already in the content
-  // We'll only replace \n that appears as a literal backslash + n sequence
-  unescaped = unescaped.replace(/\\n/g, '\n')
+  // Do NOT replace bare \n, \t, or \r here: those two-character sequences are normal in
+  // LaTeX (\nabla, \neq, \text, \right, \rho, etc.). JSON.parse already turns JSON \n into
+  // real newlines; remaining backslash-n in the string is almost always TeX, not a stray escape.
   
   // Handle escaped quotes: \" -> "
   unescaped = unescaped.replace(/\\"/g, '"')
-  
-  // Handle escaped tabs: \t -> tab
-  unescaped = unescaped.replace(/\\t/g, '\t')
-  
-  // Handle escaped carriage returns: \r -> carriage return
-  unescaped = unescaped.replace(/\\r/g, '\r')
-  
-  // Remove any remaining standalone backslashes that aren't part of valid escape sequences
-  // This catches any stray backslashes that shouldn't be visible
-  // We preserve backslashes that are followed by n, ", t, r, or another backslash
-  // BUT: Don't remove backslashes that might be legitimate (like in markdown code blocks)
-  // Only remove if it's clearly a stray escape character
-  unescaped = unescaped.replace(/\\(?![n"tr\\])/g, '')
   
   // Decode any HTML entities that might have been incorrectly encoded
   // This handles cases where content has HTML entities like &#x43; (which is 'C')
@@ -214,62 +376,17 @@ function CodeBlock({ id, code, language }: { id: string; code: string; language:
  * If the code content is LaTeX math (starts and ends with $), render it with KaTeX
  */
 function InlineCode({ code, keyPrefix }: { code: string; keyPrefix: string }) {
-  const elementRef = useRef<HTMLElement>(null)
-  
-  // Check if this is LaTeX math: starts with $ and ends with $
-  // Pattern: $...$ where ... may contain LaTeX expressions
-  const trimmedCode = code.trim()
-  const latexMatch = trimmedCode.match(/^\$([^$]+)\$$/)
-  
-  useEffect(() => {
-    if (latexMatch && elementRef.current) {
-      try {
-        // Extract the LaTeX expression
-        let latexExpr = latexMatch[1]
-        
-        // Handle escaped backslashes: if the content has double backslashes (\\),
-        // they might need to be unescaped to single backslashes (\)
-        // This can happen if the content was stored with escaped backslashes
-        // In JavaScript strings, "\\" in source represents a single backslash in the actual string
-        // So if we see "\\\\" in the string (4 backslashes in source = 2 backslashes in string),
-        // we should convert to "\\" (2 backslashes in source = 1 backslash in string)
-        // But we need to be careful: we only want to unescape if it's actually double-escaped
-        // Try to detect if we have literal double backslashes that should be single
-        // Check if there are patterns like \\command that should be \command
-        if (latexExpr.includes('\\\\')) {
-          // Replace double backslashes with single backslash
-          // This handles cases where backslashes are escaped in the source
-          latexExpr = latexExpr.replace(/\\\\/g, '\\')
-        }
-        
-        // Render with KaTeX
-        katex.render(latexExpr, elementRef.current, {
-          throwOnError: false,
-          displayMode: false
-        })
-      } catch (error) {
-        logger.error('Error rendering LaTeX inline math:', error)
-        // On error, fall back to showing the code as-is
-        if (elementRef.current) {
-          elementRef.current.textContent = code
-          elementRef.current.className = 'bg-muted px-1 py-0.5 rounded text-sm font-mono text-foreground'
-        }
-      }
-    }
-  }, [code, latexMatch])
-  
-  // If it's LaTeX math, render with KaTeX
-  if (latexMatch) {
+  const parsedMath = parseDelimitedMath(code)
+  if (parsedMath) {
     return (
-      <span
-        ref={elementRef}
-        key={keyPrefix}
-        className="katex-inline"
-        style={{ display: 'inline' }}
+      <MathExpression
+        keyPrefix={keyPrefix}
+        expression={parsedMath.expression}
+        displayMode={parsedMath.displayMode}
       />
     )
   }
-  
+
   // Regular inline code
   return (
     <code key={keyPrefix} className="bg-muted px-1 py-0.5 rounded text-sm font-mono text-foreground">
@@ -2169,6 +2286,18 @@ export function parseMarkdownContentLegacy(
       )
     } else if (pattern.type === 'fenced-code-block') {
       const { code, language } = pattern.data
+      const parsedMath = parseDelimitedMath(String(code ?? '').trim())
+      if (parsedMath || isMathLanguage(String(language ?? ''))) {
+        parts.push(
+          <MathExpression
+            key={`math-fenced-code-${patternIdx}`}
+            keyPrefix={`math-fenced-code-${patternIdx}`}
+            expression={parsedMath ? parsedMath.expression : String(code ?? '').trim()}
+            displayMode={true}
+          />
+        )
+        return
+      }
       // Render code block with syntax highlighting
       // We'll use a ref and useEffect to apply highlight.js after render
       const codeBlockId = `code-block-${patternIdx}`
@@ -2993,6 +3122,18 @@ function parseMarkdownContentMarked(
 
   const renderParagraph = (token: any, key: string): React.ReactNode => {
     const paragraphText = String(token.text ?? '').trim()
+    const rawParagraphText = String(token.text ?? '')
+    const standaloneMath = parseDelimitedMath(rawParagraphText.trim())
+    if (standaloneMath) {
+      return (
+        <MathExpression
+          key={`${key}-standalone-math`}
+          keyPrefix={`${key}-standalone-math`}
+          expression={standaloneMath.expression}
+          displayMode={standaloneMath.displayMode}
+        />
+      )
+    }
     const isNostrEventBech32 = (value: string): boolean =>
       value.startsWith('note') || value.startsWith('nevent') || value.startsWith('naddr')
     const standaloneNostr = paragraphText.match(/^nostr:([a-z0-9]{8,})$/i)
@@ -3052,7 +3193,6 @@ function parseMarkdownContentMarked(
     // Mixed paragraphs can contain normal text plus one or more standalone nostr lines.
     // Render standalone special lines (nostr refs, relay links, plain URLs/media) as dedicated blocks
     // even when they are not the entire paragraph.
-    const rawParagraphText = String(token.text ?? '')
     if (rawParagraphText.includes('\n')) {
       const lines = rawParagraphText.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)
       const hasStandaloneSpecialLine = lines.some(
@@ -3130,7 +3270,7 @@ function parseMarkdownContentMarked(
 
             return (
               <p key={`${key}-line-${lineIdx}`} className="mb-1 last:mb-0">
-                {renderInlineTokens(marked.Lexer.lexInline(line) as any[], `${key}-line-inline-${lineIdx}`)}
+                {renderInlineTokens(lexInlineProtected(line) as any[], `${key}-line-inline-${lineIdx}`)}
               </p>
             )
           }
@@ -3161,7 +3301,7 @@ function parseMarkdownContentMarked(
 
           return (
             <p key={`${key}-line-fallback-${lineIdx}`} className="mb-1 last:mb-0">
-              {renderInlineTokens(marked.Lexer.lexInline(line) as any[], `${key}-line-fallback-inline-${lineIdx}`)}
+              {renderInlineTokens(lexInlineProtected(line) as any[], `${key}-line-fallback-inline-${lineIdx}`)}
             </p>
           )
         })
@@ -3265,7 +3405,7 @@ function parseMarkdownContentMarked(
       }
     }
 
-    const paragraphTokens = token.tokens ?? marked.Lexer.lexInline(token.text ?? '')
+    const paragraphTokens = lexInlineProtected(String(token.text ?? token.raw ?? ''))
     const parseNostrHref = (href: string): string | null => {
       if (!href.toLowerCase().startsWith('nostr:')) return null
       const raw = href.slice(6).trim()
@@ -3451,7 +3591,7 @@ function parseMarkdownContentMarked(
             React.createElement(
               `h${Math.min(Math.max(level, 1), 6)}`,
               { key: `${key}-h`, className: `font-bold break-words block mt-4 mb-2 ${headingClass}` },
-              renderInlineTokens(token.tokens ?? marked.Lexer.lexInline(token.text ?? ''), `${key}-h-inline`)
+              renderInlineTokens(lexInlineProtected(String(token.text ?? '')), `${key}-h-inline`)
             )
           )
           break
@@ -3459,16 +3599,31 @@ function parseMarkdownContentMarked(
         case 'hr':
           nodes.push(<hr key={`${key}-hr`} className="my-4 border-t border-gray-300 dark:border-gray-700" />)
           break
-        case 'code':
+        case 'code': {
+          const codeText = String(token.text ?? '')
+          const codeLang = String(token.lang ?? '')
+          const parsedMath = parseDelimitedMath(codeText.trim())
+          if (parsedMath || isMathLanguage(codeLang)) {
+            nodes.push(
+              <MathExpression
+                key={`${key}-code-math`}
+                keyPrefix={`${key}-code-math`}
+                expression={parsedMath ? parsedMath.expression : codeText.trim()}
+                displayMode={true}
+              />
+            )
+            break
+          }
           nodes.push(
             <CodeBlock
               key={`${key}-code`}
               id={`code-block-${codeBlockIdx++}`}
-              code={String(token.text ?? '')}
-              language={String(token.lang ?? '')}
+              code={codeText}
+              language={codeLang}
             />
           )
           break
+        }
         case 'blockquote': {
           const rawLines = String(token.raw ?? '')
             .split('\n')
@@ -3481,7 +3636,7 @@ function parseMarkdownContentMarked(
               <div key={`${key}-gt`} className="greentext block my-1">
                 {lines.map((line, idx) => (
                   <React.Fragment key={`${key}-gt-line-${idx}`}>
-                    {renderInlineTokens(marked.Lexer.lexInline(line) as any[], `${key}-gt-inline-${idx}`)}
+                    {renderInlineTokens(lexInlineProtected(line) as any[], `${key}-gt-inline-${idx}`)}
                     {idx < lines.length - 1 ? <br /> : null}
                   </React.Fragment>
                 ))}
@@ -3510,13 +3665,13 @@ function parseMarkdownContentMarked(
               const single = itemTokens[0]
               if (single.type === 'text') {
                 return renderInlineTokens(
-                  single.tokens ?? marked.Lexer.lexInline(single.text ?? ''),
+                  lexInlineProtected(String(single.text ?? '')),
                   `${itemKey}-inline`
                 )
               }
               if (single.type === 'paragraph') {
                 return renderInlineTokens(
-                  single.tokens ?? marked.Lexer.lexInline(single.text ?? ''),
+                  lexInlineProtected(String(single.text ?? '')),
                   `${itemKey}-inline`
                 )
               }
@@ -3547,7 +3702,7 @@ function parseMarkdownContentMarked(
                         key={`${key}-th-${cIdx}`}
                         className="border border-gray-300 dark:border-gray-700 px-4 py-2 bg-gray-100 dark:bg-gray-800 font-semibold text-left"
                       >
-                        {renderInlineTokens(cell.tokens ?? marked.Lexer.lexInline(cell.text ?? ''), `${key}-th-inline-${cIdx}`)}
+                        {renderInlineTokens(lexInlineProtected(String(cell.text ?? '')), `${key}-th-inline-${cIdx}`)}
                       </th>
                     ))}
                   </tr>
@@ -3558,7 +3713,7 @@ function parseMarkdownContentMarked(
                       {row.map((cell: any, cIdx: number) => (
                         <td key={`${key}-td-${rIdx}-${cIdx}`} className="border border-gray-300 dark:border-gray-700 px-4 py-2">
                           {renderInlineTokens(
-                            cell.tokens ?? marked.Lexer.lexInline(cell.text ?? ''),
+                            lexInlineProtected(String(cell.text ?? '')),
                             `${key}-td-inline-${rIdx}-${cIdx}`
                           )}
                         </td>
@@ -3577,7 +3732,7 @@ function parseMarkdownContentMarked(
           } else if (typeof token.text === 'string' && token.text.trim()) {
             nodes.push(
               <p key={`${key}-fallback`} className="mb-1 last:mb-0">
-                {renderInlineTokens(marked.Lexer.lexInline(token.text) as any[], `${key}-fallback-inline`)}
+                {renderInlineTokens(lexInlineProtected(String(token.text ?? token.raw ?? '')) as any[], `${key}-fallback-inline`)}
               </p>
             )
           }
@@ -3638,7 +3793,7 @@ function parseInlineMarkdown(
   navigateToHashtag?: (href: string) => void
 ): React.ReactNode[] {
   const normalized = text.replace(/\n/g, ' ').replace(/[ \t]{2,}/g, ' ')
-  const tokens = marked.Lexer.lexInline(normalized) as any[]
+  const tokens = lexInlineProtected(normalized) as any[]
   const hasMarkdownSyntax = tokens.some((token) => token.type !== 'text' && token.type !== 'escape')
 
   // Fast path: keep old behavior when there is no markdown syntax.
@@ -3790,6 +3945,10 @@ function parseInlineMarkdownLegacy(
   const parts: React.ReactNode[] = []
   let lastIndex = 0
   const inlinePatterns: Array<{ index: number; end: number; type: string; data: any }> = []
+
+  collectMathInlinePatterns(text).forEach((pattern) => {
+    inlinePatterns.push(pattern)
+  })
   
   // Legacy helper is intentionally narrowed to non-standard enrichments.
   // Standard markdown emphasis/code is handled by marked in parseInlineMarkdown().
@@ -3800,7 +3959,7 @@ function parseInlineMarkdownLegacy(
     if (match.index !== undefined) {
       // Skip if already in code, bold, italic, or strikethrough
       const isInOther = inlinePatterns.some(p => 
-        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough') &&
+        (p.type === 'code' || p.type === 'bold' || p.type === 'italic' || p.type === 'strikethrough' || p.type === 'math-inline' || p.type === 'math-block') &&
         match.index! >= p.index && 
         match.index! < p.end
       )
@@ -3824,7 +3983,7 @@ function parseInlineMarkdownLegacy(
       const footnoteId = match[1]
       if (!_footnotes.has(footnoteId)) return
       const isInOther = inlinePatterns.some(p =>
-        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
+        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto' || p.type === 'math-inline' || p.type === 'math-block') &&
         match.index! >= p.index &&
         match.index! < p.end
       )
@@ -3846,7 +4005,7 @@ function parseInlineMarkdownLegacy(
     if (match.index !== undefined) {
       // Skip if already in another inline custom pattern
       const isInOther = inlinePatterns.some(p => 
-        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
+        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto' || p.type === 'math-inline' || p.type === 'math-block') &&
         match.index! >= p.index && 
         match.index! < p.end
       )
@@ -3870,7 +4029,7 @@ function parseInlineMarkdownLegacy(
       if (isWebsocketUrl(url)) {
         // Skip if already in another inline custom pattern
         const isInOther = inlinePatterns.some(p => 
-          (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
+          (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto' || p.type === 'math-inline' || p.type === 'math-block') &&
           match.index! >= p.index && 
           match.index! < p.end
         )
@@ -3899,7 +4058,7 @@ function parseInlineMarkdownLegacy(
       if (isProfileType) {
         // Skip if already in another inline custom pattern
         const isInOther = inlinePatterns.some(p => 
-          (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
+          (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto' || p.type === 'math-inline' || p.type === 'math-block') &&
           match.index! >= p.index && 
           match.index! < p.end
         )
@@ -3923,7 +4082,7 @@ function parseInlineMarkdownLegacy(
       const parsed = parsePaytoUri(fullMatch)
       if (!parsed) return
       const isInOther = inlinePatterns.some(p =>
-        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto') &&
+        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto' || p.type === 'math-inline' || p.type === 'math-block') &&
         match.index! >= p.index &&
         match.index! < p.end
       )
@@ -3943,7 +4102,7 @@ function parseInlineMarkdownLegacy(
   emojiMatches.forEach(match => {
     if (match.index !== undefined) {
       const isInOther = inlinePatterns.some(p =>
-        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto' || p.type === 'emoji') &&
+        (p.type === 'link' || p.type === 'hashtag' || p.type === 'relay-url' || p.type === 'nostr' || p.type === 'payto' || p.type === 'emoji' || p.type === 'math-inline' || p.type === 'math-block') &&
         match.index! >= p.index &&
         match.index! < p.end
       )
@@ -3973,6 +4132,7 @@ function parseInlineMarkdownLegacy(
   
   // Build nodes
   filtered.forEach((pattern, i) => {
+    let consumeEnd = pattern.end
     // Add text before pattern
     if (pattern.index > lastIndex) {
       let textBefore = text.slice(lastIndex, pattern.index)
@@ -4107,9 +4267,50 @@ function parseInlineMarkdownLegacy(
           parts.push(<span key={`${keyPrefix}-emoji-${i}`}>{`:${shortcode}:`}</span>)
         }
       }
+    } else if (pattern.type === 'math-inline' || pattern.type === 'math-block') {
+      if (pattern.type === 'math-block') {
+        const after = text.slice(pattern.end)
+        const punctMatch = after.match(/^\s*([.,;:!?])\s*$/)
+        if (punctMatch) {
+          consumeEnd = pattern.end + punctMatch[0].length
+          parts.push(
+            <span
+              key={`${keyPrefix}-math-${i}-wrap`}
+              className="my-2 flex w-full min-w-0 flex-nowrap items-end gap-x-1 overflow-x-auto"
+            >
+              <MathExpression
+                key={`${keyPrefix}-math-${i}`}
+                keyPrefix={`${keyPrefix}-math-${i}`}
+                expression={String(pattern.data ?? '')}
+                displayMode
+                className="!my-0 block min-w-0 shrink overflow-x-auto"
+              />
+              <span className="shrink-0 self-end text-foreground">{punctMatch[1]}</span>
+            </span>
+          )
+        } else {
+          parts.push(
+            <MathExpression
+              key={`${keyPrefix}-math-${i}`}
+              keyPrefix={`${keyPrefix}-math-${i}`}
+              expression={String(pattern.data ?? '')}
+              displayMode
+            />
+          )
+        }
+      } else {
+        parts.push(
+          <MathExpression
+            key={`${keyPrefix}-math-${i}`}
+            keyPrefix={`${keyPrefix}-math-${i}`}
+            expression={String(pattern.data ?? '')}
+            displayMode={false}
+          />
+        )
+      }
     }
     
-    lastIndex = pattern.end
+    lastIndex = consumeEnd
   })
   
   // Add remaining text

@@ -76,6 +76,34 @@ function postProcessEvents(
   })
 
   let events = Array.from(dedupMap.values()).filter((e) => !isEventDeleted(e))
+
+  // Parameterized replaceable events (kinds 30000-39999) should be unique by pubkey+kind+d.
+  // Keep only the latest version so profile feeds don't show multiple revisions of one article.
+  const latestAddressableByKey = new Map<string, Event>()
+  const nonAddressableEvents: Event[] = []
+  events.forEach((evt) => {
+    const isAddressable = evt.kind >= 30000 && evt.kind < 40000
+    if (!isAddressable) {
+      nonAddressableEvents.push(evt)
+      return
+    }
+    const d = evt.tags.find((t) => t[0] === 'd')?.[1]?.trim()
+    if (!d) {
+      nonAddressableEvents.push(evt)
+      return
+    }
+    const key = `${evt.pubkey}:${evt.kind}:${d}`
+    const existing = latestAddressableByKey.get(key)
+    if (
+      !existing ||
+      evt.created_at > existing.created_at ||
+      (evt.created_at === existing.created_at && evt.id > existing.id)
+    ) {
+      latestAddressableByKey.set(key, evt)
+    }
+  })
+  events = [...nonAddressableEvents, ...latestAddressableByKey.values()]
+
   if (filterPredicate) {
     events = events.filter(filterPredicate)
   }
