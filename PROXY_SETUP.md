@@ -11,7 +11,7 @@ When building and deploying on the remote server, you need to build the Docker i
 
 **IMPORTANT:** `VITE_PROXY_SERVER` must be set during Docker BUILD (as a build argument), NOT at runtime. It gets baked into the JavaScript bundle.
 
-Rebuild the Jumble image with the correct proxy URL:
+Rebuild the Imwald image with the correct proxy URL:
 
 ```bash
 # Build with the correct proxy URL (baked into the JS bundle)
@@ -101,7 +101,7 @@ docker-compose up -d
 
 The client uses **`POST /api/piper-tts`** on the **same host** as the app (default build: `VITE_READ_ALOUD_TTS_URL=/api/piper-tts`) so the browser does not need cross-origin CORS to aitherboard.
 
-Add these **before** the catch-all `ProxyPass /` to the Jumble static container (same ordering as `/sites/`):
+Add these **before** the catch-all `ProxyPass /` to the Imwald static container (same ordering as `/sites/`):
 
 ```apache
 ProxyPass        /api/piper-tts http://127.0.0.1:9876/api/piper-tts
@@ -117,7 +117,7 @@ curl -sS -o /tmp/t.wav -w "%{http_code}\n" -H "Content-Type: application/json" \
 
 Expect **200** and a WAV file. **Local dev:** `npm run dev` proxies `/api/piper-tts` → `http://127.0.0.1:9876` in `vite.config.ts`.
 
-Rebuild the Jumble image after changing `VITE_READ_ALOUD_TTS_URL`; `Dockerfile` passes `ARG`/`ENV` `VITE_READ_ALOUD_TTS_URL` into `npm run build`.
+Rebuild the Imwald image after changing `VITE_READ_ALOUD_TTS_URL`; `Dockerfile` passes `ARG`/`ENV` `VITE_READ_ALOUD_TTS_URL` into `npm run build`.
 
 ## Update Proxy Server's ALLOW_ORIGIN
 
@@ -194,7 +194,7 @@ sudo systemctl restart apache2
         RequestHeader set Host "127.0.0.1:8090"
     </Location>
     
-    # Reverse Proxy for the main Jumble app (needs Host header preserved)
+    # Reverse Proxy for the main Imwald app (needs Host header preserved)
     ProxyPreserveHost On
     ProxyPass / http://127.0.0.1:32768/
     ProxyPassReverse / http://127.0.0.1:32768/
@@ -228,10 +228,10 @@ sudo systemctl reload apache2
 # Test with a real URL - the code constructs /proxy/sites/{encoded-url}
 curl https://jumble.imwald.eu/proxy/sites/https%3A%2F%2Fexample.com
 # Should return example.com's HTML, NOT jumble.imwald.eu's HTML
-# If you see Jumble HTML, the proxy server is using the Host header instead of the URL path
+# If you see Imwald HTML, the proxy server is using the Host header instead of the URL path
 ```
 
-**If the test returns Jumble HTML instead of the requested site's HTML:**
+**If the test returns Imwald HTML instead of the requested site's HTML:**
 
 The proxy server is using the `Host` header (`jumble.imwald.eu`) to determine what to fetch. Update your Apache config to use `ProxyPreserveHost Off` for the `/proxy/` path:
 
@@ -272,9 +272,9 @@ docker build \
 
 ## Troubleshooting
 
-### If Proxy Returns Jumble HTML Instead of Requested Site
+### If Proxy Returns Imwald HTML Instead of Requested Site
 
-If you've set `ProxyPreserveHost Off` but still get Jumble HTML, test the proxy server directly:
+If you've set `ProxyPreserveHost Off` but still get Imwald HTML, test the proxy server directly:
 
 **1. Test the proxy server directly (bypassing Apache):**
 ```bash

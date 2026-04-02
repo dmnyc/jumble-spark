@@ -1,7 +1,7 @@
 {
-  "name": "jumble-imwald",
+  "name": "imwald",
   "version": "21.4.0",
-  "description": "A user-friendly Nostr client focused on relay feed browsing and relay discovery, forked from Jumble",
+  "description": "Imwald — a user-friendly Nostr client focused on relay feed browsing, publications, and relay discovery",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -136,8 +136,8 @@
     "electron-builder": "^26.8.1"
   },
   "build": {
-    "appId": "eu.imwald.jumble",
-    "productName": "Jumble",
+    "appId": "eu.imwald.app",
+    "productName": "Imwald",
     "copyright": "Copyright © Silberengel",
     "directories": {
       "output": "release"

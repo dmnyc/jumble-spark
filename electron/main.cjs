@@ -46,7 +46,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  ipcMain.handle('jumble:reload-app', async (event) => {
+  ipcMain.handle('imwald:reload-app', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return false
     loadRenderer(win)

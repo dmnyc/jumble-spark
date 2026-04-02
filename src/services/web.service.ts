@@ -17,7 +17,7 @@ function htmlLooksLikeLocalDevAppShell(html: string): boolean {
 
 const HTML_FETCH_HEADERS = {
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'User-Agent': 'Mozilla/5.0 (compatible; Jumble/1.0; +https://jumble.imwald.eu)'
+  'User-Agent': 'Mozilla/5.0 (compatible; Imwald/1.0; +https://jumble.imwald.eu)'
 }
 
 async function tryFetchHtml(fetchUrl: string, timeoutMs: number): Promise<string | null> {
@@ -123,15 +123,16 @@ function parseOpenGraphFromHtml(html: string, pageUrl: string): TWebMetadata {
 
   try {
     const urlObj = new URL(pageUrl)
-    const isJumbleDomain =
-      urlObj.hostname === 'jumble.imwald.eu' || urlObj.hostname.includes('jumble')
-    const isJumbleDefaultTitle =
-      title?.includes('Jumble - Imwald Edition') || title?.includes('Jumble Imwald Edition')
-    const isJumbleDefaultDesc = description?.includes(
+    const isAppCanonicalHost = urlObj.hostname === 'jumble.imwald.eu'
+    const isAppDefaultTitle =
+      title?.includes('Imwald 🌲') ||
+      title?.includes('Jumble - Imwald Edition') ||
+      title?.includes('Jumble Imwald Edition')
+    const isAppDefaultDesc = description?.includes(
       'A user-friendly Nostr client focused on relay feed browsing'
     )
-    if (!isJumbleDomain && (isJumbleDefaultTitle || isJumbleDefaultDesc)) {
-      logger.debug('[WebService] Filtered out Jumble default OG tags for external domain', {
+    if (!isAppCanonicalHost && (isAppDefaultTitle || isAppDefaultDesc)) {
+      logger.debug('[WebService] Filtered out Imwald default OG tags for external domain', {
         url: pageUrl,
         hostname: urlObj.hostname
       })

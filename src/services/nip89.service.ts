@@ -200,14 +200,14 @@ class Nip89Service {
   }
 
   /**
-   * Create the Jumble ImWald application handler info event
+   * Create the Imwald application handler info event (NIP-89).
    */
-  createJumbleImWaldHandlerInfo(pubkey: string): Omit<Event, 'id' | 'sig'> {
+  createImwaldHandlerInfo(pubkey: string): Omit<Event, 'id' | 'sig'> {
     const handlerInfo: ApplicationHandlerInfo = {
-      name: 'Jumble ImWald',
+      name: 'Imwald',
       description: 'A modern Nostr client with advanced features for content discovery, discussions, and community building.',
-      website: 'https://jumble.gitcitadel.eu',
-      picture: 'https://jumble.gitcitadel.eu/logo.png',
+      website: 'https://jumble.imwald.eu',
+      picture: 'https://jumble.imwald.eu/pwa-512x512.png',
       supportedKinds: [
         kinds.ShortTextNote,
         kinds.Repost,
@@ -229,10 +229,10 @@ class Nip89Service {
         ExtendedKind.WIKI_ARTICLE,
       ],
       platforms: {
-        web: 'https://jumble.gitcitadel.eu/note/bech32',
-        ios: 'jumble://note/bech32',
-        android: 'jumble://note/bech32',
-        desktop: 'jumble://note/bech32'
+        web: 'https://jumble.imwald.eu/note/bech32',
+        ios: 'imwald://note/bech32',
+        android: 'imwald://note/bech32',
+        desktop: 'imwald://note/bech32'
       },
       relays: [
         'wss://relay.damus.io',
@@ -242,7 +242,7 @@ class Nip89Service {
       ]
     }
 
-    return this.createApplicationHandlerInfoEvent(pubkey, handlerInfo, 'jumble-imwald')
+    return this.createApplicationHandlerInfoEvent(pubkey, handlerInfo, 'imwald')
   }
 }
 

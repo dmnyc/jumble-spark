@@ -1394,7 +1394,7 @@ export function buildClientTag(handlerPubkey?: string, handlerIdentifier?: strin
   // Use NIP-89 format if handler information is provided
   if (handlerPubkey && handlerIdentifier) {
     const aTag = `31990:${handlerPubkey}:${handlerIdentifier}`
-    const tag = ['client', 'Jumble ImWald', aTag]
+    const tag = ['client', 'Imwald', aTag]
     if (relay) {
       tag.push(relay)
     }
@@ -1402,7 +1402,7 @@ export function buildClientTag(handlerPubkey?: string, handlerIdentifier?: strin
   }
   
   // Fallback to simple format for backward compatibility
-  return ['client', 'jumble']
+  return ['client', 'imwald']
 }
 
 export function buildAltTag() {

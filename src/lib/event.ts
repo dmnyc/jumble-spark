@@ -50,7 +50,7 @@ function getParentETagCommentOrDiscussion(event: Event): string[] | undefined {
 }
 
 /**
- * Root `e` for kind 1111 / voice comment: prefer `root` marker, else uppercase `E` (Jumble / NIP-22),
+ * Root `e` for kind 1111 / voice comment: prefer `root` marker, else uppercase `E` (Imwald / NIP-22),
  * else first `e` when multiple (NIP-10 root-before-reply), else single `e`.
  */
 function getRootETagCommentOrDiscussion(event: Event): string[] | undefined {

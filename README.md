@@ -2,20 +2,20 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./resources/logo-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="./resources/logo-light.svg">
-    <img src="./resources/logo-light.svg" alt="Jumble Logo" width="400" />
+    <img src="./resources/logo-light.svg" alt="Imwald logo" width="400" />
   </picture>
   <p>logo designed by <a href="http://wolfertdan.com/">Daniel David</a></p>
 </div>
 
-# Jumble — **ImWald Edition**
+# Imwald
 
-**Maintainer: [Silberengel](https://github.com/Silberengel)** · Hard fork of [Cody Tseng’s Jumble](https://github.com/CodyTseng/jumble)
+**Maintainer: [Silberengel](https://github.com/Silberengel)** · Evolved from [Cody Tseng’s Jumble](https://github.com/CodyTseng/jumble)
 
-A Nostr web client focused on relay feeds, discovery, and spells. This repository is the **ImWald** line: same core ideas as upstream, with a substantial navigation and information-architecture rewrite (see below).
+A Nostr web client focused on relay feeds, discovery, and spells. **Imwald** keeps the same core ideas as upstream, with a substantial navigation and information-architecture rewrite (see below). The public instance lives at [jumble.imwald.eu](https://jumble.imwald.eu).
 
 ---
 
-## Major rewrite (this fork)
+## Major rewrite (this line)
 
 High-level changes versus a “stock” Jumble-style layout:
 
@@ -47,11 +47,10 @@ High-level changes versus a “stock” Jumble-style layout:
 ### Other
 
 - Sidebar layout tuned for **long translations** (e.g. German) so labels don’t sit on the divider.
-- Branding in-app: **Im Wald**.
 
 ---
 
-## Features (still core to Jumble)
+## Features
 
 - **Relay feeds:** Browse content through relays, sets, and favorites
 - **Relay-friendly requests:** Efficient subscriptions where possible
@@ -60,17 +59,17 @@ High-level changes versus a “stock” Jumble-style layout:
 
 ## Screenshots
 
-<img src="./screenshots/01.png" alt="Jumble Screenshot 01" width="650" />
+<img src="./screenshots/01.png" alt="Imwald screenshot 01" width="650" />
 <div> 
-  <img src="./screenshots/02.png" alt="Jumble Screenshot 02" width="200" />
-  <img src="./screenshots/03.png" alt="Jumble Screenshot 03" width="200" />
-  <img src="./screenshots/04.png" alt="Jumble Screenshot 04" width="200" />
+  <img src="./screenshots/02.png" alt="Imwald screenshot 02" width="200" />
+  <img src="./screenshots/03.png" alt="Imwald screenshot 03" width="200" />
+  <img src="./screenshots/04.png" alt="Imwald screenshot 04" width="200" />
 </div>
 
 ## Upstream & related forks
 
-- **Original project:** [CodyTseng/jumble](https://github.com/CodyTseng/jumble) — design, sponsorship, and donation links below still refer to Cody’s work where applicable.
-- **This fork:** [Silberengel/jumble](https://github.com/Silberengel/jumble) — Im Wald / rewrite described above.
+- **Original project:** [CodyTseng/jumble](https://github.com/CodyTseng/jumble) — upstream design and history.
+- **This repository:** [Silberengel/jumble](https://github.com/Silberengel/jumble) — Imwald source and releases.
 - Other public forks (examples): [grouped-notes.dtonon.com](https://grouped-notes.dtonon.com/), [jumblekat.shakespeare.wtf](https://jumblekat.shakespeare.wtf/).
 
 ## Run locally
@@ -97,7 +96,7 @@ Then open: http://localhost:8089
 Built packages are **not** committed to this repository (only source). They are published as **release assets** when a maintainer uploads them.
 
 - **Download:** [GitHub Releases — latest](https://github.com/Silberengel/jumble/releases/latest) — get the `*.deb` (or AppImage) attached to a release.
-- **Install the `.deb`:** `sudo apt install ./Jumble_*_amd64.deb` (use the exact filename from the download folder; `./` is required so `apt` uses the local file). After install, Jumble should appear in your app menu (often under **Network**).
+- **Install the `.deb`:** `sudo apt install ./Imwald_*_amd64.deb` (use the exact filename from the download folder; `./` is required so `apt` uses the local file). After install, Imwald should appear in your app menu (often under **Network**).
 
 **Maintainers — build artifacts locally:**
 

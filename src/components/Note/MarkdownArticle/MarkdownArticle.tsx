@@ -3924,7 +3924,7 @@ function parseInlineMarkdownLegacy(
 ): React.ReactNode[] {
   if (isContentSpacingDebug() && text.includes('nostr:')) {
     // eslint-disable-next-line no-console
-    console.log('[jumble content-spacing] parseInlineMarkdown:before-normalize', {
+    console.log('[imwald content-spacing] parseInlineMarkdown:before-normalize', {
       keyPrefix,
       repr: reprString(text)
     })
@@ -3936,7 +3936,7 @@ function parseInlineMarkdownLegacy(
   text = text.replace(/[ \t]{2,}/g, ' ')
   if (isContentSpacingDebug() && text.includes('nostr:')) {
     // eslint-disable-next-line no-console
-    console.log('[jumble content-spacing] parseInlineMarkdown:after-normalize', {
+    console.log('[imwald content-spacing] parseInlineMarkdown:after-normalize', {
       keyPrefix,
       repr: reprString(text)
     })

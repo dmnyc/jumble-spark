@@ -169,7 +169,7 @@ export default {
       'Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.',
     'Tag value': 'Tag value',
     'Saving…': 'Saving…',
-    'Share with Jumble': 'Jumbleで共有',
+    'Share with Imwald': 'Imwaldで共有',
     'Share with Alexandria': 'Alexandriaで共有',
     'Start video call': 'Start video call',
     'Copy call invite link': 'Copy call invite link',
@@ -310,7 +310,7 @@ export default {
     'Add an Account': 'アカウントを追加',
     'More options': 'その他のオプション',
     'Add client tag': 'クライアントタグを追加',
-    'Show others this was sent via Jumble': 'これがJumble経由で送信されたことを表示',
+    'Show others this was sent via Imwald': 'これがImwald経由で送信されたことを表示',
     'Are you sure you want to logout?': '本当にログアウトしますか？',
     'relay sets': 'リレイセット',
     edit: '編集',
@@ -465,7 +465,7 @@ export default {
     'Notification boost detail': 'The preview above is the original post.',
     'Notification poll vote summary': 'Voted on the poll above.',
     'Notification poll vote options count': '{{count}} option(s) selected',
-    'Jumble Imwald synthetic event': 'Jumble Imwald synthetic event',
+    'Imwald synthetic event': 'Imwald synthetic event',
     '+ Add a URL to this list': 'Add a URL to this list',
     'Add a web URL': 'Add a web URL',
     'Add web URL to feed description':
@@ -499,9 +499,9 @@ export default {
     Boosts: 'ブースト',
     Badges: 'Badges',
     Reports: 'Reports',
-    'Enjoying Jumble?': 'Jumbleをお楽しみですか？',
-    'Your donation helps me maintain Jumble and make it better! 😊':
-      'あなたの寄付はJumbleの維持と改善に役立ちます！ 😊',
+    'Enjoying Imwald?': 'Imwaldをお楽しみですか？',
+    'Your donation helps me maintain Imwald and make it better! 😊':
+      'あなたの寄付はImwaldの維持と改善に役立ちます！ 😊',
     'Earlier notifications': '以前の通知',
     'Temporarily display this note': 'このノートを一時的に表示',
     buttonFollowing: 'フォロー中',
@@ -669,7 +669,7 @@ export default {
     Translation: '翻訳',
     Balance: '残高',
     characters: '文字',
-    jumbleTranslateApiKeyDescription:
+    translateApiKeyDescription:
       'このAPIキーは、LibreTranslateをサポートする他の場所でも使用できます。サービスURLは{{serviceUrl}}です',
     'Top up': 'チャージ',
     'Will receive: {n} characters': '受け取る文字数: {{n}} 文字',

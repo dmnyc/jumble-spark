@@ -43,9 +43,9 @@ export default function AboutInfoDialog({ children }: { children: React.ReactNod
 
   const content = (
     <>
-      <div className="text-xl font-semibold">Jumble 🌲</div>
+      <div className="text-xl font-semibold">Imwald 🌲</div>
       <div className="text-muted-foreground">
-        A user-friendly Nostr client focused on relay feed browsing and relay discovery
+        A user-friendly Nostr client focused on relay feed browsing, publications, and relay discovery
       </div>
       <div className="text-sm text-muted-foreground">
         Version: v{import.meta.env.APP_VERSION}
@@ -74,7 +74,7 @@ export default function AboutInfoDialog({ children }: { children: React.ReactNod
           Imwald fork
         </Button>
         <div className="text-sm text-muted-foreground mt-1">
-          If you like Jumble, please consider giving it a star ⭐
+          If you like Imwald, please consider giving it a star ⭐
         </div>
       </div>
     </>

@@ -259,18 +259,18 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
       // Reset to default meta tags with richer information
       const defaultUrl = window.location.href
       const truncatedDefaultUrl = defaultUrl.length > 150 ? defaultUrl.substring(0, 147) + '...' : defaultUrl
-      updateMetaTag('og:title', 'Jumble - Imwald Edition 🌲')
+      updateMetaTag('og:title', 'Imwald 🌲')
       updateMetaTag('og:description', `${truncatedDefaultUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('og:image', 'https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true')
+      updateMetaTag('og:image', 'https://jumble.imwald.eu/pwa-512x512.png')
       updateMetaTag('og:type', 'website')
       updateMetaTag('og:url', window.location.href)
-      updateMetaTag('og:site_name', 'Jumble - Imwald Edition 🌲')
+      updateMetaTag('og:site_name', 'Imwald 🌲')
       
       // Twitter card meta tags
       updateMetaTag('twitter:card', 'summary_large_image')
-      updateMetaTag('twitter:title', 'Jumble - Imwald Edition 🌲')
+      updateMetaTag('twitter:title', 'Imwald 🌲')
       updateMetaTag('twitter:description', `${truncatedDefaultUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('twitter:image', 'https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true')
+      updateMetaTag('twitter:image', 'https://jumble.imwald.eu/pwa-512x512.png')
       
       // Remove article:tag if it exists
       const articleTagMeta = document.querySelector('meta[property="article:tag"]')
@@ -359,7 +359,7 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     }
     if (!image) {
       // Use default OG image with green forest theme
-      image = 'https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true'
+      image = 'https://jumble.imwald.eu/pwa-512x512.png'
     }
     
     const tags = eventMetadata?.tags || []
@@ -370,18 +370,18 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
 
     // Enhanced title with profile info
     const ogTitle = authorName 
-      ? `${eventTitle} by @${authorName} - Jumble Imwald Edition 🌲`
-      : `${eventTitle} - Jumble Imwald Edition 🌲`
+      ? `${eventTitle} by @${authorName} - Imwald 🌲`
+      : `${eventTitle} - Imwald 🌲`
 
     updateMetaTag('og:title', ogTitle)
     updateMetaTag('og:description', ogDescription)
     updateMetaTag('og:image', image)
     updateMetaTag('og:image:width', '1200')
     updateMetaTag('og:image:height', '630')
-    updateMetaTag('og:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on Jumble Imwald`)
+    updateMetaTag('og:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on Imwald`)
     updateMetaTag('og:type', ogType)
     updateMetaTag('og:url', window.location.href)
-    updateMetaTag('og:site_name', 'Jumble - Imwald Edition 🌲')
+    updateMetaTag('og:site_name', 'Imwald 🌲')
     
     // Add profile data - always include if available
     if (authorProfile) {
@@ -408,7 +408,7 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     updateMetaTag('twitter:title', ogTitle)
     updateMetaTag('twitter:description', ogDescription.length > 200 ? ogDescription.substring(0, 197) + '...' : ogDescription)
     updateMetaTag('twitter:image', image)
-    updateMetaTag('twitter:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on Jumble Imwald`)
+    updateMetaTag('twitter:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on Imwald`)
     
     // Remove old article:tag if it exists
     const oldArticleTagMeta = document.querySelector('meta[property="article:tag"]')
@@ -427,19 +427,19 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     }
 
     // Update document title
-    document.title = `${eventTitle} - Jumble Imwald Edition`
+    document.title = `${eventTitle} - Imwald`
 
     // Cleanup function
     return () => {
       // Reset to default on unmount with richer information
       const cleanupUrl = window.location.href
       const truncatedCleanupUrl = cleanupUrl.length > 150 ? cleanupUrl.substring(0, 147) + '...' : cleanupUrl
-      updateMetaTag('og:title', 'Jumble - Imwald Edition 🌲')
+      updateMetaTag('og:title', 'Imwald 🌲')
       updateMetaTag('og:description', `${truncatedCleanupUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('og:image', 'https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true')
+      updateMetaTag('og:image', 'https://jumble.imwald.eu/pwa-512x512.png')
       updateMetaTag('og:type', 'website')
       updateMetaTag('og:url', window.location.href)
-      updateMetaTag('og:site_name', 'Jumble - Imwald Edition 🌲')
+      updateMetaTag('og:site_name', 'Imwald 🌲')
       
       // Remove article:tag meta tags
       document.querySelectorAll('meta[property="article:tag"]').forEach(meta => meta.remove())
@@ -448,7 +448,7 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
         authorMeta.remove()
       }
       
-      document.title = 'Jumble - Imwald Edition 🌲'
+      document.title = 'Imwald 🌲'
     }
   }, [finalEvent, articleMetadata, authorProfile])
 

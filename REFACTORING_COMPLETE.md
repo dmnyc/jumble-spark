@@ -114,7 +114,7 @@ The following responsibilities remain in `ClientService` as they represent core 
 ### Logger Integration
 - ✅ Efficient logger implementation
 - ✅ Development: Browser console
-- ✅ Production: Console GUI in Jumble app
+- ✅ Production: Console GUI in Imwald app
 - ✅ Performance logging included
 
 ## Migration Status

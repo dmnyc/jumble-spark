@@ -5,10 +5,10 @@ import { useTranslation } from 'react-i18next'
 export function RssUnifiedScopeSection({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   return (
-    <section className="space-y-3" aria-labelledby="jumble-rss-unified-heading">
+    <section className="space-y-3" aria-labelledby="imwald-rss-unified-heading">
       <div className="space-y-1 px-0.5">
         <h2
-          id="jumble-rss-unified-heading"
+          id="imwald-rss-unified-heading"
           className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
         >
           {t('RSS feed column title')}

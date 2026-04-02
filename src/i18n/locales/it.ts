@@ -169,7 +169,7 @@ export default {
       'Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.',
     'Tag value': 'Tag value',
     'Saving…': 'Saving…',
-    'Share with Jumble': 'Condividi con Jumble',
+    'Share with Imwald': 'Condividi con Imwald',
     'Share with Alexandria': 'Condividi con Alexandria',
     'Start video call': 'Start video call',
     'Copy call invite link': 'Copy call invite link',
@@ -310,8 +310,8 @@ export default {
     'Add an Account': 'Aggiungi un Account',
     'More options': 'Più opzioni',
     'Add client tag': 'Aggiungi etichetta del client',
-    'Show others this was sent via Jumble':
-      'Mostra agli altri che questo è stato inviato tramite Jumble',
+    'Show others this was sent via Imwald':
+      'Mostra agli altri che questo è stato inviato tramite Imwald',
     'Are you sure you want to logout?': 'Sei sicuro di volerti scollegare?',
     'relay sets': 'set di relay',
     edit: 'modifica',
@@ -467,7 +467,7 @@ export default {
     'Notification boost detail': 'The preview above is the original post.',
     'Notification poll vote summary': 'Voted on the poll above.',
     'Notification poll vote options count': '{{count}} option(s) selected',
-    'Jumble Imwald synthetic event': 'Jumble Imwald synthetic event',
+    'Imwald synthetic event': 'Imwald synthetic event',
     '+ Add a URL to this list': 'Add a URL to this list',
     'Add a web URL': 'Add a web URL',
     'Add web URL to feed description':
@@ -501,9 +501,9 @@ export default {
     Boosts: 'Boost',
     Badges: 'Badges',
     Reports: 'Reports',
-    'Enjoying Jumble?': 'Ti sta piacendo Jumble?',
-    'Your donation helps me maintain Jumble and make it better! 😊':
-      'La tua donazione mi aiuta a mantenere Jumble e a migliorarlo! 😊',
+    'Enjoying Imwald?': 'Ti sta piacendo Imwald?',
+    'Your donation helps me maintain Imwald and make it better! 😊':
+      'La tua donazione mi aiuta a mantenere Imwald e a migliorarlo! 😊',
     'Earlier notifications': 'Notifiche precedenti',
     'Temporarily display this note': 'Visualizza temporaneamente questa nota',
     buttonFollowing: 'Seguendo',
@@ -673,7 +673,7 @@ export default {
     Translation: 'Traduzione',
     Balance: 'Saldo',
     characters: 'caratteri',
-    jumbleTranslateApiKeyDescription:
+    translateApiKeyDescription:
       "Puoi utilizzare questa chiave API ovunque supporti LibreTranslate. L'URL del servizio è {{serviceUrl}}",
     'Top up': 'Torna al saldo',
     'Will receive: {n} characters': 'Riceverai: {{n}} caratteri',

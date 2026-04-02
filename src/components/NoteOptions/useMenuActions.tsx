@@ -847,7 +847,7 @@ export function useMenuActions({
         : []),
       {
         icon: Link,
-        label: t('Share with Jumble'),
+        label: t('Share with Imwald'),
         onClick: () => {
           const noteId = getNoteBech32Id(event)
           // Contextual URL when on Spells (e.g. discussions faux-spell); plain /notes/{id} otherwise
@@ -859,8 +859,8 @@ export function useMenuActions({
                 : currentPrimaryPage === 'follows-latest'
                   ? `/follows-latest/notes/${noteId}`
                   : `/notes/${noteId}`
-          const jumbleUrl = `https://jumble.imwald.eu${path}`
-          navigator.clipboard.writeText(jumbleUrl)
+          const appShareUrl = `https://jumble.imwald.eu${path}`
+          navigator.clipboard.writeText(appShareUrl)
           closeDrawer()
         }
       },

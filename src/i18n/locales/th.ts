@@ -169,7 +169,7 @@ export default {
       'Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.',
     'Tag value': 'Tag value',
     'Saving…': 'Saving…',
-    'Share with Jumble': 'แชร์ผ่าน Jumble',
+    'Share with Imwald': 'แชร์ผ่าน Imwald',
     'Share with Alexandria': 'แชร์ผ่าน Alexandria',
     'Start video call': 'Start video call',
     'Copy call invite link': 'Copy call invite link',
@@ -310,7 +310,7 @@ export default {
     'Add an Account': 'เพิ่มบัญชี',
     'More options': 'ตัวเลือกเพิ่มเติม',
     'Add client tag': 'เพิ่มแท็กไคลเอนต์',
-    'Show others this was sent via Jumble': 'แสดงให้ผู้อื่นเห็นว่าส่งผ่าน Jumble',
+    'Show others this was sent via Imwald': 'แสดงให้ผู้อื่นเห็นว่าส่งผ่าน Imwald',
     'Are you sure you want to logout?': 'คุณแน่ใจหรือไม่ว่าต้องการออกจากระบบ?',
     'relay sets': 'ชุดรีเลย์',
     edit: 'แก้ไข',
@@ -464,7 +464,7 @@ export default {
     'Notification boost detail': 'The preview above is the original post.',
     'Notification poll vote summary': 'Voted on the poll above.',
     'Notification poll vote options count': '{{count}} option(s) selected',
-    'Jumble Imwald synthetic event': 'Jumble Imwald synthetic event',
+    'Imwald synthetic event': 'Imwald synthetic event',
     '+ Add a URL to this list': 'Add a URL to this list',
     'Add a web URL': 'Add a web URL',
     'Add web URL to feed description':
@@ -498,9 +498,9 @@ export default {
     Boosts: 'บูสต์',
     Badges: 'Badges',
     Reports: 'Reports',
-    'Enjoying Jumble?': 'ชอบ Jumble ไหม?',
-    'Your donation helps me maintain Jumble and make it better! 😊':
-      'การบริจาคของคุณช่วยให้ฉันดูแลและพัฒนา Jumble ให้ดีขึ้น! 😊',
+    'Enjoying Imwald?': 'ชอบ Imwald ไหม?',
+    'Your donation helps me maintain Imwald and make it better! 😊':
+      'การบริจาคของคุณช่วยให้ฉันดูแลและพัฒนา Imwald ให้ดีขึ้น! 😊',
     'Earlier notifications': 'การแจ้งเตือนก่อนหน้า',
     'Temporarily display this note': 'แสดงโน้ตนี้ชั่วคราว',
     buttonFollowing: 'กำลังติดตาม',
@@ -668,7 +668,7 @@ export default {
     Translation: 'การแปล',
     Balance: 'ยอดคงเหลือ',
     characters: 'ตัวอักษร',
-    jumbleTranslateApiKeyDescription:
+    translateApiKeyDescription:
       'คุณสามารถใช้ API key นี้กับที่อื่นที่รองรับ LibreTranslate ที่อยู่บริการคือ {{serviceUrl}}',
     'Top up': 'เติมเงิน',
     'Will receive: {n} characters': 'จะได้รับ: {{n}} ตัวอักษร',

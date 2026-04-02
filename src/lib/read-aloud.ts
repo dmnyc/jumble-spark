@@ -380,7 +380,7 @@ function playPiperBlob(blob: Blob, signal: AbortSignal): Promise<'ok' | 'error' 
     audio.src = audioUrl
     audio.preload = 'auto'
     try {
-      audio.setAttribute('data-jumble-read-aloud', '')
+      audio.setAttribute('data-imwald-read-aloud', '')
       audio.style.display = 'none'
       document.body.appendChild(audio)
     } catch {

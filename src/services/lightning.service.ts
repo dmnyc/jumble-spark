@@ -1,4 +1,4 @@
-import { FAST_READ_RELAY_URLS, CODY_PUBKEY, JUMBLE_PUBKEY } from '@/constants'
+import { FAST_READ_RELAY_URLS, CODY_PUBKEY, IMWALD_MAINTAINER_PUBKEY } from '@/constants'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import {
   buildZapPollVoteRequestTemplate,
@@ -23,7 +23,7 @@ import logger from '@/lib/logger'
 
 export type TRecentSupporter = { pubkey: string; amount: number; comment?: string }
 
-const OFFICIAL_PUBKEYS = [JUMBLE_PUBKEY, CODY_PUBKEY]
+const OFFICIAL_PUBKEYS = [IMWALD_MAINTAINER_PUBKEY, CODY_PUBKEY]
 
 class LightningService {
   static instance: LightningService
@@ -34,7 +34,7 @@ class LightningService {
     if (!LightningService.instance) {
       LightningService.instance = this
       init({
-        appName: 'Jumble',
+        appName: 'Imwald',
         showBalance: false
       })
     }

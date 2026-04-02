@@ -1,4 +1,4 @@
-# Deploy Jumble with docker-compose.prod.yml (remote server)
+# Deploy Imwald with docker-compose.prod.yml (remote server)
 
 Workflow: **build and push locally** → **pull and run on the server**.
 
@@ -13,8 +13,10 @@ docker login   # once, if needed
 
 This builds both images and pushes two tags each (`latest` and the version from `package.json`, e.g. `17.0.0`):
 
-- **Main app:** `silberengel/imwald-jumble`
-- **NIP-66 monitor:** `silberengel/imwald-jumble-nip66-monitor`
+- **Main app (Imwald):** `silberengel/imwald-jumble`
+- **NIP-66 monitor:** `silberengel/imwald-jumble-nip66-monitor`  
+
+  Registry paths keep the historical `imwald-jumble` name; retagging to e.g. `silberengel/imwald` is optional and requires updating `docker-compose.prod.yml` and pull scripts.
 
 ## Remote server: one-time setup
 

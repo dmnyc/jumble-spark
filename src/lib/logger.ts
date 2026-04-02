@@ -24,7 +24,11 @@ class Logger {
   constructor() {
     // In production, disable debug logging for better performance
     const isDev = import.meta.env.DEV
-    const isDebugEnabled = isDev && (localStorage.getItem('jumble-debug') === 'true' || import.meta.env.VITE_DEBUG === 'true')
+    const isDebugEnabled =
+      isDev &&
+      (localStorage.getItem('imwald-debug') === 'true' ||
+        localStorage.getItem('jumble-debug') === 'true' ||
+        import.meta.env.VITE_DEBUG === 'true')
     
     this.config = {
       level: isDebugEnabled ? 'debug' : 'info',
@@ -117,6 +121,7 @@ class Logger {
   setDebugMode(enabled: boolean): void {
     this.config.enableDebug = enabled
     this.config.level = enabled ? 'debug' : 'info'
+    localStorage.setItem('imwald-debug', enabled.toString())
     localStorage.setItem('jumble-debug', enabled.toString())
   }
 
@@ -147,6 +152,7 @@ const logger = new Logger()
 
 // Expose debug toggle for development
 if (import.meta.env.DEV) {
+  ;(window as any).imwaldLogger = logger
   ;(window as any).jumbleLogger = logger
 }
 

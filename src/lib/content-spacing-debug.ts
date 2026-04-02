@@ -1,15 +1,20 @@
 /**
  * Verbose content/spacing traces for debugging (e.g. "Name: nostr:npub…" collapsing).
  *
- * Enable in dev: localStorage.setItem('jumble-debug-content', 'true') then reload.
- * Disable: localStorage.removeItem('jumble-debug-content')
+ * Enable in dev: localStorage.setItem('imwald-debug-content', 'true') then reload.
+ * Disable: localStorage.removeItem('imwald-debug-content')
+ * Legacy key `jumble-debug-content` is still honored.
  */
 
-const STORAGE_KEY = 'jumble-debug-content'
+const STORAGE_KEY = 'imwald-debug-content'
+const LEGACY_STORAGE_KEY = 'jumble-debug-content'
 
 export function isContentSpacingDebug(): boolean {
   try {
-    return import.meta.env.DEV && typeof localStorage !== 'undefined' && localStorage.getItem(STORAGE_KEY) === 'true'
+    if (!import.meta.env.DEV || typeof localStorage === 'undefined') return false
+    return (
+      localStorage.getItem(STORAGE_KEY) === 'true' || localStorage.getItem(LEGACY_STORAGE_KEY) === 'true'
+    )
   } catch {
     return false
   }
@@ -24,5 +29,5 @@ export function reprString(s: string, maxLen = 500): string {
 export function logContentSpacing(phase: string, detail: Record<string, unknown>): void {
   if (!isContentSpacingDebug()) return
   // eslint-disable-next-line no-console
-  console.log(`[jumble content-spacing] ${phase}`, detail)
+  console.log(`[imwald content-spacing] ${phase}`, detail)
 }

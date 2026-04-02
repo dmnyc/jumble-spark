@@ -1,5 +1,5 @@
 import { StorageKey } from '@/constants'
-import { isJumbleElectron, isMobileBrowserProfile } from '@/lib/client-platform'
+import { isImwaldElectron, isMobileBrowserProfile } from '@/lib/client-platform'
 
 /** Platform defaults (overridable in Cache settings). */
 export const EVENT_ARCHIVE_DEFAULTS = {
@@ -44,19 +44,19 @@ function readPositiveInt(key: string, fallback: number): number {
 }
 
 function defaultSessionLruMax(): number {
-  if (isJumbleElectron()) return EVENT_ARCHIVE_DEFAULTS.sessionLruElectron
+  if (isImwaldElectron()) return EVENT_ARCHIVE_DEFAULTS.sessionLruElectron
   if (isMobileBrowserProfile()) return EVENT_ARCHIVE_DEFAULTS.sessionLruMobile
   return EVENT_ARCHIVE_DEFAULTS.sessionLruDesktopBrowser
 }
 
 function defaultMaxMb(): number {
-  if (isJumbleElectron()) return EVENT_ARCHIVE_DEFAULTS.maxMbElectron
+  if (isImwaldElectron()) return EVENT_ARCHIVE_DEFAULTS.maxMbElectron
   if (isMobileBrowserProfile()) return EVENT_ARCHIVE_DEFAULTS.maxMbMobile
   return EVENT_ARCHIVE_DEFAULTS.maxMbDesktopBrowser
 }
 
 function defaultMaxEvents(): number {
-  if (isJumbleElectron()) return EVENT_ARCHIVE_DEFAULTS.maxEventsElectron
+  if (isImwaldElectron()) return EVENT_ARCHIVE_DEFAULTS.maxEventsElectron
   if (isMobileBrowserProfile()) return EVENT_ARCHIVE_DEFAULTS.maxEventsMobile
   return EVENT_ARCHIVE_DEFAULTS.maxEventsDesktopBrowser
 }

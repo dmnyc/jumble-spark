@@ -2,7 +2,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('jumbleElectron', {
+contextBridge.exposeInMainWorld('imwaldElectron', {
   isElectron: true,
-  reloadApp: () => ipcRenderer.invoke('jumble:reload-app')
+  reloadApp: () => ipcRenderer.invoke('imwald:reload-app')
 })

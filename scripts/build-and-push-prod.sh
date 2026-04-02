@@ -4,8 +4,8 @@
 # Run from repo root. Requires: docker, docker login, git.
 #
 # Optional env:
-#   JUMBLE_PROXY_SERVER_URL — build-arg VITE_PROXY_SERVER (default https://jumble.imwald.eu).
-#     Must match the public origin where Apache serves the app; Apache proxies /sites/ → :8090, not this container.
+#   IMWALD_PROXY_SERVER_URL — build-arg VITE_PROXY_SERVER (default https://jumble.imwald.eu).
+#     Alias: JUMBLE_PROXY_SERVER_URL (deprecated). Must match the public origin where Apache serves the app.
 #   READ_ALOUD_TTS_URL — build-arg VITE_READ_ALOUD_TTS_URL (default /api/piper-tts).
 #     Same-origin: Apache proxies /api/piper-tts → aitherboard (e.g. :9876). Override only if you use CORS on another host.
 set -e
@@ -20,13 +20,13 @@ IMAGE_MONITOR="silberengel/imwald-jumble-nip66-monitor"
 
 # OG / link-preview HTML: VITE_PROXY_SERVER is baked into the client bundle at image build time (not runtime).
 # Use public origin only (no /proxy path): web.service builds <origin>/sites/?url=…
-# Override: JUMBLE_PROXY_SERVER_URL=https://other.example ./scripts/build-and-push-prod.sh
-JUMBLE_PROXY_SERVER_URL="${JUMBLE_PROXY_SERVER_URL:-https://jumble.imwald.eu}"
+# Override: IMWALD_PROXY_SERVER_URL=https://other.example ./scripts/build-and-push-prod.sh
+PROXY_ORIGIN="${IMWALD_PROXY_SERVER_URL:-${JUMBLE_PROXY_SERVER_URL:-https://jumble.imwald.eu}}"
 READ_ALOUD_TTS_URL="${READ_ALOUD_TTS_URL:-/api/piper-tts}"
 
-echo "Building main app (version: $VERSION, VITE_PROXY_SERVER=$JUMBLE_PROXY_SERVER_URL, VITE_READ_ALOUD_TTS_URL=$READ_ALOUD_TTS_URL)"
+echo "Building main app (version: $VERSION, VITE_PROXY_SERVER=$PROXY_ORIGIN, VITE_READ_ALOUD_TTS_URL=$READ_ALOUD_TTS_URL)"
 docker build \
-  --build-arg "VITE_PROXY_SERVER=$JUMBLE_PROXY_SERVER_URL" \
+  --build-arg "VITE_PROXY_SERVER=$PROXY_ORIGIN" \
   --build-arg "VITE_READ_ALOUD_TTS_URL=$READ_ALOUD_TTS_URL" \
   -t "$IMAGE_APP:latest" -t "$IMAGE_APP:$VERSION" .
 

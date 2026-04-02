@@ -145,7 +145,7 @@ export default function WebPreview({ url, className }: { url: string; className?
     }
   }, [cleanedUrl])
 
-  const isInternalJumbleLink = useMemo(() => hostname === 'jumble.imwald.eu', [hostname])
+  const isInternalAppLink = useMemo(() => hostname === 'jumble.imwald.eu', [hostname])
 
   // Extract replaceable event info (d-tag and pubkey) from URL patterns
   // This is separate from nostrIdentifier to allow fetching without kind
@@ -462,10 +462,10 @@ export default function WebPreview({ url, className }: { url: string; className?
   }
 
   // Prefer the page's own Open Graph / meta when the fetch returns anything useful.
-  const hasOpengraphData = !isInternalJumbleLink && (title || description || image)
+  const hasOpengraphData = !isInternalAppLink && (title || description || image)
 
   // While OG is loading for external URLs, avoid flashing the nostr / hostname fallback.
-  if (!isInternalJumbleLink && ogLoading) {
+  if (!isInternalAppLink && ogLoading) {
     return (
       <div
         className={cn('p-2 flex w-full border rounded-lg overflow-hidden gap-2 max-w-full', className)}

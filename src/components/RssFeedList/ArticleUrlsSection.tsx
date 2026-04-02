@@ -12,10 +12,10 @@ export function ArticleUrlsSection({
 }) {
   const { t } = useTranslation()
   return (
-    <section className="space-y-3" aria-labelledby="jumble-article-urls-heading">
+    <section className="space-y-3" aria-labelledby="imwald-article-urls-heading">
       <div className="space-y-1 px-0.5">
         <h2
-          id="jumble-article-urls-heading"
+          id="imwald-article-urls-heading"
           className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
         >
           {t('Article URLs')}

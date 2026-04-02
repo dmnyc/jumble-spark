@@ -1171,13 +1171,13 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
 
   const normalizeDraftEventTags = (draftEvent: TDraftEvent): TDraftEvent => {
     const draft = JSON.parse(JSON.stringify(draftEvent)) as TDraftEvent
-    const jumbleAttributionAlt = buildAltTag()[1]
+    const imwaldAttributionAlt = buildAltTag()[1]
     const existingTags = Array.isArray(draft.tags) ? draft.tags : []
     const sanitizedTags = existingTags.filter(
       (tag) =>
         Array.isArray(tag) &&
         tag[0] !== 'client' &&
-        !(tag[0] === 'alt' && tag[1] === jumbleAttributionAlt)
+        !(tag[0] === 'alt' && tag[1] === imwaldAttributionAlt)
     )
     draft.tags = [...sanitizedTags, buildClientTag(), buildAltTag()]
     return draft

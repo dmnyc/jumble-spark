@@ -76,7 +76,7 @@ function AccountManagerNav({
           onClick={() => {
             const wizard = new NstartModal({
               baseUrl: 'https://nstart.me',
-              an: 'Jumble',
+              an: 'Imwald',
               am: themeSetting,
               al: i18n.language.slice(0, 2),
               onComplete: ({ nostrLogin }) => {

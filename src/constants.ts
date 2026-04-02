@@ -1,8 +1,15 @@
 import { kinds, type Filter } from 'nostr-tools'
 
-/** API base URL; override with VITE_JUMBLE_API_BASE_URL for forks (e.g. https://api.jumble.imwald.eu). */
-export const JUMBLE_API_BASE_URL =
-  (import.meta.env.VITE_JUMBLE_API_BASE_URL as string | undefined) ?? 'https://api.jumble.imwald.eu'
+/**
+ * API base URL. Prefer `VITE_IMWALD_API_BASE_URL`; `VITE_JUMBLE_API_BASE_URL` is still read for existing deploys.
+ */
+export const IMWALD_API_BASE_URL =
+  (import.meta.env.VITE_IMWALD_API_BASE_URL as string | undefined)?.trim() ||
+  (import.meta.env.VITE_JUMBLE_API_BASE_URL as string | undefined)?.trim() ||
+  'https://api.jumble.imwald.eu'
+
+/** @deprecated Use {@link IMWALD_API_BASE_URL} */
+export const JUMBLE_API_BASE_URL = IMWALD_API_BASE_URL
 
 /** Git Republic web UI for repository links; override with VITE_GITREPUBLIC_WEB_BASE_URL for self-hosted. */
 export const GITREPUBLIC_WEB_BASE_URL = (
@@ -689,7 +696,12 @@ export const EMOJI_REGEX =
 export const YOUTUBE_URL_REGEX =
   /https?:\/\/(?:(?:www|m)\.)?(?:youtube\.com\/(?:watch\?[^#\s]*|embed\/[\w-]+|shorts\/[\w-]+|live\/[\w-]+)|youtu\.be\/[\w-]+)(?:\?[^#\s]*)?(?:#[^\s]*)?/gi
 
-export const JUMBLE_PUBKEY = 'f4eb8e62add1340b9cadcd9861e669b2e907cea534e0f7f3ac974c11c758a51a'
+/** Maintainer / official zap recipient pubkey for this distribution. */
+export const IMWALD_MAINTAINER_PUBKEY =
+  'f4eb8e62add1340b9cadcd9861e669b2e907cea534e0f7f3ac974c11c758a51a'
+
+/** @deprecated Use {@link IMWALD_MAINTAINER_PUBKEY} */
+export const JUMBLE_PUBKEY = IMWALD_MAINTAINER_PUBKEY
 export const CODY_PUBKEY = '8125b911ed0e94dbe3008a0be48cfe5cd0c0b05923cfff917ae7e87da8400883'
 export const SILBERENGEL_PUBKEY = 'fd208ee8c8f283780a9552896e4823cc9dc6bfd442063889577106940fd927c1'
 

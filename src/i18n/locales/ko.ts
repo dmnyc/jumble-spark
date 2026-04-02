@@ -169,7 +169,7 @@ export default {
       'Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.',
     'Tag value': 'Tag value',
     'Saving…': 'Saving…',
-    'Share with Jumble': 'Jumble로 공유',
+    'Share with Imwald': 'Imwald로 공유',
     'Share with Alexandria': 'Alexandria로 공유',
     'Start video call': 'Start video call',
     'Copy call invite link': 'Copy call invite link',
@@ -310,7 +310,7 @@ export default {
     'Add an Account': '계정 추가',
     'More options': '더 많은 옵션',
     'Add client tag': '클라이언트 태그 추가',
-    'Show others this was sent via Jumble': '이 노트가 Jumble을 통해 전송되었음을 표시',
+    'Show others this was sent via Imwald': '이 노트가 Imwald을 통해 전송되었음을 표시',
     'Are you sure you want to logout?': '로그아웃 하시겠습니까?',
     'relay sets': '릴레이 세트',
     edit: '편집',
@@ -464,7 +464,7 @@ export default {
     'Notification boost detail': 'The preview above is the original post.',
     'Notification poll vote summary': 'Voted on the poll above.',
     'Notification poll vote options count': '{{count}} option(s) selected',
-    'Jumble Imwald synthetic event': 'Jumble Imwald synthetic event',
+    'Imwald synthetic event': 'Imwald synthetic event',
     '+ Add a URL to this list': 'Add a URL to this list',
     'Add a web URL': 'Add a web URL',
     'Add web URL to feed description':
@@ -498,9 +498,9 @@ export default {
     Boosts: '부스트',
     Badges: 'Badges',
     Reports: 'Reports',
-    'Enjoying Jumble?': 'Jumble이 마음에 드시나요?',
-    'Your donation helps me maintain Jumble and make it better! 😊':
-      '후원해주시면 Jumble을 더 잘 유지하고 발전시킬 수 있습니다! 😊',
+    'Enjoying Imwald?': 'Imwald이 마음에 드시나요?',
+    'Your donation helps me maintain Imwald and make it better! 😊':
+      '후원해주시면 Imwald을 더 잘 유지하고 발전시킬 수 있습니다! 😊',
     'Earlier notifications': '이전 알림',
     'Temporarily display this note': '이 노트 임시 표시',
     buttonFollowing: '팔로잉 중',
@@ -668,7 +668,7 @@ export default {
     Translation: '번역',
     Balance: '잔액',
     characters: '글자',
-    jumbleTranslateApiKeyDescription:
+    translateApiKeyDescription:
       '이 API 키는 LibreTranslate를 지원하는 모든 곳에서 사용할 수 있습니다. 서비스 주소: {{serviceUrl}}',
     'Top up': '충전',
     'Will receive: {n} characters': '{{n}} 글자를 받게 됩니다',

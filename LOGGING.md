@@ -18,20 +18,22 @@ In development mode, you can control logging from the browser console:
 
 ```javascript
 // Enable debug logging
-jumbleDebug.enable()
+imwaldDebug.enable()
 
-// Disable debug logging  
-jumbleDebug.disable()
+// Disable debug logging
+imwaldDebug.disable()
 
 // Check current status
-jumbleDebug.status()
+imwaldDebug.status()
 
 // Use debug logging directly
-jumbleDebug.log('Debug message', data)
-jumbleDebug.warn('Warning message', data)
-jumbleDebug.error('Error message', data)
-jumbleDebug.perf('Performance message', data)
+imwaldDebug.log('Debug message', data)
+imwaldDebug.warn('Warning message', data)
+imwaldDebug.error('Error message', data)
+imwaldDebug.perf('Performance message', data)
 ```
+
+(`jumbleDebug` is still exposed as an alias for compatibility.)
 
 ### For Code
 
@@ -69,7 +71,7 @@ logger.perf('Performance metric', data)
 The logger automatically configures itself based on:
 
 1. **Environment**: Debug logging is disabled in production builds
-2. **Local Storage**: `jumble-debug=true` enables debug mode
+2. **Local Storage**: `imwald-debug=true` enables debug mode (legacy: `jumble-debug=true`)
 3. **Environment Variable**: `VITE_DEBUG=true` enables debug mode
 
 ## Performance Impact
@@ -103,12 +105,12 @@ To enable debug mode:
 
 1. **In Browser Console** (development only):
    ```javascript
-   jumbleDebug.enable()
+   imwaldDebug.enable()
    ```
 
 2. **Via Local Storage**:
    ```javascript
-   localStorage.setItem('jumble-debug', 'true')
+   localStorage.setItem('imwald-debug', 'true')
    ```
 
 3. **Via Environment Variable**:

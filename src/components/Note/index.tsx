@@ -470,7 +470,7 @@ export default function Note({
                       data-username
                       className={`font-semibold truncate text-foreground ${size === 'small' ? 'text-sm' : ''}`}
                     >
-                      {t('Jumble Imwald synthetic event')}
+                      {t('Imwald synthetic event')}
                     </span>
                     <ClientTag event={event} />
                   </div>

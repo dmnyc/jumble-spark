@@ -49,7 +49,7 @@ function extractHex64(s: string): string | null {
  * True if this hostname serves this web app: current tab origin and/or known production/dev hosts.
  * Needed so `https://jumble.imwald.eu/.../notes/nevent…` embeds while the dev server runs on localhost.
  */
-export function urlHostnameIsKnownJumbleAppHost(
+export function urlHostnameIsKnownImwaldWebHost(
   urlHostname: string,
   appOrigin: string | null
 ): boolean {
@@ -67,7 +67,7 @@ export function urlHostnameIsKnownJumbleAppHost(
 }
 
 /**
- * In-app HTTP(S) links to our routes → embed like `nostr:…` (same tab origin or known jumble/localhost host).
+ * In-app HTTP(S) links to our routes → embed like `nostr:…` (same tab origin or known Imwald/localhost host).
  */
 export function parseSameOriginAppNostrUrl(urlStr: string, appOrigin: string | null): NostrUrlExtract | null {
   let u: URL
@@ -76,7 +76,7 @@ export function parseSameOriginAppNostrUrl(urlStr: string, appOrigin: string | n
   } catch {
     return null
   }
-  if (!urlHostnameIsKnownJumbleAppHost(u.hostname, appOrigin)) return null
+  if (!urlHostnameIsKnownImwaldWebHost(u.hostname, appOrigin)) return null
 
   let path = u.pathname
   if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1)

@@ -17,7 +17,7 @@ function resolveDesktopDownloadUrl(): string | null {
 /** Bottom-of-sidebar link to native (Electron) builds; hidden in the packaged app and when URL is disabled. */
 export default function DownloadDesktopSidebarButton() {
   const { t } = useTranslation()
-  if (typeof window !== 'undefined' && window.jumbleElectron?.isElectron) {
+  if (typeof window !== 'undefined' && window.imwaldElectron?.isElectron) {
     return null
   }
   const href = resolveDesktopDownloadUrl()

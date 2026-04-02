@@ -169,7 +169,7 @@ export default {
       'Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.',
     'Tag value': 'Tag value',
     'Saving…': 'Saving…',
-    'Share with Jumble': '通过Jumble分享',
+    'Share with Imwald': '通过Imwald分享',
     'Share with Alexandria': '通过Alexandria分享',
     'Start video call': 'Start video call',
     'Copy call invite link': 'Copy call invite link',
@@ -309,7 +309,7 @@ export default {
     'Add an Account': '添加账户',
     'More options': '更多选项',
     'Add client tag': '添加客户端标签',
-    'Show others this was sent via Jumble': '告诉别人这是通过 Jumble 发送的',
+    'Show others this was sent via Imwald': '告诉别人这是通过 Imwald 发送的',
     'Are you sure you want to logout?': '确定要退出登录吗？',
     'relay sets': '服务器组',
     edit: '编辑',
@@ -463,7 +463,7 @@ export default {
     'Notification boost detail': 'The preview above is the original post.',
     'Notification poll vote summary': 'Voted on the poll above.',
     'Notification poll vote options count': '{{count}} option(s) selected',
-    'Jumble Imwald synthetic event': 'Jumble Imwald synthetic event',
+    'Imwald synthetic event': 'Imwald synthetic event',
     '+ Add a URL to this list': 'Add a URL to this list',
     'Add a web URL': 'Add a web URL',
     'Add web URL to feed description':
@@ -497,9 +497,9 @@ export default {
     Boosts: '助推',
     Badges: 'Badges',
     Reports: 'Reports',
-    'Enjoying Jumble?': '喜欢 Jumble 吗？',
-    'Your donation helps me maintain Jumble and make it better! 😊':
-      '您的捐赠帮助我维护 Jumble 并使其更好！😊',
+    'Enjoying Imwald?': '喜欢 Imwald 吗？',
+    'Your donation helps me maintain Imwald and make it better! 😊':
+      '您的捐赠帮助我维护 Imwald 并使其更好！😊',
     'Earlier notifications': '更早的通知',
     'Temporarily display this note': '临时显示此笔记',
     buttonFollowing: '已关注',
@@ -667,7 +667,7 @@ export default {
     Translation: '翻译',
     Balance: '余额',
     characters: '字符',
-    jumbleTranslateApiKeyDescription:
+    translateApiKeyDescription:
       '您可以在任何支持 LibreTranslate 的地方使用此 API key。服务地址是 {{serviceUrl}}',
     'Top up': '充值',
     'Will receive: {n} characters': '将获得: {{n}} 字符',

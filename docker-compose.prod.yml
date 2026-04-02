@@ -10,7 +10,7 @@
 # VITE_PROXY_SERVER / VITE_READ_ALOUD_TTS_URL are baked at image build — see scripts/build-and-push-prod.sh
 #
 # NIP-66 monitor: set NIP66_MONITOR_NSEC (and optionally NIP66_MONITOR_NPUB) in the host env or .env.
-# - Cron (jumble-nip66-monitor) uses NIP66_MONITOR_NSEC to publish 30166/10166; nsec never goes to the client.
+# - Cron service `jumble-nip66-monitor` (Imwald NIP-66 monitor image) uses NIP66_MONITOR_NSEC to publish 30166/10166; nsec never goes to the client.
 # - Set NIP66_MONITOR_NPUB (npub1... derived from the same key) so the relay info page shows the monitor's avatar and handle in the NIP-66 liveliness section.
 
 services:

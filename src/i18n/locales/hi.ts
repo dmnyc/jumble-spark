@@ -169,7 +169,7 @@ export default {
       'Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.',
     'Tag value': 'Tag value',
     'Saving…': 'Saving…',
-    'Share with Jumble': 'Jumble के साथ शेयर करें',
+    'Share with Imwald': 'Imwald के साथ शेयर करें',
     'Share with Alexandria': 'Alexandria के साथ शेयर करें',
     'Start video call': 'Start video call',
     'Copy call invite link': 'Copy call invite link',
@@ -310,8 +310,8 @@ export default {
     'Add an Account': 'अकाउंट जोड़ें',
     'More options': 'अधिक विकल्प',
     'Add client tag': 'क्लाइंट टैग जोड़ें',
-    'Show others this was sent via Jumble':
-      'दूसरों को दिखाएं कि यह Jumble के माध्यम से भेजा गया था',
+    'Show others this was sent via Imwald':
+      'दूसरों को दिखाएं कि यह Imwald के माध्यम से भेजा गया था',
     'Are you sure you want to logout?': 'क्या आप वाकई लॉगआउट करना चाहते हैं?',
     'relay sets': 'रिले सेट',
     edit: 'संपादित करें',
@@ -467,7 +467,7 @@ export default {
     'Notification boost detail': 'The preview above is the original post.',
     'Notification poll vote summary': 'Voted on the poll above.',
     'Notification poll vote options count': '{{count}} option(s) selected',
-    'Jumble Imwald synthetic event': 'Jumble Imwald synthetic event',
+    'Imwald synthetic event': 'Imwald synthetic event',
     '+ Add a URL to this list': 'Add a URL to this list',
     'Add a web URL': 'Add a web URL',
     'Add web URL to feed description':
@@ -501,9 +501,9 @@ export default {
     Boosts: 'बूस्ट',
     Badges: 'Badges',
     Reports: 'Reports',
-    'Enjoying Jumble?': 'Jumble का आनंद ले रहे हैं?',
-    'Your donation helps me maintain Jumble and make it better! 😊':
-      'आपका दान मुझे Jumble को बनाए रखने और इसे बेहतर बनाने में मदद करता है! 😊',
+    'Enjoying Imwald?': 'Imwald का आनंद ले रहे हैं?',
+    'Your donation helps me maintain Imwald and make it better! 😊':
+      'आपका दान मुझे Imwald को बनाए रखने और इसे बेहतर बनाने में मदद करता है! 😊',
     'Earlier notifications': 'पुरानी सूचनाएं',
     'Temporarily display this note': 'इस नोट को अस्थायी रूप से प्रदर्शित करें',
     buttonFollowing: 'फॉलो कर रहे हैं',
@@ -672,7 +672,7 @@ export default {
     Translation: 'अनुवाद',
     Balance: 'बैलेंस',
     characters: 'अक्षर',
-    jumbleTranslateApiKeyDescription:
+    translateApiKeyDescription:
       'आप इस API की को कहीं भी उपयोग कर सकते हैं जो LibreTranslate का समर्थन करता है। सेवा URL है {{serviceUrl}}',
     'Top up': 'टॉप अप',
     'Will receive: {n} characters': 'प्राप्त होंगे: {{n}} अक्षर',

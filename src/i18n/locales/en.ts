@@ -174,7 +174,7 @@ export default {
       'Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.',
     'Tag value': 'Tag value',
     'Saving…': 'Saving…',
-    'Share with Jumble': 'Share with Jumble',
+    'Share with Imwald': 'Share with Imwald',
     'Share with Alexandria': 'Share with Alexandria',
     'Start video call': 'Start video call',
     'Copy call invite link': 'Copy call invite link',
@@ -321,7 +321,7 @@ export default {
     'Add an Account': 'Add an Account',
     'More options': 'More options',
     'Add client tag': 'Add client tag',
-    'Show others this was sent via Jumble': 'Show others this was sent via Jumble',
+    'Show others this was sent via Imwald': 'Show others this was sent via Imwald',
     'Are you sure you want to logout?': 'Are you sure you want to logout?',
     'relay sets': 'relay sets',
     edit: 'edit',
@@ -476,7 +476,7 @@ export default {
     'Notification boost detail': 'The preview above is the original post.',
     'Notification poll vote summary': 'Voted on the poll above.',
     'Notification poll vote options count': '{{count}} option(s) selected',
-    'Jumble Imwald synthetic event': 'Jumble Imwald synthetic event',
+    'Imwald synthetic event': 'Imwald synthetic event',
     '+ Add a URL to this list': 'Add a URL to this list',
     'Add a web URL': 'Add a web URL',
     'Add web URL to feed description':
@@ -510,9 +510,9 @@ export default {
     Boosts: 'Boosts',
     Badges: 'Badges',
     Reports: 'Reports',
-    'Enjoying Jumble?': 'Enjoying Jumble?',
-    'Your donation helps me maintain Jumble and make it better! 😊':
-      'Your donation helps me maintain Jumble and make it better! 😊',
+    'Enjoying Imwald?': 'Enjoying Imwald?',
+    'Your donation helps me maintain Imwald and make it better! 😊':
+      'Your donation helps me maintain Imwald and make it better! 😊',
     'Earlier notifications': 'Earlier notifications',
     'Temporarily display this note': 'Temporarily display this note',
     buttonFollowing: 'Following',
@@ -692,7 +692,7 @@ export default {
     Translation: 'Translation',
     Balance: 'Balance',
     characters: 'characters',
-    jumbleTranslateApiKeyDescription:
+    translateApiKeyDescription:
       'You can use this API key anywhere else that supports LibreTranslate. The service URL is {{serviceUrl}}',
     'Top up': 'Top up',
     'Will receive: {n} characters': 'Will receive: {{n}} characters',

@@ -261,8 +261,8 @@ const RssFeedSettingsPage = forwardRef(({ index, hideTitlebar = false }: { index
     }
 
     try {
-      const opmlContent = generateOpml(normalizedUrls, 'Jumble RSS Feeds')
-      const filename = `jumble-rss-feeds-${new Date().toISOString().split('T')[0]}.opml`
+      const opmlContent = generateOpml(normalizedUrls, 'Imwald RSS Feeds')
+      const filename = `imwald-rss-feeds-${new Date().toISOString().split('T')[0]}.opml`
       downloadFile(opmlContent, filename, 'application/xml')
       toast.success(t('RSS feeds exported to OPML file'))
     } catch (error) {

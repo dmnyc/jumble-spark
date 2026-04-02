@@ -48,25 +48,25 @@ const ProfilePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: stri
       // Reset to default meta tags
       const defaultUrl = window.location.href
       const truncatedDefaultUrl = defaultUrl.length > 150 ? defaultUrl.substring(0, 147) + '...' : defaultUrl
-      updateMetaTag('og:title', 'Jumble - Imwald Edition 🌲')
+      updateMetaTag('og:title', 'Imwald 🌲')
       updateMetaTag('og:description', `${truncatedDefaultUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('og:image', 'https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true')
+      updateMetaTag('og:image', 'https://jumble.imwald.eu/pwa-512x512.png')
       updateMetaTag('og:type', 'profile')
       updateMetaTag('og:url', window.location.href)
-      updateMetaTag('og:site_name', 'Jumble - Imwald Edition 🌲')
+      updateMetaTag('og:site_name', 'Imwald 🌲')
       
       // Twitter card meta tags
       updateMetaTag('twitter:card', 'summary')
-      updateMetaTag('twitter:title', 'Jumble - Imwald Edition 🌲')
+      updateMetaTag('twitter:title', 'Imwald 🌲')
       updateMetaTag('twitter:description', `${truncatedDefaultUrl} - Profile`)
-      updateMetaTag('twitter:image', 'https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true')
+      updateMetaTag('twitter:image', 'https://jumble.imwald.eu/pwa-512x512.png')
       
       return
     }
     
     // Build description matching fallback card: username, hostname, URL
     const username = profile.username || ''
-    const ogTitle = username ? `@${username} - Jumble Imwald Edition 🌲` : 'Profile - Jumble Imwald Edition 🌲'
+    const ogTitle = username ? `@${username} - Imwald 🌲` : 'Profile - Imwald 🌲'
     
     // Truncate URL to 150 chars
     const fullUrl = window.location.href
@@ -86,17 +86,17 @@ const ProfilePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: stri
     // Use profile avatar or default image with green theme
     const image = profile.avatar 
       ? `https://jumble.imwald.eu/api/avatar/${profile.pubkey}` 
-      : 'https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true'
+      : 'https://jumble.imwald.eu/pwa-512x512.png'
     
     updateMetaTag('og:title', ogTitle)
     updateMetaTag('og:description', ogDescription)
     updateMetaTag('og:image', image)
     updateMetaTag('og:image:width', '1200')
     updateMetaTag('og:image:height', '630')
-    updateMetaTag('og:image:alt', `${username ? `@${username}` : 'Profile'} on Jumble Imwald`)
+    updateMetaTag('og:image:alt', `${username ? `@${username}` : 'Profile'} on Imwald`)
     updateMetaTag('og:type', 'profile')
     updateMetaTag('og:url', window.location.href)
-    updateMetaTag('og:site_name', 'Jumble - Imwald Edition 🌲')
+    updateMetaTag('og:site_name', 'Imwald 🌲')
     
     // Add profile-specific meta tags
     if (profile.username) {
@@ -111,23 +111,23 @@ const ProfilePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: stri
     updateMetaTag('twitter:title', ogTitle)
     updateMetaTag('twitter:description', ogDescription.length > 200 ? ogDescription.substring(0, 197) + '...' : ogDescription)
     updateMetaTag('twitter:image', image)
-    updateMetaTag('twitter:image:alt', `${username ? `@${username}` : 'Profile'} on Jumble Imwald`)
+    updateMetaTag('twitter:image:alt', `${username ? `@${username}` : 'Profile'} on Imwald`)
     
     // Update document title
-    document.title = `${ogTitle} - Jumble Imwald Edition`
+    document.title = `${ogTitle} - Imwald`
     
     // Cleanup function
     return () => {
       // Reset to default on unmount
       const cleanupUrl = window.location.href
       const truncatedCleanupUrl = cleanupUrl.length > 150 ? cleanupUrl.substring(0, 147) + '...' : cleanupUrl
-      updateMetaTag('og:title', 'Jumble - Imwald Edition 🌲')
+      updateMetaTag('og:title', 'Imwald 🌲')
       updateMetaTag('og:description', `${truncatedCleanupUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('og:image', 'https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true')
+      updateMetaTag('og:image', 'https://jumble.imwald.eu/pwa-512x512.png')
       updateMetaTag('og:type', 'website')
       updateMetaTag('og:url', window.location.href)
-      updateMetaTag('og:site_name', 'Jumble - Imwald Edition 🌲')
-      document.title = 'Jumble - Imwald Edition 🌲'
+      updateMetaTag('og:site_name', 'Imwald 🌲')
+      document.title = 'Imwald 🌲'
     }
   }, [profile])
 

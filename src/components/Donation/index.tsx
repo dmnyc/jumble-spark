@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { JUMBLE_PUBKEY } from '@/constants'
+import { IMWALD_MAINTAINER_PUBKEY } from '@/constants'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -14,9 +14,9 @@ export default function Donation({ className }: { className?: string }) {
 
   return (
     <div className={cn('p-4 border rounded-lg space-y-4', className)}>
-      <div className="text-center font-semibold">{t('Enjoying Jumble?')}</div>
+      <div className="text-center font-semibold">{t('Enjoying Imwald?')}</div>
       <div className="text-center text-muted-foreground">
-        {t('Your donation helps me maintain Jumble and make it better! 😊')}
+        {t('Your donation helps me maintain Imwald and make it better! 😊')}
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
@@ -45,7 +45,7 @@ export default function Donation({ className }: { className?: string }) {
       <ZapDialog
         open={open}
         setOpen={setOpen}
-        pubkey={JUMBLE_PUBKEY}
+        pubkey={IMWALD_MAINTAINER_PUBKEY}
         defaultAmount={donationAmount}
       />
     </div>

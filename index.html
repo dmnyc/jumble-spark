@@ -4,17 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
-    <title>Jumble - Imwald Edition 🌲</title>
+    <title>Imwald 🌲</title>
     <meta
       name="description"
-      content="A user-friendly Nostr client focused on relay feed browsing and relay discovery"
+      content="Imwald — a user-friendly Nostr client focused on relay feed browsing, publications, and relay discovery"
     />
     <meta
       name="keywords"
-      content="jumble, nostr, web, client, relay, feed, social, pwa, simple, clean"
+      content="imwald, nostr, web, client, relay, feed, social, pwa, simple, clean"
     />
 
-    <meta name="apple-mobile-web-app-title" content="Jumble" />
+    <meta name="apple-mobile-web-app-title" content="Imwald" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🌲%3C/text%3E%3C/svg%3E" type="image/svg+xml" />
@@ -23,25 +23,25 @@
 
     <meta property="og:url" content="https://jumble.imwald.eu" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Jumble - Imwald Edition 🌲" />
+    <meta property="og:title" content="Imwald 🌲" />
     <meta
       property="og:description"
-      content="A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles."
+      content="Imwald — a user-friendly Nostr client focused on relay feed browsing, publications, and relay discovery."
     />
     <meta
       property="og:image"
-      content="https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true"
+      content="https://jumble.imwald.eu/pwa-512x512.png"
     />
-    <meta property="og:site_name" content="Jumble" />
+    <meta property="og:site_name" content="Imwald" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Jumble - Imwald Edition 🌲" />
-    <meta name="twitter:description" content="Jumble.imwald.eu - A user-friendly Nostr client focused on relay feed browsing and relay discovery." />
-    <meta name="twitter:image" content="https://github.com/CodyTseng/jumble/blob/master/resources/og-image.png?raw=true" />
+    <meta name="twitter:title" content="Imwald 🌲" />
+    <meta name="twitter:description" content="jumble.imwald.eu — a user-friendly Nostr client focused on relay feed browsing and relay discovery." />
+    <meta name="twitter:image" content="https://jumble.imwald.eu/pwa-512x512.png" />
   </head>
   <body>
     <div id="root">
       <div
-        id="jumble-boot-splash"
+        id="imwald-boot-splash"
         style="
           position: fixed;
           inset: 0;
@@ -63,24 +63,24 @@
             border: 3px solid #e5e5e5;
             border-top-color: #404040;
             border-radius: 50%;
-            animation: jumble-spin 0.7s linear infinite;
+            animation: imwald-spin 0.7s linear infinite;
           "
           aria-hidden="true"
         ></div>
-        <p style="margin: 0; max-width: 18rem; text-align: center">Loading Jumble…</p>
+        <p style="margin: 0; max-width: 18rem; text-align: center">Loading Imwald…</p>
       </div>
       <style>
-        @keyframes jumble-spin {
+        @keyframes imwald-spin {
           to {
             transform: rotate(360deg);
           }
         }
         @media (prefers-color-scheme: dark) {
-          #jumble-boot-splash {
+          #imwald-boot-splash {
             color: #a3a3a3;
             background: #171717;
           }
-          #jumble-boot-splash div[aria-hidden] {
+          #imwald-boot-splash div[aria-hidden] {
             border-color: #404040;
             border-top-color: #d4d4d4;
           }

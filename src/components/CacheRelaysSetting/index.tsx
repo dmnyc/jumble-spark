@@ -221,7 +221,7 @@ export default function CacheRelaysSetting() {
       await indexedDb.clearPiperTtsCache()
       
       // Clear localStorage (but keep essential settings like theme, accounts, etc.)
-      // We'll only clear Jumble-specific cache keys, not all localStorage
+      // We'll only clear Imwald-specific cache keys, not all localStorage
       const cacheKeys = Object.values(StorageKey).filter(key => 
         key.includes('CACHE') || key.includes('EVENT') || key.includes('FEED') || key.includes('NOTIFICATION')
       )

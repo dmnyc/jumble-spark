@@ -1,15 +1,15 @@
-import { isJumbleElectron, isMobileBrowserProfile } from '@/lib/client-platform'
+import { isImwaldElectron, isMobileBrowserProfile } from '@/lib/client-platform'
 
 /** How long we keep Piper WAV blobs (per device class). */
 export function getPiperTtsCacheTtlMs(): number {
-  if (isJumbleElectron()) return 7 * 24 * 60 * 60 * 1000
+  if (isImwaldElectron()) return 7 * 24 * 60 * 60 * 1000
   if (isMobileBrowserProfile()) return 24 * 60 * 60 * 1000
   return 48 * 60 * 60 * 1000
 }
 
 /** Caps so TTS audio cannot grow without bound (evicts oldest after TTL pass). */
 export function getPiperTtsCacheBudget(): { maxEntries: number; maxBytes: number } {
-  if (isJumbleElectron()) return { maxEntries: 400, maxBytes: 400 * 1024 * 1024 }
+  if (isImwaldElectron()) return { maxEntries: 400, maxBytes: 400 * 1024 * 1024 }
   if (isMobileBrowserProfile()) return { maxEntries: 80, maxBytes: 45 * 1024 * 1024 }
   return { maxEntries: 200, maxBytes: 180 * 1024 * 1024 }
 }

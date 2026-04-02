@@ -7,7 +7,7 @@ import {
   EVENT_ARCHIVE_DEFAULTS,
   getEventArchiveConfig
 } from '@/lib/event-archive-config'
-import { isJumbleElectron, isMobileBrowserProfile } from '@/lib/client-platform'
+import { isImwaldElectron, isMobileBrowserProfile } from '@/lib/client-platform'
 import client from '@/services/client.service'
 import { invalidateArchiveFootprintCache } from '@/services/event-archive.service'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 function platformLabel(): string {
-  if (isJumbleElectron()) return 'desktop-app'
+  if (isImwaldElectron()) return 'desktop-app'
   if (isMobileBrowserProfile()) return 'mobile-web'
   return 'desktop-web'
 }
@@ -101,7 +101,7 @@ export default function EventArchiveCacheSettings() {
             id="archive-max-mb"
             inputMode="numeric"
             placeholder={String(
-              isJumbleElectron()
+              isImwaldElectron()
                 ? EVENT_ARCHIVE_DEFAULTS.maxMbElectron
                 : isMobileBrowserProfile()
                   ? EVENT_ARCHIVE_DEFAULTS.maxMbMobile
@@ -119,7 +119,7 @@ export default function EventArchiveCacheSettings() {
             id="archive-max-events"
             inputMode="numeric"
             placeholder={String(
-              isJumbleElectron()
+              isImwaldElectron()
                 ? EVENT_ARCHIVE_DEFAULTS.maxEventsElectron
                 : isMobileBrowserProfile()
                   ? EVENT_ARCHIVE_DEFAULTS.maxEventsMobile
@@ -139,7 +139,7 @@ export default function EventArchiveCacheSettings() {
           id="session-lru"
           inputMode="numeric"
           placeholder={String(
-            isJumbleElectron()
+            isImwaldElectron()
               ? EVENT_ARCHIVE_DEFAULTS.sessionLruElectron
               : isMobileBrowserProfile()
                 ? EVENT_ARCHIVE_DEFAULTS.sessionLruMobile

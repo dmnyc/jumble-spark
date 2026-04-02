@@ -1,8 +1,8 @@
 {
-  "name": "Jumble Imwald Edition",
+  "name": "Imwald",
   "author": "Silberengel",
-  "short_name": "Jumble",
-  "description": "A user-friendly Nostr client focused on relay feed browsing and relay discovery",
+  "short_name": "Imwald",
+  "description": "Imwald — a user-friendly Nostr client focused on relay feed browsing and relay discovery",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#FFFFFF",

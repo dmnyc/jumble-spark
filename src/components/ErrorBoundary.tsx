@@ -6,7 +6,7 @@ import logger from '@/lib/logger'
 import { isChunkLoadFailureMessage, tryStaleChunkReloadOnce } from '@/lib/stale-chunk-recovery'
 
 const ISSUES_URL =
-  'https://gitrepublic.imwald.eu/repos/npub1l5sga6xg72phsz5422ykujprejwud075ggrr3z2hwyrfgr7eylqstegx9z/jumble-imwald-edition?tab=issues'
+  'https://gitrepublic.imwald.eu/repos/npub1l5sga6xg72phsz5422ykujprejwud075ggrr3z2hwyrfgr7eylqstegx9z/imwald?tab=issues'
 
 /** HMR can remount children before parents; context hooks throw. One recovery reload fixes it. */
 const CONTEXT_RECOVERY_RELOAD_KEY = 'jumble-context-recovery-reload-at'

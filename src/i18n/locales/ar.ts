@@ -169,7 +169,7 @@ export default {
       'Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.',
     'Tag value': 'Tag value',
     'Saving…': 'Saving…',
-    'Share with Jumble': 'مشاركة مع Jumble',
+    'Share with Imwald': 'مشاركة مع Imwald',
     'Share with Alexandria': 'مشاركة مع Alexandria',
     'Start video call': 'Start video call',
     'Copy call invite link': 'Copy call invite link',
@@ -309,7 +309,7 @@ export default {
     'Add an Account': 'إضافة حساب',
     'More options': 'المزيد من الخيارات',
     'Add client tag': 'إضافة وسم العميل',
-    'Show others this was sent via Jumble': 'عرض أن هذه الرسالة أُرسلت عبر Jumble',
+    'Show others this was sent via Imwald': 'عرض أن هذه الرسالة أُرسلت عبر Imwald',
     'Are you sure you want to logout?': 'هل أنت متأكد أنك تريد تسجيل الخروج؟',
     'relay sets': 'مجموعات الريلاي',
     edit: 'تعديل',
@@ -463,7 +463,7 @@ export default {
     'Notification boost detail': 'The preview above is the original post.',
     'Notification poll vote summary': 'Voted on the poll above.',
     'Notification poll vote options count': '{{count}} option(s) selected',
-    'Jumble Imwald synthetic event': 'Jumble Imwald synthetic event',
+    'Imwald synthetic event': 'Imwald synthetic event',
     '+ Add a URL to this list': 'Add a URL to this list',
     'Add a web URL': 'Add a web URL',
     'Add web URL to feed description':
@@ -497,9 +497,9 @@ export default {
     Boosts: 'Boosts',
     Badges: 'Badges',
     Reports: 'Reports',
-    'Enjoying Jumble?': 'هل تستمتع بـ Jumble؟',
-    'Your donation helps me maintain Jumble and make it better! 😊':
-      'تبرعك يساعد في صيانة Jumble وتحسينه! 😊',
+    'Enjoying Imwald?': 'هل تستمتع بـ Imwald؟',
+    'Your donation helps me maintain Imwald and make it better! 😊':
+      'تبرعك يساعد في صيانة Imwald وتحسينه! 😊',
     'Earlier notifications': 'الإشعارات السابقة',
     'Temporarily display this note': 'عرض هذه الملاحظة مؤقتاً',
     buttonFollowing: 'جارٍ المتابعة',
@@ -668,7 +668,7 @@ export default {
     Translation: 'الترجمة',
     Balance: 'الرصيد',
     characters: 'الحروف',
-    jumbleTranslateApiKeyDescription:
+    translateApiKeyDescription:
       'يمكنك استخدام مفتاح API هذا في أي مكان آخر يدعم LibreTranslate. عنوان الخدمة هو {{serviceUrl}}',
     'Top up': 'إعادة شحن',
     'Will receive: {n} characters': 'ستتلقى: {{n}} حروف',

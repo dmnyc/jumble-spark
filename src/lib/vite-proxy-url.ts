@@ -1,5 +1,5 @@
 /**
- * Builds the browser fetch URL for Jumble's server-side fetch proxy (`VITE_PROXY_SERVER`).
+ * Builds the browser fetch URL for Imwald's server-side fetch proxy (`VITE_PROXY_SERVER`).
  * Shared by OG/HTML fetches and RSS so both hit the same proxy contract.
  */
 export function buildViteProxySitesFetchUrl(originalUrl: string, proxyServer: string): string {

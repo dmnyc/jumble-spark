@@ -2,9 +2,9 @@
  * Debug utilities for development and troubleshooting
  * 
  * Usage in browser console:
- * - jumbleDebug.enable() - Enable debug logging
- * - jumbleDebug.disable() - Disable debug logging
- * - jumbleDebug.status() - Check current debug status
+ * - imwaldDebug.enable() - Enable debug logging
+ * - imwaldDebug.disable() - Disable debug logging
+ * - imwaldDebug.status() - Check current debug status
  */
 
 import logger from './logger'
@@ -22,17 +22,17 @@ interface DebugUtils {
 const debugUtils: DebugUtils = {
   enable: () => {
     logger.setDebugMode(true)
-    logger.info('🔧 Jumble debug logging enabled')
+    logger.info('🔧 Imwald debug logging enabled')
   },
   
   disable: () => {
     logger.setDebugMode(false)
-    logger.info('🔧 Jumble debug logging disabled')
+    logger.info('🔧 Imwald debug logging disabled')
   },
   
   status: () => {
     const enabled = logger.isDebugEnabled()
-    logger.info(`🔧 Jumble debug status: ${enabled ? 'ENABLED' : 'DISABLED'}`)
+    logger.info(`🔧 Imwald debug status: ${enabled ? 'ENABLED' : 'DISABLED'}`)
     return { enabled, level: enabled ? 'debug' : 'info' }
   },
   
@@ -55,6 +55,7 @@ const debugUtils: DebugUtils = {
 
 // Expose debug utilities globally in development
 if (import.meta.env.DEV) {
+  ;(window as any).imwaldDebug = debugUtils
   ;(window as any).jumbleDebug = debugUtils
 }
 

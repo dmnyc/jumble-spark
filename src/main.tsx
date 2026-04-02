@@ -34,7 +34,7 @@ const SESSION_STORAGE_KEY = 'jumble:session'
 async function bootstrap() {
   // Always defined: fetch does not throw on 4xx/5xx, so non-OK responses must not leave this unset.
   window.__RUNTIME_CONFIG__ = {}
-  console.info('[jumble] Boot: opening storage and loading config…')
+  console.info('[imwald] Boot: opening storage and loading config…')
   await Promise.all([
     initI18n(),
     storage.initAsync(),
@@ -52,7 +52,7 @@ async function bootstrap() {
       }
     })()
   ])
-  console.info('[jumble] Boot: mounting React (UI shell will appear; Nostr session restores next)')
+  console.info('[imwald] Boot: mounting React (UI shell will appear; Nostr session restores next)')
   restoreSessionFeedSnapshotsAfterHardRefresh()
   // Mark session storage as used so it's visible in DevTools; VersionUpdateBanner and NotePage also use it.
   try {

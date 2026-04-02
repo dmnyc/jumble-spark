@@ -169,7 +169,7 @@ export default {
       'Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.',
     'Tag value': 'Tag value',
     'Saving…': 'Saving…',
-    'Share with Jumble': 'اشتراک‌گذاری با Jumble',
+    'Share with Imwald': 'اشتراک‌گذاری با Imwald',
     'Share with Alexandria': 'اشتراک‌گذاری با Alexandria',
     'Start video call': 'Start video call',
     'Copy call invite link': 'Copy call invite link',
@@ -310,7 +310,7 @@ export default {
     'Add an Account': 'افزودن حساب',
     'More options': 'گزینه‌های بیشتر',
     'Add client tag': 'افزودن برچسب کلاینت',
-    'Show others this was sent via Jumble': 'به دیگران نشان دهید که از طریق Jumble ارسال شده',
+    'Show others this was sent via Imwald': 'به دیگران نشان دهید که از طریق Imwald ارسال شده',
     'Are you sure you want to logout?': 'آیا مطمئن هستید که می‌خواهید خارج شوید؟',
     'relay sets': 'مجموعه‌های رله',
     edit: 'ویرایش',
@@ -466,7 +466,7 @@ export default {
     'Notification boost detail': 'The preview above is the original post.',
     'Notification poll vote summary': 'Voted on the poll above.',
     'Notification poll vote options count': '{{count}} option(s) selected',
-    'Jumble Imwald synthetic event': 'Jumble Imwald synthetic event',
+    'Imwald synthetic event': 'Imwald synthetic event',
     '+ Add a URL to this list': 'Add a URL to this list',
     'Add a web URL': 'Add a web URL',
     'Add web URL to feed description':
@@ -500,9 +500,9 @@ export default {
     Boosts: 'بوست‌ها',
     Badges: 'Badges',
     Reports: 'Reports',
-    'Enjoying Jumble?': 'از Jumble لذت می‌برید؟',
-    'Your donation helps me maintain Jumble and make it better! 😊':
-      'کمک مالی شما به من در نگهداری Jumble و بهتر کردن آن کمک می‌کند! 😊',
+    'Enjoying Imwald?': 'از Imwald لذت می‌برید؟',
+    'Your donation helps me maintain Imwald and make it better! 😊':
+      'کمک مالی شما به من در نگهداری Imwald و بهتر کردن آن کمک می‌کند! 😊',
     'Earlier notifications': 'اعلان‌های قبلی',
     'Temporarily display this note': 'نمایش موقت این یادداشت',
     buttonFollowing: 'دنبال می‌کنم',
@@ -671,7 +671,7 @@ export default {
     Translation: 'ترجمه',
     Balance: 'موجودی',
     characters: 'کاراکتر',
-    jumbleTranslateApiKeyDescription:
+    translateApiKeyDescription:
       'می‌توانید از این کلید API در هر جای دیگری که از LibreTranslate پشتیبانی می‌کند استفاده کنید. آدرس سرویس {{serviceUrl}} است',
     'Top up': 'شارژ',
     'Will receive: {n} characters': 'دریافت خواهید کرد: {{n}} کاراکتر',

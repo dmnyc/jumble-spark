@@ -138,6 +138,13 @@ class LocalStorageService {
     this.accounts = accountsStr ? JSON.parse(accountsStr) : []
     const currentAccountStr = window.localStorage.getItem(StorageKey.CURRENT_ACCOUNT)
     this.currentAccount = currentAccountStr ? JSON.parse(currentAccountStr) : null
+    if (
+      this.currentAccount != null &&
+      !this.accounts.some((a) => isSameAccount(a, this.currentAccount))
+    ) {
+      this.currentAccount = null
+      window.localStorage.setItem(StorageKey.CURRENT_ACCOUNT, JSON.stringify(null))
+    }
     const noteListModeStr = window.localStorage.getItem(StorageKey.NOTE_LIST_MODE)
     this.noteListMode =
       noteListModeStr && ['posts', 'postsAndReplies', 'pictures'].includes(noteListModeStr)
@@ -487,6 +494,13 @@ class LocalStorageService {
     if (accountsStr != null) this.accounts = JSON.parse(accountsStr) as TAccount[]
     const currentAccountStr = get(StorageKey.CURRENT_ACCOUNT)
     if (currentAccountStr != null) this.currentAccount = JSON.parse(currentAccountStr) as TAccount | null
+    if (
+      this.currentAccount != null &&
+      !this.accounts.some((a) => isSameAccount(a, this.currentAccount))
+    ) {
+      this.currentAccount = null
+      this.persistSetting(StorageKey.CURRENT_ACCOUNT, JSON.stringify(null))
+    }
     const relaySetsStr = get(StorageKey.RELAY_SETS)
     if (relaySetsStr != null) this.relaySets = JSON.parse(relaySetsStr) as TRelaySet[]
     const defaultZapSatsStr = get(StorageKey.DEFAULT_ZAP_SATS)
@@ -654,10 +668,26 @@ class LocalStorageService {
   removeAccount(account: TAccount) {
     this.accounts = this.accounts.filter((act) => !isSameAccount(act, account))
     this.persistSetting(StorageKey.ACCOUNTS, JSON.stringify(this.accounts))
+    if (isSameAccount(this.currentAccount, account)) {
+      this.currentAccount = null
+      this.persistSetting(StorageKey.CURRENT_ACCOUNT, JSON.stringify(null))
+    } else if (
+      this.currentAccount != null &&
+      !this.accounts.some((a) => isSameAccount(a, this.currentAccount))
+    ) {
+      this.currentAccount = null
+      this.persistSetting(StorageKey.CURRENT_ACCOUNT, JSON.stringify(null))
+    }
     return this.accounts
   }
 
   switchAccount(account: TAccount | null) {
+    if (account === null) {
+      if (this.currentAccount === null) return
+      this.currentAccount = null
+      this.persistSetting(StorageKey.CURRENT_ACCOUNT, JSON.stringify(null))
+      return
+    }
     if (isSameAccount(this.currentAccount, account)) {
       return
     }
