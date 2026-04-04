@@ -45,6 +45,19 @@ export function gifShouldOfferNip94Archive(gif: GifMetadata): boolean {
   return true
 }
 
+/** Own GIFs/memes first, then newest first (picker grids). */
+export function sortGifsForPicker(gifs: GifMetadata[], userPubkey: string | null): GifMetadata[] {
+  const u = userPubkey?.toLowerCase() ?? ''
+  return [...gifs].sort((a, b) => {
+    if (u) {
+      const aOwn = a.pubkey.toLowerCase() === u ? 1 : 0
+      const bOwn = b.pubkey.toLowerCase() === u ? 1 : 0
+      if (aOwn !== bOwn) return bOwn - aOwn
+    }
+    return b.createdAt - a.createdAt
+  })
+}
+
 /** Normalize a GIF URL for deduplication: strip fragment and query, lowercase. */
 function normalizeGifUrl(url: string): string {
   try {
@@ -237,7 +250,7 @@ export async function fetchGifs(
       cached.gifs.length >= MIN_GIF_CACHE_ENTRIES &&
       Date.now() - cached.cachedAt < CACHE_MAX_AGE_MS
     ) {
-      return cached.gifs.slice(0, limit) as GifMetadata[]
+      return sortGifsForPicker(cached.gifs as GifMetadata[], userPubkey).slice(0, limit)
     }
   }
 
@@ -312,8 +325,7 @@ export async function fetchGifs(
   }
 
   const gifs = Array.from(byUrl.values()).map((v) => v.gif)
-  gifs.sort((a, b) => b.createdAt - a.createdAt)
-  const result = gifs.slice(0, limit)
+  const result = sortGifsForPicker(gifs, userPubkey).slice(0, limit)
 
   if (result.length >= MIN_GIF_CACHE_ENTRIES && !searchQuery) {
     await indexedDb.setGifCache(result, Date.now())

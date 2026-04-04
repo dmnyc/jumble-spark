@@ -1,3 +1,4 @@
+import client from '@/services/client.service'
 import customEmojiService from '@/services/custom-emoji.service'
 import postEditor from '@/services/post-editor.service'
 import type { Editor } from '@tiptap/core'
@@ -36,7 +37,7 @@ function searchStandardEmojiShortcodes(query: string): string[] {
 
 const suggestion = {
   items: async ({ query }: { query: string }) => {
-    const custom = await customEmojiService.searchEmojis(query)
+    const custom = await customEmojiService.searchEmojis(query, client.pubkey ?? null)
     const customSet = new Set(custom)
     const standard = searchStandardEmojiShortcodes(query).filter((s) => !customSet.has(s))
     return [...custom, ...standard].slice(0, 50)

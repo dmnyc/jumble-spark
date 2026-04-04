@@ -26,7 +26,7 @@ import { ExtendedKind, WS_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
 import { EMOJI_SHORT_CODE_REGEX, NOSTR_URI_INLINE_REGEX } from '@/lib/content-patterns'
 import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
-import { TEmoji } from '@/types'
+import { TEmoji, TImetaInfo } from '@/types'
 import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -2958,6 +2958,44 @@ function parseMarkdownContentMarked(
     containingEvent
   } = options
 
+  /** Direct image URLs on their own line: render Image (NIP-94 / Amethyst-style), not WebPreview — WebPreview returns null when autoLoadMedia is off. */
+  const imetaInfoForStandaloneImageUrl = (cleaned: string): TImetaInfo => {
+    if (containingEvent) {
+      const infos = getImetaInfosFromEvent(containingEvent)
+      const hit = infos.find((i) => cleanUrl(i.url) === cleaned)
+      if (hit) return { ...hit, url: cleaned }
+    }
+    return { url: cleaned, pubkey: eventPubkey }
+  }
+
+  const renderStandaloneHttpsImageBlock = (cleaned: string, reactKey: string) => {
+    let imageIndex = imageIndexMap.get(cleaned)
+    if (imageIndex === undefined && getImageIdentifier) {
+      const identifier = getImageIdentifier(cleaned)
+      if (identifier) {
+        imageIndex = imageIndexMap.get(`__img_id:${identifier}`)
+      }
+    }
+    return (
+      <div key={reactKey} className="my-2 block max-w-[400px] mx-auto">
+        <Image
+          image={imetaInfoForStandaloneImageUrl(cleaned)}
+          className="w-full rounded-lg cursor-zoom-in"
+          classNames={{
+            wrapper: 'rounded-lg block w-full',
+            errorPlaceholder: 'aspect-square h-[30vh]'
+          }}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (imageIndex !== undefined) {
+              openLightbox(imageIndex)
+            }
+          }}
+        />
+      </div>
+    )
+  }
+
   const hashtagsInContent = new Set<string>()
   const footnotes = new Map<string, string>()
   const citations: Array<{ id: string; type: string; citationId: string }> = []
@@ -3250,6 +3288,9 @@ function parseMarkdownContentMarked(
                     </div>
                   )
                 }
+                if (isImage(cleaned) && isSafeMediaUrl(cleaned)) {
+                  return renderStandaloneHttpsImageBlock(cleaned, `${key}-line-img-${lineIdx}`)
+                }
                 if (suppressStandaloneWebPreviewCleanedUrls?.has(cleaned)) {
                   return (
                     <p key={`${key}-line-inline-link-${lineIdx}`} className="mb-1 last:mb-0">
@@ -3386,6 +3427,9 @@ function parseMarkdownContentMarked(
               <HttpNostrAwareUrl url={cleaned} renderMode="article" containingEvent={containingEvent} />
             </div>
           )
+        }
+        if (isImage(cleaned) && isSafeMediaUrl(cleaned)) {
+          return renderStandaloneHttpsImageBlock(cleaned, `${key}-para-img`)
         }
         if (suppressStandaloneWebPreviewCleanedUrls?.has(cleaned)) {
           return (

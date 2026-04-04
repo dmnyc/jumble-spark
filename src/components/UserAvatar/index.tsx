@@ -4,6 +4,7 @@ import { generateImageByPubkey, userIdToPubkey } from '@/lib/pubkey'
 import { toProfile } from '@/lib/link'
 import { cn } from '@/lib/utils'
 import { useSmartProfileNavigationOptional } from '@/PageManager'
+import type { TProfile } from '@/types'
 import { useMemo, useState, useEffect, useRef, type RefObject } from 'react'
 
 /** Only defer network fetches for typical profile picture URLs (not data:, blob:, etc.). */
@@ -75,13 +76,23 @@ const UserAvatarSizeCnMap = {
 export default function UserAvatar({
   userId,
   className,
-  size = 'normal'
+  size = 'normal',
+  prefetchedProfile
 }: {
   userId: string
   className?: string
   size?: 'large' | 'big' | 'semiBig' | 'normal' | 'medium' | 'small' | 'xSmall' | 'tiny'
+  /** Same pubkey as userId; use avatar from search/cache until fetch completes. */
+  prefetchedProfile?: TProfile
 }) {
-  const { profile } = useFetchProfile(userId)
+  const { profile: fetchedProfile } = useFetchProfile(userId)
+  const profile = useMemo(() => {
+    const idPk = userId ? userIdToPubkey(userId) : ''
+    if (prefetchedProfile && idPk && prefetchedProfile.pubkey === idPk) {
+      return fetchedProfile ?? prefetchedProfile
+    }
+    return fetchedProfile
+  }, [userId, prefetchedProfile, fetchedProfile])
   const { navigateToProfile } = useSmartProfileNavigationOptional()
   
   // Extract pubkey from userId if it's npub/nprofile format
@@ -169,13 +180,22 @@ export default function UserAvatar({
 export function SimpleUserAvatar({
   userId,
   size = 'normal',
-  className
+  className,
+  prefetchedProfile
 }: {
   userId: string
   size?: 'large' | 'big' | 'semiBig' | 'normal' | 'medium' | 'small' | 'xSmall' | 'tiny'
   className?: string
+  prefetchedProfile?: TProfile
 }) {
-  const { profile } = useFetchProfile(userId)
+  const { profile: fetchedProfile } = useFetchProfile(userId)
+  const profile = useMemo(() => {
+    const idPk = userId ? userIdToPubkey(userId) : ''
+    if (prefetchedProfile && idPk && prefetchedProfile.pubkey === idPk) {
+      return fetchedProfile ?? prefetchedProfile
+    }
+    return fetchedProfile
+  }, [userId, prefetchedProfile, fetchedProfile])
   // Always generate default avatar from userId/pubkey, even if profile isn't loaded yet
   const pubkey = useMemo(() => {
     if (!userId) return ''

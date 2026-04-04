@@ -3364,9 +3364,51 @@ class ClientService extends EventTarget {
     return this.replaceableEventService.forceRefreshProfileAndPaymentInfoCache(pubkey)
   }
 
-  async fetchEmojiSetEvents(_pointers: string[]) {
-    // Implementation would use replaceableEventService
-    return []
+  /**
+   * Resolve `a` tags (kind:pubkey:d) pointing at kind 30030 emoji packs into events.
+   */
+  async fetchEmojiSetEvents(pointers: string[]): Promise<NEvent[]> {
+    if (!pointers?.length) return []
+    const out: NEvent[] = []
+    for (const coord of pointers) {
+      const parts = coord.split(':')
+      if (parts.length < 3) continue
+      const kind = parseInt(parts[0]!, 10)
+      const authorPk = parts[1]?.trim().toLowerCase()
+      if (!authorPk || Number.isNaN(kind)) continue
+      const d = parts.slice(2).join(':')
+      try {
+        const ev = await this.replaceableEventService.fetchReplaceableEvent(authorPk, kind, d)
+        if (ev) out.push(ev)
+      } catch {
+        /* ignore per-pointer failures */
+      }
+    }
+    return out
+  }
+
+  /**
+   * Kind 10030 (user emoji list) + 30030 (emoji packs) for an author — used to populate the custom emoji picker.
+   */
+  async fetchAuthorEmojiInventory(pubkey: string): Promise<NEvent[]> {
+    const pk = pubkey.trim().toLowerCase()
+    if (!/^[0-9a-f]{64}$/.test(pk)) return []
+    const relayList = await this.fetchRelayList(pk)
+    const urls = dedupeNormalizeRelayUrlsOrdered([
+      ...relayList.write.map((u) => normalizeUrl(u) || u),
+      ...relayList.read.map((u) => normalizeUrl(u) || u),
+      ...relayList.httpRead.map((u) => normalizeHttpRelayUrl(u) || u),
+      ...relayList.httpWrite.map((u) => normalizeHttpRelayUrl(u) || u),
+      ...FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u),
+      ...PROFILE_FETCH_RELAY_URLS.map((u) => normalizeUrl(u) || u)
+    ]).filter(Boolean)
+    const capped = urls.slice(0, 20)
+    if (capped.length === 0) return []
+    return this.queryService.fetchEvents(capped, {
+      kinds: [kinds.UserEmojiList, kinds.Emojisets],
+      authors: [pk],
+      limit: 80
+    })
   }
 
   /** =========== Following favorite relays =========== */

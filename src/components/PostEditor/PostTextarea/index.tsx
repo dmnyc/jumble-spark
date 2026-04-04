@@ -247,8 +247,12 @@ const PostTextarea = forwardRef<
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <TabsList className="w-auto justify-start">
-            <TabsTrigger value="preview">{t('Preview')}</TabsTrigger>
-            <TabsTrigger value="json">{t('Json')}</TabsTrigger>
+            <TabsTrigger value="preview" title={t('Preview')}>
+              {t('Preview')}
+            </TabsTrigger>
+            <TabsTrigger value="json" title={t('Json')}>
+              {t('Json')}
+            </TabsTrigger>
           </TabsList>
           {headerActions && (
             <div className="flex gap-1 items-center flex-wrap">

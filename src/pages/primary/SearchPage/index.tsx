@@ -6,9 +6,10 @@ import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { useNostr } from '@/providers/NostrProvider'
 import { TPageRef, TSearchParams } from '@/types'
-import { BookOpen } from 'lucide-react'
+import { BookOpen, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 const SearchPage = forwardRef<TPageRef>((_props, ref) => {
   const { current, display } = usePrimaryPage()
@@ -54,14 +55,10 @@ const SearchPage = forwardRef<TPageRef>((_props, ref) => {
     <PrimaryPageLayout
       ref={layoutRef}
       pageName="search"
-      titlebar={null}
+      titlebar={<SearchPageTitlebar onRefresh={bumpResults} />}
       displayScrollToTopButton
     >
       <div className="min-w-0 pt-4 px-4 pb-4">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <div className="text-2xl font-bold">Search Nostr</div>
-          <RefreshButton onClick={bumpResults} />
-        </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-4 relative z-40">
           <div className="flex-1 relative order-2 sm:order-1">
             <SearchBar ref={searchBarRef} onSearch={onSearch} input={input} setInput={setInput} />
@@ -93,3 +90,16 @@ const SearchPage = forwardRef<TPageRef>((_props, ref) => {
 })
 SearchPage.displayName = 'SearchPage'
 export default SearchPage
+
+function SearchPageTitlebar({ onRefresh }: { onRefresh: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex h-full w-full items-center justify-between gap-2 pr-1">
+      <div className="flex items-center gap-2 pl-3">
+        <Search className="size-5" />
+        <div className="app-chrome-title">{t('Search page title')}</div>
+      </div>
+      <RefreshButton onClick={onRefresh} />
+    </div>
+  )
+}

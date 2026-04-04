@@ -431,12 +431,16 @@ export default function PostRelaySelector({
       {selectableRelays.length > 0 && (
         <div className="flex gap-2 mb-2">
           <button
+            type="button"
+            title={t('Select All')}
             onClick={handleSelectAll}
             className="text-xs text-muted-foreground hover:text-foreground"
           >
             {t('Select All')}
           </button>
           <button
+            type="button"
+            title={t('Clear All')}
             onClick={handleClearAll}
             className="text-xs text-muted-foreground hover:text-foreground"
           >
@@ -528,6 +532,7 @@ export default function PostRelaySelector({
             <Button
               variant="outline"
               size="sm"
+              title={triggerText}
               className="h-8 px-3 text-xs justify-between min-w-0 flex-1"
             >
               <div className="flex items-center gap-2 min-w-0">
@@ -564,6 +569,7 @@ export default function PostRelaySelector({
           <Button
             variant="outline"
             size="sm"
+            title={triggerText}
             className="h-8 px-3 text-xs justify-between min-w-0 flex-1"
           >
             <div className="flex items-center gap-2 min-w-0">

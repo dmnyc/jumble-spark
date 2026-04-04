@@ -4,6 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
@@ -59,6 +60,7 @@ import {
   X,
   Highlighter,
   FileText,
+  HelpCircle,
   Quote,
   StickyNote,
   Upload,
@@ -109,6 +111,7 @@ import { NeventPickerProvider } from './PostTextarea/Mention/NeventNaddrPickerDi
 import { MentionAndEventToolbarButtons } from './PostTextarea/Mention/MentionAndEventToolbarButtons'
 import Uploader from './Uploader'
 import HighlightEditor, { HighlightData } from './HighlightEditor'
+import EditOrCloneEventDialog from '../NoteOptions/EditOrCloneEventDialog'
 
 export default function PostContent({
   defaultContent = '',
@@ -198,6 +201,7 @@ export default function PostContent({
     { file: File; progress: number; cancel: () => void }[]
   >([])
   const [showMoreOptions, setShowMoreOptions] = useState(false)
+  const [createCustomEventOpen, setCreateCustomEventOpen] = useState(false)
   const [addClientTag, setAddClientTag] = useState(() => storage.getAddClientTag())
   const [mentions, setMentions] = useState<string[]>([])
   const [isNsfw, setIsNsfw] = useState(false)
@@ -2078,6 +2082,7 @@ export default function PostContent({
                     variant="outline"
                     role="combobox"
                     aria-expanded={threadGroupPopoverOpen}
+                    title={t('Select group...')}
                     className="h-9 w-full justify-between bg-background font-normal"
                   >
                     {threadSelectedGroup ? threadSelectedGroup : t('Select group...')}
@@ -2150,6 +2155,7 @@ export default function PostContent({
                   type="button"
                   variant="ghost"
                   size="sm"
+                  title={threadShowReadingsPanel ? t('Hide') : t('Configure')}
                   onClick={() => setThreadShowReadingsPanel(!threadShowReadingsPanel)}
                   className="ml-auto"
                 >
@@ -2817,26 +2823,17 @@ export default function PostContent({
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    title={t('Create event with custom kind')}
+                    onClick={() => checkLogin(() => setCreateCustomEventOpen(true))}
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </Button>
                 </>
               )}
-              <GifPicker
-                onSelect={(gifUrl) => {
-                  textareaRef.current?.insertText(gifUrl)
-                }}
-              >
-                <Button type="button" variant="ghost" size="icon" title={t('Insert GIF')}>
-                  <Film className="h-4 w-4" />
-                </Button>
-              </GifPicker>
-              <MemePicker
-                onSelect={(memeUrl) => {
-                  textareaRef.current?.insertText(memeUrl)
-                }}
-              >
-                <Button type="button" variant="ghost" size="icon" title={t('Insert meme')}>
-                  <Laugh className="h-4 w-4" />
-                </Button>
-              </MemePicker>
             </>
           }
         />
@@ -2968,6 +2965,7 @@ export default function PostContent({
               <ImageUp />
             </Button>
           </Uploader>
+          <Separator orientation="vertical" className="h-6 shrink-0" />
           {/* I'm not sure why, but after triggering the virtual keyboard,
               opening the emoji picker drawer causes an issue,
               the emoji I tap isn't the one that gets inserted. */}
@@ -2978,18 +2976,39 @@ export default function PostContent({
                 textareaRef.current?.insertEmoji(emoji)
               }}
             >
-              <Button variant="ghost" size="icon">
+              <Button type="button" variant="ghost" size="icon" title={t('Insert emoji')}>
                 <Smile />
               </Button>
             </EmojiPickerDialog>
           )}
+          <GifPicker
+            onSelect={(gifUrl) => {
+              textareaRef.current?.insertText(gifUrl)
+            }}
+          >
+            <Button type="button" variant="ghost" size="icon" title={t('Insert GIF')}>
+              <Film className="h-4 w-4" />
+            </Button>
+          </GifPicker>
+          <MemePicker
+            onSelect={(memeUrl) => {
+              textareaRef.current?.insertText(memeUrl)
+            }}
+          >
+            <Button type="button" variant="ghost" size="icon" title={t('Insert meme')}>
+              <Laugh className="h-4 w-4" />
+            </Button>
+          </MemePicker>
+          <Separator orientation="vertical" className="h-6 shrink-0" />
           <MentionAndEventToolbarButtons
             insertAtCursor={(text) => textareaRef.current?.insertText(text)}
             variant="ghost"
           />
           <Button
+            type="button"
             variant="ghost"
             size="icon"
+            title={t('More options')}
             className={showMoreOptions ? 'bg-accent' : ''}
             onClick={() => setShowMoreOptions((pre) => !pre)}
           >
@@ -3005,7 +3024,9 @@ export default function PostContent({
           />
           <div className="flex gap-2 items-center max-sm:hidden">
             <Button
+              type="button"
               variant="outline"
+              title={t('Clear')}
               onClick={(e) => {
                 e.stopPropagation()
                 handleClear()
@@ -3014,7 +3035,9 @@ export default function PostContent({
               {t('Clear')}
             </Button>
             <Button
+              type="button"
               variant="secondary"
+              title={t('Cancel')}
               onClick={(e) => {
                 e.stopPropagation()
                 close()
@@ -3022,7 +3045,20 @@ export default function PostContent({
             >
               {t('Cancel')}
             </Button>
-            <Button type="submit" disabled={!canPost} onClick={post}>
+            <Button
+              type="submit"
+              title={
+                parentEvent
+                  ? t('Reply')
+                  : isPublicMessage
+                    ? t('Send Public Message')
+                    : isDiscussionThread
+                      ? t('Create Thread')
+                      : t('Post')
+              }
+              disabled={!canPost}
+              onClick={post}
+            >
               {posting && (
                 <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />
               )}
@@ -3049,8 +3085,10 @@ export default function PostContent({
       />
       <div className="flex gap-2 items-center justify-around sm:hidden">
         <Button
+          type="button"
           className="w-full"
           variant="outline"
+          title={t('Clear')}
           onClick={(e) => {
             e.stopPropagation()
             handleClear()
@@ -3059,8 +3097,10 @@ export default function PostContent({
           {t('Clear')}
         </Button>
         <Button
+          type="button"
           className="w-full"
           variant="secondary"
+          title={t('Cancel')}
           onClick={(e) => {
             e.stopPropagation()
             close()
@@ -3068,7 +3108,21 @@ export default function PostContent({
         >
           {t('Cancel')}
         </Button>
-        <Button className="w-full" type="submit" disabled={!canPost} onClick={post}>
+        <Button
+          className="w-full"
+          type="submit"
+          title={
+            parentEvent
+              ? t('Reply')
+              : isPublicMessage
+                ? t('Send Public Message')
+                : isDiscussionThread
+                  ? t('Create Thread')
+                  : t('Post')
+          }
+          disabled={!canPost}
+          onClick={post}
+        >
           {posting && (
             <Skeleton className="mr-2 inline-block size-4 shrink-0 rounded-full align-middle" aria-hidden />
           )}
@@ -3157,6 +3211,11 @@ export default function PostContent({
           </div>
         </DialogContent>
       </Dialog>
+      <EditOrCloneEventDialog
+        open={createCustomEventOpen}
+        onOpenChange={setCreateCustomEventOpen}
+        mode="create"
+      />
       </NeventPickerProvider>
     </div>
   )

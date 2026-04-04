@@ -531,6 +531,19 @@ export function isDocumentRelayKind(kind: number): boolean {
   return DOCUMENT_RELAY_KIND_SET.has(kind)
 }
 
+/**
+ * Long-form, wiki, and publication kinds always included in NIP-50 / d-tag search REQ and progressive local warmup.
+ * Kind 30041 (`PUBLICATION_CONTENT`) is deprioritized in `compareEventsForDTagQuery` unless the `d` tag is an exact
+ * match (case-insensitive).
+ */
+export const NIP_SEARCH_DOCUMENT_KINDS: readonly number[] = [
+  kinds.LongFormArticle,
+  ExtendedKind.WIKI_ARTICLE_MARKDOWN,
+  ExtendedKind.WIKI_ARTICLE,
+  ExtendedKind.PUBLICATION,
+  ExtendedKind.PUBLICATION_CONTENT
+]
+
 export function relayFilterIncludesDocumentRelayKind(filter: Filter): boolean {
   const k = filter.kinds
   if (k === undefined) return false

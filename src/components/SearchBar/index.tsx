@@ -151,9 +151,10 @@ const SearchBar = forwardRef<
       ...(normalizedDTag && normalizedDTag.length > 0 ? [{ type: 'dtag', search: normalizedDTag, input: search }] : []),
       ...(normalizedUrl ? [{ type: 'relay', search: normalizedUrl, input: normalizedUrl }] : []),
       ...profiles.map((profile) => ({
-        type: 'profile',
+        type: 'profile' as const,
         search: profile.npub,
-        input: profile.username
+        input: profile.username,
+        profile
       })),
       ...(profiles.length >= 5 ? [{ type: 'profiles', search }] : [])
     ] as TSearchParams[])
@@ -180,9 +181,10 @@ const SearchBar = forwardRef<
           if (option.type === 'profile') {
             return (
               <ProfileItem
-                key={index}
+                key={`profile-${option.search}`}
                 selected={selectedIndex === index}
                 userId={option.search}
+                prefetchedProfile={option.profile}
                 onClick={() => updateSearch(option)}
               />
             )
@@ -451,10 +453,12 @@ function NoteItem({
 
 function ProfileItem({
   userId,
+  prefetchedProfile,
   onClick,
   selected
 }: {
   userId: string
+  prefetchedProfile?: TSearchParams['profile']
   onClick?: () => void
   selected?: boolean
 }) {
@@ -463,7 +467,12 @@ function ProfileItem({
       className={cn('px-2 hover:bg-accent rounded-md cursor-pointer', selected && 'bg-accent')}
       onClick={onClick}
     >
-      <UserItem pubkey={userId} hideFollowButton className="pointer-events-none" />
+      <UserItem
+        pubkey={userId}
+        hideFollowButton
+        className="pointer-events-none"
+        prefetchedProfile={prefetchedProfile}
+      />
     </div>
   )
 }

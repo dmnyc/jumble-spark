@@ -454,19 +454,27 @@ export class EventService {
    */
   getSessionEventsMatchingSearch(query: string, limit: number, allowedKinds?: number[]): NEvent[] {
     const results: NEvent[] = []
-    const queryLower = query.toLowerCase()
-    
+    const queryTrim = query.trim()
+    const queryLower = queryTrim.toLowerCase()
+
     for (const [, event] of this.sessionEventCache.entries()) {
       if (shouldDropEventOnIngest(event)) continue
       if (allowedKinds && !allowedKinds.includes(event.kind)) continue
 
-      const content = event.content.toLowerCase()
-      if (content.includes(queryLower)) {
+      if (queryTrim === '') {
+        results.push(event)
+        if (results.length >= limit) break
+        continue
+      }
+
+      const content = (event.content ?? '').toLowerCase()
+      const tagsStr = (event.tags ?? []).flat().join(' ').toLowerCase()
+      if (content.includes(queryLower) || tagsStr.includes(queryLower)) {
         results.push(event)
         if (results.length >= limit) break
       }
     }
-    
+
     return results
   }
 

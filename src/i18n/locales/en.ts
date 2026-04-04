@@ -761,6 +761,8 @@ export default {
       'Unlike regular notes, polls are not widely supported and may not display on other clients.',
     'Option {{number}}': 'Option {{number}}',
     'Add Option': 'Add Option',
+    'Remove option': 'Remove option',
+    'Close highlight editor': 'Close highlight editor',
     'Allow multiple choices': 'Allow multiple choices',
     'End Date (optional)': 'End Date (optional)',
     'Clear end date': 'Clear end date',
@@ -1042,6 +1044,7 @@ export default {
     'Trending on the Default Relays': 'Trending on the Default Relays',
     'Latest from your follows': 'Latest from your follows',
     'Latest from our recommended follows': 'Latest from our recommended follows',
+    'Search page title': 'Search Nostr',
     'Follows latest page title': 'Latest from follows',
     'Follows latest page description':
       'Recent notes from accounts you follow (or a curated list when not signed in), using their outbox relays merged with your favorites. Expand a row for notes or open the profile from the row.',

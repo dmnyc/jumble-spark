@@ -764,6 +764,8 @@ export default {
       'Im Gegensatz zu regulären Notizen werden Umfragen nicht weit verbreitet unterstützt und werden möglicherweise nicht in anderen Clients angezeigt.',
     'Option {{number}}': 'Option {{number}}',
     'Add Option': 'Option hinzufügen',
+    'Remove option': 'Option entfernen',
+    'Close highlight editor': 'Highlight-Editor schließen',
     'Allow multiple choices': 'Mehrfachauswahl erlauben',
     'End Date (optional)': 'Enddatum (optional)',
     'Clear end date': 'Enddatum löschen',
@@ -1044,6 +1046,7 @@ export default {
     'Trending on the Default Relays': 'Trending auf den Standard-Relays',
     'Latest from your follows': 'Neuestes von deinen Follows',
     'Latest from our recommended follows': 'Neuestes von unseren empfohlenen Follows',
+    'Search page title': 'Nostr durchsuchen',
     'Follows latest page title': 'Neuestes von Follows',
     'Follows latest page description':
       'Aktuelle Notizen von Leuten, denen du folgst (ohne Konto: unsere kuratierte Liste). Wir führen Outbox-Relays aus ihren NIP-65-Listen mit deinen Favoriten zusammen und laden in Stapeln. Zeile aufklappen für Notizen oder Profil antippen.',

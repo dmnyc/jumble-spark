@@ -6,15 +6,18 @@ import { sha256 } from '@noble/hashes/sha2'
 import { SkinTones } from 'emoji-picker-react'
 import { getSuggested, setSuggested } from 'emoji-picker-react/src/dataUtils/suggested'
 import FlexSearch from 'flexsearch'
-import { Event } from 'nostr-tools'
+import { Event, kinds } from 'nostr-tools'
 
 class CustomEmojiService {
   static instance: CustomEmojiService
 
   private emojiMap = new Map<string, TEmoji>()
-  private emojiIndex = new FlexSearch.Index({
+  /** Hex pubkey (lowercase) of the event that introduced each custom emoji into the index. */
+  private emojiAuthorById = new Map<string, string>()
+  private emojiIndex: FlexSearch.Index = new FlexSearch.Index({
     tokenize: 'full'
   })
+  private indexUpdateListeners = new Set<() => void>()
 
   constructor() {
     if (!CustomEmojiService.instance) {
@@ -23,23 +26,94 @@ class CustomEmojiService {
     return CustomEmojiService.instance
   }
 
-  async init(userEmojiListEvent: Event | null) {
-    if (!userEmojiListEvent) return
-
-    const { emojis, emojiSetPointers } = getEmojisAndEmojiSetsFromEvent(userEmojiListEvent)
-    await this.addEmojisToIndex(emojis)
-
-    const emojiSetEvents = await client.fetchEmojiSetEvents(emojiSetPointers)
-    await Promise.allSettled(
-      emojiSetEvents.map(async (event) => {
-        if (!event || (event as any) instanceof Error) return
-
-        await this.addEmojisToIndex(getEmojisFromEvent(event))
-      })
-    )
+  /** Subscribe to runs after {@link init} finishes loading emoji sets (picker can refresh custom list). */
+  subscribeIndexUpdate(fn: () => void): () => void {
+    this.indexUpdateListeners.add(fn)
+    return () => this.indexUpdateListeners.delete(fn)
   }
 
-  async searchEmojis(query: string = ''): Promise<string[]> {
+  private notifyIndexUpdate() {
+    this.indexUpdateListeners.forEach((f) => f())
+  }
+
+  private reset() {
+    this.emojiMap.clear()
+    this.emojiAuthorById.clear()
+    this.emojiIndex = new FlexSearch.Index({ tokenize: 'full' })
+  }
+
+  /**
+   * Load NIP-30 emoji sets (kind 10030) and packs (30030) for the account.
+   * Merges `userEmojiListEvent` with a relay fetch so we still load when hydrate missed the event
+   * (same idea as aitherboard’s picker: fetch author emoji kinds from read relays).
+   */
+  async init(userEmojiListEvent: Event | null, accountPubkey?: string | null) {
+    this.reset()
+    const pk = accountPubkey?.trim().toLowerCase() ?? ''
+    const hasPk = /^[0-9a-f]{64}$/.test(pk)
+
+    const byId = new Map<string, Event>()
+    if (
+      userEmojiListEvent &&
+      hasPk &&
+      userEmojiListEvent.pubkey.trim().toLowerCase() === pk
+    ) {
+      byId.set(userEmojiListEvent.id, userEmojiListEvent)
+    }
+    if (hasPk) {
+      const remote = await client.fetchAuthorEmojiInventory(pk).catch(() => [] as Event[])
+      for (const ev of remote) {
+        byId.set(ev.id, ev)
+      }
+    }
+
+    const events = [...byId.values()]
+    if (events.length === 0) {
+      this.notifyIndexUpdate()
+      return
+    }
+
+    const listEvents = events
+      .filter((e) => e.kind === kinds.UserEmojiList)
+      .sort((a, b) => b.created_at - a.created_at)
+    const latestList = listEvents[0] ?? null
+    const packEvents = events.filter((e) => e.kind === kinds.Emojisets)
+
+    if (latestList) {
+      const authorPk = latestList.pubkey.toLowerCase()
+      const { emojis, emojiSetPointers } = getEmojisAndEmojiSetsFromEvent(latestList)
+      await this.addEmojisToIndex(emojis, authorPk)
+      const emojiSetEvents = await client.fetchEmojiSetEvents(emojiSetPointers)
+      await Promise.allSettled(
+        emojiSetEvents.map(async (event) => {
+          if (!event || (event as any) instanceof Error) return
+          await this.addEmojisToIndex(getEmojisFromEvent(event), event.pubkey.toLowerCase())
+        })
+      )
+    }
+
+    await Promise.allSettled(
+      packEvents.map(async (pack) => {
+        await this.addEmojisToIndex(getEmojisFromEvent(pack), pack.pubkey.toLowerCase())
+      })
+    )
+
+    this.notifyIndexUpdate()
+  }
+
+  private sortEmojiIdsForViewer(ids: string[], viewerPubkeyLower: string): string[] {
+    if (!viewerPubkeyLower) return ids
+    const own: string[] = []
+    const rest: string[] = []
+    for (const id of ids) {
+      if (this.emojiAuthorById.get(id) === viewerPubkeyLower) own.push(id)
+      else rest.push(id)
+    }
+    return [...own, ...rest]
+  }
+
+  async searchEmojis(query: string = '', viewerPubkey?: string | null): Promise<string[]> {
+    const v = viewerPubkey?.toLowerCase() ?? ''
     if (!query) {
       const idSet = new Set<string>()
       getSuggested()
@@ -48,18 +122,17 @@ class CustomEmojiService {
         .forEach((item) => {
           if (item && typeof item !== 'string') {
             const id = this.getEmojiId(item)
-            if (!idSet.has(id)) {
-              idSet.add(id)
-            }
+            idSet.add(id)
           }
         })
       for (const key of this.emojiMap.keys()) {
         idSet.add(key)
       }
-      return Array.from(idSet)
+      return this.sortEmojiIdsForViewer(Array.from(idSet), v)
     }
     const results = await this.emojiIndex.searchAsync(query)
-    return results.filter((id) => typeof id === 'string') as string[]
+    const filtered = results.filter((id) => typeof id === 'string') as string[]
+    return this.sortEmojiIdsForViewer(filtered, v)
   }
 
   getEmojiById(id?: string): TEmoji | undefined {
@@ -68,23 +141,37 @@ class CustomEmojiService {
     return this.emojiMap.get(id)
   }
 
-  getAllCustomEmojisForPicker() {
-    return Array.from(this.emojiMap.values()).map((emoji) => ({
-      id: `:${emoji.shortcode}:${emoji.url}`,
-      imgUrl: emoji.url,
-      names: [emoji.shortcode]
+  getAllCustomEmojisForPicker(viewerPubkey?: string | null) {
+    const v = viewerPubkey?.toLowerCase() ?? ''
+    const rows = Array.from(this.emojiMap.entries()).map(([hashId, emoji]) => ({
+      row: {
+        id: `:${emoji.shortcode}:${emoji.url}`,
+        imgUrl: emoji.url,
+        names: [emoji.shortcode] as [string]
+      },
+      author: this.emojiAuthorById.get(hashId) ?? ''
     }))
+    rows.sort((a, b) => {
+      if (v) {
+        const aOwn = a.author === v ? 0 : 1
+        const bOwn = b.author === v ? 0 : 1
+        if (aOwn !== bOwn) return aOwn - bOwn
+      }
+      return a.row.names[0].localeCompare(b.row.names[0])
+    })
+    return rows.map((r) => r.row)
   }
 
   isCustomEmojiId(shortcode: string) {
     return this.emojiMap.has(shortcode)
   }
 
-  private async addEmojisToIndex(emojis: TEmoji[]) {
+  private async addEmojisToIndex(emojis: TEmoji[], authorPubkeyLower: string) {
     await Promise.allSettled(
       emojis.map(async (emoji) => {
         const id = this.getEmojiId(emoji)
         this.emojiMap.set(id, emoji)
+        this.emojiAuthorById.set(id, authorPubkeyLower)
         await this.emojiIndex.addAsync(id, emoji.shortcode)
       })
     )

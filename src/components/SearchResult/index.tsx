@@ -1,4 +1,10 @@
-import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS, SEARCHABLE_RELAY_URLS } from '@/constants'
+import {
+  FAST_READ_RELAY_URLS,
+  FAST_WRITE_RELAY_URLS,
+  NIP_SEARCH_DOCUMENT_KINDS,
+  SEARCHABLE_RELAY_URLS
+} from '@/constants'
+import { compareEventsForDTagQuery } from '@/lib/dtag-search'
 import { TSearchParams } from '@/types'
 import NormalFeed from '../NormalFeed'
 import Profile from '../Profile'
@@ -51,7 +57,12 @@ export default function SearchResult({ searchParams }: { searchParams: TSearchPa
   if (searchParams.type === 'notes') {
     return (
       <NormalFeed
-        subRequests={[{ urls: searchRelays, filter: { search: searchParams.search } }]}
+        subRequests={[
+          { urls: searchRelays, filter: { search: searchParams.search, kinds: [...NIP_SEARCH_DOCUMENT_KINDS] } }
+        ]}
+        progressiveWarmupQuery={searchParams.search}
+        progressiveDocumentKinds={NIP_SEARCH_DOCUMENT_KINDS}
+        oneShotAfterMergeComparator={(a, b) => compareEventsForDTagQuery(searchParams.search, a, b)}
       />
     )
   }

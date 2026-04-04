@@ -52,6 +52,19 @@ function isStaticMemeUrl(mimeType: string | undefined, url: string): boolean {
   return /\.(jpe?g|png|webp)(\?|$)/i.test(url)
 }
 
+/** Own templates first, then newest first (picker grid). */
+export function sortMemesForPicker(memes: MemeMetadata[], userPubkey: string | null): MemeMetadata[] {
+  const u = userPubkey?.toLowerCase() ?? ''
+  return [...memes].sort((a, b) => {
+    if (u) {
+      const aOwn = a.pubkey.toLowerCase() === u ? 1 : 0
+      const bOwn = b.pubkey.toLowerCase() === u ? 1 : 0
+      if (aOwn !== bOwn) return bOwn - aOwn
+    }
+    return b.createdAt - a.createdAt
+  })
+}
+
 function normalizeMemeUrl(url: string): string {
   try {
     const withoutFragment = url.split('#')[0].trim()
@@ -262,7 +275,7 @@ export async function fetchMemes(
       cached.memes.length >= MIN_MEME_CACHE_ENTRIES &&
       Date.now() - cached.cachedAt < CACHE_MAX_AGE_MS
     ) {
-      return cached.memes.slice(0, limit) as MemeMetadata[]
+      return sortMemesForPicker(cached.memes as MemeMetadata[], userPubkey).slice(0, limit)
     }
   }
 
@@ -308,7 +321,7 @@ export async function fetchMemes(
     )
   } catch (err) {
     if (!searchQuery && staleFallback?.length) {
-      return staleFallback.slice(0, limit) as MemeMetadata[]
+      return sortMemesForPicker(staleFallback as MemeMetadata[], userPubkey).slice(0, limit)
     }
     throw err
   }
@@ -335,11 +348,10 @@ export async function fetchMemes(
   }
 
   const memes = Array.from(byUrl.values()).map((v) => v.meme)
-  memes.sort((a, b) => b.createdAt - a.createdAt)
-  let result = memes.slice(0, limit)
+  let result = sortMemesForPicker(memes, userPubkey).slice(0, limit)
 
   if (!searchQuery && result.length === 0 && staleFallback?.length) {
-    result = staleFallback.slice(0, limit)
+    result = sortMemesForPicker(staleFallback as MemeMetadata[], userPubkey).slice(0, limit)
   }
 
   if (result.length > 0 && !searchQuery) {

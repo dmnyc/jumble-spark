@@ -1170,6 +1170,77 @@ class IndexedDbService {
     })
   }
 
+  /**
+   * Publication store + hot {@link StoreNames.EVENT_ARCHIVE}: events whose kind is allowed and content or any tag
+   * value matches the query (case-insensitive). Used to show local hits before NIP-50 relay results.
+   */
+  async getCachedAndArchivedEventsMatchingLocalSearch(
+    query: string,
+    limit: number,
+    allowedKinds: number[],
+    options?: { archiveScanMaxMs?: number }
+  ): Promise<Event[]> {
+    const fromPub = await this.getCachedEventsForSearch(query, limit, allowedKinds)
+    if (fromPub.length >= limit) return fromPub.slice(0, limit)
+
+    const q = query.trim().toLowerCase()
+    if (!q || allowedKinds.length === 0) return fromPub
+
+    const kindSet = new Set(allowedKinds)
+    const seen = new Set(fromPub.map((e) => e.id))
+    const rest: Event[] = []
+    const scanStart = Date.now()
+    const archiveScanMaxMs = options?.archiveScanMaxMs
+
+    await this.initPromise
+    if (!this.db?.objectStoreNames.contains(StoreNames.EVENT_ARCHIVE)) {
+      return fromPub
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const transaction = this.db!.transaction(StoreNames.EVENT_ARCHIVE, 'readonly')
+      const store = transaction.objectStore(StoreNames.EVENT_ARCHIVE)
+      const request = store.openCursor()
+
+      request.onsuccess = () => {
+        if (
+          archiveScanMaxMs !== undefined &&
+          Date.now() - scanStart >= archiveScanMaxMs
+        ) {
+          transaction.commit()
+          resolve()
+          return
+        }
+        const cursor = (request as IDBRequest<IDBCursorWithValue>).result
+        if (!cursor || fromPub.length + rest.length >= limit) {
+          transaction.commit()
+          resolve()
+          return
+        }
+        const row = cursor.value as TArchivedEventRow
+        const ev = row?.value
+        if (ev && kindSet.has(ev.kind) && !seen.has(ev.id)) {
+          const content = (ev.content ?? '').toLowerCase()
+          const tagsStr = (ev.tags ?? []).flat().join(' ').toLowerCase()
+          if (content.includes(q) || tagsStr.includes(q)) {
+            seen.add(ev.id)
+            rest.push(ev)
+          }
+        }
+        cursor.continue()
+      }
+
+      request.onerror = (e) => {
+        transaction.commit()
+        reject(idbEventToError(e))
+      }
+    }).catch((e: unknown) => {
+      logger.warn('[indexedDb] getCachedAndArchivedEventsMatchingLocalSearch archive scan failed', { e })
+    })
+
+    return [...fromPub, ...rest].slice(0, limit)
+  }
+
   async getPublicationStoreItems(storeName: string): Promise<Array<{ key: string; value: any; addedAt: number; nestedCount?: number }>> {
     // For publication stores, only return master events with nested counts
     await this.initPromise

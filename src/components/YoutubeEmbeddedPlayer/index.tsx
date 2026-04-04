@@ -1,3 +1,4 @@
+import { ensureYouTubeIframeApi } from '@/lib/youtube-iframe-api'
 import { cn } from '@/lib/utils'
 import { useContentPolicyOptional } from '@/providers/ContentPolicyProvider'
 import mediaManager from '@/services/media-manager.service'
@@ -37,21 +38,12 @@ export default function YoutubeEmbeddedPlayer({
   useEffect(() => {
     if (!videoId || !containerRef.current || (!mustLoad && !display)) return
 
-    if (!window.YT) {
-      const script = document.createElement('script')
-      script.src = 'https://www.youtube.com/iframe_api'
-      document.body.appendChild(script)
+    let cancelled = false
 
-      window.onYouTubeIframeAPIReady = () => {
-        initPlayer()
-      }
-    } else {
-      initPlayer()
-    }
-
-    function initPlayer() {
+    void ensureYouTubeIframeApi().then(() => {
+      if (cancelled || !containerRef.current) return
       try {
-        if (!videoId || !containerRef.current || !window.YT.Player) return
+        if (!videoId || !window.YT?.Player) return
         playerRef.current = new window.YT.Player(containerRef.current, {
           videoId: videoId,
           playerVars: {
@@ -74,13 +66,14 @@ export default function YoutubeEmbeddedPlayer({
       } catch (error) {
         logger.error('Failed to initialize YouTube player', { error })
         setError(true)
-        return
       }
-    }
+    })
 
     return () => {
+      cancelled = true
       if (playerRef.current) {
         playerRef.current.destroy()
+        playerRef.current = null
       }
     }
   }, [videoId, display, mustLoad])

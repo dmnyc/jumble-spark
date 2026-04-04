@@ -7,6 +7,7 @@ import storage from '@/services/local-storage.service'
 import type { TPrimaryPageName } from '@/PageManager'
 import { TFeedSubRequest, TNoteListMode } from '@/types'
 import { cn } from '@/lib/utils'
+import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import KindFilter from '../KindFilter'
 
@@ -56,6 +57,16 @@ const NormalFeed = forwardRef<TNoteListRef, {
   onSingleRelayKindlessEmpty?: () => void
   /** Shown above the feed list (e.g. after kindless→kinds fallback on a single-relay chip). */
   feedTopNotice?: ReactNode
+  /** Passed through to {@link NoteList} (d-tag browse one-shot). */
+  oneShotFetch?: boolean
+  progressiveWarmupQuery?: string
+  progressiveWarmupMatch?: (ev: Event) => boolean
+  /** Union into kind picker kinds for REQ + UI when set (e.g. document kinds on search / d-tag feeds). */
+  progressiveDocumentKinds?: readonly number[]
+  oneShotAfterMergeComparator?: (a: Event, b: Event) => number
+  extraShouldHideEvent?: (ev: Event) => boolean
+  /** Override default cap for merged one-shot batches (wide d-tag / search merges). */
+  oneShotMergedCap?: number
 }>(function NormalFeed(
   {
     subRequests,
@@ -77,7 +88,14 @@ const NormalFeed = forwardRef<TNoteListRef, {
     showFeedClientFilter: showFeedClientFilterProp,
     hostPrimaryPageName,
     onSingleRelayKindlessEmpty,
-    feedTopNotice
+    feedTopNotice,
+    oneShotFetch = false,
+    progressiveWarmupQuery,
+    progressiveWarmupMatch,
+    progressiveDocumentKinds,
+    oneShotAfterMergeComparator,
+    extraShouldHideEvent,
+    oneShotMergedCap
   },
   ref
 ) {
@@ -249,6 +267,13 @@ const NormalFeed = forwardRef<TNoteListRef, {
           feedClientFilterTabRowHost={mergeFilterWithTabsRow ? feedFilterTabRowHost : undefined}
           onSingleRelayKindlessEmpty={onSingleRelayKindlessEmpty}
           feedTopNotice={feedTopNotice}
+          oneShotFetch={oneShotFetch}
+          progressiveWarmupQuery={progressiveWarmupQuery}
+          progressiveWarmupMatch={progressiveWarmupMatch}
+          progressiveDocumentKinds={progressiveDocumentKinds}
+          oneShotAfterMergeComparator={oneShotAfterMergeComparator}
+          extraShouldHideEvent={extraShouldHideEvent}
+          oneShotMergedCap={oneShotMergedCap}
         />
       </div>
     </>

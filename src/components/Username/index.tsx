@@ -4,6 +4,7 @@ import { toProfile } from '@/lib/link'
 import { formatPubkey, userIdToPubkey, pubkeyToNpub, formatNpub } from '@/lib/pubkey'
 import { cn } from '@/lib/utils'
 import { useSmartProfileNavigationOptional } from '@/PageManager'
+import type { TProfile } from '@/types'
 import { useMemo } from 'react'
 
 export default function Username({
@@ -13,7 +14,8 @@ export default function Username({
   skeletonClassName,
   withoutSkeleton = false,
   style,
-  onNavigate
+  onNavigate,
+  prefetchedProfile
 }: {
   userId: string
   showAt?: boolean
@@ -22,8 +24,16 @@ export default function Username({
   withoutSkeleton?: boolean
   style?: React.CSSProperties
   onNavigate?: () => void
+  prefetchedProfile?: TProfile
 }) {
-  const { profile, isFetching } = useFetchProfile(userId)
+  const { profile: fetchedProfile, isFetching } = useFetchProfile(userId)
+  const profile = useMemo(() => {
+    const idPk = userId ? userIdToPubkey(userId) : ''
+    if (prefetchedProfile && idPk && prefetchedProfile.pubkey === idPk) {
+      return fetchedProfile ?? prefetchedProfile
+    }
+    return fetchedProfile
+  }, [userId, prefetchedProfile, fetchedProfile])
   const { navigateToProfile } = useSmartProfileNavigationOptional()
 
   // Get pubkey from userId (works even if profile isn't loaded)
@@ -34,7 +44,7 @@ export default function Username({
 
   // Never block on profile fetch when we can already show npub/hex fallback (feeds batch-fetch profiles).
   const canShowWithoutProfile = Boolean(pubkey)
-  if (isFetching && !withoutSkeleton && !canShowWithoutProfile) {
+  if (isFetching && !withoutSkeleton && !canShowWithoutProfile && !profile) {
     return (
       <div className="py-1">
         <Skeleton className={cn('w-16', skeletonClassName)} />

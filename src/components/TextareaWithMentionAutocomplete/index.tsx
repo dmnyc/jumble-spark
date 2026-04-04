@@ -7,6 +7,7 @@ import {
   searchNpubsForMention,
   type PickerSearchMode
 } from '@/services/mention-event-search.service'
+import { useNostr } from '@/providers/NostrProvider'
 import customEmojiService from '@/services/custom-emoji.service'
 import { searchStandardEmojiShortcodes } from '@/lib/emoji-content'
 import { createPortal } from 'react-dom'
@@ -52,6 +53,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
   const emojiSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mentionQueryRef = useRef(mentionQuery)
   const neventPicker = useNeventPicker()
+  const { pubkey } = useNostr()
   mentionQueryRef.current = mentionQuery
   const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null)
 
@@ -200,7 +202,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
     if (emojiSearchTimeoutRef.current) clearTimeout(emojiSearchTimeoutRef.current)
     emojiSearchTimeoutRef.current = setTimeout(() => {
       Promise.all([
-        customEmojiService.searchEmojis(q),
+        customEmojiService.searchEmojis(q, pubkey ?? null),
         Promise.resolve(searchStandardEmojiShortcodes(q, EMOJI_LIMIT))
       ]).then(([custom, standard]) => {
         const customSet = new Set(custom)
@@ -213,7 +215,7 @@ const TextareaWithMentionAutocomplete = forwardRef<HTMLTextAreaElement, Textarea
     return () => {
       if (emojiSearchTimeoutRef.current) clearTimeout(emojiSearchTimeoutRef.current)
     }
-  }, [emojiQuery])
+  }, [emojiQuery, pubkey])
 
   const open = (emojiOpen && emojiItems.length > 0) || (mentionOpen && mentionItems.length > 0)
   useEffect(() => {

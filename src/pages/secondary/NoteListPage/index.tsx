@@ -3,13 +3,14 @@ import type { TNoteListRef } from '@/components/NoteList'
 import NormalFeed from '@/components/NormalFeed'
 import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
-import { isSocialKindBlockedKind, SEARCHABLE_RELAY_URLS } from '@/constants'
+import { isSocialKindBlockedKind, NIP_SEARCH_DOCUMENT_KINDS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import {
   augmentSubRequestsWithFavoritesFastReadAndInbox,
   getRelayUrlsWithFavoritesFastReadAndInbox
 } from '@/lib/favorites-feed-relays'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { toProfileList } from '@/lib/link'
+import { compareEventsForDTagQuery, eventMatchesDTagLooseQuery } from '@/lib/dtag-search'
 import { fetchPubkeysFromDomain, getWellKnownNip05Url } from '@/lib/nip05'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { useSecondaryPage } from '@/PageManager'
@@ -191,30 +192,31 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
             setSubRequests([])
           }
         } else {
-          // D-tag search - filter events by d-tag value
+          // D-tag browse: NIP-50 search + exact #d REQ (merged), substring match client-side, exact d-tag sorted first
           setTitle(`D-Tag: ${domain}`)
           setData({
             type: 'dtag',
             dtag: domain,
             kinds: kinds.length > 0 ? kinds : undefined
           })
-          // Filter by d-tag - we'll need to fetch events that have this d-tag
-          // For replaceable events, the d-tag is in the 'd' tag position
-          const filter: any = {
-            '#d': [domain]
-          }
-          if (kinds.length > 0) {
-            filter.kinds = kinds
-          }
+          const relayUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
+            favoriteRelays,
+            blockedRelays,
+            relayList?.read ?? [],
+            readUrlOpts
+          )
+          const mergedReqKinds = Array.from(
+            new Set([...NIP_SEARCH_DOCUMENT_KINDS, ...(kinds.length > 0 ? kinds : [])])
+          ).sort((a, b) => a - b)
+          const kindFilter = { kinds: mergedReqKinds }
           setSubRequests([
             {
-              filter,
-              urls: getRelayUrlsWithFavoritesFastReadAndInbox(
-                favoriteRelays,
-                blockedRelays,
-                relayList?.read ?? [],
-                readUrlOpts
-              )
+              filter: { search: domain, ...kindFilter },
+              urls: [...new Set([...relayUrls, ...SEARCHABLE_RELAY_URLS])]
+            },
+            {
+              filter: { '#d': [domain], ...kindFilter },
+              urls: relayUrls
             }
           ])
         }
@@ -296,7 +298,22 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
       </div>
     )
   } else if (data) {
-    content = <NormalFeed ref={feedRef} subRequests={subRequests} />
+    content =
+      data.type === 'dtag' && data.dtag ? (
+        <NormalFeed
+          ref={feedRef}
+          subRequests={subRequests}
+          oneShotFetch
+          progressiveWarmupQuery={data.dtag}
+          progressiveWarmupMatch={(ev) => eventMatchesDTagLooseQuery(data.dtag!, ev)}
+          progressiveDocumentKinds={NIP_SEARCH_DOCUMENT_KINDS}
+          oneShotAfterMergeComparator={(a, b) => compareEventsForDTagQuery(data.dtag!, a, b)}
+          extraShouldHideEvent={(ev) => !eventMatchesDTagLooseQuery(data.dtag!, ev)}
+          oneShotMergedCap={400}
+        />
+      ) : (
+        <NormalFeed ref={feedRef} subRequests={subRequests} />
+      )
   }
 
   const titlebarExtras = controls

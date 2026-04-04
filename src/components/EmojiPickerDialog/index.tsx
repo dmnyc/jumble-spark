@@ -28,6 +28,7 @@ export default function EmojiPickerDialog({
         <DrawerTrigger asChild>{children}</DrawerTrigger>
         <DrawerContent
           portalContainer={portalContainer}
+          className="max-h-[min(88dvh,calc(100dvh-5rem))] px-2"
           onPointerDownOutside={(e) => {
             const t = e.target as HTMLElement | null
             if (t?.closest?.('[data-vaul-overlay]')) return
@@ -37,13 +38,15 @@ export default function EmojiPickerDialog({
           <DrawerHeader className="sr-only">
             <DrawerTitle>Emoji Picker</DrawerTitle>
           </DrawerHeader>
-          <EmojiPicker
-            onEmojiClick={(emoji, e) => {
-              e.stopPropagation()
-              setOpen(false)
-              onEmojiClick?.(emoji)
-            }}
-          />
+          <div className="flex w-full max-w-[100vw] min-w-0 min-h-0 shrink flex-col items-stretch overflow-x-hidden pb-1">
+            <EmojiPicker
+              onEmojiClick={(emoji, e) => {
+                e.stopPropagation()
+                setOpen(false)
+                onEmojiClick?.(emoji)
+              }}
+            />
+          </div>
         </DrawerContent>
       </Drawer>
     )
@@ -52,7 +55,11 @@ export default function EmojiPickerDialog({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
-      <DropdownMenuContent side="top" className="p-0 w-fit" portalContainer={portalContainer}>
+      <DropdownMenuContent
+        side="top"
+        className="p-0 w-[min(100vw-1rem,350px)] max-w-[calc(100vw-1rem)] overflow-hidden"
+        portalContainer={portalContainer}
+      >
         <EmojiPicker
           onEmojiClick={(emoji, e) => {
             e.stopPropagation()

@@ -64,8 +64,14 @@ export default function Mentions({
     <Popover>
       <PopoverTrigger asChild>
         <Button
+          type="button"
           className="px-3"
           variant="ghost"
+          title={
+            potentialMentions.length === 0
+              ? t('Mentions')
+              : `${t('Mentions')} (${mentions.length}/${potentialMentions.length})`
+          }
           disabled={potentialMentions.length === 0}
           onClick={(e) => e.stopPropagation()}
         >

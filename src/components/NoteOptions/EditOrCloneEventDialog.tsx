@@ -19,7 +19,7 @@ import MarkdownArticle from '@/components/Note/MarkdownArticle/MarkdownArticle'
 import AsciidocArticle from '@/components/Note/AsciidocArticle/AsciidocArticle'
 import ClientTag from '@/components/ClientTag'
 import { ExtendedKind } from '@/constants'
-import { applyImwaldAttributionTags, stripImwaldAttributionTags } from '@/lib/draft-event'
+import { applyImwaldAttributionTags } from '@/lib/draft-event'
 import { createFakeEvent } from '@/lib/event'
 import logger from '@/lib/logger'
 import {
@@ -52,6 +52,17 @@ function tagsFromRows(rows: string[][]): string[][] {
     if (n) out.push(n)
   }
   return out
+}
+
+const MAX_CUSTOM_EVENT_KIND = 40000
+
+/** Integer kind in [0, 40000], or null if invalid / empty. */
+function parseEventKindInput(s: string): number | null {
+  const trimmed = s.trim()
+  if (trimmed === '') return null
+  const n = Number(trimmed)
+  if (!Number.isInteger(n) || n < 0 || n > MAX_CUSTOM_EVENT_KIND) return null
+  return n
 }
 
 function StaticEventPreview({ event, className }: { event: Event; className?: string }) {
@@ -89,46 +100,67 @@ function StaticEventPreview({ event, className }: { event: Event; className?: st
 
 export type TEditOrCloneMode = 'edit' | 'clone'
 
-export default function EditOrCloneEventDialog({
-  open,
-  onOpenChange,
-  sourceEvent,
-  mode
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  sourceEvent: Event
-  mode: TEditOrCloneMode
-}) {
+export type EditOrCloneEventDialogProps =
+  | {
+      open: boolean
+      onOpenChange: (open: boolean) => void
+      mode: 'create'
+    }
+  | {
+      open: boolean
+      onOpenChange: (open: boolean) => void
+      mode: TEditOrCloneMode
+      sourceEvent: Event
+    }
+
+export default function EditOrCloneEventDialog(props: EditOrCloneEventDialogProps) {
+  const { open, onOpenChange, mode } = props
+  const isCreate = mode === 'create'
+  const sourceEvent = !isCreate ? props.sourceEvent : null
+
   const { t } = useTranslation()
   const { pubkey, publish, checkLogin } = useNostr()
-  const [content, setContent] = useState(sourceEvent.content)
+  const [content, setContent] = useState(() => sourceEvent?.content ?? '')
+  const [createKindInput, setCreateKindInput] = useState('1')
   const [tagRows, setTagRows] = useState<string[][]>([['', '']])
   const [activeTab, setActiveTab] = useState('edit')
   const [publishing, setPublishing] = useState(false)
   const prevOpenRef = useRef(false)
 
-  const kind = sourceEvent.kind
+  const parsedCreateKind = useMemo(
+    () => (isCreate ? parseEventKindInput(createKindInput) : null),
+    [isCreate, createKindInput]
+  )
+
+  const kind = isCreate ? (parsedCreateKind ?? 0) : sourceEvent!.kind
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
-      setContent(sourceEvent.content)
-      setTagRows(
-        sourceEvent.tags?.length
-          ? sourceEvent.tags.map((row) => [...row])
-          : [['', '']]
-      )
+      if (isCreate) {
+        setCreateKindInput('1')
+        setContent('')
+        setTagRows([['', '']])
+      } else if (sourceEvent) {
+        setContent(sourceEvent.content)
+        setTagRows(
+          sourceEvent.tags?.length
+            ? sourceEvent.tags.map((row) => [...row])
+            : [['', '']]
+        )
+      }
       setActiveTab('edit')
     }
     prevOpenRef.current = open
-  }, [open, sourceEvent])
+  }, [open, isCreate, sourceEvent])
 
   const normalizedTags = useMemo(() => tagsFromRows(tagRows), [tagRows])
 
   const previewEvent = useMemo(() => {
+    if (isCreate && parsedCreateKind === null) return null
+    const k = isCreate ? parsedCreateKind! : sourceEvent!.kind
     const now = Math.floor(Date.now() / 1000)
     const base: TDraftEvent = {
-      kind,
+      kind: k,
       content,
       tags: normalizedTags,
       created_at: now
@@ -137,17 +169,21 @@ export default function EditOrCloneEventDialog({
       addClientTag: storage.getAddClientTag()
     })
     return createFakeEvent({
-      kind,
+      kind: k,
       content,
       tags: withAttribution.tags,
       pubkey: pubkey ?? '',
       created_at: now
     })
-  }, [kind, content, normalizedTags, pubkey])
+  }, [isCreate, parsedCreateKind, sourceEvent, content, normalizedTags, pubkey])
 
   const buildDraftJson = useCallback(() => {
+    if (isCreate && parsedCreateKind === null) {
+      return t('Enter a valid event kind (integer 0–40000).')
+    }
+    const k = isCreate ? parsedCreateKind! : sourceEvent!.kind
     const base: TDraftEvent = {
-      kind,
+      kind: k,
       content,
       tags: normalizedTags,
       created_at: dayjs().unix()
@@ -164,7 +200,7 @@ export default function EditOrCloneEventDialog({
       _note: t('id and sig are assigned when you publish')
     }
     return JSON.stringify(draft, null, 2)
-  }, [pubkey, kind, content, normalizedTags, t])
+  }, [isCreate, parsedCreateKind, sourceEvent, pubkey, content, normalizedTags, t])
 
   const draftJson = activeTab === 'json' ? buildDraftJson() : ''
 
@@ -203,10 +239,18 @@ export default function EditOrCloneEventDialog({
   const handlePublish = async () => {
     await checkLogin(async () => {
       if (!pubkey) return
+      if (isCreate) {
+        const k = parseEventKindInput(createKindInput)
+        if (k === null) {
+          showPublishingError(t('Kind must be an integer from 0 to 40000.'))
+          return
+        }
+      }
       setPublishing(true)
       try {
+        const publishKind = isCreate ? parseEventKindInput(createKindInput)! : sourceEvent!.kind
         const draft = {
-          kind,
+          kind: publishKind,
           content,
           tags: normalizedTags,
           created_at: dayjs().unix()
@@ -259,7 +303,11 @@ export default function EditOrCloneEventDialog({
   }
 
   const title =
-    mode === 'edit' ? t('Edit this event') : t('Clone or fork this event')
+    mode === 'edit'
+      ? t('Edit this event')
+      : mode === 'clone'
+        ? t('Clone or fork this event')
+        : t('Create custom event')
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -267,7 +315,9 @@ export default function EditOrCloneEventDialog({
         <DialogHeader className="shrink-0 px-6 pt-6 pb-2 pr-14">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">
-            {t('Edit content and tags, then publish a new signed event.')}
+            {isCreate
+              ? t('Set kind, content, and tags, then publish.')
+              : t('Edit content and tags, then publish a new signed event.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -284,14 +334,31 @@ export default function EditOrCloneEventDialog({
                 <div className="space-y-4 pb-2">
                   <div className="space-y-1">
                     <label className="text-sm font-medium">{t('Event kind')}</label>
-                    <Input
-                      type="number"
-                      value={kind}
-                      disabled
-                      readOnly
-                      className="font-mono text-sm"
-                      aria-readonly
-                    />
+                    {isCreate ? (
+                      <>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={MAX_CUSTOM_EVENT_KIND}
+                          step={1}
+                          value={createKindInput}
+                          onChange={(e) => setCreateKindInput(e.target.value)}
+                          className="font-mono text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {t('Integer from 0 to 40000')}
+                        </p>
+                      </>
+                    ) : (
+                      <Input
+                        type="number"
+                        value={kind}
+                        disabled
+                        readOnly
+                        className="font-mono text-sm"
+                        aria-readonly
+                      />
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label className="text-sm font-medium">{t('Note content')}</label>
@@ -367,12 +434,20 @@ export default function EditOrCloneEventDialog({
             <TabsContent value="preview" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
               <ScrollArea className="h-[min(50vh,420px)] pr-3">
                 <div className="space-y-1.5">
-                  {storage.getAddClientTag() ? (
-                    <div className="flex min-h-[1.125rem] items-center px-0.5">
-                      <ClientTag event={previewEvent} />
-                    </div>
-                  ) : null}
-                  <StaticEventPreview event={previewEvent} />
+                  {previewEvent ? (
+                    <>
+                      {storage.getAddClientTag() ? (
+                        <div className="flex min-h-[1.125rem] items-center px-0.5">
+                          <ClientTag event={previewEvent} />
+                        </div>
+                      ) : null}
+                      <StaticEventPreview event={previewEvent} />
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {t('Enter a valid event kind (integer 0–40000).')}
+                    </p>
+                  )}
                 </div>
               </ScrollArea>
             </TabsContent>
@@ -391,7 +466,11 @@ export default function EditOrCloneEventDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t('Cancel')}
           </Button>
-          <Button type="button" onClick={handlePublish} disabled={publishing || !pubkey}>
+          <Button
+            type="button"
+            onClick={handlePublish}
+            disabled={publishing || !pubkey || (isCreate && parsedCreateKind === null)}
+          >
             {publishing ? t('Loading...') : t('Publish')}
           </Button>
         </DialogFooter>

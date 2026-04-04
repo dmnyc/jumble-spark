@@ -25,6 +25,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { useZap } from '@/providers/ZapProvider'
 import client from '@/services/client.service'
+import indexedDb from '@/services/indexed-db.service'
 import {
   getSessionFeedSnapshot,
   hardReloadPreservingFeedSnapshots,
@@ -48,7 +49,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction
 } from 'react'
 import { CircleAlert } from 'lucide-react'
 import { useLongPressAction } from '@/hooks/use-long-press-action'
@@ -104,6 +107,8 @@ const MAX_TIMELINE_EVENTS_SCAN_FOR_VISIBLE = 2500
 const ONE_SHOT_MERGED_CAP =100
 /** Max events kept after merging parallel full-search REQ results across relays. */
 const FEED_FULL_SEARCH_MERGE_CAP = 400
+/** Cap archive cursor time so progressive search does not monopolize the main thread; pub-store hits are unchanged. */
+const PROGRESSIVE_IDB_ARCHIVE_SCAN_MAX_MS = 3_200
 /** Client-side feed time window units (Day.js `.subtract` names). */
 type TFeedClientTimeUnit = 'minute' | 'day' | 'week' | 'month' | 'year'
 
@@ -128,6 +133,94 @@ function mergeEventBatchesById(prev: Event[], incoming: Event[], cap: number): E
   return Array.from(byId.values())
     .sort((a, b) => b.created_at - a.created_at)
     .slice(0, cap)
+}
+
+/** Multi-layer search: keep all existing rows, add new ids only; newer `created_at` wins on duplicate id. No cap. */
+function mergeProgressiveSearchEvents(
+  prev: Event[],
+  incoming: Event[],
+  afterSort?: (a: Event, b: Event) => number
+): Event[] {
+  const byId = new Map<string, Event>()
+  for (const e of prev) {
+    byId.set(e.id, e)
+  }
+  for (const e of incoming) {
+    const o = byId.get(e.id)
+    if (!o) {
+      byId.set(e.id, e)
+    } else if (e.created_at > o.created_at) {
+      byId.set(e.id, e)
+    }
+  }
+  const arr = Array.from(byId.values())
+  if (afterSort) {
+    arr.sort(afterSort)
+  } else {
+    arr.sort((a, b) => b.created_at - a.created_at)
+  }
+  return arr
+}
+
+function mergeKindsForProgressiveWarmup(
+  showKindsFromPicker: number[],
+  progressiveDocumentKinds: readonly number[] | undefined
+): number[] {
+  const base = showKindsFromPicker.length > 0 ? showKindsFromPicker : [kinds.ShortTextNote]
+  if (!progressiveDocumentKinds?.length) return base
+  return Array.from(new Set([...base, ...progressiveDocumentKinds])).sort((a, b) => a - b)
+}
+
+type ProgressiveSearchLocalLayerOpts = {
+  warmQ: string
+  isStale: () => boolean
+  kindsForWarm: number[]
+  warmMatch?: (ev: Event) => boolean
+  afterSort?: (a: Event, b: Event) => number
+  setEvents: Dispatch<SetStateAction<Event[]>>
+  setLoading: (loading: boolean) => void
+}
+
+/** In-memory session hits only (sync). Relay / IndexedDB run in parallel via {@link kickProgressiveSearchLocalLayers}. */
+function applyProgressiveSessionSearchLayer(params: ProgressiveSearchLocalLayerOpts): void {
+  const { warmQ, isStale, kindsForWarm, warmMatch, afterSort, setEvents, setLoading } = params
+  const cap = FEED_FULL_SEARCH_MERGE_CAP
+  let boot = client.getSessionEventsMatchingSearch(warmQ, cap, kindsForWarm)
+  if (warmMatch) boot = boot.filter(warmMatch)
+  const sortCreated = (evs: Event[]) => [...evs].sort((a, b) => b.created_at - a.created_at)
+  const finalizeOrder = (evs: Event[]) => (afterSort ? [...evs].sort(afterSort) : sortCreated(evs))
+  if (!isStale() && boot.length) {
+    setEvents((prev) => mergeProgressiveSearchEvents(prev, finalizeOrder(boot), afterSort))
+    setLoading(false)
+  }
+}
+
+function startProgressiveIdbSearchLayer(params: ProgressiveSearchLocalLayerOpts): void {
+  const { warmQ, isStale, kindsForWarm, warmMatch, afterSort, setEvents, setLoading } = params
+  const cap = FEED_FULL_SEARCH_MERGE_CAP
+  void (async () => {
+    try {
+      const idbE = await indexedDb.getCachedAndArchivedEventsMatchingLocalSearch(
+        warmQ,
+        cap,
+        kindsForWarm,
+        { archiveScanMaxMs: PROGRESSIVE_IDB_ARCHIVE_SCAN_MAX_MS }
+      )
+      if (isStale()) return
+      const idbUse = warmMatch ? idbE.filter(warmMatch) : idbE
+      if (idbUse.length) {
+        setEvents((prev) => mergeProgressiveSearchEvents(prev, idbUse, afterSort))
+        setLoading(false)
+      }
+    } catch {
+      /* ignore */
+    }
+  })()
+}
+
+function kickProgressiveSearchLocalLayers(params: ProgressiveSearchLocalLayerOpts): void {
+  applyProgressiveSessionSearchLayer(params)
+  startProgressiveIdbSearchLayer(params)
 }
 
 /** When omitting `kinds` from a live REQ, require another scope so we never subscribe to a whole relay. */
@@ -334,6 +427,22 @@ const NoteList = forwardRef(
       /** When set with {@link oneShotFetch}, logs fetch + filter diagnostics to the console (e.g. faux spells). */
       oneShotDebugLabel,
       /**
+       * When set, session cache + IndexedDB are scanned for this string before relay REQ completes, merged into the
+       * timeline immediately (optional {@link progressiveWarmupMatch} narrows rows). Used for NIP-50 search + d-tag browse.
+       */
+      progressiveWarmupQuery,
+      /** Optional extra filter for {@link progressiveWarmupQuery} hits (e.g. d-tag substring semantics). */
+      progressiveWarmupMatch,
+      /**
+       * Union these kinds into {@link showKinds} for REQ mapping, UI kind gates, progressive warmup, and load-more
+       * narrowing (e.g. long-form / publication kinds on d-tag + NIP-50 search feeds).
+       */
+      progressiveDocumentKinds,
+      /**
+       * When set with {@link oneShotFetch}, sort merged one-shot results with this comparator (e.g. exact d-tag first).
+       */
+      oneShotAfterMergeComparator,
+      /**
        * When true (default), show the 🔍 client-side filter bar (search / from me / time window).
        * Set false on feeds where it should stay hidden (e.g. main following).
        */
@@ -388,6 +497,10 @@ const NoteList = forwardRef(
       oneShotMergedCap?: number
       revealBatchSize?: number
       oneShotDebugLabel?: string
+      progressiveWarmupQuery?: string
+      progressiveWarmupMatch?: (ev: Event) => boolean
+      progressiveDocumentKinds?: readonly number[]
+      oneShotAfterMergeComparator?: (a: Event, b: Event) => number
       oneShotGlobalTimeoutMs?: number
       oneShotEoseTimeoutMs?: number
       oneShotFirstRelayGraceMs?: number | false
@@ -418,6 +531,8 @@ const NoteList = forwardRef(
     const [newEvents, setNewEvents] = useState<Event[]>([])
     const [hasMore, setHasMore] = useState<boolean>(true)
     const [loading, setLoading] = useState(true)
+    /** Session/IDB/relay layers still running for {@link progressiveWarmupQuery} feeds (drives “Looking for more…”). */
+    const [progressiveLayersSearching, setProgressiveLayersSearching] = useState(false)
     const [timelineKey, setTimelineKey] = useState<string | undefined>(undefined)
     const [refreshCount, setRefreshCount] = useState(0)
     const [showCount, setShowCount] = useState(SHOW_COUNT)
@@ -521,9 +636,14 @@ const NoteList = forwardRef(
       [followingFeedDeltaSubRequests]
     )
 
+    const effectiveShowKinds = useMemo(() => {
+      if (!progressiveDocumentKinds?.length) return showKinds
+      return Array.from(new Set([...showKinds, ...progressiveDocumentKinds])).sort((a, b) => a - b)
+    }, [showKinds, progressiveDocumentKinds])
+
     const mapLiveSubRequestsForTimeline = useCallback(
       (requests: TFeedSubRequest[]) => {
-        const defaultKinds = showKinds.length > 0 ? showKinds : [kinds.ShortTextNote]
+        const defaultKinds = effectiveShowKinds.length > 0 ? effectiveShowKinds : [kinds.ShortTextNote]
         const seeAllNoSpell = seeAllFeedEvents && !useFilterAsIs
         return requests.map(({ urls, filter }) => {
           const baseLimit = filter.limit ?? (areAlgoRelays ? ALGO_LIMIT : LIMIT)
@@ -576,7 +696,7 @@ const NoteList = forwardRef(
         areAlgoRelays,
         clientSideKindFilter,
         seeAllFeedEvents,
-        showKinds,
+        effectiveShowKinds,
         useFilterAsIs
       ]
     )
@@ -695,9 +815,9 @@ const NoteList = forwardRef(
     // Stable key for kind filter so subscription effect doesn't re-run on parent re-renders with same kinds
     // Use sorted array and JSON.stringify to create a stable key that only changes when content changes
     const showKindsKey = useMemo(() => {
-      if (!showKinds || showKinds.length === 0) return ''
-      return JSON.stringify([...showKinds].sort((a, b) => a - b))
-    }, [showKinds])
+      if (!effectiveShowKinds || effectiveShowKinds.length === 0) return ''
+      return JSON.stringify([...effectiveShowKinds].sort((a, b) => a - b))
+    }, [effectiveShowKinds])
 
     /**
      * Session snapshot identity: feed + kind UI toggles that affect **REQ** / merged rows.
@@ -737,6 +857,16 @@ const NoteList = forwardRef(
 
     const showKindsRef = useRef(showKinds)
     showKindsRef.current = showKinds
+    const effectiveShowKindsRef = useRef(effectiveShowKinds)
+    effectiveShowKindsRef.current = effectiveShowKinds
+    const progressiveDocumentKindsRef = useRef(progressiveDocumentKinds)
+    progressiveDocumentKindsRef.current = progressiveDocumentKinds
+    const progressiveWarmupQueryRef = useRef(progressiveWarmupQuery)
+    progressiveWarmupQueryRef.current = progressiveWarmupQuery
+    const progressiveWarmupMatchRef = useRef(progressiveWarmupMatch)
+    progressiveWarmupMatchRef.current = progressiveWarmupMatch
+    const oneShotAfterMergeComparatorRef = useRef(oneShotAfterMergeComparator)
+    oneShotAfterMergeComparatorRef.current = oneShotAfterMergeComparator
     const seeAllFeedEventsRef = useRef(seeAllFeedEvents)
     seeAllFeedEventsRef.current = seeAllFeedEvents
     const allowKindlessRelayExploreRef = useRef(allowKindlessRelayExplore)
@@ -828,7 +958,7 @@ const NoteList = forwardRef(
       for (let i = 0; i < maxScan && out.length < target; i++) {
         const evt = timelineEventsForFilter[i]
         if (applyKindPickerInUi) {
-          if (!showKinds.includes(evt.kind)) continue
+          if (!effectiveShowKinds.includes(evt.kind)) continue
           if (evt.kind === kinds.ShortTextNote) {
             const isReply = isReplyNoteEvent(evt)
             if (isReply && !showKind1Replies) continue
@@ -902,7 +1032,7 @@ const NoteList = forwardRef(
 
       return newEvents.filter((event: Event) => {
         if (applyKindPickerInUi) {
-          if (!showKinds.includes(event.kind)) return false
+          if (!effectiveShowKinds.includes(event.kind)) return false
           if (event.kind === kinds.ShortTextNote) {
             const isReply = isReplyNoteEvent(event)
             if (isReply && !showKind1Replies) return false
@@ -926,7 +1056,7 @@ const NoteList = forwardRef(
       feedFullSearchEvents,
       newEvents,
       shouldHideEvent,
-      showKinds,
+      effectiveShowKinds,
       showKind1OPs,
       showKind1Replies,
       showKind1111,
@@ -1420,20 +1550,40 @@ const NoteList = forwardRef(
 
         /**
          * Kindless relay REQ: when {@link showAllKinds} is true (explorer / "All Events"), keep the full batch;
-         * otherwise narrow to {@link showKinds} so the merged timeline matches {@link applyKindPickerInUi}.
+         * otherwise narrow to effectiveShowKinds so the merged timeline matches {@link applyKindPickerInUi}.
          */
         const narrowLiveBatch = (evs: Event[]) => {
           if (seeAllFeedEventsRef.current) return evs
           if (allowKindlessRelayExploreRef.current && showAllKindsRef.current) return evs
           if (!useFilterAsIsRef.current || !clientSideKindFilterRef.current) return evs
           if (!withKindFilterRef.current) return evs
-          return evs.filter((e) => showKinds.includes(e.kind))
+          return evs.filter((e) => effectiveShowKinds.includes(e.kind))
         }
 
         if (oneShotFetch) {
           setHasMore(false)
           try {
             if (timelineEffectStale()) return undefined
+            const warmQOneShot = progressiveWarmupQueryRef.current?.trim()
+            if (warmQOneShot) {
+              setProgressiveLayersSearching(true)
+              kickProgressiveSearchLocalLayers({
+                warmQ: warmQOneShot,
+                isStale: () => !effectActive || timelineEffectStale(),
+                kindsForWarm: mergeKindsForProgressiveWarmup(
+                  showKindsRef.current,
+                  progressiveDocumentKindsRef.current
+                ),
+                warmMatch: progressiveWarmupMatchRef.current,
+                afterSort: oneShotAfterMergeComparatorRef.current,
+                setEvents,
+                setLoading
+              })
+            }
+            if (timelineEffectStale()) {
+              if (warmQOneShot) setProgressiveLayersSearching(false)
+              return undefined
+            }
             const firstRelayGraceResolved =
               oneShotFirstRelayGraceMs === undefined
                 ? FIRST_RELAY_RESULT_GRACE_MS
@@ -1460,9 +1610,11 @@ const NoteList = forwardRef(
               }
             }
             const cap = oneShotMergedCap ?? ONE_SHOT_MERGED_CAP
-            let merged = [...byId.values()]
-              .sort((a, b) => b.created_at - a.created_at)
-              .slice(0, cap)
+            const isProgressiveLayers = !!progressiveWarmupQueryRef.current?.trim()
+            let relayOnly = [...byId.values()].sort((a, b) => b.created_at - a.created_at)
+            if (!isProgressiveLayers) {
+              relayOnly = relayOnly.slice(0, cap)
+            }
             if (
               useFilterAsIs &&
               clientSideKindFilter &&
@@ -1470,39 +1622,69 @@ const NoteList = forwardRef(
               !seeAllFeedEventsRef.current &&
               (!allowKindlessRelayExplore || !showAllKinds)
             ) {
-              merged = merged.filter((e) => showKinds.includes(e.kind))
+              relayOnly = relayOnly.filter((e) => effectiveShowKinds.includes(e.kind))
             }
-            if (sessionSnap?.length && !userPulledRefresh) {
-              merged = mergeEventBatchesById(sessionSnap, merged, oneShotMergedCap ?? ONE_SHOT_MERGED_CAP)
+            const mergeCmp = oneShotAfterMergeComparatorRef.current
+            if (isProgressiveLayers) {
+              setEvents((prev) => {
+                let next = mergeProgressiveSearchEvents(prev, relayOnly, mergeCmp)
+                if (sessionSnap?.length && !userPulledRefresh) {
+                  next = mergeProgressiveSearchEvents(next, sessionSnap, mergeCmp)
+                }
+                if (mergeCmp) {
+                  next = [...next].sort(mergeCmp)
+                }
+                lastEventsForTimelinePrefetchRef.current = next
+                return next
+              })
+            } else {
+              let merged = relayOnly
+              if (sessionSnap?.length && !userPulledRefresh) {
+                merged = mergeEventBatchesById(sessionSnap, merged, oneShotMergedCap ?? ONE_SHOT_MERGED_CAP)
+              }
+              if (oneShotDebugLabel) {
+                const f0 = mappedSubRequests[0]?.filter
+                const batchEventCounts = batches.map((b) => b.length)
+                const rawTotal = batchEventCounts.reduce((s, n) => s + n, 0)
+                logger.info(`[${oneShotDebugLabel}] one-shot fetch merged`, {
+                  relayUrlsPerSub: mappedSubRequests.map((r) => r.urls.length),
+                  batchEventCounts,
+                  rawTotal,
+                  dedupedCount: byId.size,
+                  afterCap: merged.length,
+                  cap,
+                  filterAuthors: f0?.authors,
+                  filterKinds: f0?.kinds,
+                  filterLimit: f0?.limit,
+                  ...(rawTotal === 0
+                    ? {
+                        emptyHint:
+                          'All sub-batches returned 0 events: relays may not index these kinds for this author, the query may have timed out before slow relays EOSEd, or posts are kind 1 with links (this tab uses kinds 20/21/22/1222 only).'
+                      }
+                    : {})
+                })
+              }
+              setEvents(merged)
+              lastEventsForTimelinePrefetchRef.current = merged
             }
-            if (oneShotDebugLabel) {
+            if (oneShotDebugLabel && isProgressiveLayers) {
               const f0 = mappedSubRequests[0]?.filter
               const batchEventCounts = batches.map((b) => b.length)
               const rawTotal = batchEventCounts.reduce((s, n) => s + n, 0)
-              logger.info(`[${oneShotDebugLabel}] one-shot fetch merged`, {
+              logger.info(`[${oneShotDebugLabel}] one-shot progressive relay merge`, {
                 relayUrlsPerSub: mappedSubRequests.map((r) => r.urls.length),
                 batchEventCounts,
                 rawTotal,
                 dedupedCount: byId.size,
-                afterCap: merged.length,
-                cap,
                 filterAuthors: f0?.authors,
                 filterKinds: f0?.kinds,
-                filterLimit: f0?.limit,
-                ...(rawTotal === 0
-                  ? {
-                      emptyHint:
-                        'All sub-batches returned 0 events: relays may not index these kinds for this author, the query may have timed out before slow relays EOSEd, or posts are kind 1 with links (this tab uses kinds 20/21/22/1222 only).'
-                    }
-                  : {})
+                filterLimit: f0?.limit
               })
             }
-            setEvents(merged)
-            lastEventsForTimelinePrefetchRef.current = merged
             feedPaintRelayPendingRef.current = true
             feedPaintRelayMetaRef.current = {
               variant: 'one_shot_fetch',
-              mergedCount: merged.length,
+              mergedCount: relayOnly.length,
               mergedWithPriorSession: !!(sessionSnap?.length && !userPulledRefresh)
             }
           } catch (err) {
@@ -1516,10 +1698,15 @@ const NoteList = forwardRef(
                 mergedCount: 0,
                 fetchThrew: true
               }
-              setEvents([])
+              if (!progressiveWarmupQueryRef.current?.trim()) {
+                setEvents([])
+              }
             }
           } finally {
             if (effectActive) {
+              if (progressiveWarmupQueryRef.current?.trim()) {
+                setProgressiveLayersSearching(false)
+              }
               feedPaintLiveRelayDoneRef.current = true
               setFeedEmptyToastGateTick((n) => n + 1)
               setFeedTimelineEmptyUiReady(true)
@@ -1563,6 +1750,27 @@ const NoteList = forwardRef(
           // New REQ wave (incl. delta relays with same feed key): outcomes stay stale until this wave ends.
           setFeedSubscribeRelayOutcomes([])
 
+          const warmQLive = progressiveWarmupQueryRef.current?.trim()
+          if (warmQLive) {
+            setProgressiveLayersSearching(true)
+            kickProgressiveSearchLocalLayers({
+              warmQ: warmQLive,
+              isStale: () => !effectActive || timelineEffectStale(),
+              kindsForWarm: mergeKindsForProgressiveWarmup(
+                showKindsRef.current,
+                progressiveDocumentKindsRef.current
+              ),
+              warmMatch: progressiveWarmupMatchRef.current,
+              afterSort: oneShotAfterMergeComparatorRef.current,
+              setEvents,
+              setLoading
+            })
+          }
+          if (timelineEffectStale()) {
+            if (warmQLive) setProgressiveLayersSearching(false)
+            return undefined
+          }
+
           timelineSubscribePromise = client.subscribeTimeline(
             mappedSubRequests as Array<{ urls: string[]; filter: TSubRequestFilter }>,
             {
@@ -1601,19 +1809,17 @@ const NoteList = forwardRef(
                 }
                 if (batch.length > 0) {
                   if (narrowed.length > 0) {
-                    if (preserveTimelineOnSubRequestsChange) {
-                      setEvents((prev) => {
-                        const next = mergeEventBatchesById(prev, narrowed, eventCap)
-                        lastEventsForTimelinePrefetchRef.current = next
-                        return next
-                      })
-                    } else {
-                      setEvents((prev) => {
-                        const next = mergeEventBatchesById(prev, narrowed, eventCap)
-                        lastEventsForTimelinePrefetchRef.current = next
-                        return next
-                      })
-                    }
+                    setEvents((prev) => {
+                      const next = progressiveWarmupQueryRef.current?.trim()
+                        ? mergeProgressiveSearchEvents(
+                            prev,
+                            narrowed,
+                            oneShotAfterMergeComparatorRef.current
+                          )
+                        : mergeEventBatchesById(prev, narrowed, eventCap)
+                      lastEventsForTimelinePrefetchRef.current = next
+                      return next
+                    })
                     // Do not wait for full EOSE across many relays — otherwise loading/skeleton stays up for 10–30s+
                     setLoading(false)
 
@@ -1705,12 +1911,13 @@ const NoteList = forwardRef(
               if (!seeAllFeedEventsRef.current && withKindFilterRef.current) {
                 const kindlessFirehose =
                   allowKindlessRelayExploreRef.current && showAllKindsRef.current
-                if (!kindlessFirehose) {
-                  if (!useFilterAsIsRef.current && !showKinds.includes(event.kind)) return
+                  if (!kindlessFirehose) {
+                  if (!useFilterAsIsRef.current && !effectiveShowKindsRef.current.includes(event.kind))
+                    return
                   if (
                     clientSideKindFilterRef.current &&
                     useFilterAsIsRef.current &&
-                    !showKinds.includes(event.kind)
+                    !effectiveShowKindsRef.current.includes(event.kind)
                   )
                     return
                   if (event.kind === kinds.ShortTextNote) {
@@ -1743,6 +1950,9 @@ const NoteList = forwardRef(
             onRelaySubscribeWaveComplete: (rows) => {
               if (!effectActive) return
               setFeedSubscribeRelayOutcomes(rows)
+              if (progressiveWarmupQueryRef.current?.trim()) {
+                setProgressiveLayersSearching(false)
+              }
             }
           }
           )
@@ -1763,6 +1973,9 @@ const NoteList = forwardRef(
           return closer
       } catch (_error) {
         setLoading(false)
+        if (progressiveWarmupQueryRef.current?.trim()) {
+          setProgressiveLayersSearching(false)
+        }
         if (effectActive) {
           feedPaintLiveRelayDoneRef.current = true
           setFeedEmptyToastGateTick((n) => n + 1)
@@ -1784,6 +1997,7 @@ const NoteList = forwardRef(
       const snapshotKeyForCleanup = sessionSnapshotIdentityKey
       return () => {
         effectActive = false
+        setProgressiveLayersSearching(false)
         followingFeedDeltaCloserRef.current?.()
         followingFeedDeltaCloserRef.current = null
         setSessionFeedSnapshot(snapshotKeyForCleanup, eventsRef.current)
@@ -1825,7 +2039,8 @@ const NoteList = forwardRef(
       showAllKinds,
       withKindFilter,
       onSingleRelayKindlessEmpty,
-      mapLiveSubRequestsForTimeline
+      mapLiveSubRequestsForTimeline,
+      progressiveWarmupQuery
     ])
 
     useEffect(() => {
@@ -1870,7 +2085,7 @@ const NoteList = forwardRef(
         if (allowKindlessRelayExploreRef.current && showAllKindsRef.current) return evs
         if (!useFilterAsIsRef.current || !clientSideKindFilterRef.current) return evs
         if (!withKindFilterRef.current) return evs
-        return evs.filter((e) => showKindsRef.current.includes(e.kind))
+        return evs.filter((e) => effectiveShowKindsRef.current.includes(e.kind))
       }
 
       void (async () => {
@@ -1936,11 +2151,12 @@ const NoteList = forwardRef(
                   const kindlessFirehose =
                     allowKindlessRelayExploreRef.current && showAllKindsRef.current
                   if (!kindlessFirehose) {
-                    if (!useFilterAsIsRef.current && !showKinds.includes(event.kind)) return
+                    if (!useFilterAsIsRef.current && !effectiveShowKindsRef.current.includes(event.kind))
+                      return
                     if (
                       clientSideKindFilterRef.current &&
                       useFilterAsIsRef.current &&
-                      !showKinds.includes(event.kind)
+                      !effectiveShowKindsRef.current.includes(event.kind)
                     )
                       return
                     if (event.kind === kinds.ShortTextNote) {
@@ -2004,7 +2220,7 @@ const NoteList = forwardRef(
       clientSideKindFilter,
       startLogin,
       pubkey,
-      showKinds,
+      effectiveShowKinds,
       showKind1OPs,
       showKind1Replies,
       showKind1111
@@ -2289,7 +2505,7 @@ const NoteList = forwardRef(
               !seeAllFeedEventsRef.current &&
               (!allowKindlessRelayExploreRef.current || !showAllKindsRef.current)
             let toAppend = narrowLoadMore
-              ? fetchBatch.filter((e) => showKindsRef.current.includes(e.kind))
+              ? fetchBatch.filter((e) => effectiveShowKindsRef.current.includes(e.kind))
               : fetchBatch
 
             if (
@@ -2301,7 +2517,7 @@ const NoteList = forwardRef(
               for (let depth = 0; depth < 8 && toAppend.length === 0; depth++) {
                 fetchBatch = await client.loadMoreTimeline(latestTimelineKey, skipUntil, LIMIT)
                 if (fetchBatch.length === 0) break
-                toAppend = fetchBatch.filter((e) => showKindsRef.current.includes(e.kind))
+                toAppend = fetchBatch.filter((e) => effectiveShowKindsRef.current.includes(e.kind))
                 if (toAppend.length > 0) break
                 skipUntil = Math.min(...fetchBatch.map((e) => e.created_at)) - 1
               }
@@ -2745,6 +2961,7 @@ const NoteList = forwardRef(
 
     const listSourceEvents = timelineEventsForFilter
     const feedFullSearchActive = feedFullSearchEvents !== null
+    const progressiveWarmupTrimmed = progressiveWarmupQuery?.trim()
     const showRelaySubscribeWavePendingBanner =
       !oneShotFetch &&
       !feedFullSearchActive &&
@@ -2753,7 +2970,11 @@ const NoteList = forwardRef(
       timelineKey != null &&
       feedSubscribeRelayOutcomes.length === 0 &&
       feedTimelineEmptyUiReady
-    const relayWavePendingBannerEl = showRelaySubscribeWavePendingBanner ? (
+    const showProgressiveLayersPendingBanner =
+      Boolean(progressiveWarmupTrimmed) && progressiveLayersSearching && !feedFullSearchActive
+    const showLookingForMoreEventsBanner =
+      showRelaySubscribeWavePendingBanner || showProgressiveLayersPendingBanner
+    const relayWavePendingBannerEl = showLookingForMoreEventsBanner ? (
       <div
         className="mb-2 rounded border border-border/40 bg-muted/15 px-3 py-1.5 text-center text-xs text-muted-foreground"
         role="status"

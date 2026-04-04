@@ -15,7 +15,7 @@ export default function SuggestedEmojis({
   onMoreButtonClick: () => void
 }) {
   const [suggestedEmojis, setSuggestedEmojis] =
-    useState<(string | TEmoji)[]>(DEFAULT_SUGGESTED_EMOJIS)
+    useState<(string | TEmoji)[]>(() => [...DEFAULT_SUGGESTED_EMOJIS])
 
   useEffect(() => {
     try {

@@ -235,6 +235,8 @@ export type TSearchParams = {
   type: TSearchType
   search: string
   input?: string
+  /** Present for profile rows from typeahead; avoids redundant fetch and shows cached avatar/name immediately. */
+  profile?: TProfile
 }
 
 export type TNotificationStyle =

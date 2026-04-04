@@ -112,8 +112,10 @@ export default function HighlightEditor({
       <div className="flex items-center justify-between">
         <div className="text-sm font-medium">{t('Highlight Settings')}</div>
         <Button
+          type="button"
           variant="ghost"
           size="icon"
+          title={t('Close highlight editor')}
           className="h-6 w-6"
           onClick={() => setIsHighlight(false)}
         >

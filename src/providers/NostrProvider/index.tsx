@@ -805,8 +805,12 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }, [account])
 
   useEffect(() => {
-    customEmojiService.init(userEmojiListEvent)
-  }, [userEmojiListEvent])
+    if (!account?.pubkey) {
+      void customEmojiService.init(null, null)
+      return
+    }
+    void customEmojiService.init(userEmojiListEvent, account.pubkey)
+  }, [userEmojiListEvent, account?.pubkey])
 
   /**
    * If session restore temporarily fell back to read-only (`npub`) while the stored

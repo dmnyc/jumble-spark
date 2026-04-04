@@ -68,6 +68,7 @@ export default function PollEditor({
               type="button"
               variant="ghost-destructive"
               size="icon"
+              title={t('Remove option')}
               onClick={() => handleRemoveOption(index)}
               disabled={options.length <= 2}
             >
@@ -75,7 +76,7 @@ export default function PollEditor({
             </Button>
           </div>
         ))}
-        <Button type="button" variant="outline" onClick={handleAddOption}>
+        <Button type="button" variant="outline" title={t('Add Option')} onClick={handleAddOption}>
           {t('Add Option')}
         </Button>
       </div>
