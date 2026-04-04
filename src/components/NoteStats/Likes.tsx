@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import noteStatsService from '@/services/note-stats.service'
+import storage from '@/services/local-storage.service'
 import { TEmoji } from '@/types'
 import { Event } from 'nostr-tools'
 import { useMemo, useRef, useState } from 'react'
@@ -66,7 +67,7 @@ export default function Likes({ event }: { event: Event }) {
 
       try {
         const reaction = createReactionDraftEvent(event, emoji)
-        const evt = await publish(reaction)
+        const evt = await publish(reaction, { addClientTag: storage.getAddClientTag() })
         noteStatsService.updateNoteStatsByEvents([evt], undefined, {
           interactionTargetNoteId: event.id
         })

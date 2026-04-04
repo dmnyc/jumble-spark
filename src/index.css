@@ -199,6 +199,14 @@
 }
 
 @layer components {
+  /**
+   * Playfair for page/modal chrome titles only (not nav labels or article body).
+   * Use with optional utilities: truncate, leading-tight, pl-3, etc.
+   */
+  .app-chrome-title {
+    @apply font-display text-lg font-semibold;
+  }
+
   .imwald-sidebar {
     position: relative;
     isolation: isolate;

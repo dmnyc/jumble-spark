@@ -63,7 +63,7 @@ const RssPage = forwardRef<TPageRef>((_, ref) => {
         <div className="flex h-full w-full items-center justify-between gap-2 pr-1">
           <div className="flex items-center gap-2 pl-3">
             <Rss className="size-5" />
-            <div className="text-lg font-semibold">{t('RSS + Web')}</div>
+            <div className="app-chrome-title">{t('RSS + Web')}</div>
           </div>
           <div className="flex items-center gap-1">
             <Button

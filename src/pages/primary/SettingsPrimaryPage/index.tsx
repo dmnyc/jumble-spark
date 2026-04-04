@@ -30,7 +30,7 @@ const SettingsPrimaryPage = forwardRef<TPageRef>((_, ref) => {
         <div className="flex h-full w-full items-center justify-between gap-2 pl-3 pr-1">
           <div className="flex items-center gap-2">
             <Settings className="size-5 shrink-0" />
-            <div className="text-lg font-semibold">{t('Settings')}</div>
+            <div className="app-chrome-title">{t('Settings')}</div>
           </div>
           <RefreshButton onClick={bumpMenu} />
         </div>

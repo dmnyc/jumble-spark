@@ -171,7 +171,7 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
     <>
       {isSmallScreen ? <FavoriteRelaysActiveStripMobileBar /> : null}
       <div className="w-full min-w-0 border-b border-border/80 bg-background px-3 py-2 sm:px-4">
-        <h1 className="text-lg font-semibold leading-tight tracking-tight">{feedPageTitle}</h1>
+        <h1 className="app-chrome-title leading-tight tracking-tight">{feedPageTitle}</h1>
       </div>
       {showFavoriteRelaysPicker ? <FavoriteRelaysFeedPicker /> : null}
       {homeSubHeader}

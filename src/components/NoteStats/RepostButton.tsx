@@ -16,6 +16,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import noteStatsService from '@/services/note-stats.service'
+import storage from '@/services/local-storage.service'
 import { PencilLine, Repeat } from 'lucide-react'
 import { Event } from 'nostr-tools'
 import { useMemo, useState } from 'react'
@@ -62,7 +63,7 @@ export default function RepostButton({ event, hideCount = false }: { event: Even
         }
 
         const repost = createRepostDraftEvent(event)
-        const evt = await publish(repost)
+        const evt = await publish(repost, { addClientTag: storage.getAddClientTag() })
         
         // Show publishing feedback
         if ((evt as any)?.relayStatuses) {

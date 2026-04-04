@@ -1624,7 +1624,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
       titlebar={
         <div className="flex h-full w-full items-center justify-between gap-2 pr-1">
           <div
-            className="min-w-0 flex-1 truncate pl-3 text-lg font-semibold"
+            className="app-chrome-title min-w-0 flex-1 truncate pl-3"
             title={spellsTitlebarTitle}
           >
             {spellsTitlebarTitle}

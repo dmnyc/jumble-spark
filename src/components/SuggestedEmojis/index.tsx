@@ -1,12 +1,11 @@
 import { Button } from '@/components/ui/button'
+import { DEFAULT_SUGGESTED_EMOJIS } from '@/lib/like-reaction-emojis'
 import { parseEmojiPickerUnified } from '@/lib/utils'
 import { TEmoji } from '@/types'
 import { getSuggested } from 'emoji-picker-react/src/dataUtils/suggested'
 import { MoreHorizontal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import Emoji from '../Emoji'
-
-const DEFAULT_SUGGESTED_EMOJIS = ['👍', '❤️', '😂', '🥲', '👀', '🫡', '🫂']
 
 export default function SuggestedEmojis({
   onEmojiClick,

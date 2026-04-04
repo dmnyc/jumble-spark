@@ -937,9 +937,7 @@ function MainContentArea({
                   onClick={goBack}
                 >
                   <ChevronLeft />
-                  <div className="truncate text-lg font-semibold">
-                    Back
-                  </div>
+                  <div className="app-chrome-title truncate">Back</div>
                 </Button>
               </div>
               <div className="flex-1 flex justify-center">
@@ -2051,7 +2049,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                       onClick={goBack}
                     >
                       <ChevronLeft />
-                      <div className="truncate font-display text-lg font-semibold">
+                      <div className="app-chrome-title truncate">
                         {primaryViewType === 'settings' || primaryViewType === 'settings-sub'
                           ? 'Settings'
                           : primaryViewType === 'profile'
@@ -2245,7 +2243,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                   }
                 }}
               >
-                <SheetContent side="right" className="w-full sm:max-w-[1042px] overflow-y-auto p-0">
+                <SheetContent
+                  side="right"
+                  className="w-full sm:max-w-[1042px] overflow-y-auto p-0"
+                  hideClose
+                >
                   <div className="h-full">
                     {secondaryStack.map((item, index) => {
                       const isLast = index === secondaryStack.length - 1

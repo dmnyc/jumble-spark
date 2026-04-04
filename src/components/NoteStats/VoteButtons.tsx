@@ -9,6 +9,7 @@ import { createReactionDraftEvent } from '@/lib/draft-event'
 import { useNoteStatsRelayHints } from '@/hooks/useNoteStatsRelayHints'
 import { useNostr } from '@/providers/NostrProvider'
 import noteStatsService from '@/services/note-stats.service'
+import storage from '@/services/local-storage.service'
 import { Event } from 'nostr-tools'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -72,8 +73,8 @@ export default function VoteButtons({ event }: { event: Event }) {
         if (existingVote) {
           // Remove vote by creating a reaction with the same emoji (this will toggle it off)
           const reaction = createReactionDraftEvent(event, emoji)
-          const evt = await publish(reaction)
-          
+          const evt = await publish(reaction, { addClientTag: storage.getAddClientTag() })
+
           // Show publishing feedback
           if ((evt as any)?.relayStatuses) {
             showPublishingFeedback({
@@ -97,12 +98,12 @@ export default function VoteButtons({ event }: { event: Event }) {
           if (userVote) {
             const oldEmoji = userVote === 'up' ? DISCUSSION_UPVOTE : DISCUSSION_DOWNVOTE
             const removeReaction = createReactionDraftEvent(event, oldEmoji)
-            await publish(removeReaction)
+            await publish(removeReaction, { addClientTag: storage.getAddClientTag() })
           }
-          
+
           // Then add the new vote
           const reaction = createReactionDraftEvent(event, emoji)
-          const evt = await publish(reaction)
+          const evt = await publish(reaction, { addClientTag: storage.getAddClientTag() })
           
           // Show publishing feedback
           if ((evt as any)?.relayStatuses) {

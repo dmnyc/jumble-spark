@@ -30,7 +30,8 @@ import {
   createCitationInternalDraftEvent,
   createCitationExternalDraftEvent,
   createCitationHardcopyDraftEvent,
-  createCitationPromptDraftEvent
+  createCitationPromptDraftEvent,
+  applyImwaldAttributionTags
 } from '@/lib/draft-event'
 import { ExtendedKind } from '@/constants'
 import { cn, isTouchDevice } from '@/lib/utils'
@@ -1012,11 +1013,11 @@ export default function PostContent({
       const cleanedText = rewritePlainTextHttpUrls(text)
       
       const draftEvent = await createDraftEvent(cleanedText)
-      return JSON.stringify(draftEvent, null, 2)
+      return JSON.stringify(applyImwaldAttributionTags(draftEvent, { addClientTag }), null, 2)
     } catch (error) {
       return JSON.stringify({ error: error instanceof Error ? error.message : String(error) }, null, 2)
     }
-  }, [text, pubkey, isDiscussionThread, createDraftEvent])
+  }, [text, pubkey, isDiscussionThread, createDraftEvent, addClientTag])
 
   const post = async (e?: React.MouseEvent) => {
     e?.stopPropagation()
@@ -2662,6 +2663,7 @@ export default function PostContent({
           extraPreviewTags={
             isDiscussionThread && !parentEvent ? discussionPreviewExtraTags : rssReplyExtraPreviewTags
           }
+          addClientTag={addClientTag}
           mediaImetaTags={mediaImetaTags}
           mediaUrl={mediaUrl}
           headerActions={

@@ -52,7 +52,7 @@ function ProfilePageTitlebar({ onFeedRefresh }: { onFeedRefresh: () => void }) {
     <div className="flex h-full w-full items-center justify-between gap-2 pl-3 pr-1">
       <div className="flex min-w-0 items-center gap-2">
         <UserRound className="size-5 shrink-0" />
-        <div className="truncate text-lg font-semibold">{t('Profile')}</div>
+        <div className="app-chrome-title truncate">{t('Profile')}</div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <RefreshButton onClick={onFeedRefresh} />

@@ -59,6 +59,7 @@ const PostTextarea = forwardRef<
       topics?: string[]
     }
     extraPreviewTags?: string[][]
+    addClientTag?: boolean
   }
 >(
   (
@@ -80,7 +81,8 @@ const PostTextarea = forwardRef<
       mediaImetaTags,
       mediaUrl,
       articleMetadata,
-      extraPreviewTags
+      extraPreviewTags,
+      addClientTag = true
     },
     ref
   ) => {
@@ -271,6 +273,7 @@ const PostTextarea = forwardRef<
               mediaUrl={mediaUrl}
               articleMetadata={articleMetadata}
               extraPreviewTags={extraPreviewTags}
+              addClientTag={addClientTag}
             />
           </div>
         </TabsContent>

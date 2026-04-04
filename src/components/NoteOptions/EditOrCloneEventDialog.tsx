@@ -17,7 +17,9 @@ import ContentPreview from '@/components/ContentPreview'
 import Highlight from '@/components/Note/Highlight'
 import MarkdownArticle from '@/components/Note/MarkdownArticle/MarkdownArticle'
 import AsciidocArticle from '@/components/Note/AsciidocArticle/AsciidocArticle'
+import ClientTag from '@/components/ClientTag'
 import { ExtendedKind } from '@/constants'
+import { applyImwaldAttributionTags, stripImwaldAttributionTags } from '@/lib/draft-event'
 import { createFakeEvent } from '@/lib/event'
 import logger from '@/lib/logger'
 import {
@@ -27,6 +29,8 @@ import {
 } from '@/lib/publishing-feedback'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
+import storage from '@/services/local-storage.service'
+import type { TDraftEvent } from '@/types'
 import dayjs from 'dayjs'
 import { Plus, Trash2 } from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
@@ -123,24 +127,42 @@ export default function EditOrCloneEventDialog({
 
   const previewEvent = useMemo(() => {
     const now = Math.floor(Date.now() / 1000)
-    return createFakeEvent({
+    const base: TDraftEvent = {
       kind,
       content,
       tags: normalizedTags,
+      created_at: now
+    }
+    const withAttribution = applyImwaldAttributionTags(base, {
+      addClientTag: storage.getAddClientTag()
+    })
+    return createFakeEvent({
+      kind,
+      content,
+      tags: withAttribution.tags,
       pubkey: pubkey ?? '',
       created_at: now
     })
   }, [kind, content, normalizedTags, pubkey])
 
   const buildDraftJson = useCallback(() => {
-        const draft = {
-          pubkey: pubkey ?? t('Log in to publish'),
-          kind,
-          content,
-          tags: normalizedTags,
-          created_at: t('Set when you publish'),
-          _note: t('id and sig are assigned when you publish')
-        }
+    const base: TDraftEvent = {
+      kind,
+      content,
+      tags: normalizedTags,
+      created_at: dayjs().unix()
+    }
+    const withAttribution = applyImwaldAttributionTags(base, {
+      addClientTag: storage.getAddClientTag()
+    })
+    const draft = {
+      pubkey: pubkey ?? t('Log in to publish'),
+      kind: withAttribution.kind,
+      content: withAttribution.content,
+      tags: withAttribution.tags,
+      created_at: t('Set when you publish'),
+      _note: t('id and sig are assigned when you publish')
+    }
     return JSON.stringify(draft, null, 2)
   }, [pubkey, kind, content, normalizedTags, t])
 
@@ -189,7 +211,9 @@ export default function EditOrCloneEventDialog({
           tags: normalizedTags,
           created_at: dayjs().unix()
         }
-        const newEvent = await publish(draft)
+        const newEvent = await publish(draft, {
+          addClientTag: storage.getAddClientTag()
+        })
         if ((newEvent as any)?.relayStatuses) {
           const rs = (newEvent as any).relayStatuses
           showPublishingFeedback(
@@ -342,7 +366,14 @@ export default function EditOrCloneEventDialog({
 
             <TabsContent value="preview" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
               <ScrollArea className="h-[min(50vh,420px)] pr-3">
-                <StaticEventPreview event={previewEvent} />
+                <div className="space-y-1.5">
+                  {storage.getAddClientTag() ? (
+                    <div className="flex min-h-[1.125rem] items-center px-0.5">
+                      <ClientTag event={previewEvent} />
+                    </div>
+                  ) : null}
+                  <StaticEventPreview event={previewEvent} />
+                </div>
               </ScrollArea>
             </TabsContent>
 

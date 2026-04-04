@@ -1,4 +1,4 @@
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerOverlay } from '@/components/ui/drawer'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +25,7 @@ import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/contexts/user-trust-context'
 import { eventService } from '@/services/client.service'
 import noteStatsService from '@/services/note-stats.service'
+import storage from '@/services/local-storage.service'
 import { TEmoji } from '@/types'
 import { SmilePlus } from 'lucide-react'
 import { Event } from 'nostr-tools'
@@ -32,8 +33,7 @@ import { useMemo, useState } from 'react'
 import logger from '@/lib/logger'
 import { useTranslation } from 'react-i18next'
 import Emoji from '../Emoji'
-import EmojiPicker from '../EmojiPicker'
-import SuggestedEmojis from '../SuggestedEmojis'
+import EmojiPicker, { EMOJI_PICKER_REACTIONS } from '../EmojiPicker'
 import { formatCount } from './utils'
 import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import { WEB_EXTERNAL_REACTION_PUBLISHED_EVENT } from '@/lib/rss-web-feed'
@@ -46,7 +46,6 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
   const { hideUntrustedInteractions, isUserTrusted } = useUserTrust()
   const [liking, setLiking] = useState(false)
   const [isEmojiReactionsOpen, setIsEmojiReactionsOpen] = useState(false)
-  const [isPickerOpen, setIsPickerOpen] = useState(false)
   const noteStats = useNoteStatsById(event.id)
   const isDiscussion = event.kind === ExtendedKind.DISCUSSION
   const inQuietMode = shouldHideInteractions(event)
@@ -124,7 +123,9 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
             if (reactionEvent) {
               // Create and publish a deletion request (kind 5)
               const deletionRequest = createDeletionRequestDraftEvent(reactionEvent)
-              const deletedEvent = await publish(deletionRequest)
+              const deletedEvent = await publish(deletionRequest, {
+                addClientTag: storage.getAddClientTag()
+              })
               
               // Show publishing feedback
               if ((deletedEvent as any)?.relayStatuses) {
@@ -151,7 +152,7 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
         } else {
           // User is adding a new reaction
           const reaction = createReactionDraftEvent(event, emoji)
-          const evt = await publish(reaction)
+          const evt = await publish(reaction, { addClientTag: storage.getAddClientTag() })
           
           // Show publishing feedback
           if ((evt as any)?.relayStatuses) {
@@ -258,24 +259,35 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
     )
   }
 
+  const likeEmojiPicker = (
+    <EmojiPicker
+      reactionsDefaultOpen
+      reactions={[...EMOJI_PICKER_REACTIONS]}
+      onEmojiClick={(emoji, e) => {
+        e.stopPropagation()
+        setIsEmojiReactionsOpen(false)
+        if (!emoji) return
+        like(emoji)
+      }}
+    />
+  )
+
   if (isSmallScreen) {
     return (
       <>
         {trigger}
         <Drawer open={isEmojiReactionsOpen} onOpenChange={setIsEmojiReactionsOpen}>
-          <DrawerOverlay onClick={() => setIsEmojiReactionsOpen(false)} />
-          <DrawerContent hideOverlay>
+          <DrawerContent
+            onPointerDownOutside={(e) => {
+              const t = e.target as HTMLElement | null
+              if (t?.closest?.('[data-vaul-overlay]')) return
+              e.preventDefault()
+            }}
+          >
             <DrawerHeader className="sr-only">
               <DrawerTitle>React</DrawerTitle>
             </DrawerHeader>
-            <EmojiPicker
-              onEmojiClick={(emoji) => {
-                setIsEmojiReactionsOpen(false)
-                if (!emoji) return
-
-                like(emoji)
-              }}
-            />
+            {likeEmojiPicker}
           </DrawerContent>
         </Drawer>
       </>
@@ -283,38 +295,10 @@ export default function LikeButton({ event, hideCount = false }: { event: Event;
   }
 
   return (
-    <DropdownMenu
-      open={isEmojiReactionsOpen}
-      onOpenChange={(open) => {
-        setIsEmojiReactionsOpen(open)
-        if (open) {
-          setIsPickerOpen(false)
-        }
-      }}
-    >
+    <DropdownMenu open={isEmojiReactionsOpen} onOpenChange={setIsEmojiReactionsOpen}>
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       <DropdownMenuContent side="top" className="p-0 w-fit">
-        {isPickerOpen ? (
-          <EmojiPicker
-            onEmojiClick={(emoji, e) => {
-              e.stopPropagation()
-              setIsEmojiReactionsOpen(false)
-              if (!emoji) return
-
-              like(emoji)
-            }}
-          />
-        ) : (
-          <SuggestedEmojis
-            onEmojiClick={(emoji) => {
-              setIsEmojiReactionsOpen(false)
-              like(emoji)
-            }}
-            onMoreButtonClick={() => {
-              setIsPickerOpen(true)
-            }}
-          />
-        )}
+        {likeEmojiPicker}
       </DropdownMenuContent>
     </DropdownMenu>
   )

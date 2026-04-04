@@ -1405,8 +1405,62 @@ export function buildClientTag(handlerPubkey?: string, handlerIdentifier?: strin
   return ['client', 'imwald']
 }
 
-export function buildAltTag() {
-  return ['alt', 'This event was published by https://jumble.imwald.eu.']
+/** Canonical `alt` we attach for Imwald / jumble.imwald.eu publishing attribution (NIP-31). */
+export const IMWALD_ATTRIBUTION_ALT_TEXT = 'This event was published by https://jumble.imwald.eu.'
+
+export function buildAltTag(): string[] {
+  return ['alt', IMWALD_ATTRIBUTION_ALT_TEXT]
+}
+
+/**
+ * True for `alt` tags that are *our* app attribution (current or legacy Jumble/Imwald wording).
+ * Does not match arbitrary user `alt` text unless it clearly points at this app.
+ */
+export function isImwaldAppAttributionAltTag(tag: string[]): boolean {
+  if (!Array.isArray(tag) || tag[0] !== 'alt' || tag.length < 2) return false
+  const raw = tag[1]
+  if (typeof raw !== 'string') return false
+  const v = raw.trim()
+  if (v === IMWALD_ATTRIBUTION_ALT_TEXT) return true
+  const l = v.toLowerCase()
+  if (l.includes('jumble.imwald.eu')) return true
+  if (
+    /^this event was published\b/i.test(v) &&
+    (l.includes('imwald') || l.includes('jumble'))
+  ) {
+    return true
+  }
+  return false
+}
+
+/** Removes every `client` tag and any Jumble/Imwald attribution `alt` (see {@link isImwaldAppAttributionAltTag}). */
+export function stripImwaldAttributionTags(tags: string[][]): string[][] {
+  return tags.filter(
+    (tag) =>
+      Array.isArray(tag) &&
+      tag[0] !== 'client' &&
+      !isImwaldAppAttributionAltTag(tag)
+  )
+}
+
+/**
+ * Before sign/publish: strip all `client` tags and Imwald/Jumble attribution `alt` tags, then
+ * append exactly one {@link buildClientTag} + {@link buildAltTag} when `addClientTag !== false`.
+ */
+export function applyImwaldAttributionTags(
+  draftEvent: TDraftEvent,
+  options?: { addClientTag?: boolean }
+): TDraftEvent {
+  const draft = JSON.parse(JSON.stringify(draftEvent)) as TDraftEvent
+  const existingTags = Array.isArray(draft.tags) ? draft.tags : []
+  const sanitizedTags = stripImwaldAttributionTags(existingTags)
+  const shouldAdd = options?.addClientTag !== false
+  if (shouldAdd) {
+    draft.tags = [...sanitizedTags, buildClientTag(), buildAltTag()]
+  } else {
+    draft.tags = [...sanitizedTags]
+  }
+  return draft
 }
 
 function buildNsfwTag() {

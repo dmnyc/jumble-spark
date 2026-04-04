@@ -11,8 +11,7 @@ import {
   SEARCHABLE_RELAY_URLS
 } from '@/constants'
 import {
-  buildAltTag,
-  buildClientTag,
+  applyImwaldAttributionTags,
   createDeletionRequestDraftEvent,
   createFollowListDraftEvent,
   createMuteListDraftEvent,
@@ -1169,19 +1168,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     return null
   }
 
-  const normalizeDraftEventTags = (draftEvent: TDraftEvent): TDraftEvent => {
-    const draft = JSON.parse(JSON.stringify(draftEvent)) as TDraftEvent
-    const imwaldAttributionAlt = buildAltTag()[1]
-    const existingTags = Array.isArray(draft.tags) ? draft.tags : []
-    const sanitizedTags = existingTags.filter(
-      (tag) =>
-        Array.isArray(tag) &&
-        tag[0] !== 'client' &&
-        !(tag[0] === 'alt' && tag[1] === imwaldAttributionAlt)
-    )
-    draft.tags = [...sanitizedTags, buildClientTag(), buildAltTag()]
-    return draft
-  }
+  const normalizeDraftEventTags = (
+    draftEvent: TDraftEvent,
+    options?: { addClientTag?: boolean }
+  ): TDraftEvent => applyImwaldAttributionTags(draftEvent, options)
 
   const setupNewUser = async (signer: ISigner) => {
     await Promise.allSettled([
@@ -1204,8 +1194,11 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     ])
   }
 
-  const signEvent = async (draftEvent: TDraftEvent) => {
-    const normalizedDraft = normalizeDraftEventTags(draftEvent)
+  const signEvent = async (
+    draftEvent: TDraftEvent,
+    normalizeOpts?: { addClientTag?: boolean }
+  ) => {
+    const normalizedDraft = normalizeDraftEventTags(draftEvent, normalizeOpts)
     // Add timeout to prevent hanging
     const signEventWithTimeout = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -1262,13 +1255,14 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Invalid account state - pubkey is missing or invalid')
     }
 
-    const draft = normalizeDraftEventTags(draftEvent)
+    const normalizeOpts = { addClientTag: options.addClientTag }
+    const draft = normalizeDraftEventTags(draftEvent, normalizeOpts)
     let event: VerifiedEvent
     if (minPow > 0) {
       const unsignedEvent = await minePow({ ...draft, pubkey: account.pubkey }, minPow)
-      event = await signEvent(unsignedEvent)
+      event = await signEvent(unsignedEvent, normalizeOpts)
     } else {
-      event = await signEvent(draft)
+      event = await signEvent(draft, normalizeOpts)
     }
 
     if (event.kind !== kinds.Application && event.pubkey !== account.pubkey) {

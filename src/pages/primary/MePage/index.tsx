@@ -134,7 +134,7 @@ function MePageTitlebar({ onRefresh }: { onRefresh: () => void }) {
   const { t } = useTranslation()
   return (
     <div className="flex h-full w-full items-center justify-between gap-2 pl-3 pr-1">
-      <div className="text-lg font-semibold">{t('YouTabName')}</div>
+      <div className="app-chrome-title">{t('YouTabName')}</div>
       <RefreshButton onClick={onRefresh} />
     </div>
   )

@@ -320,7 +320,7 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
         <>
           <div className="px-4 py-2 border-b">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-lg font-semibold">{title}</div>
+              <div className="app-chrome-title">{title}</div>
               <div className="flex items-center gap-1">
                 <RefreshButton onClick={bumpFeed} />
                 {titlebarExtras}

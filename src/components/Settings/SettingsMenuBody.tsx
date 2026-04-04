@@ -156,7 +156,7 @@ export default function SettingsMenuBody({ className }: { className?: string }) 
         </SettingItem>
       </AboutInfoDialog>
       <div className="py-6 text-center text-muted-foreground">
-        <div className="text-lg font-semibold">Imwald</div>
+        <div className="app-chrome-title">Imwald</div>
         <div className="font-semibold text-green-600 dark:text-green-500">Im Wald</div>
       </div>
     </div>

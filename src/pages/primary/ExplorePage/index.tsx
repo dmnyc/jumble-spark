@@ -168,7 +168,7 @@ function ExplorePageTitlebar({ onRefresh }: { onRefresh: () => void }) {
     <div className="flex h-full min-w-0 w-full items-center justify-between gap-2 px-2 py-1 sm:pl-3 sm:pr-2">
       <div className="flex shrink-0 items-center gap-2">
         <Compass className="size-5 shrink-0" />
-        <div className="text-lg font-semibold">{t('Explore')}</div>
+        <div className="app-chrome-title">{t('Explore')}</div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <RefreshButton onClick={onRefresh} />

@@ -48,7 +48,7 @@ function RelayPageTitlebar({ url, onRefresh }: { url?: string; onRefresh: () => 
     <div className="flex w-full items-center justify-between gap-2 px-1 h-full">
       <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
         <Server />
-        <div className="text-lg font-semibold truncate">{simplifyUrl(url ?? '')}</div>
+        <div className="app-chrome-title truncate">{simplifyUrl(url ?? '')}</div>
       </div>
       <RefreshButton onClick={onRefresh} />
     </div>

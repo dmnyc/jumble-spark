@@ -10,10 +10,18 @@ import EmojiPickerReact, {
   Theme
 } from 'emoji-picker-react'
 
+export { EMOJI_PICKER_REACTIONS } from '@/lib/like-reaction-emojis'
+
 export default function EmojiPicker({
-  onEmojiClick
+  onEmojiClick,
+  reactionsDefaultOpen,
+  reactions
 }: {
   onEmojiClick: (emoji: string | TEmoji | undefined, event: MouseEvent) => void
+  /** When true, show the compact reactions row first (tap + for full picker). */
+  reactionsDefaultOpen?: boolean
+  /** Unified ids for the reactions row; for likes use {@link EMOJI_PICKER_REACTIONS}. */
+  reactions?: string[]
 }) {
   const { themeSetting } = useTheme()
   const { isSmallScreen } = useScreenSize()
@@ -43,6 +51,8 @@ export default function EmojiPicker({
         onEmojiClick(emoji, e)
       }}
       customEmojis={customEmojiService.getAllCustomEmojisForPicker()}
+      {...(reactionsDefaultOpen !== undefined ? { reactionsDefaultOpen } : {})}
+      {...(reactions !== undefined ? { reactions } : {})}
     />
   )
 }

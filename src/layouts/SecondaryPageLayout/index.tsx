@@ -177,7 +177,7 @@ export function SecondaryPageTitlebar({
       <ReadOnlySessionIndicator variant="titlebar" />
       <div className="flex min-w-0 flex-1 items-center justify-between gap-1">
         {hideBackButton ? (
-          <div className="flex gap-2 items-center pl-2 w-fit truncate font-display text-lg font-semibold">
+          <div className="app-chrome-title flex w-fit items-center gap-2 truncate pl-2">
             {title}
           </div>
         ) : (
@@ -204,7 +204,7 @@ function BackButton({ children }: { children?: React.ReactNode }) {
       onClick={() => pop()}
     >
       <ChevronLeft />
-              <div className="truncate font-display text-lg font-semibold">{children}</div>
+              <div className="app-chrome-title truncate">{children}</div>
     </Button>
   )
 }

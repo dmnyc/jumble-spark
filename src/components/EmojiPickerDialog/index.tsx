@@ -26,7 +26,14 @@ export default function EmojiPickerDialog({
     return (
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerTrigger asChild>{children}</DrawerTrigger>
-        <DrawerContent portalContainer={portalContainer}>
+        <DrawerContent
+          portalContainer={portalContainer}
+          onPointerDownOutside={(e) => {
+            const t = e.target as HTMLElement | null
+            if (t?.closest?.('[data-vaul-overlay]')) return
+            e.preventDefault()
+          }}
+        >
           <DrawerHeader className="sr-only">
             <DrawerTitle>Emoji Picker</DrawerTitle>
           </DrawerHeader>

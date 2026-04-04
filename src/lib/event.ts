@@ -529,11 +529,13 @@ export function getNoteBech32Id(event: Event) {
 export function getUsingClient(event: Event) {
   const clientTag = event.tags.find(tagNameEquals('client'))
   if (!clientTag) return undefined
-  
+
   // NIP-89 client tag format: ["client", "Client Name", "31990:pubkey:identifier", "relay"]
   // Simple format: ["client", "client_name"]
-  // For display purposes, we use the client name (second element)
-  return clientTag[1]
+  const name = clientTag[1]
+  if (!name) return undefined
+  if (name.toLowerCase() === 'imwald') return 'Imwald'
+  return name
 }
 
 export function getImetaInfosFromEvent(event: Event) {

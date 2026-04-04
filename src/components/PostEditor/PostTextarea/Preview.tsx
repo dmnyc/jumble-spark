@@ -1,6 +1,12 @@
+import ClientTag from '@/components/ClientTag'
 import { Card } from '@/components/ui/card'
 import { ExtendedKind, POLL_TYPE } from '@/constants'
-import { transformCustomEmojisInContent } from '@/lib/draft-event'
+import {
+  buildAltTag,
+  buildClientTag,
+  stripImwaldAttributionTags,
+  transformCustomEmojisInContent
+} from '@/lib/draft-event'
 import { normalizeTopic } from '@/lib/discussion-topics'
 import { createFakeEvent } from '@/lib/event'
 import { randomString } from '@/lib/random'
@@ -9,7 +15,7 @@ import { cn } from '@/lib/utils'
 import { TPollCreateData } from '@/types'
 import { kinds, nip19 } from 'nostr-tools'
 import { replaceStandardEmojiShortcodesInContent } from '@/lib/emoji-content'
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import ContentPreview from '../../ContentPreview'
 import Content from '../../Content'
 import Highlight from '../../Note/Highlight'
@@ -26,7 +32,8 @@ export default function Preview({
   mediaImetaTags,
   mediaUrl,
   articleMetadata,
-  extraPreviewTags
+  extraPreviewTags,
+  addClientTag = true
 }: { 
   content: string
   className?: string
@@ -44,6 +51,8 @@ export default function Preview({
   }
   /** Merged into the fake event (e.g. kind 11 discussion title / topic tags). */
   extraPreviewTags?: string[][]
+  /** When true (default), preview matches publish: Imwald `client` + attribution `alt` tags and badge. */
+  addClientTag?: boolean
 }) {
   const { content: processedContent, emojiTags, highlightTags, pollTags } = useMemo(
     () => {
@@ -153,8 +162,12 @@ export default function Preview({
     if (extraPreviewTags?.length) {
       tags.push(...extraPreviewTags)
     }
-    return tags
-  }, [emojiTags, highlightTags, pollTags, mediaImetaTags, articleMetadata, kind, extraPreviewTags])
+    const stripped = stripImwaldAttributionTags(tags)
+    if (addClientTag) {
+      stripped.push(buildClientTag(), buildAltTag())
+    }
+    return stripped
+  }, [emojiTags, highlightTags, pollTags, mediaImetaTags, articleMetadata, kind, extraPreviewTags, addClientTag])
   
   const fakeEvent = useMemo(() => {
     // For voice comments, include the media URL in content if not already there
@@ -169,11 +182,23 @@ export default function Preview({
       kind 
     })
   }, [processedContent, allTags, kind, mediaUrl])
-  
+
   const selectableClass = 'select-text'
+  const withClientBadge = (node: ReactNode) =>
+    addClientTag ? (
+      <div className="space-y-1.5">
+        <div className="flex min-h-[1.125rem] items-center px-0.5">
+          <ClientTag event={fakeEvent} />
+        </div>
+        {node}
+      </div>
+    ) : (
+      node
+    )
+
   // For polls, use ContentPreview to show poll properly
   if (kind === ExtendedKind.POLL) {
-    return (
+    return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
         <ContentPreview event={fakeEvent} />
       </Card>
@@ -182,7 +207,7 @@ export default function Preview({
   
   // For highlights, use the Highlight component for proper formatting
   if (kind === kinds.Highlights) {
-    return (
+    return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
         <Highlight event={fakeEvent} />
       </Card>
@@ -192,7 +217,7 @@ export default function Preview({
   // For kind 1 notes, use MarkdownArticle to match actual rendering
   // This ensures preview matches the final result (no Links section, correct image placement, proper line breaks)
   if (kind === kinds.ShortTextNote || kind === ExtendedKind.COMMENT || kind === ExtendedKind.VOICE_COMMENT) {
-    return (
+    return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
         <MarkdownArticle event={fakeEvent} hideMetadata={true} />
       </Card>
@@ -200,7 +225,7 @@ export default function Preview({
   }
 
   if (kind === ExtendedKind.DISCUSSION) {
-    return (
+    return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
         <MarkdownArticle event={fakeEvent} hideMetadata={true} />
       </Card>
@@ -209,7 +234,7 @@ export default function Preview({
 
   // For LongFormArticle, use MarkdownArticle
   if (kind === kinds.LongFormArticle) {
-    return (
+    return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
         <MarkdownArticle event={fakeEvent} hideMetadata={true} />
       </Card>
@@ -218,7 +243,7 @@ export default function Preview({
 
   // For WikiArticle (AsciiDoc), use AsciidocArticle
   if (kind === ExtendedKind.WIKI_ARTICLE) {
-    return (
+    return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
         <AsciidocArticle event={fakeEvent} hideImagesAndInfo={false} />
       </Card>
@@ -227,7 +252,7 @@ export default function Preview({
 
   // For WikiArticleMarkdown, use MarkdownArticle
   if (kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN) {
-    return (
+    return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
         <MarkdownArticle event={fakeEvent} hideMetadata={true} />
       </Card>
@@ -236,14 +261,14 @@ export default function Preview({
 
   // For PublicationContent, use AsciidocArticle
   if (kind === ExtendedKind.PUBLICATION_CONTENT) {
-    return (
+    return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
         <AsciidocArticle event={fakeEvent} hideImagesAndInfo={false} />
       </Card>
     )
   }
 
-  return (
+  return withClientBadge(
     <Card className={cn('p-3', className, selectableClass)}>
       <Content event={fakeEvent} className="h-full" mustLoadMedia />
     </Card>

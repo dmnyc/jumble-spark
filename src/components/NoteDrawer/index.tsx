@@ -57,7 +57,11 @@ export default function NoteDrawer({ open, onOpenChange, noteId, initialEvent }:
       }}
       registerWithModalManager={false}
     >
-      <SheetContent side="right" className="w-full sm:max-w-[1042px] overflow-y-auto p-0">
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[1042px] overflow-y-auto p-0"
+        hideClose
+      >
         <div className="min-h-full">
           <NotePage
             id={displayNoteId}
