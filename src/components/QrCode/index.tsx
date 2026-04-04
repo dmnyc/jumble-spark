@@ -1,3 +1,4 @@
+import { publicAssetUrl } from '@/constants'
 import QRCodeStyling from 'qr-code-styling'
 import { useEffect, useRef } from 'react'
 
@@ -12,7 +13,7 @@ export default function QrCode({ value, size = 180 }: { value: string; size?: nu
         qrOptions: {
           errorCorrectionLevel: 'M'
         },
-        image: '/favicon.svg',
+        image: publicAssetUrl('favicon.svg'),
         width: size * pixelRatio,
         height: size * pixelRatio,
         data: value,

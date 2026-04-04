@@ -1,5 +1,5 @@
 import { useSmartNoteNavigationOptional } from '@/PageManager'
-import { ExtendedKind } from '@/constants'
+import { ExtendedKind, publicAssetUrl } from '@/constants'
 import { isRenderableNoteKind } from '@/lib/note-renderable-kinds'
 import {
   getHttpUrlFromITags,
@@ -457,7 +457,7 @@ export default function Note({
                   }`}
                 >
                   <img
-                    src="/favicon.png"
+                    src={publicAssetUrl('favicon.png')}
                     alt=""
                     className="w-full h-full object-cover"
                     width={size === 'small' ? 36 : 40}

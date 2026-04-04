@@ -1,10 +1,25 @@
 'use strict'
 
 const { app, BrowserWindow, ipcMain, shell } = require('electron')
+const fs = require('fs')
 const path = require('path')
 
 /** True when running from source (`electron .`); false when packaged. */
 const isDev = !app.isPackaged
+
+function resolveWindowIcon() {
+  const candidates = isDev
+    ? [path.join(__dirname, '..', 'public', 'favicon.png')]
+    : [path.join(__dirname, '..', 'dist', 'favicon.png')]
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p
+    } catch {
+      // ignore
+    }
+  }
+  return undefined
+}
 
 function loadRenderer(win) {
   if (isDev) {
@@ -25,6 +40,7 @@ function createWindow() {
     minWidth: 400,
     minHeight: 500,
     show: false,
+    icon: resolveWindowIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

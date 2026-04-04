@@ -32,6 +32,15 @@ export const HIVETALK_BASE_URL =
   (import.meta.env.VITE_HIVETALK_BASE_URL as string | undefined) ?? 'https://vanilla.hivetalk.org'
 
 /**
+ * URL for a file from `public/` (banner, favicon, payto logos, etc.).
+ * Uses Vite `base`: `/` on the web, `./` when built for Electron (`loadFile` + `file:`).
+ */
+export function publicAssetUrl(assetPath: string): string {
+  const trimmed = assetPath.replace(/^\//, '')
+  return `${import.meta.env.BASE_URL}${trimmed}`
+}
+
+/**
  * Default URL for the sidebar “Download desktop app” entry (e.g. GitHub Releases with AppImage/deb).
  * Override per deploy with `DESKTOP_DOWNLOAD_URL` in `/config.json` (empty string hides the entry).
  */

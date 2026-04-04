@@ -3,6 +3,8 @@
  * Parse and normalize payto://<type>/<authority> URIs; known types for UI (icons, labels, dialogs).
  */
 
+import { publicAssetUrl } from '@/constants'
+
 export const PAYTO_URI_REGEX = /payto:\/\/([a-z0-9-]+)\/([^\s\]\)\<\"']+)/gi
 
 export interface ParsedPayto {
@@ -162,7 +164,7 @@ export function getPaytoLogoPath(type: string): string | null {
   const key = type.toLowerCase()
   const file = PAYTO_LOGO_FILES[key]
   if (!file) return null
-  return `/payto_logos/${file}`
+  return publicAssetUrl(`payto_logos/${file}`)
 }
 
 export function getPaytoTypeInfo(type: string): (typeof PAYTO_KNOWN_TYPES)[string] | undefined {

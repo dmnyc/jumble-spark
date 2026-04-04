@@ -1,10 +1,11 @@
+import { publicAssetUrl } from '@/constants'
 import { cn } from '@/lib/utils'
 
 /** Compact mark for narrow sidebar (from `public/favicon.png`). */
 export default function Icon({ className }: { className?: string }) {
   return (
     <img
-      src="/favicon.png"
+      src={publicAssetUrl('favicon.png')}
       alt=""
       width={216}
       height={215}

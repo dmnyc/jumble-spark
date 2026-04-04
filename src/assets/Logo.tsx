@@ -1,3 +1,4 @@
+import { publicAssetUrl } from '@/constants'
 import { cn } from '@/lib/utils'
 import type { MouseEvent } from 'react'
 
@@ -5,7 +6,7 @@ import type { MouseEvent } from 'react'
 export default function Logo({ className }: { className?: string }) {
   return (
     <img
-      src="/banner.png"
+      src={publicAssetUrl('banner.png')}
       alt="Imwald"
       width={868}
       height={194}
