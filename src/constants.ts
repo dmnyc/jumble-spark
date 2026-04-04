@@ -34,9 +34,20 @@ export const HIVETALK_BASE_URL =
 /**
  * URL for a file from `public/` (banner, favicon, payto logos, etc.).
  * Uses Vite `base`: `/` on the web, `./` when built for Electron (`loadFile` + `file:`).
+ *
+ * Electron packaged builds use `file:` + client-side history paths like `/notes/…`, which replace
+ * the document URL with `file:///notes/…`. Relative `BASE_URL` links would then resolve next to that
+ * bogus path and 404. Resolve from this module's emitted chunk (`dist/assets/*.js`) instead.
  */
 export function publicAssetUrl(assetPath: string): string {
   const trimmed = assetPath.replace(/^\//, '')
+  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+    try {
+      return new URL(`../../${trimmed}`, import.meta.url).href
+    } catch {
+      // fall through to BASE_URL
+    }
+  }
   return `${import.meta.env.BASE_URL}${trimmed}`
 }
 
