@@ -169,6 +169,15 @@ const FollowingFeed = forwardRef<
     i18n.language
   ])
 
+  const trendingFeedNotice = useMemo(
+    () => (
+      <p className="mb-2 px-1 text-xs text-muted-foreground leading-snug">
+        {t('Home trending slice notice')}
+      </p>
+    ),
+    [t]
+  )
+
   return (
     <NormalFeed
       ref={ref}
@@ -181,6 +190,7 @@ const FollowingFeed = forwardRef<
       onSubHeaderRefresh={onSubHeaderRefresh}
       showFeedClientFilter={false}
       hostPrimaryPageName="feed"
+      feedTopNotice={trendingFeedNotice}
     />
   )
 })

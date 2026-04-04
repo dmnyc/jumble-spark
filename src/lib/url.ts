@@ -337,6 +337,44 @@ export function isSafeMediaUrl(url: string): boolean {
 }
 
 /**
+ * Primal R2A CDN URL for media keyed by SHA-256 (same object as `https://blossom.primal.net/{hash}.ext`).
+ * Used when the blossom host fails in-browser; aligns with NIP-B7-style alternate retrieval.
+ */
+export function primalR2aUploads2UrlFromSha256(hash: string, extensionWithDot?: string): string | null {
+  const h = hash.toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(h)) return null
+  const ext =
+    extensionWithDot && extensionWithDot.startsWith('.') ? extensionWithDot.toLowerCase() : ''
+  const a = h.slice(0, 1)
+  const b = h.slice(1, 3)
+  const c = h.slice(3, 5)
+  return `https://r2a.primal.net/uploads2/${a}/${b}/${c}/${h}${ext}`
+}
+
+/**
+ * If `url` is on `blossom.primal.net` with a 64-hex blob id in the path, return the r2a CDN mirror URL.
+ */
+export function primalR2aMirrorForBlossomPrimalUrl(url: string | URL): string | null {
+  try {
+    const u = url instanceof URL ? url : new URL(url)
+    if (u.hostname !== 'blossom.primal.net') return null
+    const m = u.pathname.match(/([0-9a-f]{64})(\.\w+)?$/i)
+    if (!m) return null
+    return primalR2aUploads2UrlFromSha256(m[1].toLowerCase(), m[2] || '')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Prefer Primal’s CDN URL for `img src` when the note points at `blossom.primal.net/…`.
+ * Same file as the blossom URL; avoids browsers that block or hang on the blossom host (Primal/Wisp-style delivery).
+ */
+export function preferBlossomPrimalDisplayUrl(url: string): string {
+  return primalR2aMirrorForBlossomPrimalUrl(url) ?? url
+}
+
+/**
  * Remove tracking parameters from URLs
  * Removes common tracking parameters like utm_*, fbclid, gclid, etc.
  */

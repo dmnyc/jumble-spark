@@ -1060,6 +1060,8 @@ export default {
       'Keine aktuellen Beiträge von diesem Nutzer in dieser Abfrage',
     'Loading trending notes from your relays...': 'Trendende Notizen werden geladen …',
     'Trending on Nostr': 'Trending auf Nostr',
+    'Home trending slice notice':
+      'Dieser Feed enthält eine Trending-Spur (nostrarchives). Notizen, die von diesem Relay kamen, zeigen unter der Karte „Trending auf Nostr“.',
     Sort: 'Sortierung',
     newest: 'neueste',
     oldest: 'älteste',

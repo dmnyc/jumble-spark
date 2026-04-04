@@ -16,7 +16,8 @@ import {
   isAudio,
   isWebsocketUrl,
   isPseudoNostrHttpsUrl,
-  isSafeMediaUrl
+  isSafeMediaUrl,
+  preferBlossomPrimalDisplayUrl
 } from '@/lib/url'
 import { getHttpUrlFromITags, getImetaInfosFromEvent } from '@/lib/event'
 import { canonicalizeRssArticleUrl } from '@/lib/rss-article'
@@ -5086,9 +5087,9 @@ export default function MarkdownArticle({
         >
           <Lightbox
             index={lightboxIndex}
-            slides={allImages.map(({ url, alt }) => ({ 
-              src: url, 
-              alt: alt || url 
+            slides={allImages.map(({ url, alt }) => ({
+              src: preferBlossomPrimalDisplayUrl(url),
+              alt: alt || url
             }))}
             plugins={[Zoom]}
             open={lightboxOpen}

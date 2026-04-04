@@ -5,7 +5,15 @@ import YoutubeEmbeddedPlayer from '@/components/YoutubeEmbeddedPlayer'
 import { getLongFormArticleMetadataFromEvent } from '@/lib/event-metadata'
 import { toNoteList } from '@/lib/link'
 import { useMediaExtraction } from '@/hooks'
-import { cleanUrl, isImage, isMedia, isVideo, isAudio, isWebsocketUrl } from '@/lib/url'
+import {
+  cleanUrl,
+  isImage,
+  isMedia,
+  isVideo,
+  isAudio,
+  isWebsocketUrl,
+  preferBlossomPrimalDisplayUrl
+} from '@/lib/url'
 import { getImetaInfosFromEvent } from '@/lib/event'
 import { Event, kinds } from 'nostr-tools'
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
@@ -2117,9 +2125,9 @@ export default function AsciidocArticle({
         <div onClick={(e) => e.stopPropagation()}>
           <Lightbox
             index={lightboxIndex}
-            slides={allImages.map(({ url, alt }) => ({ 
-              src: url, 
-              alt: alt || url 
+            slides={allImages.map(({ url, alt }) => ({
+              src: preferBlossomPrimalDisplayUrl(url),
+              alt: alt || url
             }))}
             plugins={[Zoom]}
             open={lightboxIndex >= 0}

@@ -2,6 +2,10 @@ import NormalFeed from '@/components/NormalFeed'
 import type { TNoteListRef } from '@/components/NoteList'
 import { SINGLE_RELAY_KINDLESS_REQ_LIMIT } from '@/constants'
 import { checkAlgoRelay } from '@/lib/relay'
+import {
+  isWispTrendingNotesRelayUrl,
+  WISP_TRENDING_FEED_KINDS
+} from '@/lib/wisp-trending-relay'
 import { normalizeUrl } from '@/lib/url'
 import { useFeed } from '@/providers/FeedProvider'
 import { useKindFilterOrDefaults } from '@/providers/KindFilterProvider'
@@ -93,6 +97,12 @@ const RelaysFeed = forwardRef<
     return undefined
   }, [feedInfo.feedType, feedInfo.id])
 
+  const wispTrendingSingleRelay =
+    feedInfo.feedType === 'relay' &&
+    relayUrls.length === 1 &&
+    !!relayUrls[0] &&
+    isWispTrendingNotesRelayUrl(relayUrls[0])
+
   /** New relay chip / set: try kindless first again. */
   useEffect(() => {
     setSingleRelayKindFallback(false)
@@ -110,7 +120,8 @@ const RelaysFeed = forwardRef<
     feedInfo.feedType === 'relay' &&
     relayUrls.length === 1 &&
     !kindsOverride?.length &&
-    !singleRelayKindFallback
+    !singleRelayKindFallback &&
+    !wispTrendingSingleRelay
 
   const feedTopNotice = singleRelayKindFallback ? (
     <p className="leading-snug">{t('singleRelayKindFallbackNotice')}</p>
@@ -119,6 +130,14 @@ const RelaysFeed = forwardRef<
   // Hooks must run every render — never place useMemo after conditional returns.
   const subRequests = useMemo(() => {
     if (!canRenderFeed) return []
+    if (wispTrendingSingleRelay) {
+      return [
+        {
+          urls: relayUrls,
+          filter: { kinds: [...WISP_TRENDING_FEED_KINDS], limit: 100 }
+        }
+      ]
+    }
     if (singleRelayKindlessExplore) {
       return [{ urls: relayUrls, filter: { limit: SINGLE_RELAY_KINDLESS_REQ_LIMIT } }]
     }
@@ -130,7 +149,14 @@ const RelaysFeed = forwardRef<
         }
       }
     ]
-  }, [canRenderFeed, relayUrls, defaultKinds, kindsOverride, singleRelayKindlessExplore])
+  }, [
+    canRenderFeed,
+    relayUrls,
+    defaultKinds,
+    kindsOverride,
+    singleRelayKindlessExplore,
+    wispTrendingSingleRelay
+  ])
 
   if (!canRenderFeed) {
     return null

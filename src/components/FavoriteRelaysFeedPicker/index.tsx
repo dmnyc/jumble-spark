@@ -12,6 +12,7 @@ import {
 import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
 import { toRelaySettings } from '@/lib/link'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
+import { buildWispTrendingNotesRelayUrl } from '@/lib/wisp-trending-relay'
 import { cn } from '@/lib/utils'
 import { useSecondaryPage } from '@/PageManager'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -32,7 +33,7 @@ function selectValueToRelaySetId(v: string) {
   return decodeURIComponent(v.slice(3))
 }
 
-/** Top-of-feed control: all favorites, relay sets, then single relays. */
+/** Top-of-feed control: all favorites, Wisp trending (nostrarchives), relay sets, then single relays. */
 export default function FavoriteRelaysFeedPicker() {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
@@ -51,10 +52,23 @@ export default function FavoriteRelaysFeedPicker() {
     [favoriteRelays, blockedRelays]
   )
 
+  const wispTrendingRelayUrl = useMemo(() => buildWispTrendingNotesRelayUrl(), [])
+  const wispTrendingRelayKey = useMemo(
+    () => normalizeUrl(wispTrendingRelayUrl) || wispTrendingRelayUrl,
+    [wispTrendingRelayUrl]
+  )
+  const trendingUrlInFavoriteList = useMemo(
+    () => urls.some((u) => (normalizeUrl(u) || u) === wispTrendingRelayKey),
+    [urls, wispTrendingRelayKey]
+  )
+
   const currentRelayKey =
     feedInfo.feedType === 'relay' && feedInfo.id ? normalizeUrl(feedInfo.id) || feedInfo.id : null
 
   const allActive = feedInfo.feedType === 'all-favorites'
+
+  const trendingRelayActive =
+    feedInfo.feedType === 'relay' && currentRelayKey === wispTrendingRelayKey
 
   const relaySetIdActive = feedInfo.feedType === 'relays' && feedInfo.id ? feedInfo.id : null
 
@@ -72,6 +86,9 @@ export default function FavoriteRelaysFeedPicker() {
   /** Values that exist in the mobile Select (for controlled `value` validation). */
   const selectItems = useMemo(() => {
     const items: { value: string }[] = [{ value: ALL_FAVORITES_VALUE }]
+    if (!trendingUrlInFavoriteList) {
+      items.push({ value: wispTrendingRelayKey })
+    }
     for (const set of relaySets) {
       items.push({ value: relaySetToSelectValue(set.id) })
     }
@@ -97,7 +114,9 @@ export default function FavoriteRelaysFeedPicker() {
     feedInfo.id,
     currentRelayKey,
     relaySets,
-    orphanRelaySetId
+    orphanRelaySetId,
+    trendingUrlInFavoriteList,
+    wispTrendingRelayKey
   ])
 
   const resolvedSelectValue = selectItems.some((i) => i.value === selectValue)
@@ -113,6 +132,10 @@ export default function FavoriteRelaysFeedPicker() {
   const onPickValue = (v: string) => {
     if (v === ALL_FAVORITES_VALUE) {
       void switchFeed('all-favorites')
+      return
+    }
+    if (v === wispTrendingRelayKey) {
+      void switchFeed('relay', { relay: wispTrendingRelayUrl })
       return
     }
     const setId = selectValueToRelaySetId(v)
@@ -158,6 +181,11 @@ export default function FavoriteRelaysFeedPicker() {
               <SelectItem value={ALL_FAVORITES_VALUE} className="text-xs">
                 {t('All favorite relays')}
               </SelectItem>
+              {!trendingUrlInFavoriteList ? (
+                <SelectItem value={wispTrendingRelayKey} className="text-xs font-sans">
+                  {t('Trending on Nostr')}
+                </SelectItem>
+              ) : null}
               {relaySets.length > 0 || orphanRelaySetId ? (
                 <>
                   <SelectSeparator />
@@ -223,6 +251,21 @@ export default function FavoriteRelaysFeedPicker() {
         >
           {t('All favorite relays')}
         </button>
+        {!trendingUrlInFavoriteList ? (
+          <button
+            type="button"
+            className={cn(
+              'shrink-0 rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
+              trendingRelayActive
+                ? 'border-primary bg-primary/15 text-foreground'
+                : 'border-border bg-muted/40 text-muted-foreground hover:bg-accent'
+            )}
+            title={wispTrendingRelayUrl}
+            onClick={() => void switchFeed('relay', { relay: wispTrendingRelayUrl })}
+          >
+            {t('Trending on Nostr')}
+          </button>
+        ) : null}
         {(relaySets.length > 0 || orphanRelaySetId) && (
           <div className="mx-0.5 shrink-0 self-stretch border-l border-border/80" aria-hidden />
         )}

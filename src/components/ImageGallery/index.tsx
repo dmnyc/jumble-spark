@@ -1,4 +1,5 @@
 import { randomString } from '@/lib/random'
+import { preferBlossomPrimalDisplayUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import logger from '@/lib/logger'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
@@ -113,7 +114,7 @@ export default function ImageGallery({
               index={index}
               slides={(() => {
                 const slides = images.map(({ url, alt }) => ({
-                  src: url,
+                  src: preferBlossomPrimalDisplayUrl(url),
                   alt: alt || url,
                   title: alt || undefined
                 }))

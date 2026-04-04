@@ -6,12 +6,13 @@ import {
   METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS,
   METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS,
   PROFILE_FETCH_RELAY_URLS,
-  READ_ONLY_RELAY_URLS
+  READ_ONLY_RELAY_URLS,
+  RECOMMENDED_BLOSSOM_SERVERS
 } from '@/constants'
 import { kinds, nip19 } from 'nostr-tools'
 import type { Event as NEvent, Filter } from 'nostr-tools'
 import DataLoader from 'dataloader'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeHttpUrl, normalizeUrl } from '@/lib/url'
 import { getProfileFromEvent } from '@/lib/event-metadata'
 import { formatPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib/pubkey'
 import { getPubkeysFromPTags, getServersFromServerTags } from '@/lib/tag'
@@ -1128,8 +1129,18 @@ export class ReplaceableEventService {
    */
   async fetchBlossomServerList(pubkey: string): Promise<string[]> {
     const evt = await this.fetchBlossomServerListEvent(pubkey)
-    if (!evt) return []
-    return getServersFromServerTags(evt.tags)
+    const fromEvent = evt ? getServersFromServerTags(evt.tags) : []
+    const seen = new Set<string>()
+    const out: string[] = []
+    const add = (raw: string) => {
+      const n = normalizeHttpUrl(raw)
+      if (!n || seen.has(n)) return
+      seen.add(n)
+      out.push(n)
+    }
+    fromEvent.forEach(add)
+    RECOMMENDED_BLOSSOM_SERVERS.forEach(add)
+    return out
   }
 
   /**

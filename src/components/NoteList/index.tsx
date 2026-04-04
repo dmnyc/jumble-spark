@@ -593,6 +593,12 @@ const NoteList = forwardRef(
      */
     const [feedEmptyToastGateTick, setFeedEmptyToastGateTick] = useState(0)
     /**
+     * Bumped when live relays may have updated {@link client.getSeenEventRelayUrls} for visible rows (e.g. trending
+     * shard EOSE after follows — duplicates merged out of the list but seen-on metadata still changes).
+     * Drives recomputation of {@link eventReasonLabelMap}.
+     */
+    const [feedReasonLabelsTick, setFeedReasonLabelsTick] = useState(0)
+    /**
      * Mirrors {@link feedPaintLiveRelayDoneRef} in React state so the list can show a skeleton until the first
      * merged `onEvents` (rows or EOSE). {@link loading} clears when subscribe wires, which is earlier than REQ/EOSE.
      */
@@ -1904,6 +1910,16 @@ const NoteList = forwardRef(
                     }
                   }
                 }
+
+                if (
+                  effectActive &&
+                  eosed &&
+                  subRequestsRef.current.some(
+                    (r) => r.reasonLabelIfSeenOnRelay && r.reasonLabel?.trim()
+                  )
+                ) {
+                  setFeedReasonLabelsTick((n) => n + 1)
+                }
               },
             onNew: (event: Event) => {
               if (!effectActive) return
@@ -2142,6 +2158,15 @@ const NoteList = forwardRef(
                 }
                 if (!areAlgoRelays && eosed) {
                   setHasMore(true)
+                }
+                if (
+                  deltaActive &&
+                  eosed &&
+                  subRequestsRef.current.some(
+                    (r) => r.reasonLabelIfSeenOnRelay && r.reasonLabel?.trim()
+                  )
+                ) {
+                  setFeedReasonLabelsTick((n) => n + 1)
                 }
               },
               onNew: (event: Event) => {
@@ -3005,7 +3030,7 @@ const NoteList = forwardRef(
         }
       }
       return map
-    }, [clientFilteredEvents, subRequestsKey])
+    }, [clientFilteredEvents, subRequestsKey, feedReasonLabelsTick])
 
     const list = (
       <div className="min-h-screen">

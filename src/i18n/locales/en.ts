@@ -1058,6 +1058,8 @@ export default {
       'No recent posts from this user in the current fetch',
     'Loading trending notes from your relays...': 'Loading trending notes from your relays...',
     'Trending on Nostr': 'Trending on Nostr',
+    'Home trending slice notice':
+      'This feed includes a trending slice (nostrarchives). Notes that reached you from that relay show “Trending on Nostr” under the card.',
     Sort: 'Sort',
     newest: 'newest',
     oldest: 'oldest',

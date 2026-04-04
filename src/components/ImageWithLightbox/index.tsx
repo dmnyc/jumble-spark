@@ -6,6 +6,7 @@ import modalManager from '@/services/modal-manager.service'
 import { TImetaInfo } from '@/types'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { preferBlossomPrimalDisplayUrl } from '@/lib/url'
 import { useTranslation } from 'react-i18next'
 import Lightbox from 'yet-another-react-lightbox'
 import Captions from 'yet-another-react-lightbox/plugins/captions'
@@ -142,11 +143,13 @@ export default function ImageWithLightbox({
           >
             <Lightbox
               index={index}
-              slides={[{
-                src: image.url,
-                alt: image.alt || image.url,
-                title: image.alt || undefined
-              }]}
+              slides={[
+                {
+                  src: preferBlossomPrimalDisplayUrl(image.url),
+                  alt: image.alt || image.url,
+                  title: image.alt || undefined
+                }
+              ]}
               plugins={[Zoom, Captions]}
               open={index >= 0}
               close={() => {

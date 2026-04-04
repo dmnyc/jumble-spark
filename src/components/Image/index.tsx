@@ -2,6 +2,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import client from '@/services/client.service'
 import { TImetaInfo } from '@/types'
+import { preferBlossomPrimalDisplayUrl, primalR2aMirrorForBlossomPrimalUrl } from '@/lib/url'
 import { getHashFromURL } from 'blossom-client-sdk'
 import { decode } from 'blurhash'
 import { ImageOff } from 'lucide-react'
@@ -29,7 +30,7 @@ export default function Image({
   const [isLoading, setIsLoading] = useState(true)
   const [displaySkeleton, setDisplaySkeleton] = useState(true)
   const [hasError, setHasError] = useState(false)
-  const [imageUrl, setImageUrl] = useState(url)
+  const [imageUrl, setImageUrl] = useState(() => preferBlossomPrimalDisplayUrl(url))
   const [tried, setTried] = useState(new Set())
   const [fallbackIndex, setFallbackIndex] = useState(0)
   
@@ -37,7 +38,7 @@ export default function Image({
   const finalAlt = imetaAlt || alt
 
   useEffect(() => {
-    setImageUrl(url)
+    setImageUrl(preferBlossomPrimalDisplayUrl(url))
     setIsLoading(true)
     setHasError(false)
     setDisplaySkeleton(true)
@@ -52,7 +53,7 @@ export default function Image({
     if (fallback && fallbackIndex < fallback.length) {
       const nextFallbackUrl = fallback[fallbackIndex]
       setFallbackIndex(prev => prev + 1)
-      setImageUrl(nextFallbackUrl)
+      setImageUrl(preferBlossomPrimalDisplayUrl(nextFallbackUrl))
       return
     }
     
@@ -65,14 +66,45 @@ export default function Image({
     } catch (error) {
       logger.error('Invalid image URL', { error, imageUrl })
     }
-    if (!pubkey || !hash || !oldImageUrl) {
+    if (!hash || !oldImageUrl) {
       setIsLoading(false)
       setHasError(true)
       return
     }
 
-    const ext = oldImageUrl.pathname.match(/\.\w+$/i)
-    setTried((prev) => new Set(prev.add(oldImageUrl.hostname)))
+    // r2a failed: try canonical blossom URL from props (some networks only allow one hop).
+    if (
+      oldImageUrl.hostname === 'r2a.primal.net' &&
+      url &&
+      url !== imageUrl &&
+      url.includes('blossom.primal.net') &&
+      !tried.has('blossom.primal.net-direct')
+    ) {
+      setTried((prev) => new Set(prev).add('blossom.primal.net-direct'))
+      setImageUrl(url)
+      return
+    }
+
+    // Primal: only mirror blossom → r2a when we did not already open the note with that CDN URL (avoids r2a↔blossom loops).
+    if (oldImageUrl.hostname === 'blossom.primal.net') {
+      const r2a = primalR2aMirrorForBlossomPrimalUrl(oldImageUrl)
+      const noteAlreadyUsesPrimalCdnFirst = preferBlossomPrimalDisplayUrl(url) !== url
+      if (r2a && !noteAlreadyUsesPrimalCdnFirst && !tried.has('blossom.primal.net')) {
+        setTried((prev) => new Set(prev).add('blossom.primal.net'))
+        setImageUrl(r2a)
+        return
+      }
+    }
+
+    if (!pubkey) {
+      setIsLoading(false)
+      setHasError(true)
+      return
+    }
+
+    const extMatch = oldImageUrl.pathname.match(/\.\w+$/i)
+    const extStr = extMatch?.[0] ?? ''
+    setTried((prev) => new Set(prev).add(oldImageUrl.hostname))
 
     const blossomServerList = await client.fetchBlossomServerList(pubkey)
     const urls = blossomServerList
@@ -84,7 +116,7 @@ export default function Image({
           return undefined
         }
       })
-      .filter((url) => !!url && !tried.has(url.hostname))
+      .filter((u) => !!u && !tried.has(u.hostname))
     const nextUrl = urls[0]
     if (!nextUrl) {
       setIsLoading(false)
@@ -92,8 +124,8 @@ export default function Image({
       return
     }
 
-    nextUrl.pathname = '/' + hash + ext
-    setImageUrl(nextUrl.toString())
+    nextUrl.pathname = '/' + hash + extStr
+    setImageUrl(preferBlossomPrimalDisplayUrl(nextUrl.toString()))
   }
 
   const handleLoad = () => {
@@ -129,6 +161,7 @@ export default function Image({
           src={imageUrl}
           alt={finalAlt}
           title={finalAlt || undefined}
+          referrerPolicy="no-referrer"
           decoding="async"
           loading="lazy"
           draggable={false}
