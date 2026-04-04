@@ -100,20 +100,6 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
       setIsReady(true)
       return
     }
-    if (feedType === 'following') {
-      if (!options.pubkey) {
-        setIsReady(true)
-        return
-      }
-      const newFeedInfo = { feedType }
-      setFeedInfo(newFeedInfo)
-      feedInfoRef.current = newFeedInfo
-      storage.setFeedInfo(newFeedInfo, pubkey)
-
-      setRelayUrls([])
-      setIsReady(true)
-      return
-    }
     if (feedType === 'all-favorites') {
       const finalRelays = getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
       logger.debug('Switching to all-favorites, finalRelays:', finalRelays)
@@ -124,21 +110,6 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
       storage.setFeedInfo(newFeedInfo, pubkey)
       // Reset note list mode to 'posts' when switching to all-favorites to ensure main content is shown
       storage.setNoteListMode('posts')
-      setIsReady(true)
-      return
-    }
-    if (feedType === 'bookmarks') {
-      if (!options.pubkey) {
-        setIsReady(true)
-        return
-      }
-
-      const newFeedInfo = { feedType }
-      setFeedInfo(newFeedInfo)
-      feedInfoRef.current = newFeedInfo
-      storage.setFeedInfo(newFeedInfo, pubkey)
-
-      setRelayUrls([])
       setIsReady(true)
       return
     }
@@ -187,6 +158,22 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      // Pre-rewrite main feeds (`following`, `bookmarks`) are no longer supported; migrate persisted state.
+      const storedFeedType = (feedInfo as { feedType?: string }).feedType
+      const deprecatedMainFeed = storedFeedType === 'following' || storedFeedType === 'bookmarks'
+      if (deprecatedMainFeed) {
+        const previousMainFeed = storedFeedType
+        const migrated: TFeedInfo = { feedType: 'all-favorites' }
+        feedInfo = migrated
+        if (pubkey) {
+          storage.setFeedInfo(migrated, pubkey)
+        }
+        logger.info('[FeedProvider] Migrated deprecated feed type to all-favorites', {
+          previous: previousMainFeed
+        })
+        return await switchFeed('all-favorites')
+      }
+
       if (feedInfo.feedType === 'relays') {
         return await switchFeed('relays', { activeRelaySetId: feedInfo.id })
       }
@@ -199,15 +186,6 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
         }
         logger.component('FeedProvider', 'Initial relay setup, calling switchFeed', { relayId: feedInfo.id })
         return await switchFeed('relay', { relay: feedInfo.id })
-      }
-
-      // update following feed if pubkey changes
-      if (feedInfo.feedType === 'following' && pubkey) {
-        return await switchFeed('following', { pubkey })
-      }
-
-      if (feedInfo.feedType === 'bookmarks' && pubkey) {
-        return await switchFeed('bookmarks', { pubkey })
       }
 
       if (feedInfo.feedType === 'all-favorites') {

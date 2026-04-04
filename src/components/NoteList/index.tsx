@@ -408,7 +408,7 @@ const NoteList = forwardRef(
       /**
        * When true, load events with parallel {@link client.fetchEvents} per subRequest instead of
        * {@link client.subscribeTimeline}. No live stream or `loadMore` timeline pagination; use for faux spells
-       * (except Following). Refresh re-fetches.
+       * Refresh re-fetches.
        */
       oneShotFetch = false,
       /** Override {@link client.fetchEvents} / query global timeout (default 14s). */

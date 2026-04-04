@@ -1,4 +1,3 @@
-import BookmarkList from '@/components/BookmarkList'
 import RelayInfo from '@/components/RelayInfo'
 import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
@@ -27,7 +26,6 @@ import { FavoriteRelaysActiveStripMobileBar } from '@/components/FavoriteRelaysA
 import FavoriteRelaysFeedPicker from '@/components/FavoriteRelaysFeedPicker'
 import HelpAndAccountMenu from '@/components/HelpAndAccountMenu'
 import Logo from '@/assets/Logo'
-import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
@@ -36,8 +34,6 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
   const { addRelayUrls, removeRelayUrls } = useCurrentRelays()
   const layoutRef = useRef<TPageRef>(null)
   const feedRef = useRef<TNoteListRef>(null)
-  const bookmarkRef = useRef<{ refresh: () => void }>(null)
-  const { pubkey, checkLogin } = useNostr()
   const { feedInfo, relayUrls, isReady } = useFeed()
   const { isSmallScreen } = useScreenSize()
   const [showRelayDetails, setShowRelayDetails] = useState(false)
@@ -46,16 +42,11 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
   const usesSubHeader =
     feedInfo.feedType === 'relay' ||
     feedInfo.feedType === 'relays' ||
-    feedInfo.feedType === 'all-favorites' ||
-    feedInfo.feedType === 'following'
+    feedInfo.feedType === 'all-favorites'
 
   const runFeedRefresh = useCallback(() => {
-    if (feedInfo.feedType === 'bookmarks') {
-      void bookmarkRef.current?.refresh()
-    } else {
-      feedRef.current?.refresh()
-    }
-  }, [feedInfo.feedType])
+    feedRef.current?.refresh()
+  }, [])
 
   useImperativeHandle(
     ref,
@@ -70,7 +61,6 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
     setHomeSubHeader(node)
   }, [])
 
-  // Clear subHeader when switching to a feed that doesn't use it (e.g. bookmarks)
   useEffect(() => {
     if (!usesSubHeader) setHomeSubHeader(null)
   }, [usesSubHeader])
@@ -106,34 +96,6 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
         ))}
       </div>
     )
-  } else if (feedInfo.feedType === 'following' && !pubkey) {
-    content = (
-      <div className="flex justify-center w-full">
-        <Button size="lg" onClick={() => checkLogin()}>
-          {t('Please login to view following feed')}
-        </Button>
-      </div>
-    )
-  } else if (feedInfo.feedType === 'bookmarks') {
-    if (!pubkey) {
-      content = (
-        <div className="flex justify-center w-full">
-          <Button size="lg" onClick={() => checkLogin()}>
-            {t('Please login to view bookmarks')}
-          </Button>
-        </div>
-      )
-    } else {
-      content = <BookmarkList ref={bookmarkRef} />
-    }
-  } else if (feedInfo.feedType === 'following') {
-    content = (
-      <FollowingFeed
-        ref={feedRef}
-        setSubHeader={setHomeSubHeaderStable}
-        onSubHeaderRefresh={runFeedRefresh}
-      />
-    )
   } else {
     content = (
       <>
@@ -157,13 +119,9 @@ const NoteListPage = forwardRef<TPageRef>((_, ref) => {
 
   const feedPageTitle = useMemo(
     () =>
-      feedInfo.feedType === 'following'
-        ? t('Following')
-        : feedInfo.feedType === 'bookmarks'
-          ? t('Bookmarks')
-          : feedInfo.feedType === 'relays'
-            ? t('relayType_relay_set')
-            : t('Favorite Relays'),
+      feedInfo.feedType === 'relays'
+        ? t('relayType_relay_set')
+        : t('Favorite Relays'),
     [feedInfo.feedType, t]
   )
 
