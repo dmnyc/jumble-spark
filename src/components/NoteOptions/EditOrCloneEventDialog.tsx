@@ -18,7 +18,13 @@ import Highlight from '@/components/Note/Highlight'
 import MarkdownArticle from '@/components/Note/MarkdownArticle/MarkdownArticle'
 import AsciidocArticle from '@/components/Note/AsciidocArticle/AsciidocArticle'
 import ClientTag from '@/components/ClientTag'
-import { ExtendedKind } from '@/constants'
+import {
+  ExtendedKind,
+  MAX_SIGNED_CUSTOM_EVENT_KIND,
+  UNSIGNED_EXPERIMENTAL_KIND_MAX,
+  UNSIGNED_EXPERIMENTAL_KIND_MIN,
+  isUnsignedExperimentalKind
+} from '@/constants'
 import { applyImwaldAttributionTags } from '@/lib/draft-event'
 import { createFakeEvent } from '@/lib/event'
 import logger from '@/lib/logger'
@@ -32,7 +38,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import storage from '@/services/local-storage.service'
 import type { TDraftEvent } from '@/types'
 import dayjs from 'dayjs'
-import { Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, Plus, Trash2 } from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -54,15 +60,15 @@ function tagsFromRows(rows: string[][]): string[][] {
   return out
 }
 
-const MAX_CUSTOM_EVENT_KIND = 40000
-
-/** Integer kind in [0, 40000], or null if invalid / empty. */
+/** Integer kind in [0, MAX_SIGNED_CUSTOM_EVENT_KIND] or unsigned experimental range; null if invalid / empty. */
 function parseEventKindInput(s: string): number | null {
   const trimmed = s.trim()
   if (trimmed === '') return null
   const n = Number(trimmed)
-  if (!Number.isInteger(n) || n < 0 || n > MAX_CUSTOM_EVENT_KIND) return null
-  return n
+  if (!Number.isInteger(n) || n < 0) return null
+  if (n <= MAX_SIGNED_CUSTOM_EVENT_KIND) return n
+  if (isUnsignedExperimentalKind(n)) return n
+  return null
 }
 
 function StaticEventPreview({ event, className }: { event: Event; className?: string }) {
@@ -179,7 +185,14 @@ export default function EditOrCloneEventDialog(props: EditOrCloneEventDialogProp
 
   const buildDraftJson = useCallback(() => {
     if (isCreate && parsedCreateKind === null) {
-      return t('Enter a valid event kind (integer 0–40000).')
+      return t(
+        'Enter a valid event kind: integer 0–{{maxSigned}}, or {{unsignedMin}}–{{unsignedMax}} (unsigned experiment).',
+        {
+          maxSigned: MAX_SIGNED_CUSTOM_EVENT_KIND,
+          unsignedMin: UNSIGNED_EXPERIMENTAL_KIND_MIN,
+          unsignedMax: UNSIGNED_EXPERIMENTAL_KIND_MAX
+        }
+      )
     }
     const k = isCreate ? parsedCreateKind! : sourceEvent!.kind
     const base: TDraftEvent = {
@@ -191,13 +204,18 @@ export default function EditOrCloneEventDialog(props: EditOrCloneEventDialogProp
     const withAttribution = applyImwaldAttributionTags(base, {
       addClientTag: storage.getAddClientTag()
     })
+    const unsignedNote = isUnsignedExperimentalKind(withAttribution.kind)
+      ? t(
+          'Unsigned experimental kind: `sig` will be empty at publish; `id` is still the standard event hash. Not accepted by normal relays. Relays that allow this should authenticate you (e.g. NIP-42 AUTH) before writes.'
+        )
+      : t('id and sig are assigned when you publish')
     const draft = {
       pubkey: pubkey ?? t('Log in to publish'),
       kind: withAttribution.kind,
       content: withAttribution.content,
       tags: withAttribution.tags,
       created_at: t('Set when you publish'),
-      _note: t('id and sig are assigned when you publish')
+      _note: unsignedNote
     }
     return JSON.stringify(draft, null, 2)
   }, [isCreate, parsedCreateKind, sourceEvent, pubkey, content, normalizedTags, t])
@@ -242,7 +260,16 @@ export default function EditOrCloneEventDialog(props: EditOrCloneEventDialogProp
       if (isCreate) {
         const k = parseEventKindInput(createKindInput)
         if (k === null) {
-          showPublishingError(t('Kind must be an integer from 0 to 40000.'))
+          showPublishingError(
+            t(
+              'Kind must be an integer from 0 to {{maxSigned}}, or from {{unsignedMin}} to {{unsignedMax}} (unsigned experiment).',
+              {
+                maxSigned: MAX_SIGNED_CUSTOM_EVENT_KIND,
+                unsignedMin: UNSIGNED_EXPERIMENTAL_KIND_MIN,
+                unsignedMax: UNSIGNED_EXPERIMENTAL_KIND_MAX
+              }
+            )
+          )
           return
         }
       }
@@ -339,15 +366,41 @@ export default function EditOrCloneEventDialog(props: EditOrCloneEventDialogProp
                         <Input
                           type="number"
                           min={0}
-                          max={MAX_CUSTOM_EVENT_KIND}
+                          max={UNSIGNED_EXPERIMENTAL_KIND_MAX}
                           step={1}
                           value={createKindInput}
                           onChange={(e) => setCreateKindInput(e.target.value)}
                           className="font-mono text-sm"
                         />
                         <p className="text-xs text-muted-foreground">
-                          {t('Integer from 0 to 40000')}
+                          {t(
+                            'Signed: 0–{{maxSigned}}. Unsigned experiment (empty sig): {{unsignedMin}}–{{unsignedMax}}.',
+                            {
+                              maxSigned: MAX_SIGNED_CUSTOM_EVENT_KIND,
+                              unsignedMin: UNSIGNED_EXPERIMENTAL_KIND_MIN,
+                              unsignedMax: UNSIGNED_EXPERIMENTAL_KIND_MAX
+                            }
+                          )}
                         </p>
+                        {parsedCreateKind !== null && isUnsignedExperimentalKind(parsedCreateKind) ? (
+                          <div
+                            role="alert"
+                            className="flex gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-950 dark:text-amber-100"
+                          >
+                            <AlertTriangle
+                              className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+                              aria-hidden
+                            />
+                            <div>
+                              <p className="font-medium">{t('Unsigned experimental kind')}</p>
+                              <p className="mt-1 text-xs leading-relaxed opacity-90">
+                                {t(
+                                  'This kind is published with an empty signature. Normal Nostr relays will reject it, and these events are not portable on the open network. Only use relays that explicitly support this experiment and authenticate you (for example with NIP-42 AUTH) before accepting writes.'
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        ) : null}
                       </>
                     ) : (
                       <Input
@@ -445,7 +498,14 @@ export default function EditOrCloneEventDialog(props: EditOrCloneEventDialogProp
                     </>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      {t('Enter a valid event kind (integer 0–40000).')}
+                      {t(
+                        'Enter a valid event kind: 0–{{maxSigned}}, or {{unsignedMin}}–{{unsignedMax}}.',
+                        {
+                          maxSigned: MAX_SIGNED_CUSTOM_EVENT_KIND,
+                          unsignedMin: UNSIGNED_EXPERIMENTAL_KIND_MIN,
+                          unsignedMax: UNSIGNED_EXPERIMENTAL_KIND_MAX
+                        }
+                      )}
                     </p>
                   )}
                 </div>

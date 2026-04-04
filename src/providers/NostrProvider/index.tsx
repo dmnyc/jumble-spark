@@ -8,7 +8,10 @@ import {
   ExtendedKind,
   PROFILE_FETCH_RELAY_URLS,
   PROFILE_RELAY_URLS,
-  SEARCHABLE_RELAY_URLS
+  SEARCHABLE_RELAY_URLS,
+  UNSIGNED_EXPERIMENTAL_KIND_MAX,
+  UNSIGNED_EXPERIMENTAL_KIND_MIN,
+  isUnsignedExperimentalKind
 } from '@/constants'
 import {
   applyImwaldAttributionTags,
@@ -43,7 +46,7 @@ import {
 } from '@/types'
 import { hexToBytes } from '@noble/hashes/utils'
 import dayjs from 'dayjs'
-import { Event, kinds, VerifiedEvent, validateEvent } from 'nostr-tools'
+import { Event, kinds, VerifiedEvent, getEventHash, validateEvent } from 'nostr-tools'
 import * as nip19 from 'nostr-tools/nip19'
 import * as nip49 from 'nostr-tools/nip49'
 import { NostrContext } from '@/providers/nostr-context'
@@ -1261,8 +1264,29 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
 
     const normalizeOpts = { addClientTag: options.addClientTag }
     const draft = normalizeDraftEventTags(draftEvent, normalizeOpts)
-    let event: VerifiedEvent
-    if (minPow > 0) {
+    let event: Event
+    if (isUnsignedExperimentalKind(draft.kind)) {
+      if (minPow > 0) {
+        throw new Error(
+          t('Proof of work is not supported for unsigned experimental kinds ({{min}}–{{max}}).', {
+            min: UNSIGNED_EXPERIMENTAL_KIND_MIN,
+            max: UNSIGNED_EXPERIMENTAL_KIND_MAX
+          })
+        )
+      }
+      const unsignedTemplate = {
+        kind: draft.kind,
+        content: draft.content,
+        tags: draft.tags,
+        created_at: draft.created_at,
+        pubkey: account.pubkey
+      }
+      if (!validateEvent(unsignedTemplate)) {
+        throw new Error(t('Invalid event fields'))
+      }
+      const id = getEventHash(unsignedTemplate)
+      event = { ...unsignedTemplate, id, sig: '' }
+    } else if (minPow > 0) {
       const unsignedEvent = await minePow({ ...draft, pubkey: account.pubkey }, minPow)
       event = await signEvent(unsignedEvent, normalizeOpts)
     } else {

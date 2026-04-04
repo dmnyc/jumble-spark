@@ -458,6 +458,25 @@ export const ExtendedKind = {
 }
 
 /**
+ * Relay-local experiment: event `id` is the standard Nostr hash, but `sig` is empty.
+ * Not verifiable on the public relay network; relays that accept writes should require NIP-42 AUTH first.
+ */
+export const UNSIGNED_EXPERIMENTAL_KIND_MIN = 69999
+export const UNSIGNED_EXPERIMENTAL_KIND_MAX = 130000
+
+export const UNSIGNED_EXPERIMENTAL_RELAY_URLS = [
+  'wss://nostr.land',
+  'wss://theforest.gitcitadel.eu',
+]
+
+export function isUnsignedExperimentalKind(kind: number): boolean {
+  return kind >= UNSIGNED_EXPERIMENTAL_KIND_MIN && kind <= UNSIGNED_EXPERIMENTAL_KIND_MAX
+}
+
+/** Max kind for signed “custom event” notes in the generic composer (below the unsigned experimental range). */
+export const MAX_SIGNED_CUSTOM_EVENT_KIND = 40000
+
+/**
  * Kinds subscribed on `#e` / `#a` for the OP in {@link useQuoteEvents} (thread “backlinks” shard),
  * alongside kind-1 `#q` quotes. Covers highlights, long-form, NIP-32 labels, NIP-56 reports,
  * NIP-51 lists (bookmarks, pins, generic/bookmark/curation sets), and NIP-58 badge awards.
