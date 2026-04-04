@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <!-- Aligned with app dark theme (see index.css .dark + theme-color) -->
+    <linearGradient id="imwald-og-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#121e18"/>
+      <stop offset="50%" stop-color="#182820"/>
+      <stop offset="100%" stop-color="#1a2e24"/>
+    </linearGradient>
+    <linearGradient id="imwald-og-accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4a9e72"/>
+      <stop offset="100%" stop-color="#5eb88a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#imwald-og-bg)"/>
+  <path
+    d="M0 520 Q 300 460 600 500 T 1200 480 L 1200 630 L 0 630 Z"
+    fill="#3d8a63"
+    opacity="0.22"
+  />
+  <text
+    id="og-imwald"
+    x="72"
+    y="300"
+    font-family="'Playfair Display', Georgia, 'Times New Roman', serif"
+    font-size="108"
+    font-weight="700"
+    fill="#d4ebe0"
+  >Imwald</text>
+  <text
+    x="74"
+    y="368"
+    font-family="ui-sans-serif, system-ui, -apple-system, sans-serif"
+    font-size="30"
+    fill="#b0bbb4"
+  >Nostr reader &amp; writer</text>
+  <rect x="72" y="404" width="140" height="6" rx="3" fill="url(#imwald-og-accent)"/>
+</svg>

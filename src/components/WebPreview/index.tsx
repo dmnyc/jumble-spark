@@ -13,6 +13,7 @@ import { nip19, kinds } from 'nostr-tools'
 import { useMemo, useEffect, useState } from 'react'
 import Image from '../Image'
 import Username from '../Username'
+import { resolveImwaldRouteSocialCopy } from '@/lib/document-meta'
 import { cleanUrl, isSafeMediaUrl } from '@/lib/url'
 import { tagNameEquals } from '@/lib/tag'
 import { queryService } from '@/services/client.service'
@@ -519,11 +520,14 @@ export default function WebPreview({ url, className }: { url: string; className?
       // Render all images on left side, crop wider ones
       return (
         <div
-          className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 max-w-full', className)}
+          className={cn(
+            'p-3 flex w-full border border-border rounded-lg overflow-hidden gap-0 bg-card bg-gradient-to-r from-primary/[0.07] to-transparent dark:from-primary/15 max-w-full',
+            className
+          )}
         >
           {displayImage && isSafeMediaUrl(displayImage) && (
             <div className={cn(
-              "flex-shrink-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden",
+              'flex-shrink-0 bg-gradient-to-r from-primary/[0.07] to-transparent dark:from-primary/15 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden',
               imageAspectRatio !== null && imageAspectRatio > 1 ? "w-24 sm:w-32 md:w-52 lg:w-[416px] max-w-[120px] sm:max-w-[160px] md:max-w-[208px] lg:max-w-none" : "w-20 sm:w-28 md:w-40 lg:w-52 max-w-[80px] sm:max-w-[112px] md:max-w-[160px] lg:max-w-none"
             )}>
               <Image
@@ -565,14 +569,16 @@ export default function WebPreview({ url, className }: { url: string; className?
                 onClick={(e) => e.stopPropagation()}
                 className="flex-shrink-0"
               >
-                <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400" />
+                <ExternalLink className="w-3 h-3 text-primary" />
               </a>
             </div>
             {fetchedEvent && (
               <>
                 {/* Always show title in card header, hide it in content preview */}
                 {eventTitle && (
-                  <div className="font-semibold text-sm line-clamp-2 mb-1 text-green-900 dark:text-green-100">{eventTitle}</div>
+                  <div className="font-display font-semibold text-sm line-clamp-2 mb-1 text-brand-wordmark">
+                    {eventTitle}
+                  </div>
                 )}
                 {isBookstrEvent && bookMetadata && (
                   <div className="text-xs text-muted-foreground space-x-2 mb-1">
@@ -627,10 +633,13 @@ export default function WebPreview({ url, className }: { url: string; className?
       
       return (
         <div
-          className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 max-w-full', className)}
+          className={cn(
+            'p-3 flex w-full border border-border rounded-lg overflow-hidden gap-0 bg-card bg-gradient-to-r from-primary/[0.07] to-transparent dark:from-primary/15 max-w-full',
+            className
+          )}
         >
           {fetchedProfile?.avatar && (
-            <div className="w-20 sm:w-28 md:w-36 lg:w-40 max-w-[80px] sm:max-w-[112px] md:max-w-[144px] lg:max-w-none flex-shrink-0 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden">
+            <div className="w-20 sm:w-28 md:w-36 lg:w-40 max-w-[80px] sm:max-w-[112px] md:max-w-[144px] lg:max-w-none flex-shrink-0 bg-gradient-to-r from-primary/[0.07] to-transparent dark:from-primary/15 -my-3 -ml-3 -mr-0 flex items-center justify-center rounded-l-lg overflow-hidden">
               <Image
                 image={{ url: fetchedProfile.avatar, pubkey: fetchedProfile.pubkey }}
                 className="w-full h-full object-cover"
@@ -647,7 +656,7 @@ export default function WebPreview({ url, className }: { url: string; className?
                     {fetchedProfile.nip05 && (
                       <>
                         <span className="text-xs text-muted-foreground flex-shrink-0">•</span>
-                        <span className="text-xs text-green-600 dark:text-green-400 truncate">{fetchedProfile.nip05}</span>
+                        <span className="text-xs text-primary truncate">{fetchedProfile.nip05}</span>
                       </>
                     )}
                   </>
@@ -664,7 +673,7 @@ export default function WebPreview({ url, className }: { url: string; className?
                 onClick={(e) => e.stopPropagation()}
                 className="flex-shrink-0"
               >
-                <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400" />
+                <ExternalLink className="w-3 h-3 text-primary" />
               </a>
             </div>
             <ProfileAbout
@@ -686,14 +695,34 @@ export default function WebPreview({ url, className }: { url: string; className?
       )
     }
 
-    // Basic fallback for non-nostr URLs - show site information
+    // Basic fallback for non-nostr URLs — internal Imwald links get route-specific titles (not the shared index.html OG).
+    const imwaldPreview =
+      isInternalAppLink &&
+      (() => {
+        try {
+          return resolveImwaldRouteSocialCopy(new URL(cleanedUrl).pathname, '')
+        } catch {
+          return null
+        }
+      })()
+
     return (
       <div
-        className={cn('p-3 flex w-full border rounded-lg overflow-hidden gap-3 bg-gradient-to-r from-green-50/50 to-transparent dark:from-green-950/20 max-w-full', className)}
+        className={cn(
+          'p-3 flex w-full border border-border rounded-lg overflow-hidden gap-3 bg-card bg-gradient-to-r from-primary/[0.07] to-transparent dark:from-primary/15 max-w-full',
+          className
+        )}
       >
         <div className="flex-1 min-w-0 overflow-hidden">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="text-sm font-semibold text-green-900 dark:text-green-100 truncate flex-1 min-w-0">{hostname}</div>
+          <div className="flex items-start gap-2 mb-1">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-display font-semibold text-brand-wordmark truncate">
+                {imwaldPreview ? imwaldPreview.ogTitle : hostname}
+              </div>
+              {imwaldPreview && (
+                <div className="text-xs text-muted-foreground line-clamp-3 mt-0.5">{imwaldPreview.description}</div>
+              )}
+            </div>
             <a
               href={cleanedUrl}
               target="_blank"
@@ -701,19 +730,19 @@ export default function WebPreview({ url, className }: { url: string; className?
               onClick={(e) => e.stopPropagation()}
               className="flex-shrink-0"
             >
-              <ExternalLink className="w-3 h-3 text-green-600 dark:text-green-400" />
+              <ExternalLink className="w-3 h-3 text-primary" />
             </a>
           </div>
-            <hr className="mt-4 mb-2 border-t border-border" />
-            <a
-              href={cleanedUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-xs text-muted-foreground break-all line-clamp-2 block hover:underline"
-            >
-              {cleanedUrl}
-            </a>
+          <hr className="mt-4 mb-2 border-t border-border" />
+          <a
+            href={cleanedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-xs text-muted-foreground break-all line-clamp-2 block hover:underline"
+          >
+            {cleanedUrl}
+          </a>
         </div>
       </div>
     )

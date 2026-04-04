@@ -41,6 +41,11 @@ import {
   usePrimaryPageOptional,
   type PrimaryPageContextValue
 } from '@/contexts/primary-page-context'
+import {
+  applyRouteDocumentMeta,
+  isNoteDetailPathname,
+  isProfileDetailPathname
+} from '@/lib/document-meta'
 import { normalizeUrl } from './lib/url'
 import modalManager from './services/modal-manager.service'
 import { decodeRssArticlePathSegment, encodeRssArticlePathSegment } from '@/lib/rss-article'
@@ -1761,6 +1766,25 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     }
   }, [secondaryStack.length, currentPrimaryPage])
 
+  // Route-level OG / document title for pages that do not set their own (NotePage, ProfilePage handle note/profile).
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (primaryNoteView !== null) return
+
+    const top = secondaryStack[secondaryStack.length - 1]
+    let path = window.location.pathname
+    if (top?.url) {
+      try {
+        path = new URL(top.url, window.location.origin).pathname
+      } catch {
+        /* keep window pathname */
+      }
+    }
+
+    if (isNoteDetailPathname(path) || isProfileDetailPathname(path)) return
+
+    applyRouteDocumentMeta(path, currentPrimaryPage)
+  }, [secondaryStack, currentPrimaryPage, primaryNoteView])
 
   const navigatePrimaryPage = (page: TPrimaryPageName, props?: any) => {
     // Clear any primary note view when navigating to a new primary page

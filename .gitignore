@@ -29,5 +29,8 @@ dev-dist
 
 .vercel
 
+# Ephemeral SVG with inlined font for OG PNG rasterization
+public/.og-image.raster.svg
+
 .venv-i18n
 scripts/i18n-overrides/.gaps

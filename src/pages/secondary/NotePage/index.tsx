@@ -25,6 +25,15 @@ import { kinds, nip19 } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NOSTR_URI_NADDR_REGEX } from '@/lib/content-patterns'
+import {
+  applyDefaultSiteSocialMeta,
+  avatarProxyUrl,
+  defaultOgImageAbsoluteUrl,
+  getSiteOrigin,
+  removeMetaByProperty,
+  SITE_NAME,
+  updateMetaTag
+} from '@/lib/document-meta'
 import NotFound from './NotFound'
 
 // Helper function to get event type name (matching WebPreview)
@@ -231,53 +240,11 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     }
   }, [hideTitlebar, finalEvent])
 
-  // Helper function to update or create meta tags
-  function updateMetaTag(property: string, content: string) {
-    // Remove property prefix if present (e.g., 'og:title' or 'property="og:title"')
-    const prop = property.startsWith('og:') || property.startsWith('article:') ? property : property.replace(/^property="|"$/, '')
-    
-    // Handle Twitter card tags (they use name attribute, not property)
-    const isTwitterTag = prop.startsWith('twitter:')
-    const selector = isTwitterTag ? `meta[name="${prop}"]` : `meta[property="${prop}"]`
-    
-    let meta = document.querySelector(selector)
-    if (!meta) {
-      meta = document.createElement('meta')
-      if (isTwitterTag) {
-        meta.setAttribute('name', prop)
-      } else {
-        meta.setAttribute('property', prop)
-      }
-      document.head.appendChild(meta)
-    }
-    meta.setAttribute('content', content)
-  }
-
-  // Update OpenGraph metadata to match fallback cards
+  // Update OpenGraph metadata to match in-app preview cards and site branding
   useEffect(() => {
     if (!finalEvent) {
-      // Reset to default meta tags with richer information
-      const defaultUrl = window.location.href
-      const truncatedDefaultUrl = defaultUrl.length > 150 ? defaultUrl.substring(0, 147) + '...' : defaultUrl
-      updateMetaTag('og:title', 'Imwald')
-      updateMetaTag('og:description', `${truncatedDefaultUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('og:image', 'https://jumble.imwald.eu/og-image.png')
-      updateMetaTag('og:type', 'website')
-      updateMetaTag('og:url', window.location.href)
-      updateMetaTag('og:site_name', 'Imwald')
-      
-      // Twitter card meta tags
-      updateMetaTag('twitter:card', 'summary_large_image')
-      updateMetaTag('twitter:title', 'Imwald')
-      updateMetaTag('twitter:description', `${truncatedDefaultUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('twitter:image', 'https://jumble.imwald.eu/og-image.png')
-      
-      // Remove article:tag if it exists
-      const articleTagMeta = document.querySelector('meta[property="article:tag"]')
-      if (articleTagMeta) {
-        articleTagMeta.remove()
-      }
-      
+      applyDefaultSiteSocialMeta()
+      removeMetaByProperty('article:tag')
       return
     }
 
@@ -351,15 +318,12 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
       ogDescription = ogDescription.replace('Event', `${eventTypeName} (kind ${finalEvent.kind})`)
     }
 
-    // Prioritize event image, then author avatar, then default
-    // Use a beautiful green-themed image with profile data
     let image = eventMetadata?.image
-    if (!image && authorProfile?.avatar) {
-      image = `https://jumble.imwald.eu/api/avatar/${authorProfile.pubkey}`
+    if (!image && authorProfile?.pubkey) {
+      image = avatarProxyUrl(authorProfile.pubkey)
     }
     if (!image) {
-      // Use default OG image with green forest theme
-      image = 'https://jumble.imwald.eu/og-image.png'
+      image = defaultOgImageAbsoluteUrl()
     }
     
     const tags = eventMetadata?.tags || []
@@ -369,19 +333,19 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     const ogType = isArticle ? 'article' : 'website'
 
     // Enhanced title with profile info
-    const ogTitle = authorName 
-      ? `${eventTitle} by @${authorName} - Imwald `
-      : `${eventTitle} - Imwald `
+    const ogTitle = authorName
+      ? `${eventTitle} · @${authorName} · ${SITE_NAME}`
+      : `${eventTitle} · ${SITE_NAME}`
 
     updateMetaTag('og:title', ogTitle)
     updateMetaTag('og:description', ogDescription)
     updateMetaTag('og:image', image)
     updateMetaTag('og:image:width', '1200')
     updateMetaTag('og:image:height', '630')
-    updateMetaTag('og:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on Imwald`)
+    updateMetaTag('og:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on ${SITE_NAME}`)
     updateMetaTag('og:type', ogType)
     updateMetaTag('og:url', window.location.href)
-    updateMetaTag('og:site_name', 'Imwald ')
+    updateMetaTag('og:site_name', SITE_NAME)
     
     // Add profile data - always include if available
     if (authorProfile) {
@@ -396,11 +360,8 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     // Add author for articles
     if (isArticle && authorName) {
       updateMetaTag('article:author', authorName)
-      if (authorProfile?.nip05) {
-        // Add author URL if NIP-05 is available
-        const authorUrl = `https://jumble.imwald.eu/profiles/${finalEvent.pubkey}`
-        updateMetaTag('article:author:url', authorUrl)
-      }
+      const authorUrl = `${getSiteOrigin()}/users/${nip19.npubEncode(finalEvent.pubkey)}`
+      updateMetaTag('article:author:url', authorUrl)
     }
     
     // Twitter card meta tags
@@ -408,14 +369,10 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     updateMetaTag('twitter:title', ogTitle)
     updateMetaTag('twitter:description', ogDescription.length > 200 ? ogDescription.substring(0, 197) + '...' : ogDescription)
     updateMetaTag('twitter:image', image)
-    updateMetaTag('twitter:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on Imwald`)
+    updateMetaTag('twitter:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on ${SITE_NAME}`)
     
-    // Remove old article:tag if it exists
-    const oldArticleTagMeta = document.querySelector('meta[property="article:tag"]')
-    if (oldArticleTagMeta) {
-      oldArticleTagMeta.remove()
-    }
-    
+    removeMetaByProperty('article:tag')
+
     // Add article-specific tags (one meta tag per tag)
     if (isArticle) {
       tags.forEach(tag => {
@@ -426,29 +383,14 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
       })
     }
 
-    // Update document title
-    document.title = `${eventTitle} - Imwald`
+    document.title = ogTitle
 
-    // Cleanup function
     return () => {
-      // Reset to default on unmount with richer information
-      const cleanupUrl = window.location.href
-      const truncatedCleanupUrl = cleanupUrl.length > 150 ? cleanupUrl.substring(0, 147) + '...' : cleanupUrl
-      updateMetaTag('og:title', 'Imwald ')
-      updateMetaTag('og:description', `${truncatedCleanupUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('og:image', 'https://jumble.imwald.eu/og-image.png')
-      updateMetaTag('og:type', 'website')
-      updateMetaTag('og:url', window.location.href)
-      updateMetaTag('og:site_name', 'Imwald ')
-      
-      // Remove article:tag meta tags
-      document.querySelectorAll('meta[property="article:tag"]').forEach(meta => meta.remove())
-      const authorMeta = document.querySelector('meta[property="article:author"]')
-      if (authorMeta) {
-        authorMeta.remove()
-      }
-      
-      document.title = 'Imwald '
+      applyDefaultSiteSocialMeta()
+      removeMetaByProperty('article:tag')
+      removeMetaByProperty('article:author')
+      document.querySelector('meta[property="article:author:url"]')?.remove()
+      document.title = SITE_NAME
     }
   }, [finalEvent, articleMetadata, authorProfile])
 
