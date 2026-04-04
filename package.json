@@ -156,7 +156,7 @@
       ],
       "category": "Network",
       "maintainer": "Silberengel",
-      "icon": "public/favicon.png"
+      "icon": "public/pwa-512x512.png"
     }
   },
   "overrides": {
