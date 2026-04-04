@@ -11,10 +11,15 @@ import logger from '@/lib/logger'
 import { useFeed } from '@/providers/FeedProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
+import {
+  buildWispTrendingNotesRelayUrl,
+  WISP_TRENDING_FEED_KINDS
+} from '@/lib/wisp-trending-relay'
 import client from '@/services/client.service'
 import { TFeedSubRequest } from '@/types'
 import type { ReactNode } from 'react'
 import { forwardRef, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 const FollowingFeed = forwardRef<
   TNoteListRef,
@@ -23,6 +28,7 @@ const FollowingFeed = forwardRef<
     onSubHeaderRefresh?: () => void
   }
 >(function FollowingFeed({ setSubHeader, onSubHeaderRefresh }, ref) {
+  const { t, i18n } = useTranslation()
   const { pubkey, relayList, followListEvent } = useNostr()
   const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { feedInfo } = useFeed()
@@ -91,6 +97,15 @@ const FollowingFeed = forwardRef<
           { userWriteRelays: relayList?.write ?? [] }
         )
 
+      const trendingRelayUrl = buildWispTrendingNotesRelayUrl()
+      const wispTrendingShard: TFeedSubRequest = {
+        urls: [trendingRelayUrl],
+        filter: { kinds: [...WISP_TRENDING_FEED_KINDS], limit: 100 },
+        reasonLabel: t('Trending on Nostr'),
+        reasonLabelIfSeenOnRelay: trendingRelayUrl
+      }
+      const appendTrending = (batch: TFeedSubRequest[]) => [...batch, wispTrendingShard]
+
       const fromTags = followListEvent ? getPubkeysFromPTags(followListEvent.tags) : []
       const provisionalAuthors = [...new Set([pubkey, ...fromTags])]
       const provisionalAuthorLower = provisionalAuthors.map((p) => p.toLowerCase())
@@ -101,7 +116,8 @@ const FollowingFeed = forwardRef<
       } catch (error) {
         logger.warn('[FollowingFeed] provisional generateSubRequestsForPubkeys failed', { error })
       }
-      const provAug = augment(rawProv)
+      const provAugCore = augment(rawProv)
+      const provAug = appendTrending(provAugCore)
       if (!cancelled) setSubRequests(provAug)
 
       let followings: string[] = fromTags
@@ -120,15 +136,15 @@ const FollowingFeed = forwardRef<
       try {
         const rawFull = await client.generateSubRequestsForPubkeys(fullAuthors, pubkey)
         if (cancelled) return
-        const fullAug = augment(rawFull)
-        const delta = buildFollowingFeedDeltaSubRequests(fullAug, provAug, provisionalAuthorLower)
+        const fullAugCore = augment(rawFull)
+        const delta = buildFollowingFeedDeltaSubRequests(fullAugCore, provAugCore, provisionalAuthorLower)
         if (!cancelled) {
           setDeltaSubRequests(delta)
           if (delta.length > 0) {
             logger.info('[FollowingFeed] delta wave subRequests', {
               deltaShardCount: delta.length,
-              provisionalShardCount: provAug.length,
-              fullShardCount: fullAug.length
+              provisionalShardCount: provAugCore.length,
+              fullShardCount: fullAugCore.length
             })
           }
         }
@@ -149,7 +165,8 @@ const FollowingFeed = forwardRef<
     favoriteRelaysKey,
     blockedRelaysKey,
     relayReadKey,
-    relayWriteKey
+    relayWriteKey,
+    i18n.language
   ])
 
   return (

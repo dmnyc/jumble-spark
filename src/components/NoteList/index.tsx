@@ -2990,9 +2990,15 @@ const NoteList = forwardRef(
       for (const event of clientFilteredEvents) {
         const labels: string[] = []
         for (const req of reqs) {
-          if (eventMatchesSubRequestFilter(event, req.filter as Filter)) {
-            labels.push(req.reasonLabel as string)
+          if (!eventMatchesSubRequestFilter(event, req.filter as Filter)) continue
+          if (req.reasonLabelIfSeenOnRelay) {
+            const target = normalizeUrl(req.reasonLabelIfSeenOnRelay) || req.reasonLabelIfSeenOnRelay
+            const seenNorm = client
+              .getSeenEventRelayUrls(event.id)
+              .map((u) => normalizeUrl(u) || u)
+            if (!seenNorm.includes(target)) continue
           }
+          labels.push(req.reasonLabel as string)
         }
         if (labels.length) {
           map.set(event.id, Array.from(new Set(labels)).join(' · '))

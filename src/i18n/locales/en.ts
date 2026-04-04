@@ -1057,6 +1057,7 @@ export default {
     'No recent posts from this user in the current fetch':
       'No recent posts from this user in the current fetch',
     'Loading trending notes from your relays...': 'Loading trending notes from your relays...',
+    'Trending on Nostr': 'Trending on Nostr',
     Sort: 'Sort',
     newest: 'newest',
     oldest: 'oldest',
