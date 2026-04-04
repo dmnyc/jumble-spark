@@ -3111,9 +3111,7 @@ function parseMarkdownContentMarked(
           const src = String(token.href ?? '')
           const cleaned = cleanUrl(src)
           if (!cleaned) break
-          // Inline context: avoid block image/media mounts inside <p>/<li>/<th>/<td>.
-          // Standalone image paragraphs are handled separately in renderParagraph().
-          const label = String(token.text ?? src)
+          const label = String(token.text ?? '')
           if (isVideo(cleaned) || isAudio(cleaned)) {
             out.push(
               <a
@@ -3123,25 +3121,46 @@ function parseMarkdownContentMarked(
                 rel="noopener noreferrer"
                 className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
               >
-                {label}
+                {label || src}
               </a>
             )
             break
           }
           if (!isImage(cleaned) || !isSafeMediaUrl(cleaned)) {
-            out.push(<span key={`${key}-img-fallback`} className="break-words">{label}</span>)
+            out.push(
+              <span key={`${key}-img-fallback`} className="break-words">
+                {label || src}
+              </span>
+            )
             break
           }
+          // `![](url)` has empty alt — a plain <a>{label}</a> was invisible. Use Image like block paragraphs.
+          const baseImeta = imetaInfoForStandaloneImageUrl(cleaned)
+          const identifier = getImageIdentifier?.(cleaned)
+          const thumbnail =
+            imageThumbnailMap?.get(cleaned) ??
+            (identifier ? imageThumbnailMap?.get(`__img_id:${identifier}`) : undefined)
+          const imageUrl = thumbnail || src
+          let imageIdx = imageIndexMap.get(cleaned)
+          if (imageIdx === undefined && getImageIdentifier) {
+            const id = getImageIdentifier(cleaned)
+            if (id) imageIdx = imageIndexMap.get(`__img_id:${id}`)
+          }
           out.push(
-            <a
-              key={`${key}-img-link`}
-              href={src}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline break-words"
-            >
-              {label}
-            </a>
+            <Image
+              key={`${key}-img-inline`}
+              image={{ ...baseImeta, url: imageUrl }}
+              alt={label || 'image'}
+              className="w-full rounded-lg cursor-zoom-in"
+              classNames={{
+                wrapper: 'not-prose my-2 block max-w-[400px] mx-auto rounded-lg w-full',
+                errorPlaceholder: 'aspect-square h-[30vh]'
+              }}
+              onClick={(e: React.MouseEvent) => {
+                e.stopPropagation()
+                if (typeof imageIdx === 'number') openLightbox(imageIdx)
+              }}
+            />
           )
           break
         }

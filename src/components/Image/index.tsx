@@ -1,21 +1,35 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import client from '@/services/client.service'
+import { isSafeMediaUrl } from '@/lib/url'
 import { TImetaInfo } from '@/types'
-import { preferBlossomPrimalDisplayUrl, primalR2aMirrorForBlossomPrimalUrl } from '@/lib/url'
-import { getHashFromURL } from 'blossom-client-sdk'
 import { decode } from 'blurhash'
 import { ImageOff } from 'lucide-react'
-import { HTMLAttributes, useEffect, useMemo, useRef, useState } from 'react'
-import logger from '@/lib/logger'
+import { CSSProperties, HTMLAttributes, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+/** Browsers often never fire `onError` for invalid URIs, ORB, or stalled fetches — this forces a visible error. */
+const IMAGE_LOAD_TIMEOUT_MS = 10_000
+
+/** Without reserved height, `absolute` skeleton + `opacity-0` img collapse to 0×0 — looks like “nothing”. */
+function wrapperReserveStyle(
+  dim: { width: number; height: number } | undefined,
+  showError: boolean
+): CSSProperties | undefined {
+  if (showError) return undefined
+  if (dim && dim.width > 0 && dim.height > 0) {
+    return { aspectRatio: `${dim.width} / ${dim.height}` }
+  }
+  return { minHeight: 'min(30vh, 280px)' }
+}
 
 export default function Image({
-  image: { url, blurHash, pubkey, dim, alt: imetaAlt, fallback },
+  image: { url, blurHash, dim, alt: imetaAlt, fallback },
   alt,
   className = '',
   classNames = {},
   hideIfError = false,
   errorPlaceholder = <ImageOff />,
+  style: wrapperStyleProp,
   ...props
 }: HTMLAttributes<HTMLSpanElement> & {
   classNames?: {
@@ -27,117 +41,91 @@ export default function Image({
   hideIfError?: boolean
   errorPlaceholder?: React.ReactNode
 }) {
-  const [isLoading, setIsLoading] = useState(true)
-  const [displaySkeleton, setDisplaySkeleton] = useState(true)
-  const [hasError, setHasError] = useState(false)
-  const [imageUrl, setImageUrl] = useState(() => preferBlossomPrimalDisplayUrl(url))
-  const [tried, setTried] = useState(new Set())
+  const { t } = useTranslation()
+  const urlOk = !!url?.trim()
+  const [isLoading, setIsLoading] = useState(urlOk)
+  const [displaySkeleton, setDisplaySkeleton] = useState(urlOk)
+  const [hasError, setHasError] = useState(!urlOk)
+  const [imageUrl, setImageUrl] = useState(url)
   const [fallbackIndex, setFallbackIndex] = useState(0)
-  
-  // Use imeta alt text if available, otherwise use the passed alt prop
+  const loadWatchRef = useRef<number | null>(null)
+
   const finalAlt = imetaAlt || alt
+  const openLinkHref =
+    (isSafeMediaUrl(url) && url.trim()) || (isSafeMediaUrl(imageUrl) && imageUrl.trim()) || ''
+
+  const badSrc = !imageUrl?.trim() || !isSafeMediaUrl(imageUrl.trim())
+  const showErrorState = hasError || badSrc
+
+  const clearLoadWatch = () => {
+    if (loadWatchRef.current != null) {
+      clearTimeout(loadWatchRef.current)
+      loadWatchRef.current = null
+    }
+  }
 
   useEffect(() => {
-    setImageUrl(preferBlossomPrimalDisplayUrl(url))
+    setImageUrl(url)
     setIsLoading(true)
     setHasError(false)
     setDisplaySkeleton(true)
-    setTried(new Set())
     setFallbackIndex(0)
+    clearLoadWatch()
+    if (!url?.trim()) {
+      setIsLoading(false)
+      setHasError(true)
+      setDisplaySkeleton(false)
+    }
   }, [url])
 
-  if (hideIfError && hasError) return null
+  useEffect(() => {
+    clearLoadWatch()
+    if (badSrc || !url?.trim()) return
+    loadWatchRef.current = window.setTimeout(() => {
+      loadWatchRef.current = null
+      setIsLoading(false)
+      setDisplaySkeleton(false)
+      setHasError(true)
+    }, IMAGE_LOAD_TIMEOUT_MS)
+    return clearLoadWatch
+  }, [imageUrl, badSrc, url])
 
-  const handleError = async () => {
-    // First, try fallback URLs from imeta if available
+  if (hideIfError && showErrorState) return null
+
+  const handleError = () => {
+    clearLoadWatch()
     if (fallback && fallbackIndex < fallback.length) {
-      const nextFallbackUrl = fallback[fallbackIndex]
-      setFallbackIndex(prev => prev + 1)
-      setImageUrl(preferBlossomPrimalDisplayUrl(nextFallbackUrl))
+      const next = fallback[fallbackIndex]
+      setFallbackIndex((prev) => prev + 1)
+      setImageUrl(next)
       return
     }
-    
-    // If no more fallbacks, try Blossom servers
-    let oldImageUrl: URL | undefined
-    let hash: string | null = null
-    try {
-      oldImageUrl = new URL(imageUrl)
-      hash = getHashFromURL(oldImageUrl)
-    } catch (error) {
-      logger.error('Invalid image URL', { error, imageUrl })
-    }
-    if (!hash || !oldImageUrl) {
-      setIsLoading(false)
-      setHasError(true)
-      return
-    }
-
-    // r2a failed: try canonical blossom URL from props (some networks only allow one hop).
-    if (
-      oldImageUrl.hostname === 'r2a.primal.net' &&
-      url &&
-      url !== imageUrl &&
-      url.includes('blossom.primal.net') &&
-      !tried.has('blossom.primal.net-direct')
-    ) {
-      setTried((prev) => new Set(prev).add('blossom.primal.net-direct'))
-      setImageUrl(url)
-      return
-    }
-
-    // Primal: only mirror blossom → r2a when we did not already open the note with that CDN URL (avoids r2a↔blossom loops).
-    if (oldImageUrl.hostname === 'blossom.primal.net') {
-      const r2a = primalR2aMirrorForBlossomPrimalUrl(oldImageUrl)
-      const noteAlreadyUsesPrimalCdnFirst = preferBlossomPrimalDisplayUrl(url) !== url
-      if (r2a && !noteAlreadyUsesPrimalCdnFirst && !tried.has('blossom.primal.net')) {
-        setTried((prev) => new Set(prev).add('blossom.primal.net'))
-        setImageUrl(r2a)
-        return
-      }
-    }
-
-    if (!pubkey) {
-      setIsLoading(false)
-      setHasError(true)
-      return
-    }
-
-    const extMatch = oldImageUrl.pathname.match(/\.\w+$/i)
-    const extStr = extMatch?.[0] ?? ''
-    setTried((prev) => new Set(prev).add(oldImageUrl.hostname))
-
-    const blossomServerList = await client.fetchBlossomServerList(pubkey)
-    const urls = blossomServerList
-      .map((server) => {
-        try {
-          return new URL(server)
-        } catch (error) {
-          logger.error('Invalid Blossom server URL', { server, error })
-          return undefined
-        }
-      })
-      .filter((u) => !!u && !tried.has(u.hostname))
-    const nextUrl = urls[0]
-    if (!nextUrl) {
-      setIsLoading(false)
-      setHasError(true)
-      return
-    }
-
-    nextUrl.pathname = '/' + hash + extStr
-    setImageUrl(preferBlossomPrimalDisplayUrl(nextUrl.toString()))
+    setIsLoading(false)
+    setDisplaySkeleton(false)
+    setHasError(true)
   }
 
   const handleLoad = () => {
+    clearLoadWatch()
     setIsLoading(false)
     setHasError(false)
     setTimeout(() => setDisplaySkeleton(false), 600)
   }
 
+  const reserveStyle = wrapperReserveStyle(dim, showErrorState)
+  const mergedWrapperStyle: CSSProperties | undefined =
+    reserveStyle || wrapperStyleProp
+      ? { ...reserveStyle, ...wrapperStyleProp }
+      : undefined
+
   return (
-    <span className={cn('relative overflow-hidden block', classNames.wrapper)} {...props}>
-      {displaySkeleton && (
-        <span className="absolute inset-0 z-10 inline-block">
+    <span
+      className={cn('relative overflow-hidden block w-full', classNames.wrapper)}
+      style={mergedWrapperStyle}
+      {...props}
+    >
+      {displaySkeleton && !showErrorState && (
+        <span className="absolute inset-0 z-10 block rounded-lg bg-muted/30">
           {blurHash ? (
             <BlurHashCanvas
               blurHash={blurHash}
@@ -149,21 +137,21 @@ export default function Image({
           ) : (
             <Skeleton
               className={cn(
-                'absolute inset-0 transition-opacity duration-500 rounded-lg',
+                'absolute inset-0 h-full min-h-[8rem] w-full transition-opacity duration-500 rounded-lg',
                 isLoading ? 'opacity-100' : 'opacity-0'
               )}
             />
           )}
         </span>
       )}
-      {!hasError && (
+      {!showErrorState && (
         <img
           src={imageUrl}
           alt={finalAlt}
           title={finalAlt || undefined}
           referrerPolicy="no-referrer"
           decoding="async"
-          loading="lazy"
+          loading="eager"
           draggable={false}
           onLoad={handleLoad}
           onError={handleError}
@@ -174,18 +162,33 @@ export default function Image({
           )}
           width={dim?.width}
           height={dim?.height}
-          {...props}
         />
       )}
-      {hasError && (
+      {showErrorState && (
         <div
+          role="alert"
           className={cn(
-            'object-cover flex flex-col items-center justify-center w-full h-full bg-muted',
+            'flex flex-col items-center justify-center gap-2 w-full min-h-[120px] p-4 rounded-lg bg-muted text-muted-foreground text-center',
             className,
             classNames.errorPlaceholder
           )}
         >
-          {errorPlaceholder}
+          <span className="flex shrink-0 text-muted-foreground [&_svg]:size-10">{errorPlaceholder}</span>
+          <p className="text-sm leading-snug">{t('This image could not be loaded.')}</p>
+          {badSrc && !hasError ? (
+            <p className="text-xs opacity-80 break-all max-w-full">{t('Invalid or unsupported image address.')}</p>
+          ) : null}
+          {openLinkHref ? (
+            <a
+              href={openLinkHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-primary underline-offset-4 hover:underline break-all max-w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {t('Open image link')}
+            </a>
+          ) : null}
         </div>
       )}
     </span>
@@ -201,8 +204,7 @@ function BlurHashCanvas({ blurHash, className = '' }: { blurHash: string; classN
     if (!blurHash) return null
     try {
       return decode(blurHash, blurHashWidth, blurHashHeight)
-    } catch (error) {
-      logger.warn('Failed to decode blurhash', error as Error)
+    } catch {
       return null
     }
   }, [blurHash])

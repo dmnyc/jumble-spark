@@ -1,6 +1,5 @@
 import { Event } from 'nostr-tools'
 import { getImetaInfosFromEvent } from '@/lib/event'
-import { tagNameEquals } from '@/lib/tag'
 import { cleanUrl, isImage, isMedia, isAudio, isVideo } from '@/lib/url'
 import { TImetaInfo } from '@/types'
 import mediaUpload from './media-upload.service'
@@ -15,7 +14,7 @@ export interface ExtractedMedia {
 
 /**
  * Unified service for extracting all media (images, videos, audio) from an event
- * Sources: imeta tags, r tags, image tags, and content field
+ * Sources: imeta tags, image tags, and content field (not `r` tags — those are references, not media embeds)
  */
 export function extractAllMediaFromEvent(
   event: Event,
@@ -73,20 +72,13 @@ export function extractAllMediaFromEvent(
     }
   })
 
-  // 2. Extract from r tags (reference/URL tags)
-  event.tags.filter(tagNameEquals('r')).forEach(([, url]) => {
-    if (url && (isImage(url) || isMedia(url))) {
-      addMedia(url)
-    }
-  })
-
-  // 3. Extract from image tag
+  // 2. Extract from image tag
   const imageTag = event.tags.find((tag) => tag[0] === 'image' && tag[1])
   if (imageTag?.[1]) {
     addMedia(imageTag[1])
   }
 
-  // 4. Extract from content (if provided)
+  // 3. Extract from content (if provided)
   if (content) {
     // First, extract from markdown image syntax: ![alt](url) or [![](url)](link)
     // This handles images inside links

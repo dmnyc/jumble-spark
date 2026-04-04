@@ -367,11 +367,12 @@ export function primalR2aMirrorForBlossomPrimalUrl(url: string | URL): string | 
 }
 
 /**
- * Prefer Primal’s CDN URL for `img src` when the note points at `blossom.primal.net/…`.
- * Same file as the blossom URL; avoids browsers that block or hang on the blossom host (Primal/Wisp-style delivery).
+ * Display URL for note/imeta image `src`. Keep `https://blossom.primal.net/{sha256}.ext` as-is: it is the
+ * canonical URL in events and usually loads reliably. Use {@link primalR2aMirrorForBlossomPrimalUrl} only
+ * as a fallback in {@link Image} `onError` when the blossom host fails.
  */
 export function preferBlossomPrimalDisplayUrl(url: string): string {
-  return primalR2aMirrorForBlossomPrimalUrl(url) ?? url
+  return url
 }
 
 /**
