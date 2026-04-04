@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next'
 import { FavoriteRelaysActiveStripMobileBar } from '@/components/FavoriteRelaysActiveStrip'
 import FavoriteRelaysFeedPicker from '@/components/FavoriteRelaysFeedPicker'
 import HelpAndAccountMenu from '@/components/HelpAndAccountMenu'
+import Logo from '@/assets/Logo'
 import FollowingFeed from './FollowingFeed'
 import RelaysFeed from './RelaysFeed'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
@@ -290,16 +291,18 @@ function NoteListPageTitlebar({
         )}
       </div>
       {isSmallScreen && (
-        <div className="absolute left-1/2 transform -translate-x-1/2 z-10">
+        <div className="absolute left-1/2 z-10 -translate-x-1/2 transform">
           <button
-            className="text-green-600 dark:text-green-500 font-semibold text-sm hover:text-green-700 dark:hover:text-green-400 transition-colors cursor-pointer"
+            type="button"
+            className="flex max-h-10 max-w-[min(72vw,14rem)] cursor-pointer items-center justify-center overflow-hidden rounded-xl bg-card px-1.5 ring-1 ring-border/50"
             onClick={(e) => {
               e.preventDefault()
               e.stopPropagation()
               setPrimaryNoteView(null)
             }}
+            aria-label="Imwald"
           >
-            Im Wald
+            <Logo className="max-h-8 w-full object-contain object-center" />
           </button>
         </div>
       )}

@@ -1,3 +1,4 @@
+import { ImwaldBrandBar } from '@/assets/Logo'
 import ScrollToTopButton from '@/components/ScrollToTopButton'
 import { ReadOnlySessionIndicator } from '@/components/ReadOnlySessionIndicator'
 import { Titlebar } from '@/components/Titlebar'
@@ -117,11 +118,7 @@ const SecondaryPageLayout = forwardRef(
         <div className="flex h-full min-h-0 min-w-0 flex-col">
           {title && (
             <>
-              <div className="flex justify-center py-1 border-b">
-                <span className="text-green-600 dark:text-green-500 font-semibold text-sm">
-                  Imwald
-                </span>
-              </div>
+              <ImwaldBrandBar />
               <SecondaryPageTitlebar
                 title={title}
                 controls={controls}
@@ -180,7 +177,7 @@ export function SecondaryPageTitlebar({
       <ReadOnlySessionIndicator variant="titlebar" />
       <div className="flex min-w-0 flex-1 items-center justify-between gap-1">
         {hideBackButton ? (
-          <div className="flex gap-2 items-center pl-2 w-fit truncate text-lg font-semibold">
+          <div className="flex gap-2 items-center pl-2 w-fit truncate font-display text-lg font-semibold">
             {title}
           </div>
         ) : (
@@ -207,7 +204,7 @@ function BackButton({ children }: { children?: React.ReactNode }) {
       onClick={() => pop()}
     >
       <ChevronLeft />
-      <div className="truncate text-lg font-semibold">{children}</div>
+              <div className="truncate font-display text-lg font-semibold">{children}</div>
     </Button>
   )
 }

@@ -457,7 +457,7 @@ export default function Note({
                   }`}
                 >
                   <img
-                    src="/pwa-192x192.png"
+                    src="/favicon.png"
                     alt=""
                     className="w-full h-full object-cover"
                     width={size === 'small' ? 36 : 40}

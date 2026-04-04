@@ -29,7 +29,7 @@ export default function PostButton() {
           })
         }}
         variant="default"
-        className="bg-primary xl:justify-center gap-2"
+        className="bg-primary-active hover:bg-primary-hover active:bg-primary-active xl:justify-center gap-2"
       >
         <PencilLine strokeWidth={3} />
       </SidebarItem>

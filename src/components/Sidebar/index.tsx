@@ -23,37 +23,38 @@ export default function PrimaryPageSidebar() {
   if (isSmallScreen) return null
 
   return (
-    <div className="w-[4.8rem] xl:w-[15.6rem] flex flex-col pb-2 pt-4 px-2 xl:pl-4 xl:pr-6 justify-between h-full shrink-0">
-      <div className="space-y-2">
-        <div className="px-3 xl:px-4 mb-6 w-full">
-          <Icon className="xl:hidden" />
-          <div className="max-xl:hidden">
-            <Logo />
-            <div className="text-green-600 dark:text-green-500 font-semibold text-sm mt-1 text-center">
-              Im Wald
+    <div className="imwald-sidebar w-[4.8rem] xl:w-[15.6rem] flex flex-col pb-2 pt-4 px-2 xl:pl-4 xl:pr-6 justify-between h-full shrink-0">
+      <div className="imwald-sidebar__atmosphere" aria-hidden />
+      <div className="relative z-[1] flex min-h-0 flex-1 flex-col justify-between">
+        <div className="space-y-2">
+          <div className="mb-6 w-full min-w-0">
+            <Icon className="mx-auto xl:hidden" />
+            {/* Full-bleed banner at xl: span entire sidebar column (undo pl-4 + pr-6) */}
+            <div className="max-xl:hidden -ml-4 -mr-6 w-[calc(100%+2.5rem)] min-w-0">
+              <Logo className="h-auto w-full max-h-[5.5rem] max-w-full object-contain object-center" />
             </div>
           </div>
+          <ReadOnlySessionIndicator variant="sidebar" />
+          <div className="max-xl:hidden w-full min-w-0 px-1">
+            <LiveActivitiesStrip placement="sidebar" />
+          </div>
+          <HomeButton />
+          <FeedButton />
+          <DiscussionsButton />
+          <NotificationButton />
+          <SearchButton />
+          <FollowsLatestButton />
+          <FavoritesButton />
+          <SpellsButton />
+          <RssButton />
+          <FavoriteRelaysActiveStripSidebar />
+          <PostButton />
         </div>
-        <ReadOnlySessionIndicator variant="sidebar" />
-        <div className="max-xl:hidden w-full min-w-0 px-1">
-          <LiveActivitiesStrip placement="sidebar" />
+        <div className="space-y-2">
+          <HelpAndAccountMenu variant="sidebar" />
+          <PaneModeToggle />
+          <DownloadDesktopSidebarButton />
         </div>
-        <HomeButton />
-        <FeedButton />
-        <DiscussionsButton />
-        <NotificationButton />
-        <SearchButton />
-        <FollowsLatestButton />
-        <FavoritesButton />
-        <SpellsButton />
-        <RssButton />
-        <FavoriteRelaysActiveStripSidebar />
-        <PostButton />
-      </div>
-      <div className="space-y-2">
-        <HelpAndAccountMenu variant="sidebar" />
-        <PaneModeToggle />
-        <DownloadDesktopSidebarButton />
       </div>
     </div>
   )

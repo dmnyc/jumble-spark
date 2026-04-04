@@ -259,18 +259,18 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
       // Reset to default meta tags with richer information
       const defaultUrl = window.location.href
       const truncatedDefaultUrl = defaultUrl.length > 150 ? defaultUrl.substring(0, 147) + '...' : defaultUrl
-      updateMetaTag('og:title', 'Imwald 🌲')
+      updateMetaTag('og:title', 'Imwald')
       updateMetaTag('og:description', `${truncatedDefaultUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('og:image', 'https://jumble.imwald.eu/pwa-512x512.png')
+      updateMetaTag('og:image', 'https://jumble.imwald.eu/og-image.png')
       updateMetaTag('og:type', 'website')
       updateMetaTag('og:url', window.location.href)
-      updateMetaTag('og:site_name', 'Imwald 🌲')
+      updateMetaTag('og:site_name', 'Imwald')
       
       // Twitter card meta tags
       updateMetaTag('twitter:card', 'summary_large_image')
-      updateMetaTag('twitter:title', 'Imwald 🌲')
+      updateMetaTag('twitter:title', 'Imwald')
       updateMetaTag('twitter:description', `${truncatedDefaultUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('twitter:image', 'https://jumble.imwald.eu/pwa-512x512.png')
+      updateMetaTag('twitter:image', 'https://jumble.imwald.eu/og-image.png')
       
       // Remove article:tag if it exists
       const articleTagMeta = document.querySelector('meta[property="article:tag"]')
@@ -359,7 +359,7 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     }
     if (!image) {
       // Use default OG image with green forest theme
-      image = 'https://jumble.imwald.eu/pwa-512x512.png'
+      image = 'https://jumble.imwald.eu/og-image.png'
     }
     
     const tags = eventMetadata?.tags || []
@@ -370,8 +370,8 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
 
     // Enhanced title with profile info
     const ogTitle = authorName 
-      ? `${eventTitle} by @${authorName} - Imwald 🌲`
-      : `${eventTitle} - Imwald 🌲`
+      ? `${eventTitle} by @${authorName} - Imwald `
+      : `${eventTitle} - Imwald `
 
     updateMetaTag('og:title', ogTitle)
     updateMetaTag('og:description', ogDescription)
@@ -381,7 +381,7 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
     updateMetaTag('og:image:alt', `${eventTitle}${authorName ? ` by @${authorName}` : ''} on Imwald`)
     updateMetaTag('og:type', ogType)
     updateMetaTag('og:url', window.location.href)
-    updateMetaTag('og:site_name', 'Imwald 🌲')
+    updateMetaTag('og:site_name', 'Imwald ')
     
     // Add profile data - always include if available
     if (authorProfile) {
@@ -434,12 +434,12 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
       // Reset to default on unmount with richer information
       const cleanupUrl = window.location.href
       const truncatedCleanupUrl = cleanupUrl.length > 150 ? cleanupUrl.substring(0, 147) + '...' : cleanupUrl
-      updateMetaTag('og:title', 'Imwald 🌲')
+      updateMetaTag('og:title', 'Imwald ')
       updateMetaTag('og:description', `${truncatedCleanupUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('og:image', 'https://jumble.imwald.eu/pwa-512x512.png')
+      updateMetaTag('og:image', 'https://jumble.imwald.eu/og-image.png')
       updateMetaTag('og:type', 'website')
       updateMetaTag('og:url', window.location.href)
-      updateMetaTag('og:site_name', 'Imwald 🌲')
+      updateMetaTag('og:site_name', 'Imwald ')
       
       // Remove article:tag meta tags
       document.querySelectorAll('meta[property="article:tag"]').forEach(meta => meta.remove())
@@ -448,7 +448,7 @@ const NotePage = forwardRef(({ id, index, hideTitlebar = false, initialEvent }: 
         authorMeta.remove()
       }
       
-      document.title = 'Imwald 🌲'
+      document.title = 'Imwald '
     }
   }, [finalEvent, articleMetadata, authorProfile])
 

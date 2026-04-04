@@ -4,6 +4,9 @@ export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
+      fontFamily: {
+        display: ['"Playfair Display"', 'Georgia', 'serif']
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
@@ -12,6 +15,12 @@ export default {
       colors: {
         surface: {
           background: 'hsl(var(--surface-background))'
+        },
+        content: {
+          canvas: 'hsl(var(--content-canvas))'
+        },
+        brand: {
+          wordmark: 'hsl(var(--brand-wordmark))'
         },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
@@ -26,7 +35,8 @@ export default {
         primary: {
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
-          hover: 'hsl(var(--primary-hover))'
+          hover: 'hsl(var(--primary-hover))',
+          active: 'hsl(var(--primary-active))'
         },
         secondary: {
           DEFAULT: 'hsl(var(--secondary))',

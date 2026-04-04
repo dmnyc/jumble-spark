@@ -12,8 +12,8 @@ export function Titlebar({
   return (
     <div
       className={cn(
-        'sticky top-0 w-full h-12 z-40 bg-background [&_svg]:size-5 [&_svg]:shrink-0 select-none',
-        !hideBottomBorder && 'border-b',
+        'imwald-titlebar-fog sticky top-0 w-full h-12 z-40 bg-background [&_svg]:size-5 [&_svg]:shrink-0 select-none',
+        !hideBottomBorder && 'border-b border-border',
         className
       )}
     >

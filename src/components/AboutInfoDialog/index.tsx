@@ -43,7 +43,7 @@ export default function AboutInfoDialog({ children }: { children: React.ReactNod
 
   const content = (
     <>
-      <div className="text-xl font-semibold">Imwald 🌲</div>
+      <div className="text-xl font-semibold">Imwald</div>
       <div className="text-muted-foreground">
         A user-friendly Nostr client focused on relay feed browsing, publications, and relay discovery
       </div>

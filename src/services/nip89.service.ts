@@ -207,7 +207,7 @@ class Nip89Service {
       name: 'Imwald',
       description: 'A modern Nostr client with advanced features for content discovery, discussions, and community building.',
       website: 'https://jumble.imwald.eu',
-      picture: 'https://jumble.imwald.eu/pwa-512x512.png',
+      picture: 'https://jumble.imwald.eu/og-image.png',
       supportedKinds: [
         kinds.ShortTextNote,
         kinds.Repost,

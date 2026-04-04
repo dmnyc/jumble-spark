@@ -125,7 +125,7 @@ function parseOpenGraphFromHtml(html: string, pageUrl: string): TWebMetadata {
     const urlObj = new URL(pageUrl)
     const isAppCanonicalHost = urlObj.hostname === 'jumble.imwald.eu'
     const isAppDefaultTitle =
-      title?.includes('Imwald 🌲') ||
+      title?.includes('Imwald ') ||
       title?.includes('Jumble - Imwald Edition') ||
       title?.includes('Jumble Imwald Edition')
     const isAppDefaultDesc = description?.includes(

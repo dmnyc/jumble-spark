@@ -5,6 +5,7 @@ import logger from '@/lib/logger'
 import { ChevronLeft } from 'lucide-react'
 import { NavigationService } from '@/services/navigation.service'
 // Page imports needed for primary note view
+import { ImwaldBrandBar } from '@/assets/Logo'
 import LiveActivitiesStrip from '@/components/LiveActivitiesStrip'
 import NoteDrawer from '@/components/NoteDrawer'
 import storage from '@/services/local-storage.service'
@@ -921,16 +922,12 @@ function MainContentArea({
   // flex + min-h-0 + min-w-0 so primary pages get a real height in flex parents and can shrink horizontally (double-pane).
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col w-full pr-2 py-2">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg bg-background shadow-lg">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-lg">
         {primaryNoteView ? (
           // Show note view with back button
           <div className="flex h-full min-h-0 min-w-0 w-full flex-col">
-            <div className="flex justify-center py-1 border-b">
-              <span className="text-green-600 dark:text-green-500 font-semibold text-sm">
-                Imwald
-              </span>
-            </div>
-            <div className="flex gap-1 p-1 items-center justify-between font-semibold border-b">
+            <ImwaldBrandBar />
+            <div className="flex gap-1 border-b border-border p-1 items-center justify-between font-semibold">
               <div className="flex items-center flex-1 w-0">
                 <Button
                   className="flex gap-1 items-center w-fit max-w-full justify-start pl-2 pr-3"
@@ -2038,17 +2035,13 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               }}
             >
             <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId, drawerInitialEvent }}>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-content-canvas min-h-[var(--vh)]">
             <LiveActivitiesStrip placement="mobile" />
             {primaryNoteView ? (
               // Show primary note view with back button on mobile
               <div className="flex min-h-0 flex-1 flex-col h-full w-full">
-                <div className="flex justify-center py-1 border-b">
-                  <span className="text-green-600 dark:text-green-500 font-semibold text-sm">
-                    Imwald
-                  </span>
-                </div>
-                <div className="flex gap-1 p-1 items-center justify-between font-semibold border-b">
+                <ImwaldBrandBar />
+                <div className="flex gap-1 border-b border-border p-1 items-center justify-between font-semibold">
                   <div className="flex min-w-0 flex-1 items-center">
                     <Button
                       className="flex min-w-0 max-w-full gap-1 justify-start pl-2 pr-3"
@@ -2058,7 +2051,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                       onClick={goBack}
                     >
                       <ChevronLeft />
-                      <div className="truncate text-lg font-semibold">
+                      <div className="truncate font-display text-lg font-semibold">
                         {primaryViewType === 'settings' || primaryViewType === 'settings-sub'
                           ? 'Settings'
                           : primaryViewType === 'profile'
@@ -2158,9 +2151,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               }}
             >
             <NoteDrawerContext.Provider value={{ openDrawer, closeDrawer, isDrawerOpen: drawerOpen, drawerNoteId, drawerInitialEvent }}>
-            <div className="flex flex-col items-center bg-surface-background">
+            <div className="flex flex-col items-center bg-content-canvas">
               <div
-                className="flex h-[var(--vh)] w-full bg-surface-background"
+                className="flex h-[var(--vh)] w-full bg-content-canvas"
                 style={{
                   maxWidth: '1920px'
                 }}
@@ -2174,7 +2167,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                     return (
                       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                         {/* Left: primary column — must be a flex column so MainContentArea flex-1 gets height */}
-                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r">
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-border">
                           <MainContentArea
                             primaryPages={primaryPages}
                             currentPrimaryPage={currentPrimaryPage}
@@ -2185,7 +2178,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                           />
                         </div>
                         {/* Right: secondary stack — max width so left pane keeps space on small desktops */}
-                        <div className="flex h-full min-h-0 w-[min(1042px,50vw)] shrink-0 flex-col overflow-hidden border-l border-border/60 bg-muted/20">
+                        <div className="flex h-full min-h-0 w-[min(1042px,50vw)] shrink-0 flex-col overflow-hidden border-l border-border bg-muted/25">
                           {secondaryStack.length > 0 ? (
                             secondaryStack.map((item, index) => {
                               const isLast = index === secondaryStack.length - 1

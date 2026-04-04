@@ -48,25 +48,25 @@ const ProfilePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: stri
       // Reset to default meta tags
       const defaultUrl = window.location.href
       const truncatedDefaultUrl = defaultUrl.length > 150 ? defaultUrl.substring(0, 147) + '...' : defaultUrl
-      updateMetaTag('og:title', 'Imwald 🌲')
+      updateMetaTag('og:title', 'Imwald ')
       updateMetaTag('og:description', `${truncatedDefaultUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('og:image', 'https://jumble.imwald.eu/pwa-512x512.png')
+      updateMetaTag('og:image', 'https://jumble.imwald.eu/og-image.png')
       updateMetaTag('og:type', 'profile')
       updateMetaTag('og:url', window.location.href)
-      updateMetaTag('og:site_name', 'Imwald 🌲')
+      updateMetaTag('og:site_name', 'Imwald ')
       
       // Twitter card meta tags
       updateMetaTag('twitter:card', 'summary')
-      updateMetaTag('twitter:title', 'Imwald 🌲')
+      updateMetaTag('twitter:title', 'Imwald ')
       updateMetaTag('twitter:description', `${truncatedDefaultUrl} - Profile`)
-      updateMetaTag('twitter:image', 'https://jumble.imwald.eu/pwa-512x512.png')
+      updateMetaTag('twitter:image', 'https://jumble.imwald.eu/og-image.png')
       
       return
     }
     
     // Build description matching fallback card: username, hostname, URL
     const username = profile.username || ''
-    const ogTitle = username ? `@${username} - Imwald 🌲` : 'Profile - Imwald 🌲'
+    const ogTitle = username ? `@${username} - Imwald ` : 'Profile - Imwald '
     
     // Truncate URL to 150 chars
     const fullUrl = window.location.href
@@ -86,7 +86,7 @@ const ProfilePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: stri
     // Use profile avatar or default image with green theme
     const image = profile.avatar 
       ? `https://jumble.imwald.eu/api/avatar/${profile.pubkey}` 
-      : 'https://jumble.imwald.eu/pwa-512x512.png'
+      : 'https://jumble.imwald.eu/og-image.png'
     
     updateMetaTag('og:title', ogTitle)
     updateMetaTag('og:description', ogDescription)
@@ -96,7 +96,7 @@ const ProfilePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: stri
     updateMetaTag('og:image:alt', `${username ? `@${username}` : 'Profile'} on Imwald`)
     updateMetaTag('og:type', 'profile')
     updateMetaTag('og:url', window.location.href)
-    updateMetaTag('og:site_name', 'Imwald 🌲')
+    updateMetaTag('og:site_name', 'Imwald ')
     
     // Add profile-specific meta tags
     if (profile.username) {
@@ -121,13 +121,13 @@ const ProfilePage = forwardRef(({ id, index, hideTitlebar = false }: { id?: stri
       // Reset to default on unmount
       const cleanupUrl = window.location.href
       const truncatedCleanupUrl = cleanupUrl.length > 150 ? cleanupUrl.substring(0, 147) + '...' : cleanupUrl
-      updateMetaTag('og:title', 'Imwald 🌲')
+      updateMetaTag('og:title', 'Imwald ')
       updateMetaTag('og:description', `${truncatedCleanupUrl} - A user-friendly Nostr client focused on relay feed browsing and relay discovery. The Imwald edition focuses on publications and articles.`)
-      updateMetaTag('og:image', 'https://jumble.imwald.eu/pwa-512x512.png')
+      updateMetaTag('og:image', 'https://jumble.imwald.eu/og-image.png')
       updateMetaTag('og:type', 'website')
       updateMetaTag('og:url', window.location.href)
-      updateMetaTag('og:site_name', 'Imwald 🌲')
-      document.title = 'Imwald 🌲'
+      updateMetaTag('og:site_name', 'Imwald ')
+      document.title = 'Imwald '
     }
   }, [profile])
 

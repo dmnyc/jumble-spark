@@ -90,27 +90,36 @@
   }
 
   :root {
-    --surface-background: 0 0% 98%;
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    /* Moss / forest (approx. #2f6f4f, #3f8a63, #1f4d38) */
+    --surface-background: 95 10% 97%;
+    --content-canvas: 92 9% 96%;
+    --background: 90 8% 99%;
+    --foreground: 155 25% 12%;
+    --card: 90 12% 99%;
+    --card-foreground: 155 25% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 140 70% 28%;
-    --primary-hover: 140 70% 35%;
+    --popover-foreground: 155 25% 12%;
+    --primary: 152 41% 31%;
+    --primary-hover: 154 37% 39%;
+    --primary-active: 155 42% 21%;
     --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 94%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 94%;
-    --muted-foreground: 240 5% 35%;
-    --accent: 240 4.8% 94%;
-    --accent-foreground: 240 5.9% 10%;
+    --secondary: 95 12% 94%;
+    --secondary-foreground: 155 22% 18%;
+    --muted: 95 10% 93%;
+    --muted-foreground: 150 8% 38%;
+    --accent: 95 14% 92%;
+    --accent-foreground: 155 22% 18%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 85%;
-    --input: 240 5.9% 90%;
-    --ring: 140 70% 28%;
+    --border: 130 16% 86%;
+    --input: 130 12% 90%;
+    --ring: 152 41% 31%;
+    --sidebar-top: 95 14% 95%;
+    --sidebar-bottom: 100 16% 92%;
+    --sidebar-border: 130 18% 82%;
+    --brand-wordmark: 155 32% 22%;
+    --prose-link: 152 38% 28%;
+    --highlight: 152 45% 36%;
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
@@ -119,32 +128,49 @@
     --radius: 0.5rem;
   }
   .dark {
-    --surface-background: 240 10% 3.9%;
-    --background: 0 0% 9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 140 70% 40%;
-    --primary-hover: 140 70% 50%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 75%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
+    --surface-background: 152 22% 9%;
+    --content-canvas: 150 20% 8%;
+    --background: 150 18% 10%;
+    --foreground: 100 12% 96%;
+    --card: 150 16% 12%;
+    --card-foreground: 100 10% 95%;
+    --popover: 150 18% 10%;
+    --popover-foreground: 100 12% 96%;
+    --primary: 152 41% 38%;
+    --primary-hover: 154 37% 46%;
+    --primary-active: 155 42% 28%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 150 14% 16%;
+    --secondary-foreground: 100 10% 95%;
+    --muted: 150 12% 16%;
+    --muted-foreground: 140 8% 72%;
+    --accent: 150 14% 18%;
+    --accent-foreground: 100 10% 95%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 25%;
-    --input: 240 3.7% 15.9%;
-    --ring: 140 70% 40%;
+    --border: 150 12% 22%;
+    --input: 150 12% 18%;
+    --ring: 152 41% 42%;
+    --sidebar-top: 152 24% 12%;
+    --sidebar-bottom: 154 22% 7%;
+    --sidebar-border: 150 14% 20%;
+    --brand-wordmark: 145 28% 91%;
+    --prose-link: 145 35% 72%;
+    --highlight: 150 40% 48%;
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+  }
+
+  :where(.prose) a {
+    color: hsl(var(--prose-link));
+    text-underline-offset: 2px;
+  }
+
+  :where(.prose) a:hover {
+    color: hsl(var(--primary));
   }
 
   .dark input[type='datetime-local']::-webkit-calendar-picker-indicator {
@@ -169,6 +195,77 @@
   [aria-disabled="true"] {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+}
+
+@layer components {
+  .imwald-sidebar {
+    position: relative;
+    isolation: isolate;
+    background: linear-gradient(
+      180deg,
+      hsl(var(--sidebar-top)) 0%,
+      hsl(var(--sidebar-bottom)) 100%
+    );
+    border-right: 1px solid hsl(var(--sidebar-border));
+  }
+
+  .imwald-sidebar__atmosphere {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .imwald-sidebar__atmosphere::after {
+    content: '';
+    position: absolute;
+    left: -32%;
+    right: -32%;
+    top: -32%;
+    bottom: -32%;
+    background-image: url(/brand-atmosphere-light.png);
+    background-size: cover;
+    background-position: center;
+    opacity: 0.055;
+    filter: blur(42px) saturate(1.05);
+  }
+
+  .dark .imwald-sidebar__atmosphere::after {
+    background-image: url(/brand-atmosphere-dark.png);
+    opacity: 0.075;
+    filter: blur(42px) saturate(1.08) brightness(0.9);
+  }
+
+  .imwald-titlebar-fog {
+    position: relative;
+  }
+
+  .imwald-titlebar-fog::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(
+      ellipse 100% 85% at 50% -35%,
+      hsl(var(--primary) / 0.08),
+      transparent 52%
+    );
+  }
+
+  .dark .imwald-titlebar-fog::before {
+    background: radial-gradient(
+      ellipse 100% 85% at 50% -35%,
+      hsl(var(--primary) / 0.11),
+      transparent 52%
+    );
+  }
+
+  .imwald-titlebar-fog > * {
+    position: relative;
+    z-index: 1;
   }
 }
 
