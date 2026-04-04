@@ -55,7 +55,8 @@ import { getPubkeysFromPTags } from '@/lib/tag'
 import { formatPubkey, normalizeHexPubkey } from '@/lib/pubkey'
 import {
   augmentSubRequestsWithFavoritesFastReadAndInbox,
-  getRelayUrlsWithFavoritesFastReadAndInbox
+  getRelayUrlsWithFavoritesFastReadAndInbox,
+  userReadRelaysWithHttp
 } from '@/lib/favorites-feed-relays'
 import {
   computeKind777SpellFeedSubscriptionKey,
@@ -490,7 +491,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         const feedUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
           favoriteRelays,
           blockedRelays,
-          relayList?.read ?? [],
+          userReadRelaysWithHttp(relayList),
           { userWriteRelays: relayList?.write ?? [] }
         )
         if (!feedUrls.length) {
@@ -598,7 +599,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         return
       }
 
-      const urls = getRelaysForSpellCatalogSync(favoriteRelays, blockedRelays, relayList?.read ?? [], {
+      const urls = getRelaysForSpellCatalogSync(favoriteRelays, blockedRelays, userReadRelaysWithHttp(relayList), {
         userWriteRelays: relayList?.write ?? []
       })
       const catalogAuthors = buildSpellCatalogAuthors(pubkey, contacts)
@@ -760,7 +761,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
           raw,
           favoriteRelays,
           blockedRelays,
-          relayList?.read ?? [],
+          userReadRelaysWithHttp(relayList),
           { userWriteRelays: relayList?.write ?? [] }
         )
       try {
@@ -843,7 +844,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
         const feedUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
           favoriteRelays,
           blockedRelays,
-          relayList?.read ?? [],
+          userReadRelaysWithHttp(relayList),
           {
             userWriteRelays: relayList?.write ?? [],
             applySocialKindBlockedFilter: false
@@ -868,7 +869,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
             raw,
             favoriteRelays,
             blockedRelays,
-            relayList?.read ?? [],
+            userReadRelaysWithHttp(relayList),
             { userWriteRelays: relayList?.write ?? [] }
           ).map((r) => ({ ...r, reasonLabel: t('Added from follows and contact lists') }))
 
@@ -987,7 +988,7 @@ const SpellsPage = forwardRef<TPageRef>(function SpellsPage(
     const feedUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
       favoriteRelays,
       blockedRelays,
-      relayList?.read ?? [],
+      userReadRelaysWithHttp(relayList),
       {
         userWriteRelays: relayList?.write ?? [],
         applySocialKindBlockedFilter: fauxSpellSkipSocialKindBlocked ? false : undefined

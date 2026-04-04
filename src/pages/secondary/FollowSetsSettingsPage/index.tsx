@@ -34,7 +34,10 @@ import { randomString } from '@/lib/random'
 import { showPublishingError } from '@/lib/publishing-feedback'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
-import { getRelayUrlsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
+import {
+  getRelayUrlsWithFavoritesFastReadAndInbox,
+  userReadRelaysWithHttp
+} from '@/lib/favorites-feed-relays'
 import { createFollowSetDraftEvent } from '@/lib/draft-event'
 import { filterEventsExcludingTombstones } from '@/lib/event'
 import logger from '@/lib/logger'
@@ -84,11 +87,11 @@ const FollowSetsSettingsPage = forwardRef(
       const feedUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
         favoriteRelays,
         blockedRelays,
-        relayList?.read ?? [],
+        userReadRelaysWithHttp(relayList),
         { userWriteRelays: relayList?.write ?? [] }
       )
       return appendCuratedReadOnlyRelays(feedUrls, blockedRelays)
-    }, [favoriteRelays, blockedRelays, relayList?.read, relayList?.write])
+    }, [favoriteRelays, blockedRelays, relayList])
 
     const loadLists = useCallback(async () => {
       if (!pubkey) {

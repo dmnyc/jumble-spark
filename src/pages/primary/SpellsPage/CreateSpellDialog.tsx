@@ -24,6 +24,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { showPublishingError, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import { eventService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
+import { userReadRelaysWithHttp } from '@/lib/favorites-feed-relays'
 import { getRelaysForSpellCatalogSync } from '@/services/spell.service'
 import { Info, Minus, Plus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -323,7 +324,7 @@ export default function CreateSpellDialog({
       const { draft, notices, pendingATags } = applyListEventToSpellDraft(base, ev)
       setForm(draft)
       setListImportNotices(notices)
-      const urls = getRelaysForSpellCatalogSync(favoriteRelays, blockedRelays, relayList?.read ?? [], {
+      const urls = getRelaysForSpellCatalogSync(favoriteRelays, blockedRelays, userReadRelaysWithHttp(relayList), {
         userWriteRelays: relayList?.write ?? []
       })
       if (pendingATags.length === 0) return

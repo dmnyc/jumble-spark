@@ -25,6 +25,17 @@ const blockedSet = (blockedRelays: string[]) =>
  * {@link DEFAULT_FAVORITE_RELAYS}. Same list drives the favorites tier in REQ/publish prioritization and the
  * all-favorites home feed.
  */
+/**
+ * NIP-65 `read` plus HTTP index inboxes (kind 10243) for feed REQ / query URL lists.
+ */
+export function userReadRelaysWithHttp(
+  relayList: { read?: string[]; httpRead?: string[] } | undefined | null
+): string[] {
+  const http = relayList?.httpRead ?? []
+  const read = relayList?.read ?? []
+  return dedupeNormalizeRelayUrlsOrdered([...http, ...read])
+}
+
 export function getFavoritesFeedRelayUrls(
   favoriteRelays: string[],
   blockedRelays: string[]

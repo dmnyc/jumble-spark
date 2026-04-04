@@ -1,6 +1,9 @@
 import NormalFeed from '@/components/NormalFeed'
 import type { TNoteListRef } from '@/components/NoteList'
-import { augmentSubRequestsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
+import {
+  augmentSubRequestsWithFavoritesFastReadAndInbox,
+  userReadRelaysWithHttp
+} from '@/lib/favorites-feed-relays'
 import { buildFollowingFeedDeltaSubRequests } from '@/lib/following-feed-delta'
 import { getPubkeysFromPTags } from '@/lib/tag'
 import { normalizeUrl } from '@/lib/url'
@@ -46,12 +49,12 @@ const FollowingFeed = forwardRef<
   )
   const relayReadKey = useMemo(
     () =>
-      [...(relayList?.read ?? [])]
+      [...userReadRelaysWithHttp(relayList)]
         .map((u) => normalizeUrl(u) || u)
         .filter(Boolean)
         .sort()
         .join('\0'),
-    [relayList?.read]
+    [relayList]
   )
   const relayWriteKey = useMemo(
     () =>
@@ -84,7 +87,7 @@ const FollowingFeed = forwardRef<
           raw,
           favoriteRelays,
           blockedRelays,
-          relayList?.read ?? [],
+          userReadRelaysWithHttp(relayList),
           { userWriteRelays: relayList?.write ?? [] }
         )
 

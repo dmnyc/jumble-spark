@@ -23,6 +23,7 @@ import {
   getWebExternalReactionTargetUrl,
   rssArticleStableEventId
 } from '@/lib/rss-article'
+import { userReadRelaysWithHttp } from '@/lib/favorites-feed-relays'
 import { getEmojiInfosFromEmojiTags, getFirstHexEventIdFromETags, tagNameEquals } from '@/lib/tag'
 import { normalizeUrl } from '@/lib/url'
 import client, { eventService } from '@/services/client.service'
@@ -285,7 +286,7 @@ class NoteStatsService {
         client.fetchRelayList(event.pubkey),
         new Promise<{ read?: string[] }>((r) => setTimeout(() => r({}), 2000))
       ])
-      ;(relayList?.read ?? []).slice(0, 10).forEach(add)
+      userReadRelaysWithHttp(relayList).slice(0, 10).forEach(add)
     } catch {
       // ignore
     }

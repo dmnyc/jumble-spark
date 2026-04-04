@@ -8,6 +8,7 @@ import { Event } from 'nostr-tools'
 import { useEffect, useState } from 'react'
 import { normalizeUrl } from '@/lib/url'
 import { FAST_READ_RELAY_URLS } from '@/constants'
+import { userReadRelaysWithHttp } from '@/lib/favorites-feed-relays'
 import { tagNameEquals } from '@/lib/tag'
 
 function getRsvpStatus(rsvp: Event): 'accepted' | 'tentative' | 'declined' | undefined {
@@ -39,7 +40,7 @@ export function useFetchCalendarRsvps(calendarEvent: Event | undefined) {
     setIsFetching(true)
 
     const coordinate = getReplaceableCoordinateFromEvent(calendarEvent)
-    const userRead = relayList?.read ?? []
+    const userRead = userReadRelaysWithHttp(relayList)
     const baseUrls = new Set<string>([
       ...FAST_READ_RELAY_URLS.map((url) => normalizeUrl(url) || url),
       ...userRead.map((url) => normalizeUrl(url) || url)
@@ -86,7 +87,7 @@ export function useFetchCalendarRsvps(calendarEvent: Event | undefined) {
     return () => {
       cancelled = true
     }
-  }, [calendarEvent?.id, calendarEvent?.kind, calendarEvent?.pubkey, relayList?.read])
+  }, [calendarEvent?.id, calendarEvent?.kind, calendarEvent?.pubkey, relayList])
 
   // When we publish an RSVP, NostrProvider calls client.emitNewEvent(event). Merge it into rsvps so the UI updates immediately.
   useEffect(() => {

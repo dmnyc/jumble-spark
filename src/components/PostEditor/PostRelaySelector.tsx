@@ -13,6 +13,7 @@ import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { getRelayListFromEvent } from '@/lib/event-metadata'
+import { userReadRelaysWithHttp } from '@/lib/favorites-feed-relays'
 import indexedDb from '@/services/indexed-db.service'
 import { Check, ChevronDown, Server } from 'lucide-react'
 import { NostrEvent } from 'nostr-tools'
@@ -60,6 +61,7 @@ export default function PostRelaySelector({
   useCurrentRelays() // Keep this hook call for any side effects
   const { relaySets, favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { pubkey, relayList } = useNostr()
+  const userReadRelaysForSelection = useMemo(() => userReadRelaysWithHttp(relayList), [relayList])
   const [selectedRelayUrls, setSelectedRelayUrls] = useState<string[]>([])
   const [selectableRelays, setSelectableRelays] = useState<string[]>([])
   const [relayTypes, setRelayTypes] = useState<Record<string, RelaySourceType>>({})
@@ -220,7 +222,7 @@ export default function PostRelaySelector({
         const result = await relaySelectionService.selectRelays({
           userWriteRelays,
           userHttpWriteRelays: relayList?.httpWrite ?? [],
-          userReadRelays: relayList?.read || [],
+          userReadRelays: userReadRelaysForSelection,
           favoriteRelays: memoizedFavoriteRelays,
           blockedRelays: memoizedBlockedRelays,
           relaySets: memoizedRelaySets,
@@ -328,7 +330,7 @@ export default function PostRelaySelector({
           const result = await relaySelectionService.selectRelays({
             userWriteRelays,
             userHttpWriteRelays: relayList?.httpWrite ?? [],
-            userReadRelays: relayList?.read || [],
+            userReadRelays: userReadRelaysForSelection,
             favoriteRelays: memoizedFavoriteRelays,
             blockedRelays: memoizedBlockedRelays,
             relaySets: memoizedRelaySets,

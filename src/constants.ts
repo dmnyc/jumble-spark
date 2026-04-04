@@ -93,6 +93,15 @@ export const RELAY_NIP42_PUBLISH_ACK_TIMEOUT_MS = 90_000
 /** Multi-relay queries and timeline initial REQ: after the first event, wait this long then close (query) or finalize EOSE (live feed) while keeping the subscription open for new events. */
 export const FIRST_RELAY_RESULT_GRACE_MS = 2000
 
+/**
+ * Timelines that include HTTP index relays: interval between periodic `query()` polls while the WebSocket
+ * subscription stays open (HTTP relays do not receive live `EVENT` over REQ).
+ */
+export const HTTP_TIMELINE_POLL_INTERVAL_MS = 45_000
+
+/** Subtracted from the polling `since` cursor so borderline events are not missed between polls. */
+export const HTTP_TIMELINE_POLL_SINCE_OVERLAP_SEC = 120
+
 /** Legacy name: was used to cap spell NoteList skeleton time; loading now ends on EOSE / first events / safety timeouts. Kept for forks. */
 export const SPELL_FEED_LOADING_MAX_MS = 1000
 

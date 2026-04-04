@@ -6,11 +6,20 @@ import {
   resolveParentSpacesForLiveActivities,
   type TLiveActivityItem
 } from '@/lib/live-activities'
+import { userReadRelaysWithHttp } from '@/lib/favorites-feed-relays'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
 import storage from '@/services/local-storage.service'
 import { registerLiveActivitiesPrewarmCallback } from '@/services/live-activities-prewarm-bridge'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
 import { useFollowListOptional } from './FollowListProvider'
 import { useNostr } from './NostrProvider'
@@ -47,7 +56,7 @@ export function LiveActivitiesProvider({ children }: { children: React.ReactNode
   const [items, setItems] = useState<TLiveActivityItem[]>([])
   const [loading, setLoading] = useState(false)
 
-  const relayRead = relayList?.read ?? []
+  const relayRead = useMemo(() => userReadRelaysWithHttp(relayList), [relayList])
   const relayWrite = relayList?.write ?? []
 
   const refresh = useCallback(async () => {

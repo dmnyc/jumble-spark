@@ -3,7 +3,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ExtendedKind } from '@/constants'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { getRelayUrlFromRelayReviewEvent } from '@/lib/event-metadata'
-import { getRelayUrlsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
+import {
+  getRelayUrlsWithFavoritesFastReadAndInbox,
+  userReadRelaysWithHttp
+} from '@/lib/favorites-feed-relays'
 import { appendCuratedReadOnlyRelays } from '@/pages/primary/SpellsPage/fauxSpellFeeds'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
@@ -65,7 +68,7 @@ export default function ExploreRelayReviews() {
       getRelayUrlsWithFavoritesFastReadAndInbox(
         favoriteRelays,
         blockedRelays,
-        relayList?.read ?? [],
+        userReadRelaysWithHttp(relayList),
         {
           userWriteRelays: relayList?.write ?? [],
           maxRelays: EXPLORE_REVIEWS_MAX_RELAYS,

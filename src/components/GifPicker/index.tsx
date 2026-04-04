@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { userReadRelaysWithHttp } from '@/lib/favorites-feed-relays'
 import { useNostr } from '@/providers/NostrProvider'
 import { ExtendedKind, FAST_WRITE_RELAY_URLS, GIF_RELAY_URLS } from '@/constants'
 import { cn } from '@/lib/utils'
@@ -60,7 +61,7 @@ export default function GifPicker({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const gifbuddyPopupRef = useRef<Window | null>(null)
 
-  const userReadRelays = relayList?.read ?? []
+  const userReadRelays = useMemo(() => userReadRelaysWithHttp(relayList), [relayList])
   const userWriteRelays = relayList?.write ?? []
 
   /** Paste / upload: GIF discovery relays + user writes (unchanged). */

@@ -5,7 +5,10 @@ import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import { ExtendedKind } from '@/constants'
 import { createWebBookmarkDraftEvent } from '@/lib/draft-event'
-import { getRelayUrlsWithFavoritesFastReadAndInbox } from '@/lib/favorites-feed-relays'
+import {
+  getRelayUrlsWithFavoritesFastReadAndInbox,
+  userReadRelaysWithHttp
+} from '@/lib/favorites-feed-relays'
 import logger from '@/lib/logger'
 import { showPublishingError } from '@/lib/publishing-feedback'
 import {
@@ -40,11 +43,11 @@ export default function RssArticleWebBookmarks({ articleUrl }: { articleUrl: str
   }, [canonical])
 
   const relayUrls = useMemo(() => {
-    const read = relayList?.read ?? []
+    const read = userReadRelaysWithHttp(relayList)
     const base = getRelayUrlsWithFavoritesFastReadAndInbox(favoriteRelays, blockedRelays, read, {})
     if (!base.length) return []
     return appendCuratedReadOnlyRelays(base, blockedRelays)
-  }, [favoriteRelays, blockedRelays, relayList?.read])
+  }, [favoriteRelays, blockedRelays, relayList])
 
   const [mine, setMine] = useState<Event[]>([])
   const [loading, setLoading] = useState(false)

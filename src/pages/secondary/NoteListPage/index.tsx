@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button'
 import { isSocialKindBlockedKind, NIP_SEARCH_DOCUMENT_KINDS, SEARCHABLE_RELAY_URLS } from '@/constants'
 import {
   augmentSubRequestsWithFavoritesFastReadAndInbox,
-  getRelayUrlsWithFavoritesFastReadAndInbox
+  getRelayUrlsWithFavoritesFastReadAndInbox,
+  userReadRelaysWithHttp
 } from '@/lib/favorites-feed-relays'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { toProfileList } from '@/lib/link'
@@ -100,7 +101,7 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
           urls: getRelayUrlsWithFavoritesFastReadAndInbox(
             favoriteRelays,
             blockedRelays,
-            relayList?.read ?? [],
+            userReadRelaysWithHttp(relayList),
             readUrlOpts
           )
         }
@@ -143,7 +144,7 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
             urls: getRelayUrlsWithFavoritesFastReadAndInbox(
               favoriteRelays,
               blockedRelays,
-              relayList?.read ?? [],
+              userReadRelaysWithHttp(relayList),
               { userWriteRelays: relayList?.write ?? [] }
             )
           }
@@ -175,7 +176,7 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
                 raw,
                 favoriteRelays,
                 blockedRelays,
-                relayList?.read ?? [],
+                userReadRelaysWithHttp(relayList),
                 { userWriteRelays: relayList?.write ?? [] }
               )
             )
@@ -202,7 +203,7 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
           const relayUrls = getRelayUrlsWithFavoritesFastReadAndInbox(
             favoriteRelays,
             blockedRelays,
-            relayList?.read ?? [],
+            userReadRelaysWithHttp(relayList),
             readUrlOpts
           )
           const mergedReqKinds = Array.from(
