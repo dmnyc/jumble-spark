@@ -14,13 +14,16 @@ import { toRelaySettings } from '@/lib/link'
 import { normalizeUrl, simplifyUrl } from '@/lib/url'
 import { buildWispTrendingNotesRelayUrl } from '@/lib/wisp-trending-relay'
 import { cn } from '@/lib/utils'
+import { useContainerWidth } from '@/hooks/useContainerWidth'
 import { useSecondaryPage } from '@/PageManager'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useFeed } from '@/providers/FeedProvider'
-import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { SquarePen } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+
+/** Chips → dropdown below this container width (px). Matches Tailwind `sm` breakpoint. */
+const NARROW_THRESHOLD = 640
 
 const ALL_FAVORITES_VALUE = '__all_favorites__'
 
@@ -36,7 +39,11 @@ function selectValueToRelaySetId(v: string) {
 /** Top-of-feed control: all favorites, Wisp trending (nostrarchives), relay sets, then single relays. */
 export default function FavoriteRelaysFeedPicker() {
   const { t } = useTranslation()
-  const { isSmallScreen } = useScreenSize()
+  const containerRef = useRef<HTMLDivElement>(null)
+  const containerWidth = useContainerWidth(containerRef)
+  // True when the component's own container is narrow — covers both mobile viewports
+  // and the left pane in double-pane desktop mode.
+  const isNarrow = containerWidth !== undefined ? containerWidth < NARROW_THRESHOLD : false
   const { push } = useSecondaryPage()
   const { favoriteRelays, blockedRelays, relaySets } = useFavoriteRelays()
   const { feedInfo, switchFeed } = useFeed()
@@ -166,9 +173,10 @@ export default function FavoriteRelaysFeedPicker() {
     </Button>
   )
 
-  if (isSmallScreen) {
+  if (isNarrow) {
     return (
       <div
+        ref={containerRef}
         className="flex w-full min-w-0 items-center gap-1.5 border-b border-border/80 bg-background px-2 py-1.5"
         aria-label={t('Favorite Relays')}
       >
@@ -234,6 +242,7 @@ export default function FavoriteRelaysFeedPicker() {
 
   return (
     <div
+      ref={containerRef}
       className="flex w-full min-w-0 items-center gap-1.5 border-b border-border/80 bg-background px-2 py-1.5"
       role="toolbar"
       aria-label={t('Favorite Relays')}

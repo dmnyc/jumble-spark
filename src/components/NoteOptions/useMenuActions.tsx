@@ -50,7 +50,7 @@ import {
 } from 'lucide-react'
 import { Event, kinds } from 'nostr-tools'
 import { nip19 } from 'nostr-tools'
-import { useMemo, useState, useEffect, useContext } from 'react'
+import { useMemo, useState, useEffect, useRef, useContext } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import RelayIcon from '../RelayIcon'
@@ -139,7 +139,16 @@ export function useMenuActions({
   
   // Check if event is pinned
   const [isPinned, setIsPinned] = useState(false)
-  
+
+  // Keep refs so the effect can read the latest relay lists without making them
+  // part of the dependency array.  Including live array references as deps causes
+  // an infinite loop: relay fetch → NoteList re-render → new array refs →
+  // effect re-fires for every visible note → relay fetch → …
+  const currentBrowsingRelayUrlsRef = useRef(currentBrowsingRelayUrls)
+  currentBrowsingRelayUrlsRef.current = currentBrowsingRelayUrls
+  const favoriteRelaysRef = useRef(favoriteRelays)
+  favoriteRelaysRef.current = favoriteRelays
+
   useEffect(() => {
     const checkIfPinned = async () => {
       if (!pubkey) {
@@ -147,21 +156,15 @@ export function useMenuActions({
         return
       }
       try {
-        // Build comprehensive relay list for pin status check
         const allRelays = [
-          ...(currentBrowsingRelayUrls || []),
-          ...(favoriteRelays || []),
-          ...FAST_READ_RELAY_URLS,
+          ...(currentBrowsingRelayUrlsRef.current || []),
+          ...(favoriteRelaysRef.current || []),
           ...FAST_READ_RELAY_URLS,
           ...FAST_WRITE_RELAY_URLS
         ]
-        
-        const normalizedRelays = allRelays
-          .map(url => normalizeUrl(url))
-          .filter((url): url is string => !!url)
-        
-        const comprehensiveRelays = Array.from(new Set(normalizedRelays))
-
+        const comprehensiveRelays = Array.from(
+          new Set(allRelays.map(url => normalizeUrl(url)).filter((url): url is string => !!url))
+        )
         const pinListEvent = await fetchNewestPinListForPubkey(pubkey, comprehensiveRelays)
         if (pinListEvent) {
           setIsPinned(isEventInPinList(pinListEvent, event))
@@ -174,7 +177,10 @@ export function useMenuActions({
       }
     }
     checkIfPinned()
-  }, [pubkey, event.id, currentBrowsingRelayUrls, favoriteRelays])
+    // Only re-run when the user or the specific event changes, not on relay list
+    // reference churn (relay arrays are read via refs above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pubkey, event.id])
   
   const handlePinNote = async () => {
     if (!pubkey) return

@@ -32,21 +32,34 @@ export const HIVETALK_BASE_URL =
   (import.meta.env.VITE_HIVETALK_BASE_URL as string | undefined) ?? 'https://vanilla.hivetalk.org'
 
 /**
+ * Stable reference to this module's URL at load time.
+ * `import.meta.url` alone is left untouched by Vite (only `new URL(path, import.meta.url)`
+ * with a literal/template path gets transformed into a static asset map).
+ * In the Electron build (dist/assets/*.js) this is something like:
+ *   file:///path/to/dist/assets/index-abc.js
+ */
+const _moduleHref: string = import.meta.url
+
+/**
  * URL for a file from `public/` (banner, favicon, payto logos, etc.).
  * Uses Vite `base`: `/` on the web, `./` when built for Electron (`loadFile` + `file:`).
  *
  * Electron packaged builds use `file:` + client-side history paths like `/notes/…`, which replace
  * the document URL with `file:///notes/…`. Relative `BASE_URL` links would then resolve next to that
- * bogus path and 404. Resolve from this module's emitted chunk (`dist/assets/*.js`) instead.
- * One `..` reaches `dist/` (sibling of `assets/`); `../..` would miss `public/` copies and 404.
+ * bogus path and 404.
+ *
+ * For `file:` we derive the `dist/` root from the chunk's own URL. The chunk lives at
+ * `dist/assets/*.js`, so `/assets/` marks the boundary: everything before it is the dist root.
+ * Vite would transform `new URL(\`../${dynamic}\`, import.meta.url)` into a static glob map that
+ * does NOT include `public/` copies, so we must NOT use that pattern here.
  */
 export function publicAssetUrl(assetPath: string): string {
   const trimmed = assetPath.replace(/^\//, '')
   if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
-    try {
-      return new URL(`../${trimmed}`, import.meta.url).href
-    } catch {
-      // fall through to BASE_URL
+    const assetsIdx = _moduleHref.lastIndexOf('/assets/')
+    if (assetsIdx !== -1) {
+      // e.g. "file:///path/to/dist/" + "banner.png"
+      return _moduleHref.slice(0, assetsIdx + 1) + trimmed
     }
   }
   return `${import.meta.env.BASE_URL}${trimmed}`
