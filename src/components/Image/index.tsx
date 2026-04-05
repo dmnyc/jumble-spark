@@ -1,6 +1,6 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { isSafeMediaUrl } from '@/lib/url'
+import { isRenderableMediaUrl, isSafeMediaUrl } from '@/lib/url'
 import { TImetaInfo } from '@/types'
 import { decode } from 'blurhash'
 import { ImageOff } from 'lucide-react'
@@ -54,7 +54,7 @@ export default function Image({
   const openLinkHref =
     (isSafeMediaUrl(url) && url.trim()) || (isSafeMediaUrl(imageUrl) && imageUrl.trim()) || ''
 
-  const badSrc = !imageUrl?.trim() || !isSafeMediaUrl(imageUrl.trim())
+  const badSrc = !imageUrl?.trim() || !isRenderableMediaUrl(imageUrl.trim())
   const showErrorState = hasError || badSrc
 
   const clearLoadWatch = () => {

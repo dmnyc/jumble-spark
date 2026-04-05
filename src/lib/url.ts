@@ -337,6 +337,20 @@ export function isSafeMediaUrl(url: string): boolean {
 }
 
 /**
+ * True if the URL may be used as an `<img src>` in-app: http(s), `data:image/…` (e.g. pubkey
+ * placeholders), `blob:`, or `file:` (Electron). Use {@link isSafeMediaUrl} for user-openable links only.
+ */
+export function isRenderableMediaUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false
+  const t = url.trim()
+  if (isSafeMediaUrl(t)) return true
+  if (t.startsWith('data:image/')) return true
+  if (t.startsWith('blob:')) return true
+  if (t.startsWith('file:')) return true
+  return false
+}
+
+/**
  * Primal R2A CDN URL for media keyed by SHA-256 (same object as `https://blossom.primal.net/{hash}.ext`).
  * Used when the blossom host fails in-browser; aligns with NIP-B7-style alternate retrieval.
  */

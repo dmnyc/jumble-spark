@@ -38,12 +38,13 @@ export const HIVETALK_BASE_URL =
  * Electron packaged builds use `file:` + client-side history paths like `/notes/…`, which replace
  * the document URL with `file:///notes/…`. Relative `BASE_URL` links would then resolve next to that
  * bogus path and 404. Resolve from this module's emitted chunk (`dist/assets/*.js`) instead.
+ * One `..` reaches `dist/` (sibling of `assets/`); `../..` would miss `public/` copies and 404.
  */
 export function publicAssetUrl(assetPath: string): string {
   const trimmed = assetPath.replace(/^\//, '')
   if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
     try {
-      return new URL(`../../${trimmed}`, import.meta.url).href
+      return new URL(`../${trimmed}`, import.meta.url).href
     } catch {
       // fall through to BASE_URL
     }
