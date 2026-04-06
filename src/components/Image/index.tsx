@@ -42,17 +42,18 @@ export default function Image({
   hideIfError?: boolean
   errorPlaceholder?: React.ReactNode
   /**
-   * When true AND a blurHash is available, the full image is NOT loaded until
-   * the user clicks. The blurhash canvas is shown as a bandwidth-saving
-   * placeholder. Clicking triggers loading (and will open the image link if
-   * the normal click handler does so).
+   * When true, the full image is NOT loaded until the user interacts.
+   * Shows a blurhash canvas if available, otherwise a skeleton placeholder.
+   * Intended for inline note images: clicking opens the lightbox (via the
+   * onClick handler passed from MarkdownArticle) without ever loading the
+   * full image inline.
    */
   holdUntilClick?: boolean
 }) {
   const { t } = useTranslation()
   const urlOk = !!url?.trim()
-  // When holdUntilClick is active we start in the "held" state.
-  const shouldHold = holdUntilClick && !!blurHash
+  // When holdUntilClick is active we start in the "held" state (regardless of blurHash).
+  const shouldHold = holdUntilClick
   const [revealed, setRevealed] = useState(!shouldHold)
   const [isLoading, setIsLoading] = useState(urlOk && revealed)
   const [displaySkeleton, setDisplaySkeleton] = useState(urlOk)
@@ -152,9 +153,12 @@ export default function Image({
               blurHash={blurHash}
               className={cn(
                 'absolute inset-0 transition-opacity duration-500 rounded-lg',
-                isLoading || !revealed ? 'opacity-100' : 'opacity-0'
+                !revealed ? 'opacity-100' : 'opacity-0'
               )}
             />
+          ) : !revealed && !isLoading ? (
+            // Static bg when held — no shimmer animation flashing indefinitely
+            <span className="absolute inset-0 h-full w-full rounded-lg bg-muted" />
           ) : (
             <Skeleton
               className={cn(
@@ -162,14 +166,6 @@ export default function Image({
                 isLoading ? 'opacity-100' : 'opacity-0'
               )}
             />
-          )}
-          {/* "Tap to view" overlay when held on blurhash */}
-          {!revealed && (
-            <span className="absolute inset-0 flex items-center justify-center z-20">
-              <span className="rounded-full bg-black/50 px-3 py-1 text-xs text-white/90 select-none pointer-events-none">
-                {t('Tap to load image')}
-              </span>
-            </span>
           )}
         </span>
       )}

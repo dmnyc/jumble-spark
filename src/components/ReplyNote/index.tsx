@@ -177,6 +177,7 @@ export default function ReplyNote({
                   className="mt-2"
                   event={event}
                   hideMetadata={true}
+                  lazyMedia={false}
                   duplicateWebPreviewCleanedUrlHints={duplicateWebPreviewCleanedUrlHints}
                 />
               )

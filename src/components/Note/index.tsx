@@ -213,11 +213,12 @@ export default function Note({
           className={className}
           event={event}
           hideMetadata={hideMetadata}
+          lazyMedia={!showFull}
           fullCalendarInvite={fullCalendarInvite}
         />
       )
     },
-    [event, fullCalendarInvite]
+    [event, fullCalendarInvite, showFull]
   )
 
   let content: React.ReactNode

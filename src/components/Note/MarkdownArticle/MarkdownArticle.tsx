@@ -601,6 +601,8 @@ export function parseMarkdownContentLegacy(
     suppressStandaloneWebPreviewCleanedUrls?: ReadonlySet<string>
     /** Event whose body is being rendered (embedded notes / HTTP nostr links). */
     containingEvent?: Event
+    /** Hold images as placeholders until clicked (lightbox). False in detail/full views. */
+    lazyMedia?: boolean
   }
 ): { nodes: React.ReactNode[]; hashtagsInContent: Set<string>; footnotes: Map<string, string>; citations: Array<{ id: string; type: string; citationId: string }> } {
   const {
@@ -615,14 +617,26 @@ export function parseMarkdownContentLegacy(
     emojiInfos = [],
     fullCalendarInvite,
     suppressStandaloneWebPreviewCleanedUrls,
-    containingEvent
+    containingEvent,
+    lazyMedia = true
   } = options
   const parts: React.ReactNode[] = []
   const hashtagsInContent = new Set<string>()
   const footnotes = new Map<string, string>()
   const citations: Array<{ id: string; type: string; citationId: string }> = []
   let lastIndex = 0
-  
+
+  // Build imeta lookup map once for blurHash and other NIP-94 metadata
+  const imetaByCleanedUrl = new Map<string, TImetaInfo>()
+  if (containingEvent) {
+    getImetaInfosFromEvent(containingEvent).forEach((info) => {
+      const cleaned = cleanUrl(info.url)
+      if (cleaned) imetaByCleanedUrl.set(cleaned, info)
+    })
+  }
+  const imetaInfoForUrl = (cleaned: string): TImetaInfo =>
+    imetaByCleanedUrl.get(cleaned) ?? { url: cleaned, pubkey: eventPubkey }
+
   // Helper function to check if an index range falls within any block-level pattern
   const isWithinBlockPattern = (start: number, end: number, blockPatterns: Array<{ index: number; end: number }>): boolean => {
     return blockPatterns.some(blockPattern =>
@@ -1879,32 +1893,16 @@ export function parseMarkdownContentLegacy(
       }
       
       if (isImage(cleaned)) {
-        // Check if there's a thumbnail available for this image
-        // Use thumbnail for display, but original URL for lightbox
-        let thumbnailUrl: string | undefined
-        if (imageThumbnailMap) {
-          thumbnailUrl = imageThumbnailMap.get(cleaned)
-          // Also check by identifier for cross-domain matching
-          if (!thumbnailUrl && getImageIdentifier) {
-            const identifier = getImageIdentifier(cleaned)
-            if (identifier) {
-              thumbnailUrl = imageThumbnailMap.get(`__img_id:${identifier}`)
-            }
-          }
-        }
-        // Don't use thumbnails in notes - use original URL
-        const displayUrl = url
-        const hasThumbnail = false
-        
         parts.push(
-          <div key={`img-${patternIdx}`} className={`my-2 block ${hasThumbnail ? 'max-w-[120px]' : 'max-w-[400px]'}`}>
+          <div key={`img-${patternIdx}`} className="my-2 block max-w-[400px]">
             <Image
-              image={{ url: displayUrl, pubkey: eventPubkey }}
-              className={`${hasThumbnail ? 'h-auto' : 'w-full'} rounded-lg cursor-zoom-in`}
+              image={imetaInfoForUrl(cleaned)}
+              className="w-full rounded-lg cursor-zoom-in"
               classNames={{
-                wrapper: `rounded-lg block ${hasThumbnail ? '' : 'w-full'}`,
+                wrapper: 'rounded-lg block w-full',
                 errorPlaceholder: 'aspect-square h-[30vh]'
               }}
+              holdUntilClick={lazyMedia}
               onClick={(e) => {
                 e.stopPropagation()
                 if (imageIndex !== undefined) {
@@ -1921,7 +1919,7 @@ export function parseMarkdownContentLegacy(
             <MediaPlayer
               src={cleaned}
               className="max-w-[400px]"
-              mustLoad={false}
+              mustLoad={!lazyMedia}
               poster={poster}
             />
           </div>
@@ -2019,7 +2017,7 @@ export function parseMarkdownContentLegacy(
             <MediaPlayer
               src={cleanedStandalone}
               className="max-w-[400px]"
-              mustLoad={false}
+              mustLoad={!lazyMedia}
               poster={poster}
             />
           </div>
@@ -2114,7 +2112,7 @@ export function parseMarkdownContentLegacy(
           <YoutubeEmbeddedPlayer
             url={url}
             className="max-w-[400px]"
-            mustLoad={false}
+            mustLoad={!lazyMedia}
           />
         </div>
       )
@@ -2555,28 +2553,17 @@ export function parseMarkdownContentLegacy(
                   imageIndex = imageIndexMap.get(`__img_id:${identifier}`)
                 }
               }
-              
-              let thumbnailUrl: string | undefined
-              if (imageThumbnailMap) {
-                thumbnailUrl = imageThumbnailMap.get(cleaned)
-                if (!thumbnailUrl && getImageIdentifier) {
-                  const identifier = getImageIdentifier(cleaned)
-                  if (identifier) {
-                    thumbnailUrl = imageThumbnailMap.get(`__img_id:${identifier}`)
-                  }
-                }
-              }
-              const displayUrl = thumbnailUrl || imgUrl
-              
+
               parts.push(
                 <div key={`img-end-${imgIdx}`} className="my-2 block max-w-[400px] mx-auto">
                   <Image
-                    image={{ url: displayUrl, pubkey: eventPubkey }}
+                    image={imetaInfoForUrl(cleaned)}
                     className="w-full rounded-lg cursor-zoom-in"
                     classNames={{
                       wrapper: 'rounded-lg block w-full',
                       errorPlaceholder: 'aspect-square h-[30vh]'
                     }}
+                    holdUntilClick={lazyMedia}
                     onClick={(e) => {
                       e.stopPropagation()
                       if (imageIndex !== undefined) {
@@ -2942,6 +2929,8 @@ function parseMarkdownContentMarked(
     fullCalendarInvite?: { naddr: string; event: Event }
     suppressStandaloneWebPreviewCleanedUrls?: ReadonlySet<string>
     containingEvent?: Event
+    /** Hold images as placeholders until clicked (lightbox). False in detail/full views. */
+    lazyMedia?: boolean
   }
 ): { nodes: React.ReactNode[]; hashtagsInContent: Set<string>; footnotes: Map<string, string>; citations: Array<{ id: string; type: string; citationId: string }> } {
   const {
@@ -2951,12 +2940,12 @@ function parseMarkdownContentMarked(
     navigateToHashtag,
     navigateToRelay,
     videoPosterMap,
-    imageThumbnailMap,
     getImageIdentifier,
     emojiInfos = [],
     fullCalendarInvite,
     suppressStandaloneWebPreviewCleanedUrls,
-    containingEvent
+    containingEvent,
+    lazyMedia = true
   } = options
 
   /** Direct image URLs on their own line: render Image (NIP-94 / Amethyst-style), not WebPreview — WebPreview returns null when autoLoadMedia is off. */
@@ -2986,6 +2975,7 @@ function parseMarkdownContentMarked(
             wrapper: 'rounded-lg block w-full',
             errorPlaceholder: 'aspect-square h-[30vh]'
           }}
+          holdUntilClick={lazyMedia}
           onClick={(e) => {
             e.stopPropagation()
             if (imageIndex !== undefined) {
@@ -3136,11 +3126,6 @@ function parseMarkdownContentMarked(
           }
           // `![](url)` has empty alt — a plain <a>{label}</a> was invisible. Use Image like block paragraphs.
           const baseImeta = imetaInfoForStandaloneImageUrl(cleaned)
-          const identifier = getImageIdentifier?.(cleaned)
-          const thumbnail =
-            imageThumbnailMap?.get(cleaned) ??
-            (identifier ? imageThumbnailMap?.get(`__img_id:${identifier}`) : undefined)
-          const imageUrl = thumbnail || src
           let imageIdx = imageIndexMap.get(cleaned)
           if (imageIdx === undefined && getImageIdentifier) {
             const id = getImageIdentifier(cleaned)
@@ -3149,13 +3134,14 @@ function parseMarkdownContentMarked(
           out.push(
             <Image
               key={`${key}-img-inline`}
-              image={{ ...baseImeta, url: imageUrl }}
+              image={{ ...baseImeta, url: src }}
               alt={label || 'image'}
               className="w-full rounded-lg cursor-zoom-in"
               classNames={{
                 wrapper: 'not-prose my-2 block max-w-[400px] mx-auto rounded-lg w-full',
                 errorPlaceholder: 'aspect-square h-[30vh]'
               }}
+              holdUntilClick={lazyMedia}
               onClick={(e: React.MouseEvent) => {
                 e.stopPropagation()
                 if (typeof imageIdx === 'number') openLightbox(imageIdx)
@@ -3288,7 +3274,7 @@ function parseMarkdownContentMarked(
                       <YoutubeEmbeddedPlayer
                         url={cleaned}
                         className="max-w-[400px]"
-                        mustLoad={false}
+                        mustLoad={!lazyMedia}
                       />
                     </div>
                   )
@@ -3297,7 +3283,7 @@ function parseMarkdownContentMarked(
                   const poster = videoPosterMap?.get(cleaned)
                   return (
                     <div key={`${key}-line-media-${lineIdx}`} className="my-2">
-                      <MediaPlayer src={cleaned} poster={poster} className="max-w-[400px]" mustLoad={false} />
+                      <MediaPlayer src={cleaned} poster={poster} className="max-w-[400px]" mustLoad={!lazyMedia} />
                     </div>
                   )
                 }
@@ -3428,7 +3414,7 @@ function parseMarkdownContentMarked(
               <YoutubeEmbeddedPlayer
                 url={cleaned}
                 className="max-w-[400px]"
-                mustLoad={false}
+                mustLoad={!lazyMedia}
               />
             </div>
           )
@@ -3437,7 +3423,7 @@ function parseMarkdownContentMarked(
           const poster = videoPosterMap?.get(cleaned)
           return (
             <div key={`${key}-media-url`} className="my-2">
-              <MediaPlayer src={cleaned} poster={poster} className="max-w-[400px]" mustLoad={false} />
+              <MediaPlayer src={cleaned} poster={poster} className="max-w-[400px]" mustLoad={!lazyMedia} />
             </div>
           )
         }
@@ -3515,7 +3501,7 @@ function parseMarkdownContentMarked(
           const poster = videoPosterMap?.get(cleaned)
           nodes.push(
             <div key={`${key}-inline-media-${idx}`} className="my-2">
-              <MediaPlayer src={cleaned} poster={poster} className="max-w-[400px]" mustLoad={false} />
+              <MediaPlayer src={cleaned} poster={poster} className="max-w-[400px]" mustLoad={!lazyMedia} />
             </div>
           )
         })
@@ -3591,7 +3577,7 @@ function parseMarkdownContentMarked(
           const poster = videoPosterMap?.get(cleaned)
           return (
             <div key={`${key}-media-block`} className="my-2">
-              <MediaPlayer src={src} poster={poster} className="max-w-[400px]" />
+              <MediaPlayer src={src} poster={poster} className="max-w-[400px]" mustLoad={!lazyMedia} />
             </div>
           )
         }
@@ -3602,19 +3588,15 @@ function parseMarkdownContentMarked(
             </p>
           )
         }
-        const identifier = getImageIdentifier?.(cleaned)
-        const thumbnail =
-          imageThumbnailMap?.get(cleaned) ??
-          (identifier ? imageThumbnailMap?.get(`__img_id:${identifier}`) : undefined)
-        const imageUrl = thumbnail || src
         const imageIdx = imageIndexMap.get(cleaned)
         return (
           <Image
             key={`${key}-img-block`}
-            image={{ url: imageUrl, pubkey: eventPubkey }}
+            image={imetaInfoForStandaloneImageUrl(cleaned)}
             alt={imageToken.text || 'image'}
             className="w-full rounded-lg cursor-zoom-in my-0"
             classNames={{ wrapper: 'my-2 block max-w-[400px] mx-auto' }}
+            holdUntilClick={lazyMedia}
             onClick={(e: React.MouseEvent) => {
               e.stopPropagation()
               if (typeof imageIdx === 'number') openLightbox(imageIdx)
@@ -4404,6 +4386,7 @@ export default function MarkdownArticle({
   event,
   className,
   hideMetadata = false,
+  lazyMedia = true,
   parentImageUrl,
   fullCalendarInvite,
   duplicateWebPreviewCleanedUrlHints
@@ -4411,6 +4394,12 @@ export default function MarkdownArticle({
   event: Event
   className?: string
   hideMetadata?: boolean
+  /**
+   * When true (default), images in the note are held as blur/skeleton placeholders
+   * until the user opens them in the lightbox. Set to false in full/detail views
+   * so images load immediately.
+   */
+  lazyMedia?: boolean
   parentImageUrl?: string
   /** When viewing a kind-24 invite, render full calendar card with RSVP in place of the naddr embed */
   fullCalendarInvite?: { naddr: string; event: Event }
@@ -4795,6 +4784,18 @@ export default function MarkdownArticle({
     return map
   }, [event.id, JSON.stringify(event.tags), getImageIdentifier])
   
+  // Maps cleaned image URL → blurhash string (for inline placeholder rendering)
+  const imageBlurHashMap = useMemo(() => {
+    const map = new Map<string, string>()
+    getImetaInfosFromEvent(event).forEach((info) => {
+      if (info.blurHash) {
+        const cleaned = cleanUrl(info.url)
+        if (cleaned) map.set(cleaned, info.blurHash)
+      }
+    })
+    return map
+  }, [event.id, JSON.stringify(event.tags)])
+
   const emojiInfos = useMemo(() => getEmojiInfosFromEmojiTags(event.tags), [event.tags])
 
   // Parse markdown content with post-processing for nostr: links and hashtags
@@ -4811,6 +4812,7 @@ export default function MarkdownArticle({
       emojiInfos,
       fullCalendarInvite,
       containingEvent: event,
+      lazyMedia,
       suppressStandaloneWebPreviewCleanedUrls:
         webPreviewSuppressCleanedSet.size > 0 ? webPreviewSuppressCleanedSet : undefined
     }
@@ -4836,6 +4838,7 @@ export default function MarkdownArticle({
     getImageIdentifier,
     emojiInfos,
     fullCalendarInvite,
+    lazyMedia,
     webPreviewSuppressCleanedSet
   ])
   
@@ -4990,32 +4993,16 @@ export default function MarkdownArticle({
               const mediaIndex = imageIndexMap.get(cleaned)
               
               if (media.type === 'image') {
-                // Check if there's a thumbnail available for this image
-                let thumbnailUrl: string | undefined
-                if (imageThumbnailMap) {
-                  thumbnailUrl = imageThumbnailMap.get(cleaned)
-                  // Also check by identifier for cross-domain matching
-                  if (!thumbnailUrl) {
-                    const identifier = getImageIdentifier(cleaned)
-                    if (identifier) {
-                      thumbnailUrl = imageThumbnailMap.get(`__img_id:${identifier}`)
-                    }
-                  }
-                }
-        // Don't use thumbnails in notes - they're too small
-        // Keep thumbnailUrl for fallback/OpenGraph data, but use original URL for display
-        const displayUrl = media.url
-        const hasThumbnail = false
-                
                 return (
-                  <div key={`tag-media-${cleaned}`} className={`my-2 ${hasThumbnail ? 'max-w-[120px]' : 'max-w-[400px]'}`}>
+                  <div key={`tag-media-${cleaned}`} className="my-2 max-w-[400px]">
                     <Image
-                      image={{ url: displayUrl, pubkey: event.pubkey }}
-                      className={`${hasThumbnail ? 'h-auto' : 'w-full'} rounded-lg cursor-zoom-in`}
+                      image={{ url: media.url, pubkey: event.pubkey, blurHash: imageBlurHashMap.get(cleaned) }}
+                      className="w-full rounded-lg cursor-zoom-in"
                       classNames={{
-                        wrapper: `rounded-lg ${hasThumbnail ? '' : 'w-full'}`,
+                        wrapper: 'rounded-lg w-full',
                         errorPlaceholder: 'aspect-square h-[30vh]'
                       }}
+                      holdUntilClick={lazyMedia}
                       onClick={(e) => {
                         e.stopPropagation()
                         if (mediaIndex !== undefined) {
@@ -5023,7 +5010,7 @@ export default function MarkdownArticle({
                         }
                       }}
                     />
-        </div>
+                  </div>
                 )
               } else if (media.type === 'video' || media.type === 'audio') {
                 return (
@@ -5031,7 +5018,7 @@ export default function MarkdownArticle({
                     <MediaPlayer
                       src={media.url}
                       className="max-w-full sm:max-w-[400px] w-full"
-                      mustLoad={true}
+                      mustLoad={!lazyMedia}
                       poster={media.poster}
                     />
                   </div>
@@ -5052,7 +5039,7 @@ export default function MarkdownArticle({
                   <YoutubeEmbeddedPlayer
                     url={url}
                     className="max-w-[400px]"
-                    mustLoad={false}
+                    mustLoad={!lazyMedia}
                   />
                 </div>
               )
