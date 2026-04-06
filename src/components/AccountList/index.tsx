@@ -13,10 +13,15 @@ import { SimpleUsername } from '../Username'
 
 export default function AccountList({
   className,
-  afterSwitch
+  afterSwitch,
+  closeDialog
 }: {
   className?: string
   afterSwitch: () => void
+  /** Called before switching to an ncryptsec account so the parent dialog can
+   *  close before the password prompt opens (avoids two simultaneous Radix
+   *  dialogs fighting over focus trapping). */
+  closeDialog?: () => void
 }) {
   const { accounts, account, switchAccount, removeAccount } = useNostr()
   const [switchingAccount, setSwitchingAccount] = useState<TAccountPointer | null>(null)
@@ -28,13 +33,18 @@ export default function AccountList({
           key={`${act.pubkey}-${act.signerType}`}
           className={cn(
             'relative rounded-lg',
-            isSameAccount(act, account) ? 'border border-primary' : 'clickable'
+            act.pubkey === account?.pubkey ? 'border border-primary' : 'clickable'
           )}
           onClick={() => {
             if (isSameAccount(act, account)) return
             setSwitchingAccount(act)
+            if (act.signerType === 'ncryptsec') {
+              closeDialog?.()
+            }
             switchAccount(act)
-              .then(() => afterSwitch())
+              .then(() => {
+                if (act.signerType !== 'ncryptsec') afterSwitch()
+              })
               .finally(() => setSwitchingAccount(null))
           }}
         >

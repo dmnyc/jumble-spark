@@ -30,7 +30,12 @@ export default function LogoutDialog({
 }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
-  const { account, removeAccount } = useNostr()
+  const { account, switchAccount } = useNostr()
+
+  const handleLogout = () => {
+    setOpen(false)
+    void switchAccount(null)
+  }
 
   if (isSmallScreen) {
     return (
@@ -46,12 +51,8 @@ export default function LogoutDialog({
             </Button>
             <Button
               variant="destructive"
-              onClick={() => {
-                if (account) {
-                  setOpen(false)
-                  removeAccount(account)
-                }
-              }}
+              onClick={handleLogout}
+              disabled={!account}
               className="w-full"
             >
               {t('Logout')}
@@ -73,11 +74,7 @@ export default function LogoutDialog({
           <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            onClick={() => {
-              if (account) {
-                removeAccount(account)
-              }
-            }}
+            onClick={handleLogout}
           >
             {t('Logout')}
           </AlertDialogAction>

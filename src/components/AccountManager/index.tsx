@@ -113,7 +113,7 @@ function AccountManagerNav({
             <div className="text-center text-muted-foreground text-sm font-semibold">
               {t('Logged in Accounts')}
             </div>
-            <AccountList className="mt-4" afterSwitch={() => close?.()} />
+            <AccountList className="mt-4" afterSwitch={() => close?.()} closeDialog={() => close?.()} />
           </div>
         </>
       )}

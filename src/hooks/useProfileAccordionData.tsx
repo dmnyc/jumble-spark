@@ -68,6 +68,17 @@ export function useProfileAccordionData(opts: {
   const reqId = useRef(0)
   const lastSuccessfulRelayUrlsRef = useRef<string[]>([])
 
+  // Keep refs so callbacks don't get recreated when these arrays change reference.
+  // Including live array references as useCallback deps causes the useLayoutEffect
+  // to re-fire and increment reqId, cancelling every in-flight fetch before it
+  // can commit its result — the accordion never shows data.
+  const relayUrlsRef = useRef(relayUrls)
+  relayUrlsRef.current = relayUrls
+  const favoriteRelaysRef = useRef(favoriteRelays)
+  favoriteRelaysRef.current = favoriteRelays
+  const blockedRelaysRef = useRef(blockedRelays)
+  blockedRelaysRef.current = blockedRelays
+
   const relayKey = useMemo(
     () => profileAccordionBundleCacheKey(relayUrls ?? []),
     [relayUrls]
@@ -79,7 +90,7 @@ export function useProfileAccordionData(opts: {
 
   const runFetch = useCallback(
     async (force: boolean, overrideUrls?: string[]) => {
-      const urls = (overrideUrls?.length ? overrideUrls : relayUrls) ?? []
+      const urls = (overrideUrls?.length ? overrideUrls : relayUrlsRef.current) ?? []
       if (!pubkey?.trim() || !urls.length) return
       const id = ++reqId.current
       setLoading(true)
@@ -88,8 +99,8 @@ export function useProfileAccordionData(opts: {
           pubkey: pubkey.trim(),
           urls,
           viewerPubkey,
-          favoriteRelays: favoriteRelays ?? [],
-          blockedRelays,
+          favoriteRelays: favoriteRelaysRef.current ?? [],
+          blockedRelays: blockedRelaysRef.current,
           force,
           onPartial: (partial) => {
             if (id !== reqId.current) return
@@ -103,7 +114,10 @@ export function useProfileAccordionData(opts: {
         if (id === reqId.current) setLoading(false)
       }
     },
-    [pubkey, relayUrls, viewerPubkey, favoriteRelays, blockedRelays]
+    // relayUrls, favoriteRelays, and blockedRelays are read via refs — intentionally
+    // excluded from deps to prevent callback churn that cancels in-flight requests.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pubkey, viewerPubkey]
   )
 
   const runMergeFetch = useCallback(
@@ -117,8 +131,8 @@ export function useProfileAccordionData(opts: {
           pubkey: pk,
           urls: deltaUrls,
           viewerPubkey,
-          favoriteRelays: favoriteRelays ?? [],
-          blockedRelays,
+          favoriteRelays: favoriteRelaysRef.current ?? [],
+          blockedRelays: blockedRelaysRef.current,
           force: true,
           onPartial: (partial) => {
             if (id !== reqId.current) return
@@ -143,7 +157,9 @@ export function useProfileAccordionData(opts: {
         if (id === reqId.current) setLoading(false)
       }
     },
-    [pubkey, viewerPubkey, favoriteRelays, blockedRelays]
+    // favoriteRelays and blockedRelays are read via refs — see runFetch comment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pubkey, viewerPubkey]
   )
 
   const refresh = useCallback(

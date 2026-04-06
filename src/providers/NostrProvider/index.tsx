@@ -111,42 +111,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   const nip07KeyMismatchToastShownRef = useRef(false)
   const [profile, setProfile] = useState<TProfile | null>(null)
 
-  // Cleanup on page unload to prevent extension UI issues
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      // Try to clean up any pending operations
-      if (signer && 'disconnect' in signer) {
-        try {
-          (signer as any).disconnect()
-        } catch (error) {
-          logger.warn('Failed to disconnect signer:', error)
-        }
-      }
-    }
-
-    const handleUnload = () => {
-      // Additional cleanup for extensions that might leave UI elements
-      try {
-        // Clear any pending timeouts or intervals
-        if (window.nostr && typeof window.nostr === 'object') {
-          // Some extensions might have cleanup methods
-          if ('cleanup' in window.nostr && typeof window.nostr.cleanup === 'function') {
-            window.nostr.cleanup()
-          }
-        }
-      } catch (error) {
-        logger.warn('Extension cleanup failed:', error)
-      }
-    }
-
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    window.addEventListener('unload', handleUnload)
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-      window.removeEventListener('unload', handleUnload)
-    }
-  }, [signer])
   const [profileEvent, setProfileEvent] = useState<Event | null>(null)
   const [relayList, setRelayList] = useState<TRelayList | null>(null)
   const [cacheRelayListEvent, setCacheRelayListEvent] = useState<Event | null>(null)
@@ -167,6 +131,12 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   const forceNextAccountNetworkHydrateRef = useRef(false)
   const manualNetworkHydrateResolveRef = useRef<(() => void) | null>(null)
   const [accountNetworkHydrateBump, setAccountNetworkHydrateBump] = useState(0)
+  /**
+   * Bumped by {@link switchAccount} after it persists the intended target to storage following
+   * an npub fallback. This re-triggers the NIP-07 recovery loop so it can reconnect as soon
+   * as the user updates their browser extension.
+   */
+  const [nip07RecoveryBump, setNip07RecoveryBump] = useState(0)
 
   useEffect(() => {
     const init = async () => {
@@ -828,7 +798,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
     let attempts = 0
-    const maxAttempts = 6
+    const maxAttempts = 10
 
     const schedule = (ms: number) => {
       if (cancelled) return
@@ -856,11 +826,19 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         return
       } catch (error) {
         if (isNip07SignerPubkeyMismatchError(error)) {
+          logger.info('[NostrProvider] NIP-07 recovery: extension key mismatch on attempt', {
+            attempts,
+            wantedPubkey: preferred.pubkey.slice(0, 12)
+          })
           if (!nip07KeyMismatchToastShownRef.current) {
             nip07KeyMismatchToastShownRef.current = true
-            toast.error(t('nip07.extensionKeyMismatch'), { duration: 12_000 })
+            toast.error(t('nip07.extensionKeyMismatch'), {
+              duration: 20_000,
+              action: { label: t('nip07.reloadPage'), onClick: () => window.location.reload() }
+            })
           }
-          attempts = maxAttempts
+          // Keep retrying — the extension may update its approved key after a moment.
+          schedule(3_000)
           return
         }
         logger.info('[NostrProvider] NIP-07 recovery retry failed', {
@@ -877,7 +855,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [account])
+  // nip07RecoveryBump is incremented by switchAccount after it updates storage following an
+  // npub fallback, so the loop re-fires with the correct preferred account.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account, nip07RecoveryBump])
 
   const hasNostrLoginHash = () => {
     return window.location.hash && window.location.hash.startsWith('#nostr-login')
@@ -925,7 +906,19 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       setSigner(null)
       return null
     }
-    return await loginWithAccountPointer(act)
+    const result = await loginWithAccountPointer(act)
+    // If loginWithAccountPointer fell back to read-only npub it skips storage.switchAccount.
+    // Persist the user's intent here so:
+    //   • session restore on refresh targets the right account, and
+    //   • the NIP-07 recovery loop (which reads storage.getCurrentAccount) can fire.
+    if (result !== null && storage.getCurrentAccount()?.pubkey !== act.pubkey) {
+      const storedFull = storage.findAccount(act)
+      if (storedFull) {
+        storage.switchAccount(storedFull)
+        setNip07RecoveryBump((b) => b + 1)
+      }
+    }
+    return result
   }
 
   const finishNcryptsecPasswordPrompt = useCallback((password: string | null) => {
@@ -1138,7 +1131,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
           !nip07KeyMismatchToastShownRef.current
         ) {
           nip07KeyMismatchToastShownRef.current = true
-          toast.error(t('nip07.extensionKeyMismatch'), { duration: 12_000 })
+          toast.error(t('nip07.extensionKeyMismatch'), {
+            duration: 20_000,
+            action: { label: t('nip07.reloadPage'), onClick: () => window.location.reload() }
+          })
         }
         return fallbackToReadOnlyNpub(storedAccount.pubkey, err)
       }
@@ -1227,24 +1223,9 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     if (!event) {
       throw new Error('sign event failed')
     }
-    
-    // Debug: Log the signed event
-    logger.debug('Signed event:', {
-      id: event.id,
-      pubkey: event.pubkey,
-      sig: event.sig,
-      content: event.content.substring(0, 100) + '...',
-      tags: event.tags,
-      created_at: event.created_at
-    })
-    
-    // Validate the event before publishing
-    const isValid = validateEvent(event)
-    if (!isValid) {
-      logger.error('Event validation failed:', event)
+    if (!validateEvent(event)) {
       throw new Error('Event validation failed - invalid signature or format. Please try logging in again.')
     }
-    
     return event as VerifiedEvent
   }
 
@@ -1255,11 +1236,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     if (!account || !signer || account.signerType === 'npub') {
       setOpenLoginDialog(true)
       throw new LoginRequiredError()
-    }
-    
-    // Validate account state before publishing
-    if (!account.pubkey || account.pubkey.length !== 64) {
-      throw new Error('Invalid account state - pubkey is missing or invalid')
     }
 
     const normalizeOpts = { addClientTag: options.addClientTag }

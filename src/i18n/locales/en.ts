@@ -1458,7 +1458,8 @@ export default {
       'Log in to run this spell (it uses $me or $contacts).',
     'Login failed': 'Login failed',
     'nip07.extensionKeyMismatch':
-      'Your browser wallet is using a different key than this saved account. Select the matching key in the extension, or log in to add this wallet as an account. Retrying will not help until the keys match.',
+      "Your browser extension is using a different key on this tab. Switch to the matching key in the extension, or reload the page to apply your extension's current selection.",
+    'nip07.reloadPage': 'Reload page',
     'Login to configure RSS feeds': 'Login to configure RSS feeds',
     'Long-form Article': 'Long-form Article',
     'Mailbox relays saved': 'Mailbox relays saved',
