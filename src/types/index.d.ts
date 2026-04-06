@@ -177,6 +177,7 @@ export type TImetaInfo = {
   fallback?: string[] // Array of fallback URLs
   image?: string // Poster/thumbnail image URL (for videos)
   thumb?: string // Thumbnail URL for images
+  size?: number // File size in bytes (NIP-94)
 }
 
 export type TPublishOptions = {

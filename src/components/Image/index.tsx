@@ -22,8 +22,14 @@ function wrapperReserveStyle(
   return { minHeight: 'min(30vh, 280px)' }
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`
+  if (bytes >= 1_024) return `${Math.round(bytes / 1_024)} KB`
+  return `${bytes} B`
+}
+
 export default function Image({
-  image: { url, blurHash, dim, alt: imetaAlt, fallback },
+  image: { url, blurHash, dim, alt: imetaAlt, fallback, size: fileSizeBytes },
   alt,
   className = '',
   classNames = {},
@@ -167,6 +173,11 @@ export default function Image({
               )}
             />
           )}
+          {!revealed && holdUntilClick && fileSizeBytes != null && (
+            <span className="absolute bottom-2 right-2 z-20 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium text-white/90 backdrop-blur-sm select-none pointer-events-none">
+              {formatFileSize(fileSizeBytes)}
+            </span>
+          )}
         </span>
       )}
       {!showErrorState && revealed && (
@@ -176,7 +187,7 @@ export default function Image({
           title={finalAlt || undefined}
           referrerPolicy="no-referrer"
           decoding="async"
-          loading="eager"
+          loading="lazy"
           draggable={false}
           onLoad={handleLoad}
           onError={handleError}

@@ -229,6 +229,21 @@ export function getImetaInfoFromImetaTag(tag: string[], pubkey?: string): TImeta
   if (thumbUrl) {
     imeta.thumb = cleanUrl(thumbUrl)
   }
+
+  // Parse file size (bytes)
+  let fileSize: number | undefined
+  const sizeItem = tag.find((item) => item.startsWith('size '))
+  if (sizeItem) {
+    fileSize = parseInt(sizeItem.slice(5), 10)
+  } else {
+    const sizeIndex = tag.findIndex((item) => item === 'size')
+    if (sizeIndex !== -1 && sizeIndex + 1 < tag.length) {
+      fileSize = parseInt(tag[sizeIndex + 1], 10)
+    }
+  }
+  if (fileSize && !isNaN(fileSize)) {
+    imeta.size = fileSize
+  }
   
   return imeta
 }

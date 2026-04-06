@@ -2423,7 +2423,7 @@ export function parseMarkdownContentLegacy(
           // Embedded events should be block-level and fill width
           parts.push(
             <div key={`nostr-${patternIdx}`} className="w-full my-2">
-              <EmbeddedNote noteId={bech32Id} />
+              <EmbeddedNote noteId={bech32Id} showFull={!lazyMedia} />
             </div>
           )
         }
@@ -3200,7 +3200,7 @@ function parseMarkdownContentMarked(
         }
         return (
           <div key={`${key}-nostr-event`} className="w-full my-2">
-            <EmbeddedNote noteId={bech32Id} containingEvent={containingEvent} />
+            <EmbeddedNote noteId={bech32Id} containingEvent={containingEvent} showFull={!lazyMedia} />
           </div>
         )
       }
@@ -3341,7 +3341,7 @@ function parseMarkdownContentMarked(
             }
             return (
               <div key={`${key}-line-event-${lineIdx}`} className="w-full my-2">
-                <EmbeddedNote noteId={bech32Id} containingEvent={containingEvent} />
+                <EmbeddedNote noteId={bech32Id} containingEvent={containingEvent} showFull={!lazyMedia} />
               </div>
             )
           }
@@ -3386,7 +3386,7 @@ function parseMarkdownContentMarked(
         } else {
           nodes.push(
             <div key={`${key}-nostr-raw-event-${segmentIdx++}`} className="w-full my-2">
-              <EmbeddedNote noteId={bech32Id} containingEvent={containingEvent} />
+              <EmbeddedNote noteId={bech32Id} containingEvent={containingEvent} showFull={!lazyMedia} />
             </div>
           )
         }
@@ -3553,7 +3553,7 @@ function parseMarkdownContentMarked(
           } else {
             nodes.push(
               <div key={`${key}-nostr-inline-event-${idx}`} className="w-full my-2">
-                <EmbeddedNote noteId={bech32} containingEvent={containingEvent} />
+                <EmbeddedNote noteId={bech32} containingEvent={containingEvent} showFull={!lazyMedia} />
               </div>
             )
           }

@@ -70,11 +70,13 @@ function canSearchOnExternalRelays(noteId: string): boolean {
 export function EmbeddedNote({
   noteId,
   className,
-  containingEvent
+  containingEvent,
+  showFull = false
 }: {
   noteId: string
   className?: string
   containingEvent?: Event
+  showFull?: boolean
 }) {
   const suppress = useSuppressEmbeddedNoteId()
   const embeddedHexId = useMemo(() => hexEventIdFromNoteId(noteId), [noteId])
@@ -99,6 +101,7 @@ export function EmbeddedNote({
       noteId={noteId}
       className={className}
       containingEvent={containingEvent}
+      showFull={showFull}
     />
   )
 }
@@ -160,11 +163,13 @@ function EmbeddedNoteInvalid({
 function EmbeddedNoteContent({
   noteId,
   className,
-  containingEvent
+  containingEvent,
+  showFull = false
 }: {
   noteId: string
   className?: string
   containingEvent?: Event
+  showFull?: boolean
 }) {
   const { event, isFetching } = useFetchEvent(noteId)
   const [retryEvent, setRetryEvent] = useState<Event | undefined>(undefined)
@@ -254,6 +259,7 @@ function EmbeddedNoteContent({
         className={cn('w-full', className)}
         event={finalEvent}
         embedded
+        showFull={showFull}
         originalNoteId={noteId}
       />
     </div>

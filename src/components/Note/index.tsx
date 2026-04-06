@@ -129,6 +129,7 @@ export default function Note({
   )
   const contentPolicy = useContentPolicyOptional()
   const defaultShowNsfw = contentPolicy?.defaultShowNsfw ?? true
+  const autoLoadMedia = contentPolicy?.autoLoadMedia ?? true
   const [showNsfw, setShowNsfw] = useState(false)
   const muteList = useMuteListOptional()
   const mutePubkeySet = muteList?.mutePubkeySet ?? new Set<string>()
@@ -213,12 +214,12 @@ export default function Note({
           className={className}
           event={event}
           hideMetadata={hideMetadata}
-          lazyMedia={!showFull}
+          lazyMedia={!showFull || !autoLoadMedia}
           fullCalendarInvite={fullCalendarInvite}
         />
       )
     },
-    [event, fullCalendarInvite, showFull]
+    [event, fullCalendarInvite, showFull, autoLoadMedia]
   )
 
   let content: React.ReactNode

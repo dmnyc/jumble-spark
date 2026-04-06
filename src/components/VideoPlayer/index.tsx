@@ -62,6 +62,7 @@ export default function VideoPlayer({ src, className, poster }: { src: string; c
           ref={videoRef}
           controls
           playsInline
+          preload="none"
           className={cn('rounded-lg max-h-[80vh] sm:max-h-[60vh] border w-full h-auto max-w-full', className)}
           src={src}
           poster={poster}

@@ -1,26 +1,13 @@
-import UserAvatar from '@/components/UserAvatar'
-import { SimpleUsername } from '@/components/Username'
 import { Button } from '@/components/ui/button'
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
-import { useMuteList } from '@/contexts/mute-list-context'
-import { muteSetHas } from '@/lib/mute-set'
 import { useFavoriteRelaysActivity } from '@/providers/favorite-relays-activity-context'
 import { RelayPulseActiveNpubsOpenButton } from './RelayPulseActiveNpubsSheet'
 import type { TFunction } from 'i18next'
 import { FileText } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-
-const MOBILE_MAX_FOLLOW = 30
-const MOBILE_MAX_OTHER = 30
-const SIDEBAR_MAX_FOLLOW = 50
-const SIDEBAR_MAX_OTHER = 50
-
-/** Slight overlap so faces stay recognizable */
-const AVATAR_OVERLAP = '-ml-1'
 
 function relativePastPhrase(timestampMs: number, t: TFunction): string {
   const sec = Math.floor((Date.now() - timestampMs) / 1000)
@@ -46,166 +33,52 @@ function useRelativePastPhrase(timestampMs: number | null, t: TFunction): string
   }, [timestampMs, t, tick])
 }
 
-function OverlappingAvatars({
-  pubkeys,
-  max,
-  avatarSize,
-  rowClassName
-}: {
-  pubkeys: string[]
-  max: number
-  avatarSize: 'small' | 'xSmall' | 'tiny'
-  rowClassName?: string
-}) {
-  const slice = pubkeys.slice(0, max)
-  const extra = pubkeys.length - slice.length
-
-  const row = (
-    <div className="flex w-full min-w-0 max-w-full flex-row flex-wrap items-center gap-y-1 pl-0.5">
-      {slice.map((pk, i) => (
-        <HoverCard key={pk} openDelay={180} closeDelay={80}>
-          <HoverCardTrigger asChild>
-            <div
-              className={cn(
-                'relative shrink-0 rounded-full ring-2 ring-background transition-[z-index] duration-150',
-                i > 0 && AVATAR_OVERLAP
-              )}
-              style={{ zIndex: i + 1 }}
-            >
-              <UserAvatar userId={pk} size={avatarSize} />
-            </div>
-          </HoverCardTrigger>
-          <HoverCardContent side="top" className="w-auto max-w-[min(18rem,calc(100vw-2rem))] py-2 px-3">
-            <SimpleUsername userId={pk} showAt className="text-sm font-medium" />
-          </HoverCardContent>
-        </HoverCard>
-      ))}
-      {extra > 0 ? (
-        <div
-          className={cn(
-            'relative z-[20] flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium text-muted-foreground ring-2 ring-background',
-            slice.length > 0 && AVATAR_OVERLAP
-          )}
-          title={String(extra)}
-        >
-          +{extra > 99 ? '99+' : extra}
-        </div>
-      ) : null}
-    </div>
-  )
-
-  return (
-    <div className={cn('flex w-full min-w-0 max-w-full flex-1 items-start', rowClassName)}>
-      {row}
-    </div>
-  )
-}
-
-function ActiveAvatarGroups({
-  followPubkeysForAvatars,
-  otherPubkeysForAvatars,
+function ActiveCountGroups({
   followCount,
   otherCount,
-  maxFollow,
-  maxOther,
-  avatarSize,
   labelClassName,
   stackClassName,
   variant = 'default',
   onOpenFollowsNotes
 }: {
-  /** Subset with kind 0 only (shown as circles); counts use full totals */
-  followPubkeysForAvatars: string[]
-  otherPubkeysForAvatars: string[]
   followCount: number
   otherCount: number
-  maxFollow: number
-  maxOther: number
-  avatarSize: 'small' | 'xSmall' | 'tiny'
   labelClassName: string
   stackClassName?: string
-  /** Mobile home: label above avatars + scrollable rows; sidebar/default keeps compact rows on wider mini breakpoints */
   variant?: 'default' | 'mobileBar'
-  /** Opens search page and expands the notes-from-follows section */
   onOpenFollowsNotes?: () => void
 }) {
   const { t } = useTranslation()
   const mobileBar = variant === 'mobileBar'
   const groupRowClass = mobileBar
-    ? 'flex w-full min-w-0 flex-col gap-1.5'
-    : 'flex min-w-0 flex-col gap-1 min-[380px]:flex-row min-[380px]:items-center min-[380px]:gap-2'
-
-  const followsLabelBlock = (
-    <div className="flex shrink-0 flex-col gap-1">
-      <span className={cn('tabular-nums', labelClassName)}>
-        {t('Relay pulse follows', { count: followCount })}
-      </span>
-      {onOpenFollowsNotes && mobileBar ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 shrink-0 self-start"
-          aria-label={t('See the newest notes from your follows')}
-          title={t('See the newest notes from your follows')}
-          onClick={onOpenFollowsNotes}
-        >
-          <FileText className="size-3.5" />
-        </Button>
-      ) : null}
-    </div>
-  )
-
-  const sidebarSectionClass = 'flex min-w-0 flex-col gap-1'
+    ? 'flex w-full min-w-0 items-center gap-1.5'
+    : 'flex min-w-0 items-center gap-1.5'
 
   return (
-    <div className={cn('flex min-w-0 flex-col gap-2', stackClassName)}>
+    <div className={cn('flex min-w-0 flex-col gap-1.5', stackClassName)}>
       {followCount > 0 ? (
-        <div
-          className={
-            mobileBar ? groupRowClass : sidebarSectionClass
-          }
-        >
-          {mobileBar ? (
-            <span className="flex min-w-0 shrink-0 items-center gap-1">
-              <span className={cn('tabular-nums', labelClassName)}>
-                {t('Relay pulse follows', { count: followCount })}
-              </span>
-              {onOpenFollowsNotes ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 shrink-0"
-                  aria-label={t('See the newest notes from your follows')}
-                  title={t('See the newest notes from your follows')}
-                  onClick={onOpenFollowsNotes}
-                >
-                  <FileText className="size-3.5" />
-                </Button>
-              ) : null}
-            </span>
-          ) : (
-            followsLabelBlock
-          )}
-          <OverlappingAvatars
-            pubkeys={followPubkeysForAvatars}
-            max={maxFollow}
-            avatarSize={avatarSize}
-            rowClassName={mobileBar ? undefined : 'justify-start'}
-          />
+        <div className={groupRowClass}>
+          <span className={cn('tabular-nums', labelClassName)}>
+            {t('Relay pulse follows', { count: followCount })}
+          </span>
+          {onOpenFollowsNotes ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('shrink-0', mobileBar ? 'size-6' : 'size-5')}
+              aria-label={t('See the newest notes from your follows')}
+              title={t('See the newest notes from your follows')}
+              onClick={onOpenFollowsNotes}
+            >
+              <FileText className={mobileBar ? 'size-3.5' : 'size-3'} />
+            </Button>
+          ) : null}
         </div>
       ) : null}
       {otherCount > 0 ? (
-        <div className={mobileBar ? groupRowClass : sidebarSectionClass}>
-          <span className={cn('min-w-0 shrink-0 tabular-nums', labelClassName)}>
-            {t('Relay pulse others', { count: otherCount })}
-          </span>
-          <OverlappingAvatars
-            pubkeys={otherPubkeysForAvatars}
-            max={maxOther}
-            avatarSize={avatarSize}
-            rowClassName={mobileBar ? undefined : 'justify-start'}
-          />
-        </div>
+        <span className={cn('min-w-0 tabular-nums', labelClassName)}>
+          {t('Relay pulse others', { count: otherCount })}
+        </span>
       ) : null}
     </div>
   )
@@ -216,33 +89,14 @@ export function FavoriteRelaysActiveStripMobileBar({ className }: { className?: 
   const { t } = useTranslation()
   const { navigate } = usePrimaryPage()
   const { pubkey } = useNostr()
-  const { mutePubkeySet } = useMuteList()
   const {
-    followPubkeys,
-    otherPubkeys,
     followCount,
     otherCount,
     totalCount,
     loading,
     relayActivityReady,
-    lastFetchedAtMs,
-    profileKind0ByPubkey
+    lastFetchedAtMs
   } = useFavoriteRelaysActivity()
-
-  const followPubkeysForAvatars = useMemo(
-    () =>
-      followPubkeys.filter(
-        (pk) => profileKind0ByPubkey[pk] && !muteSetHas(mutePubkeySet, pk)
-      ),
-    [followPubkeys, profileKind0ByPubkey, mutePubkeySet]
-  )
-  const otherPubkeysForAvatars = useMemo(
-    () =>
-      otherPubkeys.filter(
-        (pk) => profileKind0ByPubkey[pk] && !muteSetHas(mutePubkeySet, pk)
-      ),
-    [otherPubkeys, profileKind0ByPubkey, mutePubkeySet]
-  )
 
   const relativeLabel = useRelativePastPhrase(lastFetchedAtMs, t)
 
@@ -288,7 +142,7 @@ export function FavoriteRelaysActiveStripMobileBar({ className }: { className?: 
         className
       )}
     >
-      <div className="flex w-full min-w-0 flex-col gap-3">
+      <div className="flex w-full min-w-0 flex-col gap-1.5">
         <div className="flex min-w-0 max-w-full items-center justify-between gap-2">
           <div className="flex min-w-0 shrink items-center gap-2">
             <p className="text-xs font-medium leading-tight text-foreground">{t('Relay pulse')}</p>
@@ -300,15 +154,10 @@ export function FavoriteRelaysActiveStripMobileBar({ className }: { className?: 
             </p>
           ) : null}
         </div>
-        <ActiveAvatarGroups
+        <ActiveCountGroups
           variant="mobileBar"
-          followPubkeysForAvatars={followPubkeysForAvatars}
-          otherPubkeysForAvatars={otherPubkeysForAvatars}
           followCount={followCount}
           otherCount={otherCount}
-          maxFollow={MOBILE_MAX_FOLLOW}
-          maxOther={MOBILE_MAX_OTHER}
-          avatarSize="small"
           labelClassName="text-[0.7rem] font-medium text-muted-foreground"
           stackClassName="w-full min-w-0 max-w-full"
           onOpenFollowsNotes={pubkey ? () => navigate('follows-latest') : undefined}
@@ -323,33 +172,14 @@ export function FavoriteRelaysActiveStripSidebar({ className }: { className?: st
   const { t } = useTranslation()
   const { navigate } = usePrimaryPage()
   const { pubkey } = useNostr()
-  const { mutePubkeySet } = useMuteList()
   const {
-    followPubkeys,
-    otherPubkeys,
     followCount,
     otherCount,
     totalCount,
     loading,
     relayActivityReady,
-    lastFetchedAtMs,
-    profileKind0ByPubkey
+    lastFetchedAtMs
   } = useFavoriteRelaysActivity()
-
-  const followPubkeysForAvatars = useMemo(
-    () =>
-      followPubkeys.filter(
-        (pk) => profileKind0ByPubkey[pk] && !muteSetHas(mutePubkeySet, pk)
-      ),
-    [followPubkeys, profileKind0ByPubkey, mutePubkeySet]
-  )
-  const otherPubkeysForAvatars = useMemo(
-    () =>
-      otherPubkeys.filter(
-        (pk) => profileKind0ByPubkey[pk] && !muteSetHas(mutePubkeySet, pk)
-      ),
-    [otherPubkeys, profileKind0ByPubkey, mutePubkeySet]
-  )
 
   const relativeLabel = useRelativePastPhrase(lastFetchedAtMs, t)
 
@@ -437,14 +267,9 @@ export function FavoriteRelaysActiveStripSidebar({ className }: { className?: st
         ) : null}
       </div>
       <div className="max-xl:flex max-xl:justify-center">
-        <ActiveAvatarGroups
-          followPubkeysForAvatars={followPubkeysForAvatars}
-          otherPubkeysForAvatars={otherPubkeysForAvatars}
+        <ActiveCountGroups
           followCount={followCount}
           otherCount={otherCount}
-          maxFollow={SIDEBAR_MAX_FOLLOW}
-          maxOther={SIDEBAR_MAX_OTHER}
-          avatarSize="xSmall"
           labelClassName="text-[0.6rem] font-medium text-muted-foreground xl:px-1"
           stackClassName="w-full max-xl:items-center"
           onOpenFollowsNotes={pubkey ? () => navigate('follows-latest') : undefined}

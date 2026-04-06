@@ -21,7 +21,8 @@ export default function MainNoteCard({
   pinned = false,
   hideParentNotePreview = false,
   zapPollVoteHighlightOption,
-  bottomNoteLabel
+  bottomNoteLabel,
+  showFull = false
 }: {
   event: Event
   className?: string
@@ -34,6 +35,7 @@ export default function MainNoteCard({
   hideParentNotePreview?: boolean
   zapPollVoteHighlightOption?: number
   bottomNoteLabel?: string
+  showFull?: boolean
 }) {
   const { t } = useTranslation()
   const { navigateToNote } = useSmartNoteNavigationOptional()
@@ -93,6 +95,7 @@ export default function MainNoteCard({
             disableClick={true}
             hideParentNotePreview={hideParentNotePreview}
             zapPollVoteHighlightOption={zapPollVoteHighlightOption}
+            showFull={showFull}
           />
         </Collapsible>
         {showNoteStatsRow ? (
