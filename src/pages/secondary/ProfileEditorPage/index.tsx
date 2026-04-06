@@ -21,16 +21,55 @@ import { Skeleton } from '@/components/ui/skeleton'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { createPaymentInfoDraftEvent, createProfileDraftEvent } from '@/lib/draft-event'
 import { generateImageByPubkey } from '@/lib/pubkey'
-import { isEmail } from '@/lib/utils'
 import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import { ChevronDown, Fingerprint, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+
+/** Required tag fields: always exactly one row, cannot be deleted. */
+const SINGLETON_NAMES = ['display_name', 'name', 'about', 'picture', 'banner']
+/**
+ * Optional fields that may appear at most once.
+ * Rows are deletable but a second instance is blocked.
+ */
+const UNIQUE_NAMES = ['bot', 'birthday']
+/** Tags that may appear multiple times (nip05, lud16, website). */
+const MULTI_NAMES = ['nip05', 'lud16', 'website']
+/** Tags managed automatically by the client – hidden from the editor. */
+const AUTO_NAMES = new Set(['alt', 'client'])
+/** All "at most one" names (singletons + unique-optional). */
+const AT_MOST_ONE_NAMES = [...SINGLETON_NAMES, ...UNIQUE_NAMES]
+/** All named tags the editor knows about (label + display order). */
+const KNOWN_NAMES = [...SINGLETON_NAMES, ...UNIQUE_NAMES, ...MULTI_NAMES]
+/** Canonical display order for the tag list. */
+const DISPLAY_ORDER = ['display_name', 'name', 'about', 'picture', 'banner', 'nip05', 'lud16', 'website', 'bot', 'birthday']
+/** Options shown in the "add tag" dropdown, in this order. */
+const ADD_TAG_OPTIONS = ['nip05', 'lud16', 'website', 'bot', 'birthday'] as const
+
+const TAG_LABELS: Record<string, string> = {
+  display_name: 'Display Name',
+  name: 'Name',
+  about: 'Bio',
+  picture: 'Profile Picture',
+  banner: 'Banner',
+  nip05: 'Nostr Address (NIP-05)',
+  lud16: 'Lightning Address',
+  website: 'Website',
+  bot: 'Bot',
+  birthday: 'Birthday',
+}
 
 const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
   const { t } = useTranslation()
@@ -44,15 +83,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     relayList,
     requestAccountNetworkHydrate
   } = useNostr()
-  const [banner, setBanner] = useState<string>('')
-  const [avatar, setAvatar] = useState<string>('')
-  const [username, setUsername] = useState<string>('')
-  const [about, setAbout] = useState<string>('')
-  const [website, setWebsite] = useState<string>('')
-  const [nip05, setNip05] = useState<string>('')
-  const [nip05Error, setNip05Error] = useState<string>('')
-  const [lightningAddress, setLightningAddress] = useState<string>('')
-  const [lightningAddressError, setLightningAddressError] = useState<string>('')
+
   const [hasChanged, setHasChanged] = useState(false)
   const [saving, setSaving] = useState(false)
   const [uploadingBanner, setUploadingBanner] = useState(false)
@@ -60,81 +91,84 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
   const [paymentInfoEvent, setPaymentInfoEvent] = useState<Event | null>(null)
   const [paymentInfoEditOpen, setPaymentInfoEditOpen] = useState(false)
   const [paymentInfoEditContent, setPaymentInfoEditContent] = useState('')
-  /** Payment method rows for kind 10133: each is a payto tag ["payto", type, authority]. */
   const [paymentInfoEditMethods, setPaymentInfoEditMethods] = useState<Array<{ type: string; authority: string }>>([])
   const [paymentInfoShowFullJson, setPaymentInfoShowFullJson] = useState(false)
   const [savingPaymentInfo, setSavingPaymentInfo] = useState(false)
-  /** Editable full profile event (whole event as JSON string); synced from profileEvent. */
   const [profileEventJson, setProfileEventJson] = useState<string>('')
   const [savingFullProfile, setSavingFullProfile] = useState(false)
   const [refreshingCache, setRefreshingCache] = useState(false)
-  /** Editable tag list for kind 0 (e.g. lud16, nip05, website). Each row is [name, value]. */
+  /** Single source of truth: all profile tags (excluding auto-managed client/alt). */
   const [profileTags, setProfileTags] = useState<string[][]>([])
-  /** Dialog to set picture/banner URL from JSON fields (alternative to top uploaders). */
   const [imageUrlField, setImageUrlField] = useState<'picture' | 'banner' | null>(null)
   const [imageUrlDraft, setImageUrlDraft] = useState('')
+  const [tagToAdd, setTagToAdd] = useState<string>(ADD_TAG_OPTIONS[0])
+
   const defaultImage = useMemo(
     () => (account ? generateImageByPubkey(account.pubkey) : undefined),
     [account]
   )
 
-  useEffect(() => {
-    if (profile) {
-      setBanner(profile.banner ?? '')
-      setAvatar(profile.avatar ?? '')
-      setUsername(profile.original_username ?? '')
-      setAbout(profile.about ?? '')
-      setWebsite(profile.website ?? '')
-      setNip05(profile.nip05 ?? '')
-      setLightningAddress(profile.lightningAddress || '')
-    } else {
-      setBanner('')
-      setAvatar('')
-      setUsername('')
-      setAbout('')
-      setWebsite('')
-      setNip05('')
-      setLightningAddress('')
-    }
-  }, [profile])
+  /** Derived from profileTags so uploaders and visual preview stay in sync. */
+  const avatar = profileTags.find((t) => t[0] === 'picture')?.[1] ?? ''
+  const banner = profileTags.find((t) => t[0] === 'banner')?.[1] ?? ''
 
-  // Sync editable full profile event (entire event as JSON) from profileEvent
+  // Rebuild tag list whenever the stored profile event changes.
   useEffect(() => {
-    if (profileEvent) {
-      setProfileEventJson(JSON.stringify(profileEvent, null, 2))
-    } else {
-      setProfileEventJson('')
-    }
+    setProfileTags(buildTagListFromEvent(profileEvent ?? null))
   }, [profileEvent])
 
-  // Sync tag list from profileEvent (kind 0 tags)
+  // Sync full-event JSON editor.
   useEffect(() => {
-    if (profileEvent?.tags?.length) {
-      setProfileTags(profileEvent.tags.map((t) => [...t]))
-    } else {
-      setProfileTags([])
-    }
+    setProfileEventJson(profileEvent ? JSON.stringify(profileEvent, null, 2) : '')
   }, [profileEvent])
 
-  // Fetch payment info event (kind 10133) for current user
+  // Fetch payment info (kind 10133).
   useEffect(() => {
-    if (!account?.pubkey) {
-      setPaymentInfoEvent(null)
-      return
-    }
+    if (!account?.pubkey) { setPaymentInfoEvent(null); return }
     let cancelled = false
     client
       .fetchPaymentInfoEvent(account.pubkey)
-      .then((evt) => {
-        if (!cancelled) setPaymentInfoEvent(evt ?? null)
-      })
-      .catch(() => {
-        if (!cancelled) setPaymentInfoEvent(null)
-      })
-    return () => {
-      cancelled = true
-    }
+      .then((evt) => { if (!cancelled) setPaymentInfoEvent(evt ?? null) })
+      .catch(() => { if (!cancelled) setPaymentInfoEvent(null) })
+    return () => { cancelled = true }
   }, [account?.pubkey])
+
+  // ─── Tag list helpers ────────────────────────────────────────────────────────
+
+  const updateTagValue = (idx: number, value: string) => {
+    setProfileTags((prev) => prev.map((t, i) => (i === idx ? [t[0], value, ...t.slice(2)] : t)))
+    setHasChanged(true)
+  }
+
+  const updateTagName = (idx: number, name: string) => {
+    // Prevent renaming to a name that may only appear once and is already occupied.
+    if (AT_MOST_ONE_NAMES.includes(name)) {
+      const existingIdx = profileTags.findIndex((t) => t[0] === name)
+      if (existingIdx !== -1 && existingIdx !== idx) {
+        toast.error(t('profileEditorDuplicateSingleton', { defaultValue: `"${name}" may only appear once` }))
+        return
+      }
+    }
+    setProfileTags((prev) => prev.map((t, i) => (i === idx ? [name, t[1] ?? '', ...t.slice(2)] : t)))
+    setHasChanged(true)
+  }
+
+  const removeTag = (idx: number) => {
+    setProfileTags((prev) => prev.filter((_, i) => i !== idx))
+    setHasChanged(true)
+  }
+
+  const addTag = (name = '', value = '') => {
+    // Prevent adding a second row for any "at most one" tag.
+    if (name && AT_MOST_ONE_NAMES.includes(name) && profileTags.some((t) => t[0] === name)) {
+      toast.error(t('profileEditorDuplicateSingleton', { defaultValue: `"${name}" may only appear once` }))
+      return
+    }
+    setProfileTags((prev) => [...prev, [name, value]])
+    setHasChanged(true)
+  }
+
+  // ─── Payment info ────────────────────────────────────────────────────────────
 
   const openPaymentInfoEditor = useCallback(() => {
     if (paymentInfoEvent) {
@@ -169,86 +203,25 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     setSavingPaymentInfo(true)
     try {
       const contentStr = paymentInfoEditContent.trim() || '{}'
-      let content = contentStr
-      try {
-        JSON.parse(contentStr)
-      } catch {
+      try { JSON.parse(contentStr) } catch {
         toast.error(t('Invalid content JSON'))
         setSavingPaymentInfo(false)
         return
       }
-      const draft = createPaymentInfoDraftEvent(content, tags)
+      const draft = createPaymentInfoDraftEvent(contentStr, tags)
       const published = await publish(draft)
       await client.updatePaymentInfoCache(published)
       setPaymentInfoEvent(published)
       setPaymentInfoEditOpen(false)
       toast.success(t('Payment info updated'))
-    } catch (err) {
+    } catch {
       toast.error(t('Failed to publish payment info'))
     } finally {
       setSavingPaymentInfo(false)
     }
   }, [paymentInfoEditContent, paymentInfoEditMethods, publish, t])
 
-  const save = async () => {
-    if (nip05 && !isEmail(nip05)) {
-      setNip05Error(t('Invalid NIP-05 address'))
-      return
-    }
-
-    const oldProfileContent = profileEvent ? JSON.parse(profileEvent.content) : {}
-    const newProfileContent = {
-      ...oldProfileContent,
-      display_name: username,
-      displayName: username,
-      name: oldProfileContent.name ?? username,
-      about,
-      website,
-      nip05,
-      banner,
-      picture: avatar
-    }
-
-    if (lightningAddress) {
-      if (isEmail(lightningAddress)) {
-        newProfileContent.lud16 = lightningAddress
-      } else if (lightningAddress.startsWith('lnurl')) {
-        newProfileContent.lud06 = lightningAddress
-      } else {
-        setLightningAddressError(t('Invalid Lightning Address'))
-        return
-      }
-    } else {
-      delete newProfileContent.lud16
-    }
-
-    const tagsToSave = profileTags
-      .filter((tag) => Array.isArray(tag) && tag.length >= 2 && tag[0].trim() && tag[1].trim())
-      .filter((tag) => !isPictureOrBannerTagName(tag[0]))
-      .map((tag) => [tag[0].trim(), tag[1].trim(), ...(tag.slice(2) || [])])
-    if (avatar.trim()) tagsToSave.push(['picture', avatar.trim()])
-    if (banner.trim()) tagsToSave.push(['banner', banner.trim()])
-    setSaving(true)
-    setHasChanged(false)
-    const profileDraftEvent = createProfileDraftEvent(
-      JSON.stringify(newProfileContent),
-      tagsToSave
-    )
-    const newProfileEvent = await publish(profileDraftEvent)
-    await updateProfileEvent(newProfileEvent)
-    setSaving(false)
-    pop()
-  }
-
-  const onBannerUploadSuccess = ({ url }: { url: string }) => {
-    setBanner(url)
-    setHasChanged(true)
-  }
-
-  const onAvatarUploadSuccess = ({ url }: { url: string }) => {
-    setAvatar(url)
-    setHasChanged(true)
-  }
+  // ─── Cache refresh ───────────────────────────────────────────────────────────
 
   const forceRefreshProfileAndPaymentCache = useCallback(async () => {
     if (!account?.pubkey) return
@@ -271,9 +244,10 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     }
   }, [account?.pubkey, relayList, requestAccountNetworkHydrate, updateProfileEvent, t])
 
+  // ─── Guards ──────────────────────────────────────────────────────────────────
+
   if (!account) return null
 
-  // Profile still loading: show the header with the Refresh Cache button so the user isn't stuck.
   if (!profile) {
     const loadingControls = (
       <div className="pr-3 flex items-center gap-2">
@@ -284,7 +258,11 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
           disabled={refreshingCache}
           className="gap-1.5"
         >
-          {refreshingCache ? <Skeleton className="size-3.5 shrink-0 rounded-sm" aria-hidden /> : <RefreshCw className="h-3.5 w-3.5" />}
+          {refreshingCache ? (
+            <Skeleton className="size-3.5 shrink-0 rounded-sm" aria-hidden />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
           {t('Refresh cache')}
         </Button>
       </div>
@@ -303,18 +281,94 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     )
   }
 
+  // ─── Handlers ────────────────────────────────────────────────────────────────
+
   const openImageUrlEditor = (field: 'picture' | 'banner') => {
     setImageUrlField(field)
-    setImageUrlDraft(field === 'picture' ? avatar : banner)
+    setImageUrlDraft(profileTags.find((t) => t[0] === field)?.[1] ?? '')
   }
 
   const applyImageUrlDraft = () => {
     if (!imageUrlField) return
     const v = imageUrlDraft.trim()
-    if (imageUrlField === 'picture') setAvatar(v)
-    else setBanner(v)
+    setProfileTags((prev) => {
+      const idx = prev.findIndex((t) => t[0] === imageUrlField)
+      return idx >= 0
+        ? prev.map((t, i) => (i === idx ? [imageUrlField, v, ...t.slice(2)] : t))
+        : [...prev, [imageUrlField, v]]
+    })
     setHasChanged(true)
     setImageUrlField(null)
+  }
+
+  const onBannerUploadSuccess = ({ url }: { url: string }) => {
+    setProfileTags((prev) => {
+      const idx = prev.findIndex((t) => t[0] === 'banner')
+      return idx >= 0
+        ? prev.map((t, i) => (i === idx ? ['banner', url, ...t.slice(2)] : t))
+        : [...prev, ['banner', url]]
+    })
+    setHasChanged(true)
+  }
+
+  const onAvatarUploadSuccess = ({ url }: { url: string }) => {
+    setProfileTags((prev) => {
+      const idx = prev.findIndex((t) => t[0] === 'picture')
+      return idx >= 0
+        ? prev.map((t, i) => (i === idx ? ['picture', url, ...t.slice(2)] : t))
+        : [...prev, ['picture', url]]
+    })
+    setHasChanged(true)
+  }
+
+  // ─── Save ─────────────────────────────────────────────────────────────────────
+
+  const save = async () => {
+    setSaving(true)
+    setHasChanged(false)
+    try {
+      // Strip empty/incomplete rows, trim whitespace.
+      const validTags = profileTags
+        .filter((t) => Array.isArray(t) && t.length >= 2 && (t[0] ?? '').trim() && (t[1] ?? '').trim())
+        .map((t) => [t[0].trim(), t[1].trim(), ...t.slice(2)])
+
+      // Sort alphabetically by tag name (stable: same-name tags keep their relative order).
+      const sortedTags = [...validTags]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        // Enforce at-most-one uniqueness: keep only the first occurrence.
+        .filter((() => {
+          const seen = new Set<string>()
+          return (t: string[]) => {
+            if (!AT_MOST_ONE_NAMES.includes(t[0])) return true
+            if (seen.has(t[0])) return false
+            seen.add(t[0])
+            return true
+          }
+        })())
+
+      // Derive content JSON: first occurrence of each known field.
+      const content: Record<string, string> = {}
+      const seenContent = new Set<string>()
+      for (const tag of sortedTags) {
+        const name = tag[0]
+        if (DISPLAY_ORDER.includes(name) && !seenContent.has(name)) {
+          content[name] = tag[1]
+          seenContent.add(name)
+        }
+      }
+      // Keep displayName alias for backward compatibility.
+      if (content['display_name']) content['displayName'] = content['display_name']
+
+      const draft = createProfileDraftEvent(JSON.stringify(content), sortedTags)
+      const published = await publish(draft)
+      await updateProfileEvent(published)
+      pop()
+    } catch {
+      toast.error(t('Failed to publish profile'))
+      setHasChanged(true)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const saveFullProfile = async () => {
@@ -326,8 +380,8 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
       if (parsed.kind !== 0) throw new Error('kind must be 0')
       if (typeof parsed.content !== 'string') throw new Error('content must be a string')
       if (!Array.isArray(parsed.tags)) throw new Error('tags must be an array')
-      parsed.tags.forEach((t: unknown, i: number) => {
-        if (!Array.isArray(t)) throw new Error(`tag at index ${i} must be an array`)
+      parsed.tags.forEach((tag: unknown, i: number) => {
+        if (!Array.isArray(tag)) throw new Error(`tag at index ${i} must be an array`)
       })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('Invalid profile JSON'))
@@ -335,21 +389,20 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     }
     setSavingFullProfile(true)
     try {
-      const profileDraftEvent = createProfileDraftEvent(
-        parsed.content!,
-        parsed.tags ?? []
-      )
+      const profileDraftEvent = createProfileDraftEvent(parsed.content!, parsed.tags ?? [])
       const newProfileEvent = await publish(profileDraftEvent)
       await updateProfileEvent(newProfileEvent)
       setProfileEventJson(JSON.stringify(newProfileEvent, null, 2))
       setHasChanged(false)
       toast.success(t('Profile updated'))
-    } catch (err) {
+    } catch {
       toast.error(t('Failed to publish profile'))
     } finally {
       setSavingFullProfile(false)
     }
   }
+
+  // ─── Controls ─────────────────────────────────────────────────────────────────
 
   const controls = (
     <div className="pr-3 flex items-center gap-2">
@@ -364,7 +417,11 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
             'Full account sync from relays (like Settings → Cache), deletion tombstones, then profile and payment info.'
         })}
       >
-        {refreshingCache ? <Skeleton className="size-3.5 shrink-0 rounded-sm" aria-hidden /> : <RefreshCw className="h-3.5 w-3.5" />}
+        {refreshingCache ? (
+          <Skeleton className="size-3.5 shrink-0 rounded-sm" aria-hidden />
+        ) : (
+          <RefreshCw className="h-3.5 w-3.5" />
+        )}
         {t('Refresh cache')}
       </Button>
       <Button className="w-16 rounded-full" onClick={save} disabled={saving || !hasChanged}>
@@ -373,8 +430,11 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     </div>
   )
 
+  // ─── Render ───────────────────────────────────────────────────────────────────
+
   return (
     <SecondaryPageLayout ref={ref} index={index} title={profile.username} controls={controls}>
+      {/* Banner & avatar uploaders */}
       <div className="relative bg-cover bg-center mb-2">
         <Uploader
           onUploadSuccess={onBannerUploadSuccess}
@@ -384,7 +444,11 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
         >
           <ProfileBanner banner={banner} pubkey={account.pubkey} className="w-full aspect-[3/1]" />
           <div className="absolute top-0 bg-muted/30 w-full h-full flex flex-col justify-center items-center">
-            {uploadingBanner ? <Skeleton className="size-9 shrink-0 rounded-md" aria-hidden /> : <Upload size={36} />}
+            {uploadingBanner ? (
+              <Skeleton className="size-9 shrink-0 rounded-md" aria-hidden />
+            ) : (
+              <Upload size={36} />
+            )}
           </div>
         </Uploader>
         <Uploader
@@ -400,169 +464,139 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
             </AvatarFallback>
           </Avatar>
           <div className="absolute top-0 bg-muted/30 w-full h-full rounded-full flex flex-col justify-center items-center">
-            {uploadingAvatar ? <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden /> : <Upload />}
+            {uploadingAvatar ? (
+              <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
+            ) : (
+              <Upload />
+            )}
           </div>
         </Uploader>
       </div>
-      <div className="pt-14 px-4 flex flex-col gap-4">
-        <Item>
-          <Label htmlFor="profile-username-input">{t('Display Name')}</Label>
-          <Input
-            id="profile-username-input"
-            value={username}
-            onChange={(e) => {
-              setUsername(e.target.value)
-              setHasChanged(true)
-            }}
-          />
-        </Item>
-        <Item>
-          <Label htmlFor="profile-about-textarea">{t('Bio')}</Label>
-          <Textarea
-            id="profile-about-textarea"
-            className="h-44"
-            value={about}
-            onChange={(e) => {
-              setAbout(e.target.value)
-              setHasChanged(true)
-            }}
-          />
-        </Item>
-        <Item>
-          <Label htmlFor="profile-website-input">{t('Website')}</Label>
-          <Input
-            id="profile-website-input"
-            value={website}
-            onChange={(e) => {
-              setWebsite(e.target.value)
-              setHasChanged(true)
-            }}
-          />
-        </Item>
-        <Item>
-          <Label htmlFor="profile-nip05-input">{t('Nostr Address (NIP-05)')}</Label>
-          <Input
-            id="profile-nip05-input"
-            value={nip05}
-            onChange={(e) => {
-              setNip05Error('')
-              setNip05(e.target.value)
-              setHasChanged(true)
-            }}
-            className={nip05Error ? 'border-destructive' : ''}
-          />
-          {nip05Error && <div className="text-xs text-destructive pl-3">{nip05Error}</div>}
-        </Item>
-        <Item>
-          <Label htmlFor="profile-lightning-address-input">
-            {t('Lightning Address (or LNURL)')}
-          </Label>
-          <Input
-            id="profile-lightning-address-input"
-            value={lightningAddress}
-            onChange={(e) => {
-              setLightningAddressError('')
-              setLightningAddress(e.target.value)
-              setHasChanged(true)
-            }}
-            className={lightningAddressError ? 'border-destructive' : ''}
-          />
-          {lightningAddressError && (
-            <div className="text-xs text-destructive pl-3">{lightningAddressError}</div>
-          )}
-        </Item>
 
+      <div className="pt-14 px-4 flex flex-col gap-4">
+        {/* ── Unified tag list ── */}
         <Item>
           <Label className="text-muted-foreground">{t('Tag list')}</Label>
           <p className="text-xs text-muted-foreground">
-            {t('Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.')}
+            {t('profileEditorTagListHint', {
+              defaultValue:
+                'All profile fields as tags. On save, tags are sorted by name; the first of each known field also populates the content JSON.'
+            })}
           </p>
-          <div className="space-y-2">
-            <ProfileContentImageTagRow
-              tagName="picture"
-              value={avatar}
-              onEdit={() => openImageUrlEditor('picture')}
-              onInsertThumb={() => {
-                const next = insertNostrBuildThumbUrl(avatar)
-                if (next) {
-                  setAvatar(next)
-                  setHasChanged(true)
-                }
-              }}
-              showThumbButton={canInsertNostrBuildThumb(avatar)}
-              t={t}
-            />
-            <ProfileContentImageTagRow
-              tagName="banner"
-              value={banner}
-              onEdit={() => openImageUrlEditor('banner')}
-              onInsertThumb={() => {
-                const next = insertNostrBuildThumbUrl(banner)
-                if (next) {
-                  setBanner(next)
-                  setHasChanged(true)
-                }
-              }}
-              showThumbButton={false}
-              t={t}
-            />
-            {profileTags
-              .map((tag, idx) => ({ tag, idx }))
-              .filter(({ tag }) => !isPictureOrBannerTagName(tag[0]))
-              .map(({ tag, idx }) => (
-              <div key={idx} className="flex gap-2 items-center">
-                <Input
-                  placeholder={t('Tag name')}
-                  value={tag[0] ?? ''}
-                  onChange={(e) => {
-                    const next = profileTags.map((t, i) => (i === idx ? [e.target.value, t[1] ?? '', ...(t.slice(2) ?? [])] : t))
-                    setProfileTags(next)
-                    setHasChanged(true)
-                  }}
-                  className="flex-1 max-w-[140px] font-mono text-sm"
-                />
-                <Input
-                  placeholder={t('Tag value')}
-                  value={tag[1] ?? ''}
-                  onChange={(e) => {
-                    const next = profileTags.map((t, i) => (i === idx ? [t[0] ?? '', e.target.value, ...(t.slice(2) ?? [])] : t))
-                    setProfileTags(next)
-                    setHasChanged(true)
-                  }}
-                  className="flex-1 font-mono text-sm"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => {
-                    setProfileTags(profileTags.filter((_, i) => i !== idx))
-                    setHasChanged(true)
-                  }}
-                  aria-label={t('Remove')}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1"
-              onClick={() => {
-                setProfileTags([...profileTags, ['', '']])
-                setHasChanged(true)
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {t('Add tag')}
-            </Button>
+          <div className="space-y-1.5">
+            {profileTags.map((tag, idx) => {
+              const name = tag[0] ?? ''
+              const value = tag[1] ?? ''
+              const isSingleton = SINGLETON_NAMES.includes(name)
+              const isKnown = KNOWN_NAMES.includes(name)
+              const isPic = name === 'picture'
+              const isBan = name === 'banner'
+
+              if (isPic || isBan) {
+                return (
+                  <ProfileImageTagRow
+                    key={idx}
+                    tagName={name as 'picture' | 'banner'}
+                    value={value}
+                    onEdit={() => openImageUrlEditor(name as 'picture' | 'banner')}
+                    onInsertThumb={() => {
+                      const next = insertNostrBuildThumbUrl(value)
+                      if (next) {
+                        setProfileTags((prev) =>
+                          prev.map((t, i) => (i === idx ? [name, next, ...t.slice(2)] : t))
+                        )
+                        setHasChanged(true)
+                      }
+                    }}
+                    showThumbButton={isPic && canInsertNostrBuildThumb(value)}
+                    t={t}
+                  />
+                )
+              }
+
+              return (
+                <div key={idx} className="flex gap-2 items-start">
+                  {/* Tag name: fixed label for known, editable input for custom */}
+                  <div className="flex-none w-28 shrink-0">
+                    {isKnown ? (
+                      <p
+                        className="text-xs font-medium text-muted-foreground pt-2 truncate"
+                        title={TAG_LABELS[name] || name}
+                      >
+                        {TAG_LABELS[name] || name}
+                      </p>
+                    ) : (
+                      <Input
+                        value={name}
+                        placeholder={t('Tag name')}
+                        className="font-mono text-xs h-8"
+                        onChange={(e) => updateTagName(idx, e.target.value)}
+                      />
+                    )}
+                  </div>
+
+                  {/* Value: textarea for bio, plain input for everything else */}
+                  {name === 'about' ? (
+                    <Textarea
+                      className="flex-1 text-sm min-h-[5rem] resize-y"
+                      value={value}
+                      onChange={(e) => updateTagValue(idx, e.target.value)}
+                    />
+                  ) : (
+                    <Input
+                      className="flex-1 font-mono text-sm"
+                      value={value}
+                      onChange={(e) => updateTagValue(idx, e.target.value)}
+                    />
+                  )}
+
+                  {/* Delete (singletons are permanent) */}
+                  {!isSingleton && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 text-muted-foreground hover:text-destructive mt-0.5"
+                      onClick={() => removeTag(idx)}
+                      aria-label={t('Remove')}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* Add-tag row: dropdown + single + button */}
+            <div className="flex gap-2 pt-1 items-center">
+              <Select value={tagToAdd} onValueChange={setTagToAdd}>
+                <SelectTrigger className="flex-1 h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ADD_TAG_OPTIONS.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {TAG_LABELS[name] || name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__custom__">{t('Custom tag…')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={() => addTag(tagToAdd === '__custom__' ? '' : tagToAdd)}
+                aria-label={t('Add tag')}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </Item>
 
-        {/* Full profile event (kind 0): editable entire event as JSON */}
+        {/* ── Full profile event JSON (collapsible) ── */}
         {profileEvent && (
           <Item>
             <Collapsible defaultOpen={false}>
@@ -591,7 +625,9 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
                   disabled={savingFullProfile || !hasChanged}
                   className="gap-2"
                 >
-                  {savingFullProfile && <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />}
+                  {savingFullProfile && (
+                    <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
+                  )}
                   {savingFullProfile ? t('Saving…') : t('Save full profile')}
                 </Button>
               </CollapsibleContent>
@@ -599,7 +635,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
           </Item>
         )}
 
-        {/* Payment info (kind 10133): stringified content + tags + Edit button */}
+        {/* ── Payment info (kind 10133) ── */}
         <Item>
           <div className="flex items-center justify-between gap-2">
             <Label className="text-muted-foreground">{t('Payment info')} (kind 10133)</Label>
@@ -630,14 +666,18 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-muted-foreground">{t('No payment info event yet. Click "Add payment info" to create one.')}</p>
+                <p className="text-sm text-muted-foreground">
+                  {t('No payment info event yet. Click "Add payment info" to create one.')}
+                </p>
               )}
             </CollapsibleContent>
           </Collapsible>
         </Item>
       </div>
 
-      {/* Set picture/banner URL (kind 0 JSON content) */}
+      {/* ── Dialogs ── */}
+
+      {/* Edit picture/banner URL */}
       <Dialog
         open={imageUrlField !== null}
         onOpenChange={(open) => {
@@ -664,7 +704,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
             <p className="text-xs text-muted-foreground">
               {t('profileEditorImageUrlHint', {
                 defaultValue:
-                  'Saved in kind 0 content as picture or banner. You can paste a link from a previous upload instead of using the uploader above.'
+                  'Saved in kind 0 tags as picture or banner. You can paste a link from a previous upload instead of using the uploader above.'
               })}
             </p>
           </div>
@@ -677,7 +717,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
         </DialogContent>
       </Dialog>
 
-      {/* Edit payment info dialog */}
+      {/* Edit payment info */}
       <Dialog open={paymentInfoEditOpen} onOpenChange={setPaymentInfoEditOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
@@ -717,9 +757,9 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
                       variant="ghost"
                       size="icon"
                       className="shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => {
+                      onClick={() =>
                         setPaymentInfoEditMethods(paymentInfoEditMethods.filter((_, i) => i !== idx))
-                      }}
+                      }
                       aria-label={t('Remove')}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -731,7 +771,12 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
                   variant="outline"
                   size="sm"
                   className="gap-1"
-                  onClick={() => setPaymentInfoEditMethods([...paymentInfoEditMethods, { type: 'lightning', authority: '' }])}
+                  onClick={() =>
+                    setPaymentInfoEditMethods([
+                      ...paymentInfoEditMethods,
+                      { type: 'lightning', authority: '' }
+                    ])
+                  }
                 >
                   <Plus className="h-3.5 w-3.5" />
                   {t('Add payment method')}
@@ -756,7 +801,9 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
                 className="gap-1"
                 onClick={() => setPaymentInfoShowFullJson((v) => !v)}
               >
-                <ChevronDown className={`h-4 w-4 transition-transform ${paymentInfoShowFullJson ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${paymentInfoShowFullJson ? 'rotate-180' : ''}`}
+                />
                 {t('Show full event JSON')}
               </Button>
               {paymentInfoShowFullJson && (
@@ -766,7 +813,11 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
                       paymentInfoEditContent.trim() || '{}',
                       paymentInfoEditMethods
                         .filter((m) => m.authority.trim())
-                        .map((m) => ['payto', (m.type.trim() || 'lightning').toLowerCase(), m.authority.trim()])
+                        .map((m) => [
+                          'payto',
+                          (m.type.trim() || 'lightning').toLowerCase(),
+                          m.authority.trim()
+                        ])
                     ),
                     null,
                     2
@@ -792,39 +843,129 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
 ProfileEditorPage.displayName = 'ProfileEditorPage'
 export default ProfileEditorPage
 
-function isPictureOrBannerTagName(name: string | undefined): boolean {
-  const n = (name ?? '').toLowerCase()
-  return n === 'picture' || n === 'banner'
+// ─── Pure helpers (no React) ──────────────────────────────────────────────────
+
+/**
+ * Build the unified tag list from a stored profile event.
+ *
+ * Merge strategy:
+ *  1. Event `tags` (non-auto) in display order, then unknown tags alphabetically.
+ *  2. Content JSON fields not already covered:
+ *     - Singletons: added only if absent from tags (tags take precedence).
+ *     - Multi-fields: added when the exact (name, value) pair is not yet present.
+ *  3. Empty placeholder rows for any singleton still missing after steps 1–2.
+ *  4. Final sort: known fields by DISPLAY_ORDER, unknown fields alphabetically.
+ *     (Stable sort preserves relative order of same-name entries like multiple nip05.)
+ */
+function buildTagListFromEvent(event: Event | null): string[][] {
+  let content: Record<string, unknown> = {}
+  if (event?.content) {
+    try { content = JSON.parse(event.content) } catch { /* ignore */ }
+  }
+
+  const normalizeTagName = (n: string) =>
+    n === 'displayName' ? 'display_name' : n === 'username' ? 'name' : n
+
+  const eventTags = (event?.tags ?? [])
+    .filter((t) => Array.isArray(t) && !AUTO_NAMES.has((t as string[])[0]))
+    .map((t) => {
+      const norm = normalizeTagName((t as string[])[0])
+      return norm !== (t as string[])[0] ? [norm, ...(t as string[]).slice(1)] : [...(t as string[])]
+    }) as string[][]
+
+  // Group event tags by name for fast singleton-check.
+  const byName = new Map<string, string[][]>()
+  for (const tag of eventTags) {
+    const name = tag[0]
+    if (!byName.has(name)) byName.set(name, [])
+    byName.get(name)!.push([...tag])
+  }
+
+  const result: string[][] = []
+  const dedup = new Set<string>() // "name\0value" for multi-fields; just "name" for singletons
+
+  const push = (tag: string[]) => {
+    const name = tag[0]
+    // Singletons: only one row per name ever.
+    if (SINGLETON_NAMES.includes(name)) {
+      if (dedup.has(name)) return
+      dedup.add(name)
+    } else {
+      const key = `${name}\0${tag[1] ?? ''}`
+      if (dedup.has(key)) return
+      dedup.add(key)
+    }
+    result.push([...tag])
+  }
+
+  // 1a. Known tags in display order.
+  for (const name of DISPLAY_ORDER) {
+    for (const tag of byName.get(name) ?? []) push(tag)
+  }
+  // 1b. Unknown non-auto tags.
+  for (const tag of eventTags) {
+    if (!DISPLAY_ORDER.includes(tag[0])) push(tag)
+  }
+
+  // 2. Merge content JSON fields.
+  for (const [rawKey, val] of Object.entries(content)) {
+    if (typeof val !== 'string' || !val.trim()) continue
+    const name = normalizeTagName(rawKey)
+    if (AUTO_NAMES.has(name)) continue
+    // For singletons: event tags take precedence; skip if already present.
+    if (SINGLETON_NAMES.includes(name) && byName.has(name)) continue
+    push([name, val.trim()])
+  }
+
+  // 3. Ensure all singletons have at least an empty placeholder.
+  for (const name of SINGLETON_NAMES) {
+    if (!result.some((t) => t[0] === name)) push([name, ''])
+  }
+
+  // 4. Sort: known fields by DISPLAY_ORDER index, unknown alphabetically.
+  result.sort((a, b) => {
+    const ai = DISPLAY_ORDER.indexOf(a[0])
+    const bi = DISPLAY_ORDER.indexOf(b[0])
+    if (ai !== -1 && bi !== -1) return ai - bi
+    if (ai !== -1) return -1
+    if (bi !== -1) return 1
+    return a[0].localeCompare(b[0])
+  })
+
+  return result
 }
 
-/** Host is *.nostr.build, path does not already use /thumb/. */
+/** Returns true when a nostr.build URL can gain a /thumb/ prefix. */
 function canInsertNostrBuildThumb(url: string): boolean {
-  const t = url.trim()
-  if (!t) return false
+  const u = url.trim()
+  if (!u) return false
   try {
-    const u = new URL(t)
-    if (!u.hostname.endsWith('nostr.build')) return false
-    const p = u.pathname
+    const parsed = new URL(u)
+    if (!parsed.hostname.endsWith('nostr.build')) return false
+    const p = parsed.pathname
     return p !== '/thumb' && !p.startsWith('/thumb/')
   } catch {
     return false
   }
 }
 
+/** Inserts /thumb/ into a nostr.build URL path, or returns null if not applicable. */
 function insertNostrBuildThumbUrl(url: string): string | null {
-  const t = url.trim()
-  if (!canInsertNostrBuildThumb(t)) return null
+  const u = url.trim()
+  if (!canInsertNostrBuildThumb(u)) return null
   try {
-    const u = new URL(t)
-    const p = u.pathname || '/'
-    u.pathname = '/thumb' + (p.startsWith('/') ? p : `/${p}`)
-    return u.toString()
+    const parsed = new URL(u)
+    const p = parsed.pathname || '/'
+    parsed.pathname = '/thumb' + (p.startsWith('/') ? p : `/${p}`)
+    return parsed.toString()
   } catch {
     return null
   }
 }
 
-function ProfileContentImageTagRow({
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function ProfileImageTagRow({
   tagName,
   value,
   onEdit,
@@ -839,15 +980,12 @@ function ProfileContentImageTagRow({
   showThumbButton: boolean
   t: (key: string, opts?: { defaultValue?: string }) => string
 }) {
+  const label = TAG_LABELS[tagName] || tagName
   return (
     <div className="flex gap-2 items-center">
-      <Input
-        readOnly
-        value={tagName}
-        className="flex-1 max-w-[140px] font-mono text-sm bg-muted/40"
-        tabIndex={-1}
-        aria-label={t('Tag name')}
-      />
+      <p className="flex-none w-28 text-xs font-medium text-muted-foreground truncate" title={label}>
+        {label}
+      </p>
       <Input
         readOnly
         value={value}
