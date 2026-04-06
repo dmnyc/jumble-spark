@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
+import { canUseNostrBuildThumb, toNostrBuildThumbUrl } from '@/lib/nostr-build'
 import { ChevronDown, Fingerprint, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
@@ -456,6 +457,7 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
           onUploadStart={() => setUploadingAvatar(true)}
           onUploadEnd={() => setUploadingAvatar(false)}
           className="w-24 h-24 absolute bottom-0 left-4 translate-y-1/2 border-4 border-background cursor-pointer rounded-full"
+          maxFileSizeMb={2}
         >
           <Avatar className="w-full h-full">
             <AvatarImage src={avatar} className="object-cover object-center" />
@@ -935,32 +937,12 @@ function buildTagListFromEvent(event: Event | null): string[][] {
   return result
 }
 
-/** Returns true when a nostr.build URL can gain a /thumb/ prefix. */
-function canInsertNostrBuildThumb(url: string): boolean {
-  const u = url.trim()
-  if (!u) return false
-  try {
-    const parsed = new URL(u)
-    if (!parsed.hostname.endsWith('nostr.build')) return false
-    const p = parsed.pathname
-    return p !== '/thumb' && !p.startsWith('/thumb/')
-  } catch {
-    return false
-  }
-}
-
-/** Inserts /thumb/ into a nostr.build URL path, or returns null if not applicable. */
+// nostr.build thumb helpers are provided by @/lib/nostr-build.
+// Thin local aliases keep the JSX call-sites readable.
+const canInsertNostrBuildThumb = canUseNostrBuildThumb
 function insertNostrBuildThumbUrl(url: string): string | null {
-  const u = url.trim()
-  if (!canInsertNostrBuildThumb(u)) return null
-  try {
-    const parsed = new URL(u)
-    const p = parsed.pathname || '/'
-    parsed.pathname = '/thumb' + (p.startsWith('/') ? p : `/${p}`)
-    return parsed.toString()
-  } catch {
-    return null
-  }
+  if (!canUseNostrBuildThumb(url)) return null
+  return toNostrBuildThumbUrl(url)
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────

@@ -30,6 +30,7 @@ export default function Image({
   hideIfError = false,
   errorPlaceholder = <ImageOff />,
   style: wrapperStyleProp,
+  holdUntilClick = false,
   ...props
 }: HTMLAttributes<HTMLSpanElement> & {
   classNames?: {
@@ -40,10 +41,20 @@ export default function Image({
   alt?: string
   hideIfError?: boolean
   errorPlaceholder?: React.ReactNode
+  /**
+   * When true AND a blurHash is available, the full image is NOT loaded until
+   * the user clicks. The blurhash canvas is shown as a bandwidth-saving
+   * placeholder. Clicking triggers loading (and will open the image link if
+   * the normal click handler does so).
+   */
+  holdUntilClick?: boolean
 }) {
   const { t } = useTranslation()
   const urlOk = !!url?.trim()
-  const [isLoading, setIsLoading] = useState(urlOk)
+  // When holdUntilClick is active we start in the "held" state.
+  const shouldHold = holdUntilClick && !!blurHash
+  const [revealed, setRevealed] = useState(!shouldHold)
+  const [isLoading, setIsLoading] = useState(urlOk && revealed)
   const [displaySkeleton, setDisplaySkeleton] = useState(urlOk)
   const [hasError, setHasError] = useState(!urlOk)
   const [imageUrl, setImageUrl] = useState(url)
@@ -66,7 +77,8 @@ export default function Image({
 
   useEffect(() => {
     setImageUrl(url)
-    setIsLoading(true)
+    setRevealed(!shouldHold)
+    setIsLoading(!!url?.trim() && !shouldHold)
     setHasError(false)
     setDisplaySkeleton(true)
     setFallbackIndex(0)
@@ -76,11 +88,13 @@ export default function Image({
       setHasError(true)
       setDisplaySkeleton(false)
     }
+  // shouldHold is derived from props — intentionally not in deps to avoid reset loops
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url])
 
   useEffect(() => {
     clearLoadWatch()
-    if (badSrc || !url?.trim()) return
+    if (badSrc || !url?.trim() || !revealed) return
     loadWatchRef.current = window.setTimeout(() => {
       loadWatchRef.current = null
       setIsLoading(false)
@@ -88,7 +102,7 @@ export default function Image({
       setHasError(true)
     }, IMAGE_LOAD_TIMEOUT_MS)
     return clearLoadWatch
-  }, [imageUrl, badSrc, url])
+  }, [imageUrl, badSrc, url, revealed])
 
   if (hideIfError && showErrorState) return null
 
@@ -118,10 +132,17 @@ export default function Image({
       ? { ...reserveStyle, ...wrapperStyleProp }
       : undefined
 
+  const handleReveal = () => {
+    if (revealed) return
+    setRevealed(true)
+    setIsLoading(true)
+  }
+
   return (
     <span
       className={cn('relative overflow-hidden block w-full', classNames.wrapper)}
       style={mergedWrapperStyle}
+      onClick={!revealed ? handleReveal : undefined}
       {...props}
     >
       {displaySkeleton && !showErrorState && (
@@ -131,7 +152,7 @@ export default function Image({
               blurHash={blurHash}
               className={cn(
                 'absolute inset-0 transition-opacity duration-500 rounded-lg',
-                isLoading ? 'opacity-100' : 'opacity-0'
+                isLoading || !revealed ? 'opacity-100' : 'opacity-0'
               )}
             />
           ) : (
@@ -142,9 +163,17 @@ export default function Image({
               )}
             />
           )}
+          {/* "Tap to view" overlay when held on blurhash */}
+          {!revealed && (
+            <span className="absolute inset-0 flex items-center justify-center z-20">
+              <span className="rounded-full bg-black/50 px-3 py-1 text-xs text-white/90 select-none pointer-events-none">
+                {t('Tap to load image')}
+              </span>
+            </span>
+          )}
         </span>
       )}
-      {!showErrorState && (
+      {!showErrorState && revealed && (
         <img
           src={imageUrl}
           alt={finalAlt}
@@ -165,7 +194,9 @@ export default function Image({
         />
       )}
       {showErrorState && (
-        <div
+        // All children are <span> so this block is inline-safe when Image is placed
+        // inside a <p> by MarkdownArticle (avoids validateDOMNesting violations).
+        <span
           role="alert"
           className={cn(
             'flex flex-col items-center justify-center gap-2 w-full min-h-[120px] p-4 rounded-lg bg-muted text-muted-foreground text-center',
@@ -174,9 +205,9 @@ export default function Image({
           )}
         >
           <span className="flex shrink-0 text-muted-foreground [&_svg]:size-10">{errorPlaceholder}</span>
-          <p className="text-sm leading-snug">{t('This image could not be loaded.')}</p>
+          <span className="text-sm leading-snug">{t('This image could not be loaded.')}</span>
           {badSrc && !hasError ? (
-            <p className="text-xs opacity-80 break-all max-w-full">{t('Invalid or unsupported image address.')}</p>
+            <span className="text-xs opacity-80 break-all max-w-full block">{t('Invalid or unsupported image address.')}</span>
           ) : null}
           {openLinkHref ? (
             <a
@@ -189,7 +220,7 @@ export default function Image({
               {t('Open image link')}
             </a>
           ) : null}
-        </div>
+        </span>
       )}
     </span>
   )

@@ -1,3 +1,4 @@
+import { compressImage } from '@/lib/compress-image'
 import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 import { simplifyUrl } from '@/lib/url'
 import { TDraftEvent, TMediaUploadServiceConfig } from '@/types'
@@ -32,11 +33,14 @@ class MediaUploadService {
   }
 
   async upload(file: File, options?: UploadOptions) {
+    // Compress images before upload: target ≤ 4 MB, down-scale to 2048 px max edge.
+    const toUpload = await compressImage(file, 4 * 1024 * 1024)
+
     let result: { url: string; tags: string[][] }
     if (this.serviceConfig.type === 'nip96') {
-      result = await this.uploadByNip96(this.serviceConfig.service, file, options)
+      result = await this.uploadByNip96(this.serviceConfig.service, toUpload, options)
     } else {
-      result = await this.uploadByBlossom(file, options)
+      result = await this.uploadByBlossom(toUpload, options)
     }
 
     if (result.tags.length > 0) {

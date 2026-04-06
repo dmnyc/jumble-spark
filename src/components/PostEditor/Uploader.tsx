@@ -10,7 +10,8 @@ export default function Uploader({
   onUploadEnd,
   onProgress,
   className,
-  accept = 'image/*'
+  accept = 'image/*',
+  maxFileSizeMb
 }: {
   children: React.ReactNode
   onUploadSuccess: (result: { url: string; tags: string[][]; file?: File }) => void
@@ -19,6 +20,8 @@ export default function Uploader({
   onProgress?: (file: File, progress: number) => void
   className?: string
   accept?: string
+  /** Reject files whose size (before compression) exceeds this limit and show a toast. */
+  maxFileSizeMb?: number
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -34,6 +37,13 @@ export default function Uploader({
     }
 
     for (const file of event.target.files) {
+      if (maxFileSizeMb !== undefined && file.size > maxFileSizeMb * 1024 * 1024) {
+        toast.error(
+          `"${file.name}" is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is ${maxFileSizeMb} MB.`
+        )
+        onUploadEnd?.(file)
+        continue
+      }
       try {
         const abortController = abortControllerMap.get(file)
         const result = await mediaUpload.upload(file, {

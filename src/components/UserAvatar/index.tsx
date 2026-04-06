@@ -1,5 +1,6 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFetchProfile } from '@/hooks'
+import { toNostrBuildThumbUrl } from '@/lib/nostr-build'
 import { generateImageByPubkey, userIdToPubkey } from '@/lib/pubkey'
 import { toProfile } from '@/lib/link'
 import { cn } from '@/lib/utils'
@@ -24,7 +25,9 @@ function useDeferRemoteProfileAvatar(
   const remoteHttp = useMemo(() => {
     const a = profileAvatar?.trim()
     if (!a || !isHttpOrHttpsUrl(a)) return ''
-    return a
+    // Always use the nostr.build thumbnail route for profile pictures — it's
+    // typically < 50 KB regardless of the original file size.
+    return toNostrBuildThumbUrl(a)
   }, [profileAvatar])
 
   const nonHttpAvatar = useMemo(() => {
