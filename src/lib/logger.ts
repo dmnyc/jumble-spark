@@ -1,149 +1,127 @@
 /**
- * Centralized logging utility to reduce console noise and improve performance
- * 
- * Usage:
- * - Use logger.debug() for development debugging (only shows in dev mode)
- * - Use logger.info() for important information (always shows)
- * - Use logger.warn() for warnings (always shows)
- * - Use logger.error() for errors (always shows)
- * 
- * In production builds, debug logs are completely removed to improve performance.
+ * Centralized logging utility.
+ *
+ * Level matrix:
+ *   dev + debug flag  → debug / info / warn / error  (full formatted output)
+ *   dev (no flag)     → info / warn / error           (formatted, no stack)
+ *   production        → warn / error only             (bare console — no timestamp string built)
+ *
+ * Enable debug in dev: localStorage.setItem('jumble-debug', 'true') then reload.
  */
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
-interface LoggerConfig {
-  level: LogLevel
-  enableDebug: boolean
-  enablePerformance: boolean
-}
+const LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error']
 
 class Logger {
-  private config: LoggerConfig
+  private readonly isDev = import.meta.env.DEV
+  private enableDebug: boolean
+  private minLevel: LogLevel
 
   constructor() {
-    // In production, disable debug logging for better performance
-    const isDev = import.meta.env.DEV
-    const isDebugEnabled =
-      isDev &&
+    this.enableDebug =
+      this.isDev &&
       (localStorage.getItem('imwald-debug') === 'true' ||
         localStorage.getItem('jumble-debug') === 'true' ||
         import.meta.env.VITE_DEBUG === 'true')
-    
-    this.config = {
-      level: isDebugEnabled ? 'debug' : 'info',
-      enableDebug: isDebugEnabled,
-      enablePerformance: isDev
-    }
+
+    // In production only warn/error reach the console — info is noise for end-users.
+    this.minLevel = this.enableDebug ? 'debug' : this.isDev ? 'info' : 'warn'
   }
 
   private shouldLog(level: LogLevel): boolean {
-    const levels = ['debug', 'info', 'warn', 'error']
-    const currentLevelIndex = levels.indexOf(this.config.level)
-    const messageLevelIndex = levels.indexOf(level)
-    return messageLevelIndex >= currentLevelIndex
+    return LEVELS.indexOf(level) >= LEVELS.indexOf(this.minLevel)
   }
 
   private getCallerInfo(): string {
     const stack = new Error().stack
     if (!stack) return 'unknown'
-    
-    const lines = stack.split('\n')
-    // Skip the first 3 lines (Error, getCallerInfo, formatMessage)
-    // Look for the first line that contains a file path
-    for (let i = 3; i < lines.length; i++) {
-      const line = lines[i]
-      const match = line.match(/at\s+(.+?)\s+\((.+?):(\d+):(\d+)\)/)
-      if (match) {
-        const [, functionName, filePath] = match
-        const fileName = filePath.split('/').pop()?.replace('.tsx', '').replace('.ts', '') || 'unknown'
-        return `${fileName}:${functionName}`
+    for (const line of stack.split('\n').slice(3)) {
+      const m = line.match(/at\s+(.+?)\s+\((.+?):(\d+):(\d+)\)/)
+      if (m) {
+        const fileName = m[2].split('/').pop()?.replace(/\.[tj]sx?$/, '') ?? 'unknown'
+        return `${fileName}:${m[1]}`
       }
     }
     return 'unknown'
   }
 
-  private formatMessage(level: LogLevel, message: string, ...args: any[]): [string, ...any[]] {
-    const timestamp = new Date().toISOString().substring(11, 23) // HH:mm:ss.SSS
-    // Stack capture is expensive (main-thread jank, especially on mobile). Only when deep debug is on.
-    const caller = this.config.enableDebug ? this.getCallerInfo() : ''
-    const prefix = caller
-      ? `[${timestamp}] [${level.toUpperCase()}] [${caller}]`
-      : `[${timestamp}] [${level.toUpperCase()}]`
-    return [`${prefix} ${message}`, ...args]
+  private prefix(level: LogLevel): string {
+    const ts = new Date().toISOString().substring(11, 23)
+    const caller = this.enableDebug ? ` [${this.getCallerInfo()}]` : ''
+    return `[${ts}] [${level.toUpperCase()}]${caller}`
   }
 
-  debug(message: string, ...args: any[]): void {
-    if (!this.config.enableDebug || !this.shouldLog('debug')) return
-    console.log(...this.formatMessage('debug', message, ...args))
+  debug(message: string, ...args: unknown[]): void {
+    if (!this.enableDebug) return
+    console.log(`${this.prefix('debug')} ${message}`, ...args)
   }
 
-  info(message: string, ...args: any[]): void {
+  info(message: string, ...args: unknown[]): void {
     if (!this.shouldLog('info')) return
-    console.log(...this.formatMessage('info', message, ...args))
+    // In production this branch is never reached (minLevel === 'warn').
+    console.log(`${this.prefix('info')} ${message}`, ...args)
   }
 
-  warn(message: string, ...args: any[]): void {
+  warn(message: string, ...args: unknown[]): void {
     if (!this.shouldLog('warn')) return
-    console.warn(...this.formatMessage('warn', message, ...args))
+    if (this.isDev) {
+      console.warn(`${this.prefix('warn')} ${message}`, ...args)
+    } else {
+      // In production: no string-building overhead; browser devtools add their own timestamp.
+      console.warn(message, ...args)
+    }
   }
 
-  error(message: string, ...args: any[]): void {
+  error(message: string, ...args: unknown[]): void {
     if (!this.shouldLog('error')) return
-    console.error(...this.formatMessage('error', message, ...args))
+    if (this.isDev) {
+      console.error(`${this.prefix('error')} ${message}`, ...args)
+    } else {
+      console.error(message, ...args)
+    }
   }
 
-  // Performance logging for development
-  perf(message: string, ...args: any[]): void {
-    if (!this.config.enablePerformance) return
+  /** Dev-only performance marker. */
+  perf(message: string, ...args: unknown[]): void {
+    if (!this.isDev) return
     console.log(`[PERF] ${message}`, ...args)
   }
 
-  // Group logging for related operations
+  /** Run `fn` inside a console group (debug mode only). */
   group(label: string, fn: () => void): void {
-    if (!this.config.enableDebug) {
-      fn()
-      return
-    }
+    if (!this.enableDebug) { fn(); return }
     console.group(label)
     fn()
     console.groupEnd()
   }
 
-  // Conditional logging based on environment
-  dev(message: string, ...args: any[]): void {
-    if (import.meta.env.DEV) {
-      console.log(message, ...args)
-    }
+  /** Raw dev-only log — no formatting. */
+  dev(message: string, ...args: unknown[]): void {
+    if (this.isDev) console.log(message, ...args)
   }
 
-  // Enable/disable debug mode at runtime
   setDebugMode(enabled: boolean): void {
-    this.config.enableDebug = enabled
-    this.config.level = enabled ? 'debug' : 'info'
-    localStorage.setItem('imwald-debug', enabled.toString())
-    localStorage.setItem('jumble-debug', enabled.toString())
+    this.enableDebug = enabled
+    this.minLevel = enabled ? 'debug' : this.isDev ? 'info' : 'warn'
+    localStorage.setItem('imwald-debug', String(enabled))
+    localStorage.setItem('jumble-debug', String(enabled))
   }
 
-  // Check if debug mode is enabled
   isDebugEnabled(): boolean {
-    return this.config.enableDebug
+    return this.enableDebug
   }
 
-  // Context-aware logging for components
-  component(componentName: string, message: string, ...args: any[]): void {
-    if (!this.config.enableDebug) return
-    const timestamp = new Date().toISOString().substring(11, 23)
-    const caller = this.getCallerInfo()
-    console.log(`[${timestamp}] [COMPONENT] [${componentName}] [${caller}] ${message}`, ...args)
+  /** Component-scoped debug log (debug mode only). */
+  component(componentName: string, message: string, ...args: unknown[]): void {
+    if (!this.enableDebug) return
+    console.log(`${this.prefix('debug')} [${componentName}] ${message}`, ...args)
   }
 
-  // Performance logging with context
-  perfComponent(componentName: string, operation: string, ...args: any[]): void {
-    if (!this.config.enablePerformance) return
-    const timestamp = new Date().toISOString().substring(11, 23)
-    const caller = this.getCallerInfo()
-    console.log(`[${timestamp}] [PERF] [${componentName}] [${caller}] ${operation}`, ...args)
+  /** Component-scoped perf log (dev only). */
+  perfComponent(componentName: string, operation: string, ...args: unknown[]): void {
+    if (!this.isDev) return
+    console.log(`[PERF] [${componentName}] ${operation}`, ...args)
   }
 }
 
