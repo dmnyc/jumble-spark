@@ -26,7 +26,7 @@ import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
-import { ChevronDown, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { ChevronDown, Fingerprint, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -70,6 +70,9 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
   const [refreshingCache, setRefreshingCache] = useState(false)
   /** Editable tag list for kind 0 (e.g. lud16, nip05, website). Each row is [name, value]. */
   const [profileTags, setProfileTags] = useState<string[][]>([])
+  /** Dialog to set picture/banner URL from JSON fields (alternative to top uploaders). */
+  const [imageUrlField, setImageUrlField] = useState<'picture' | 'banner' | null>(null)
+  const [imageUrlDraft, setImageUrlDraft] = useState('')
   const defaultImage = useMemo(
     () => (account ? generateImageByPubkey(account.pubkey) : undefined),
     [account]
@@ -221,7 +224,10 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
 
     const tagsToSave = profileTags
       .filter((tag) => Array.isArray(tag) && tag.length >= 2 && tag[0].trim() && tag[1].trim())
+      .filter((tag) => !isPictureOrBannerTagName(tag[0]))
       .map((tag) => [tag[0].trim(), tag[1].trim(), ...(tag.slice(2) || [])])
+    if (avatar.trim()) tagsToSave.push(['picture', avatar.trim()])
+    if (banner.trim()) tagsToSave.push(['banner', banner.trim()])
     setSaving(true)
     setHasChanged(false)
     const profileDraftEvent = createProfileDraftEvent(
@@ -265,7 +271,51 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
     }
   }, [account?.pubkey, relayList, requestAccountNetworkHydrate, updateProfileEvent, t])
 
-  if (!account || !profile) return null
+  if (!account) return null
+
+  // Profile still loading: show the header with the Refresh Cache button so the user isn't stuck.
+  if (!profile) {
+    const loadingControls = (
+      <div className="pr-3 flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={forceRefreshProfileAndPaymentCache}
+          disabled={refreshingCache}
+          className="gap-1.5"
+        >
+          {refreshingCache ? <Skeleton className="size-3.5 shrink-0 rounded-sm" aria-hidden /> : <RefreshCw className="h-3.5 w-3.5" />}
+          {t('Refresh cache')}
+        </Button>
+      </div>
+    )
+    return (
+      <SecondaryPageLayout ref={ref} index={index} title="…" controls={loadingControls}>
+        <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground text-sm">
+          <Skeleton className="h-4 w-48 rounded" />
+          <p>
+            {t('profileEditorProfileNotLoaded', {
+              defaultValue: 'Profile not loaded. Try refreshing the cache.'
+            })}
+          </p>
+        </div>
+      </SecondaryPageLayout>
+    )
+  }
+
+  const openImageUrlEditor = (field: 'picture' | 'banner') => {
+    setImageUrlField(field)
+    setImageUrlDraft(field === 'picture' ? avatar : banner)
+  }
+
+  const applyImageUrlDraft = () => {
+    if (!imageUrlField) return
+    const v = imageUrlDraft.trim()
+    if (imageUrlField === 'picture') setAvatar(v)
+    else setBanner(v)
+    setHasChanged(true)
+    setImageUrlField(null)
+  }
 
   const saveFullProfile = async () => {
     let parsed: { kind?: number; content?: string; tags?: string[][] }
@@ -428,7 +478,38 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
             {t('Profile event tags (e.g. lud16, nip05, website). Saved with kind 0.')}
           </p>
           <div className="space-y-2">
-            {profileTags.map((tag, idx) => (
+            <ProfileContentImageTagRow
+              tagName="picture"
+              value={avatar}
+              onEdit={() => openImageUrlEditor('picture')}
+              onInsertThumb={() => {
+                const next = insertNostrBuildThumbUrl(avatar)
+                if (next) {
+                  setAvatar(next)
+                  setHasChanged(true)
+                }
+              }}
+              showThumbButton={canInsertNostrBuildThumb(avatar)}
+              t={t}
+            />
+            <ProfileContentImageTagRow
+              tagName="banner"
+              value={banner}
+              onEdit={() => openImageUrlEditor('banner')}
+              onInsertThumb={() => {
+                const next = insertNostrBuildThumbUrl(banner)
+                if (next) {
+                  setBanner(next)
+                  setHasChanged(true)
+                }
+              }}
+              showThumbButton={false}
+              t={t}
+            />
+            {profileTags
+              .map((tag, idx) => ({ tag, idx }))
+              .filter(({ tag }) => !isPictureOrBannerTagName(tag[0]))
+              .map(({ tag, idx }) => (
               <div key={idx} className="flex gap-2 items-center">
                 <Input
                   placeholder={t('Tag name')}
@@ -556,6 +637,46 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
         </Item>
       </div>
 
+      {/* Set picture/banner URL (kind 0 JSON content) */}
+      <Dialog
+        open={imageUrlField !== null}
+        onOpenChange={(open) => {
+          if (!open) setImageUrlField(null)
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {imageUrlField === 'picture'
+                ? t('profileEditorEditPictureUrl', { defaultValue: 'Edit profile picture URL' })
+                : t('profileEditorEditBannerUrl', { defaultValue: 'Edit banner URL' })}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="profile-image-url-draft">{t('URL')}</Label>
+            <Input
+              id="profile-image-url-draft"
+              className="font-mono text-sm"
+              value={imageUrlDraft}
+              onChange={(e) => setImageUrlDraft(e.target.value)}
+              placeholder="https://"
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('profileEditorImageUrlHint', {
+                defaultValue:
+                  'Saved in kind 0 content as picture or banner. You can paste a link from a previous upload instead of using the uploader above.'
+              })}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImageUrlField(null)}>
+              {t('Cancel')}
+            </Button>
+            <Button onClick={applyImageUrlDraft}>{t('Save')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit payment info dialog */}
       <Dialog open={paymentInfoEditOpen} onOpenChange={setPaymentInfoEditOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -670,6 +791,101 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
 })
 ProfileEditorPage.displayName = 'ProfileEditorPage'
 export default ProfileEditorPage
+
+function isPictureOrBannerTagName(name: string | undefined): boolean {
+  const n = (name ?? '').toLowerCase()
+  return n === 'picture' || n === 'banner'
+}
+
+/** Host is *.nostr.build, path does not already use /thumb/. */
+function canInsertNostrBuildThumb(url: string): boolean {
+  const t = url.trim()
+  if (!t) return false
+  try {
+    const u = new URL(t)
+    if (!u.hostname.endsWith('nostr.build')) return false
+    const p = u.pathname
+    return p !== '/thumb' && !p.startsWith('/thumb/')
+  } catch {
+    return false
+  }
+}
+
+function insertNostrBuildThumbUrl(url: string): string | null {
+  const t = url.trim()
+  if (!canInsertNostrBuildThumb(t)) return null
+  try {
+    const u = new URL(t)
+    const p = u.pathname || '/'
+    u.pathname = '/thumb' + (p.startsWith('/') ? p : `/${p}`)
+    return u.toString()
+  } catch {
+    return null
+  }
+}
+
+function ProfileContentImageTagRow({
+  tagName,
+  value,
+  onEdit,
+  onInsertThumb,
+  showThumbButton,
+  t
+}: {
+  tagName: 'picture' | 'banner'
+  value: string
+  onEdit: () => void
+  onInsertThumb: () => void
+  showThumbButton: boolean
+  t: (key: string, opts?: { defaultValue?: string }) => string
+}) {
+  return (
+    <div className="flex gap-2 items-center">
+      <Input
+        readOnly
+        value={tagName}
+        className="flex-1 max-w-[140px] font-mono text-sm bg-muted/40"
+        tabIndex={-1}
+        aria-label={t('Tag name')}
+      />
+      <Input
+        readOnly
+        value={value}
+        className="flex-1 font-mono text-sm bg-muted/40"
+        tabIndex={-1}
+        title={value || undefined}
+      />
+      {showThumbButton && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="shrink-0 text-muted-foreground"
+          onClick={onInsertThumb}
+          title={t('profileEditorNostrBuildThumbHint', {
+            defaultValue: 'Use nostr.build thumbnail URL (/thumb/…)'
+          })}
+          aria-label={t('profileEditorNostrBuildThumbHint', {
+            defaultValue: 'Use nostr.build thumbnail URL (/thumb/…)'
+          })}
+        >
+          <Fingerprint className="h-4 w-4" />
+        </Button>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="shrink-0 text-muted-foreground"
+        onClick={onEdit}
+        aria-label={t('Edit')}
+        title={t('Edit')}
+      >
+        <Pencil className="h-4 w-4" />
+      </Button>
+    </div>
+  )
+}
 
 function Item({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-2">{children}</div>

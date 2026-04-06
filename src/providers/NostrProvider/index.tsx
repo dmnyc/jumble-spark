@@ -512,13 +512,18 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       )
       const userEmojiListEvent = sortedEvents.find((e) => e.kind === kinds.UserEmojiList)
       if (profileEvent) {
-        const updatedProfileEvent = await indexedDb.putReplaceableEvent(profileEvent)
-        if (updatedProfileEvent.id === profileEvent.id) {
-          // Update in-memory cache so it's immediately available
-          await replaceableEventService.updateReplaceableEventCache(updatedProfileEvent)
-          setProfileEvent(updatedProfileEvent)
-          setProfile(getProfileFromEvent(updatedProfileEvent))
+        let resolvedProfileEvent = profileEvent
+        try {
+          const updatedProfileEvent = await indexedDb.putReplaceableEvent(profileEvent)
+          resolvedProfileEvent = updatedProfileEvent
+          await replaceableEventService.updateReplaceableEventCache(resolvedProfileEvent)
+        } catch (e) {
+          // IDB write failed (e.g. tombstone or store error) — still apply the fetched event in memory
+          logger.warn('[NostrProvider] putReplaceableEvent failed for profile; using fetched event in memory', { error: e })
+          try { await replaceableEventService.updateReplaceableEventCache(profileEvent) } catch {}
         }
+        setProfileEvent(resolvedProfileEvent)
+        setProfile(getProfileFromEvent(resolvedProfileEvent))
       } else if (!storedProfileEvent) {
         setProfile({
           pubkey: account.pubkey,
@@ -1488,9 +1493,15 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }
 
   const updateProfileEvent = async (profileEvent: Event) => {
-    const newProfileEvent = await indexedDb.putReplaceableEvent(profileEvent)
-    setProfileEvent(newProfileEvent)
-    setProfile(getProfileFromEvent(newProfileEvent))
+    try {
+      await indexedDb.putReplaceableEvent(profileEvent)
+    } catch (e) {
+      logger.warn('[NostrProvider] updateProfileEvent: putReplaceableEvent failed', { error: e })
+    }
+    // Always apply the just-published event to state regardless of IDB's newer-wins result,
+    // so the UI is never left showing a stale event that IDB preferred over what we just saved.
+    setProfileEvent(profileEvent)
+    setProfile(getProfileFromEvent(profileEvent))
   }
 
   const updateFollowListEvent = async (followListEvent: Event) => {
