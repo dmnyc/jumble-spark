@@ -13,14 +13,45 @@ function isHttpOrHttpsUrl(url: string): boolean {
   return /^https?:\/\//i.test(url.trim())
 }
 
+/** Module-level cache: URL → file size in bytes, or null if unknown (CORS blocked / no header). */
+const urlSizeCache = new Map<string, number | null>()
+
+/**
+ * URLs that have fired onLoad successfully this session.
+ * When a URL is here the image is already in the browser's HTTP cache, so we can
+ * skip both the IntersectionObserver delay and the HEAD-request size check.
+ */
+const loadedAvatarUrls = new Set<string>()
+
+/**
+ * Non-blocking HEAD request to get Content-Length for a URL.
+ * Result is cached permanently in memory. Resolves null on CORS failure or missing header.
+ */
+async function fetchUrlSizeBytes(url: string): Promise<number | null> {
+  if (urlSizeCache.has(url)) return urlSizeCache.get(url)!
+  try {
+    const res = await fetch(url, { method: 'HEAD' })
+    const cl = res.headers.get('content-length')
+    const size = cl ? parseInt(cl, 10) : null
+    urlSizeCache.set(url, size)
+    return size
+  } catch {
+    urlSizeCache.set(url, null)
+    return null
+  }
+}
+
 /**
  * Defer loading remote profile pictures until the avatar is near the viewport so handles/text
  * can paint first; identicon (data URL) shows until then.
+ * Also enforces an optional maxFileSizeBytes cap — shows fallback for avatars that are confirmed
+ * larger than the cap (based on a cached HEAD request).
  */
 function useDeferRemoteProfileAvatar(
   profileAvatar: string | undefined,
   fallbackSrc: string,
-  containerRef: RefObject<HTMLDivElement | null>
+  containerRef: RefObject<HTMLDivElement | null>,
+  maxFileSizeBytes?: number
 ): string {
   const remoteHttp = useMemo(() => {
     const a = profileAvatar?.trim()
@@ -30,17 +61,39 @@ function useDeferRemoteProfileAvatar(
     return toNostrBuildThumbUrl(a)
   }, [profileAvatar])
 
+  // If this URL loaded successfully earlier this session it's already in the browser's
+  // HTTP cache — skip both the viewport delay and the size check.
+  const alreadyCached = remoteHttp ? loadedAvatarUrls.has(remoteHttp) : false
+
+  const [sizeBlocked, setSizeBlocked] = useState(false)
+
+  useEffect(() => {
+    if (!remoteHttp || !maxFileSizeBytes || alreadyCached) {
+      setSizeBlocked(false)
+      return
+    }
+    if (urlSizeCache.has(remoteHttp)) {
+      const cached = urlSizeCache.get(remoteHttp)
+      setSizeBlocked(cached != null && cached > maxFileSizeBytes)
+      return
+    }
+    fetchUrlSizeBytes(remoteHttp).then((size) => {
+      setSizeBlocked(size != null && size > maxFileSizeBytes)
+    })
+  }, [remoteHttp, maxFileSizeBytes, alreadyCached])
+
   const nonHttpAvatar = useMemo(() => {
     const a = profileAvatar?.trim()
     if (a && !isHttpOrHttpsUrl(a)) return a
     return ''
   }, [profileAvatar])
 
-  const [allowRemote, setAllowRemote] = useState(() => remoteHttp === '')
+  // Already cached → show immediately without waiting for IntersectionObserver.
+  const [allowRemote, setAllowRemote] = useState(() => remoteHttp === '' || alreadyCached)
 
   useEffect(() => {
-    setAllowRemote(remoteHttp === '')
-  }, [remoteHttp])
+    setAllowRemote(remoteHttp === '' || alreadyCached)
+  }, [remoteHttp, alreadyCached])
 
   useEffect(() => {
     if (!remoteHttp || allowRemote) return
@@ -62,6 +115,7 @@ function useDeferRemoteProfileAvatar(
     return () => io.disconnect()
   }, [remoteHttp, allowRemote, containerRef])
 
+  if (sizeBlocked) return fallbackSrc
   return nonHttpAvatar || (remoteHttp && allowRemote ? remoteHttp : '') || fallbackSrc
 }
 
@@ -80,13 +134,20 @@ export default function UserAvatar({
   userId,
   className,
   size = 'normal',
-  prefetchedProfile
+  prefetchedProfile,
+  maxFileSizeKb = 2048
 }: {
   userId: string
   className?: string
   size?: 'large' | 'big' | 'semiBig' | 'normal' | 'medium' | 'small' | 'xSmall' | 'tiny'
   /** Same pubkey as userId; use avatar from search/cache until fetch completes. */
   prefetchedProfile?: TProfile
+  /**
+   * Skip avatar images larger than this (KB) — uses the generated placeholder instead.
+   * Non-nostr.build sizes are checked via a cached HEAD request; unknown sizes are shown.
+   * Defaults to 2048 (2 MB). Pass a lower value (e.g. 500) for dense feed contexts.
+   */
+  maxFileSizeKb?: number
 }) {
   const { profile: fetchedProfile } = useFetchProfile(userId)
   const profile = useMemo(() => {
@@ -111,7 +172,24 @@ export default function UserAvatar({
   )
 
   const containerRef = useRef<HTMLDivElement>(null)
-  const avatarSrc = useDeferRemoteProfileAvatar(profile?.avatar, defaultAvatar, containerRef)
+
+  // Seed the size cache from imeta data on the profile event — avoids a HEAD request
+  // when the kind-0 event already carries the file size.
+  useMemo(() => {
+    if (profile?.avatar && profile.pictureSize != null) {
+      const thumbUrl = toNostrBuildThumbUrl(profile.avatar)
+      if (!urlSizeCache.has(thumbUrl)) {
+        urlSizeCache.set(thumbUrl, profile.pictureSize)
+      }
+    }
+  }, [profile?.avatar, profile?.pictureSize])
+
+  const avatarSrc = useDeferRemoteProfileAvatar(
+    profile?.avatar,
+    defaultAvatar,
+    containerRef,
+    maxFileSizeKb != null ? maxFileSizeKb * 1024 : undefined
+  )
 
   // All hooks must be called before any early returns
   const [imgError, setImgError] = useState(false)
@@ -134,6 +212,7 @@ export default function UserAvatar({
 
   const handleImageLoad = () => {
     setImgError(false)
+    if (currentSrc && isHttpOrHttpsUrl(currentSrc)) loadedAvatarUrls.add(currentSrc)
   }
 
   // Use pubkey from decoded userId if profile isn't loaded yet
@@ -184,12 +263,14 @@ export function SimpleUserAvatar({
   userId,
   size = 'normal',
   className,
-  prefetchedProfile
+  prefetchedProfile,
+  maxFileSizeKb = 2048
 }: {
   userId: string
   size?: 'large' | 'big' | 'semiBig' | 'normal' | 'medium' | 'small' | 'xSmall' | 'tiny'
   className?: string
   prefetchedProfile?: TProfile
+  maxFileSizeKb?: number
 }) {
   const { profile: fetchedProfile } = useFetchProfile(userId)
   const profile = useMemo(() => {
@@ -212,7 +293,22 @@ export function SimpleUserAvatar({
   )
 
   const containerRef = useRef<HTMLDivElement>(null)
-  const avatarSrc = useDeferRemoteProfileAvatar(profile?.avatar, defaultAvatar, containerRef)
+
+  useMemo(() => {
+    if (profile?.avatar && profile.pictureSize != null) {
+      const thumbUrl = toNostrBuildThumbUrl(profile.avatar)
+      if (!urlSizeCache.has(thumbUrl)) {
+        urlSizeCache.set(thumbUrl, profile.pictureSize)
+      }
+    }
+  }, [profile?.avatar, profile?.pictureSize])
+
+  const avatarSrc = useDeferRemoteProfileAvatar(
+    profile?.avatar,
+    defaultAvatar,
+    containerRef,
+    maxFileSizeKb != null ? maxFileSizeKb * 1024 : undefined
+  )
   
   // All hooks must be called before any early returns
   const [imgError, setImgError] = useState(false)
@@ -235,6 +331,7 @@ export function SimpleUserAvatar({
 
   const handleImageLoad = () => {
     setImgError(false)
+    if (currentSrc && isHttpOrHttpsUrl(currentSrc)) loadedAvatarUrls.add(currentSrc)
   }
 
   // If we have a pubkey (from decoding npub/nprofile or profile), show avatar even without profile

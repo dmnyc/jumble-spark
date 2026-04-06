@@ -22,6 +22,8 @@ export type TProfile = {
   original_username?: string
   banner?: string
   avatar?: string
+  /** File size of the profile picture in bytes, sourced from a matching imeta tag in the kind-0 event. */
+  pictureSize?: number
   nip05?: string
   nip05List?: string[]
   about?: string

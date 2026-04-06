@@ -5,7 +5,7 @@ import { buildATag } from './draft-event'
 import { getReplaceableEventIdentifier } from './event'
 import { getAmountFromInvoice, getLightningAddressFromProfile } from './lightning'
 import { formatPubkey, pubkeyToNpub } from './pubkey'
-import { generateBech32IdFromATag, generateBech32IdFromETag, tagNameEquals } from './tag'
+import { generateBech32IdFromATag, generateBech32IdFromETag, getImetaInfoFromImetaTag, tagNameEquals } from './tag'
 import { isHttpRelayUrl, isWebsocketUrl, normalizeHttpRelayUrl, normalizeHttpUrl, normalizeUrl } from './url'
 import { isTorBrowser } from './utils'
 import logger from '@/lib/logger'
@@ -201,11 +201,28 @@ export function getProfileFromEvent(event: Event) {
     profileObj.name?.trim() ||
     nip05?.split('@')[0]?.trim()
   
+  // Resolve picture URL (prefer tag over JSON)
+  const pictureTags = event.tags.filter(tag => tag[0] === 'picture' && tag[1]).map(tag => tag[1])
+  const avatarUrl = pictureTags.length > 0 ? pictureTags[0] : profileObj.picture
+
+  // Look up file size from any matching imeta tag in the kind-0 event
+  let pictureSize: number | undefined
+  if (avatarUrl) {
+    for (const tag of event.tags) {
+      const info = getImetaInfoFromImetaTag(tag)
+      if (info && info.url === avatarUrl && info.size != null) {
+        pictureSize = info.size
+        break
+      }
+    }
+  }
+
   return {
     pubkey: event.pubkey,
     npub: pubkeyToNpub(event.pubkey) ?? '',
     banner: profileObj.banner,
-    avatar: profileObj.picture,
+    avatar: avatarUrl,
+    pictureSize,
     username: username || formatPubkey(event.pubkey),
     original_username: username,
     nip05,
