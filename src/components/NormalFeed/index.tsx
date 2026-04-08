@@ -119,13 +119,28 @@ const NormalFeed = forwardRef<TNoteListRef, {
     setFeedFilterTabRowHost(node)
   }, [])
 
+  const MEDIA_KINDS = useMemo(() => [20, 21, 22, 1222], [])
+
   const tabs = useMemo(
-    (): TabDefinition[] => [
-      { value: 'posts', label: 'Notes' },
-      { value: 'postsAndReplies', label: 'Replies' }
-    ],
-    []
+    (): TabDefinition[] => {
+      const base: TabDefinition[] = [
+        { value: 'posts', label: 'Notes' },
+        { value: 'postsAndReplies', label: 'Replies' }
+      ]
+      if (isMainFeed) base.push({ value: 'media', label: 'Media' })
+      return base
+    },
+    [isMainFeed]
   )
+
+  /** When in media mode, replace each shard's kinds with the media set. */
+  const effectiveSubRequests = useMemo(() => {
+    if (listMode !== 'media') return subRequests
+    return subRequests.map((req) => ({
+      ...req,
+      filter: { ...req.filter, kinds: MEDIA_KINDS }
+    }))
+  }, [listMode, subRequests, MEDIA_KINDS])
 
   const handleListModeChange = useCallback(
     (mode: TNoteListMode | string) => {
@@ -248,8 +263,7 @@ const NormalFeed = forwardRef<TNoteListRef, {
           showKind1111={showKind1111}
           seeAllFeedEvents={feedKindFilterBypass}
           withKindFilter={withKindFilter}
-          showAllKinds={listShowAllKinds}
-          subRequests={subRequests}
+          subRequests={effectiveSubRequests}
           hideReplies={listMode === 'posts'}
           hideUntrustedNotes={hideUntrustedNotes}
           areAlgoRelays={areAlgoRelays}
@@ -259,9 +273,11 @@ const NormalFeed = forwardRef<TNoteListRef, {
           mergeTimelineWhenSubRequestFiltersMatch={mergeTimelineWhenSubRequestFiltersMatch}
           followingFeedDeltaSubRequests={followingFeedDeltaSubRequests}
           feedTimelineScopeKey={feedTimelineScopeKey}
-          useFilterAsIs={useFilterAsIs}
-          clientSideKindFilter={clientSideKindFilter}
-          allowKindlessRelayExplore={allowKindlessRelayExplore}
+          gridLayout={listMode === 'media'}
+          useFilterAsIs={listMode === 'media' ? true : useFilterAsIs}
+          clientSideKindFilter={listMode === 'media' ? false : clientSideKindFilter}
+          allowKindlessRelayExplore={listMode === 'media' ? false : allowKindlessRelayExplore}
+          showAllKinds={listMode === 'media' ? true : listShowAllKinds}
           showFeedClientFilter={showFeedClientFilter}
           hostPrimaryPageName={hostPrimaryPageName}
           feedClientFilterTabRowHost={mergeFilterWithTabsRow ? feedFilterTabRowHost : undefined}

@@ -147,7 +147,7 @@ class LocalStorageService {
     }
     const noteListModeStr = window.localStorage.getItem(StorageKey.NOTE_LIST_MODE)
     this.noteListMode =
-      noteListModeStr && ['posts', 'postsAndReplies', 'pictures'].includes(noteListModeStr)
+      noteListModeStr && ['posts', 'postsAndReplies', 'media'].includes(noteListModeStr)
         ? (noteListModeStr as TNoteListMode)
         : 'posts'
     const relaySetsStr = window.localStorage.getItem(StorageKey.RELAY_SETS)
@@ -487,7 +487,7 @@ class LocalStorageService {
       this.fontSize = (get(StorageKey.FONT_SIZE) as TFontSize) ?? this.fontSize
     }
     const noteListModeStr = get(StorageKey.NOTE_LIST_MODE)
-    if (noteListModeStr != null && ['posts', 'postsAndReplies', 'pictures'].includes(noteListModeStr)) {
+    if (noteListModeStr != null && ['posts', 'postsAndReplies', 'media'].includes(noteListModeStr)) {
       this.noteListMode = noteListModeStr as TNoteListMode
     }
     const accountsStr = get(StorageKey.ACCOUNTS)

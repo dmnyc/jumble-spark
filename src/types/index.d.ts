@@ -205,7 +205,7 @@ export type TPublishEventExtras = {
   publishBatchLabel?: string
 }
 
-export type TNoteListMode = 'posts' | 'postsAndReplies' | 'you' | 'bookmarksAndHashtags'
+export type TNoteListMode = 'posts' | 'postsAndReplies' | 'media'
 
 export type TNotificationType = 'all' | 'mentions' | 'reactions' | 'zaps'
 

@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatPubkey, formatNpub, generateImageByPubkey, pubkeyToNpub } from '@/lib/pubkey'
+import { isVideo } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import { usePrimaryPage } from '@/contexts/primary-page-context'
 import { useFetchProfile } from '@/hooks/useFetchProfile'
@@ -93,12 +94,18 @@ function SidebarAccountMenu({
             active && 'bg-accent/50'
           )}
         >
-          <Avatar className="size-8 shrink-0">
-            <AvatarImage src={avatar} />
-            <AvatarFallback>
-              <img src={defaultAvatar} alt="" />
-            </AvatarFallback>
-          </Avatar>
+          {isVideo(avatar ?? '') ? (
+            <div className="size-8 shrink-0 overflow-hidden rounded-full">
+              <video src={avatar} className="h-full w-full object-cover object-center" autoPlay muted loop playsInline />
+            </div>
+          ) : (
+            <Avatar className="size-8 shrink-0">
+              <AvatarImage src={avatar} />
+              <AvatarFallback>
+                <img src={defaultAvatar} alt="" />
+              </AvatarFallback>
+            </Avatar>
+          )}
           <span className="truncate max-xl:hidden">{username}</span>
         </Button>
       </DropdownMenuTrigger>
@@ -139,12 +146,18 @@ function TitlebarAccountMenu({
           aria-label={t('Account menu')}
         >
           {resolvedProfile ? (
-            <Avatar className={cn('w-6 h-6', active ? 'ring-primary ring-1' : '')}>
-              <AvatarImage src={resolvedProfile.avatar} className="object-cover object-center" />
-              <AvatarFallback>
-                <img src={defaultAvatar} alt="" />
-              </AvatarFallback>
-            </Avatar>
+            isVideo(resolvedProfile.avatar ?? '') ? (
+              <div className={cn('w-6 h-6 overflow-hidden rounded-full', active ? 'ring-primary ring-1' : '')}>
+                <video src={resolvedProfile.avatar} className="h-full w-full object-cover object-center" autoPlay muted loop playsInline />
+              </div>
+            ) : (
+              <Avatar className={cn('w-6 h-6', active ? 'ring-primary ring-1' : '')}>
+                <AvatarImage src={resolvedProfile.avatar} className="object-cover object-center" />
+                <AvatarFallback>
+                  <img src={defaultAvatar} alt="" />
+                </AvatarFallback>
+              </Avatar>
+            )
           ) : (
             <Skeleton className={cn('w-6 h-6 rounded-full', active ? 'ring-primary ring-1' : '')} />
           )}

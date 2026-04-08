@@ -1,6 +1,7 @@
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFetchProfile } from '@/hooks'
 import { toNostrBuildThumbUrl } from '@/lib/nostr-build'
+import { isVideo } from '@/lib/url'
 import { generateImageByPubkey, userIdToPubkey } from '@/lib/pubkey'
 import { toProfile } from '@/lib/link'
 import { cn } from '@/lib/utils'
@@ -56,13 +57,13 @@ function useDeferRemoteProfileAvatar(
   const remoteHttp = useMemo(() => {
     const a = profileAvatar?.trim()
     if (!a || !isHttpOrHttpsUrl(a)) return ''
+    // Video files don't have a /thumb/ route — serve them as-is.
+    if (isVideo(a)) return a
     // Always use the nostr.build thumbnail route for profile pictures — it's
     // typically < 50 KB regardless of the original file size.
     return toNostrBuildThumbUrl(a)
   }, [profileAvatar])
 
-  // If this URL loaded successfully earlier this session it's already in the browser's
-  // HTTP cache — skip both the viewport delay and the size check.
   const alreadyCached = remoteHttp ? loadedAvatarUrls.has(remoteHttp) : false
 
   const [sizeBlocked, setSizeBlocked] = useState(false)
@@ -88,7 +89,6 @@ function useDeferRemoteProfileAvatar(
     return ''
   }, [profileAvatar])
 
-  // Already cached → show immediately without waiting for IntersectionObserver.
   const [allowRemote, setAllowRemote] = useState(() => remoteHttp === '' || alreadyCached)
 
   useEffect(() => {
@@ -195,6 +195,8 @@ export default function UserAvatar({
   const [imgError, setImgError] = useState(false)
   const [currentSrc, setCurrentSrc] = useState(avatarSrc)
 
+  const isVideoAvatar = useMemo(() => isVideo(profile?.avatar?.trim() ?? ''), [profile?.avatar])
+
   // Reset error state when src changes
   useEffect(() => {
     setImgError(false)
@@ -239,16 +241,31 @@ export default function UserAvatar({
       }}
     >
       {!imgError && currentSrc ? (
-        <img 
-          src={currentSrc}
-          alt=""
-          className="block w-full h-full object-cover object-center"
-          style={{ display: 'block', position: 'static', margin: 0, padding: 0, top: 0, left: 0, right: 0, bottom: 0 }}
-          onError={handleImageError}
-          onLoad={handleImageLoad}
-          loading="lazy"
-          decoding="async"
-        />
+        isVideoAvatar ? (
+          <video
+            src={currentSrc}
+            className="block w-full h-full object-cover object-center"
+            autoPlay
+            muted
+            loop
+            playsInline
+            onCanPlay={() => {
+              if (currentSrc && isHttpOrHttpsUrl(currentSrc)) loadedAvatarUrls.add(currentSrc)
+            }}
+            onError={handleImageError}
+          />
+        ) : (
+          <img 
+            src={currentSrc}
+            alt=""
+            className="block w-full h-full object-cover object-center"
+            style={{ display: 'block', position: 'static', margin: 0, padding: 0, top: 0, left: 0, right: 0, bottom: 0 }}
+            onError={handleImageError}
+            onLoad={handleImageLoad}
+            loading="lazy"
+            decoding="async"
+          />
+        )
       ) : (
         // Show initials or placeholder when image fails
         <div className="h-full w-full flex items-center justify-center text-xs font-medium text-muted-foreground">
@@ -314,6 +331,8 @@ export function SimpleUserAvatar({
   const [imgError, setImgError] = useState(false)
   const [currentSrc, setCurrentSrc] = useState(avatarSrc)
 
+  const isVideoAvatar = useMemo(() => isVideo(profile?.avatar?.trim() ?? ''), [profile?.avatar])
+
   // Reset error state when src changes
   useEffect(() => {
     setImgError(false)
@@ -352,16 +371,31 @@ export function SimpleUserAvatar({
       className={cn('shrink-0 relative overflow-hidden rounded-full bg-muted', UserAvatarSizeCnMap[size], className)}
     >
       {!imgError && currentSrc ? (
-        <img 
-          src={currentSrc}
-          alt=""
-          className="block w-full h-full object-cover object-center"
-          style={{ display: 'block', position: 'static', margin: 0, padding: 0, top: 0, left: 0, right: 0, bottom: 0 }}
-          onError={handleImageError}
-          onLoad={handleImageLoad}
-          loading="lazy"
-          decoding="async"
-        />
+        isVideoAvatar ? (
+          <video
+            src={currentSrc}
+            className="block w-full h-full object-cover object-center"
+            autoPlay
+            muted
+            loop
+            playsInline
+            onCanPlay={() => {
+              if (currentSrc && isHttpOrHttpsUrl(currentSrc)) loadedAvatarUrls.add(currentSrc)
+            }}
+            onError={handleImageError}
+          />
+        ) : (
+          <img 
+            src={currentSrc}
+            alt=""
+            className="block w-full h-full object-cover object-center"
+            style={{ display: 'block', position: 'static', margin: 0, padding: 0, top: 0, left: 0, right: 0, bottom: 0 }}
+            onError={handleImageError}
+            onLoad={handleImageLoad}
+            loading="lazy"
+            decoding="async"
+          />
+        )
       ) : (
         // Show initials or placeholder when image fails
         <div className="h-full w-full flex items-center justify-center text-xs font-medium text-muted-foreground">

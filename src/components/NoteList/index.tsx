@@ -78,6 +78,7 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import NoteCard, { NoteCardLoadingSkeleton } from '../NoteCard'
+import MediaGridItem from '../MediaGridItem'
 
 const LIMIT = 100 // Increased from 200 to load more events per request
 const ALGO_LIMIT = 200 // Increased from 500 for algorithm feeds
@@ -468,7 +469,8 @@ const NoteList = forwardRef(
        */
       feedClientFilterTabRowHost,
       onSingleRelayKindlessEmpty,
-      feedTopNotice
+      feedTopNotice,
+      gridLayout = false
     }: {
       subRequests: TFeedSubRequest[]
       showKinds: number[]
@@ -521,6 +523,8 @@ const NoteList = forwardRef(
       onSingleRelayKindlessEmpty?: () => void
       /** Optional banner above the feed (e.g. kindless→kinds fallback). */
       feedTopNotice?: ReactNode
+      /** When true, render events as an Instagram-style 3-column square media grid. */
+      gridLayout?: boolean
     },
     ref
   ) => {
@@ -1475,16 +1479,9 @@ const NoteList = forwardRef(
         return () => {}
       }
 
-      if (!relayCapabilityReady && !oneShotFetch) {
-        setLoading(true)
-        return () => {}
-      }
-
-      // Synchronous offline check — must run before the async init() so state
-      // updates happen in the same React batch as the effect itself.
-      // If every relay URL in every shard is non-local while offline, show an
-      // immediate empty state instead of spinning while waiting for connections
-      // that can never succeed.
+      // Offline check must come before relayCapabilityReady: for internet relay
+      // shards, relayCapabilityReady never becomes true while offline (NIP-11
+      // fetch cannot complete), so checking it first causes an infinite loading spin.
       if (isOfflineRef.current && subRequestsRef.current.length > 0) {
         const hasAnyLocalRelay = subRequestsRef.current.some((req) =>
           req.urls.some((u) => isLocalNetworkUrl(u))
@@ -1498,6 +1495,11 @@ const NoteList = forwardRef(
           setEvents([])
           return () => {}
         }
+      }
+
+      if (!relayCapabilityReady && !oneShotFetch) {
+        setLoading(true)
+        return () => {}
       }
 
       const prevSubKey = prevSubRequestsKeyForTimelineRef.current
@@ -3140,28 +3142,40 @@ const NoteList = forwardRef(
             {t('Feed full search empty')}
           </div>
         ) : null}
-        {clientFilteredEvents.map((event) => (
-          <NoteCard
-            key={event.id}
-            className="w-full"
-            event={event}
-            filterMutedNotes={filterMutedNotes}
-            bottomNoteLabel={eventReasonLabelMap.get(event.id)}
-          />
-        ))}
+        {gridLayout ? (
+          <div className="grid grid-cols-3 gap-0.5 pr-4">
+            {clientFilteredEvents.map((event) => (
+              <MediaGridItem key={event.id} event={event} />
+            ))}
+          </div>
+        ) : (
+          clientFilteredEvents.map((event) => (
+            <NoteCard
+              key={event.id}
+              className="w-full"
+              event={event}
+              filterMutedNotes={filterMutedNotes}
+              bottomNoteLabel={eventReasonLabelMap.get(event.id)}
+            />
+          ))
+        )}
         {listSourceEvents.length === 0 &&
         !feedFullSearchActive &&
         (loading || (subRequests.length > 0 && !feedTimelineEmptyUiReady)) ? (
           <div
             ref={bottomRef}
-            className="min-h-[40vh] space-y-2 px-1 py-4"
+            className={gridLayout ? 'grid grid-cols-3 gap-0.5 pr-4 min-h-[40vh]' : 'min-h-[40vh] space-y-2 px-1 py-4'}
             role="status"
             aria-live="polite"
             aria-busy="true"
           >
-            {Array.from({ length: 5 }).map((_, i) => (
-              <NoteCardLoadingSkeleton key={i} />
-            ))}
+            {gridLayout
+              ? Array.from({ length: 9 }).map((_, i) => (
+                  <div key={i} className="aspect-square animate-pulse bg-muted" />
+                ))
+              : Array.from({ length: 5 }).map((_, i) => (
+                  <NoteCardLoadingSkeleton key={i} />
+                ))}
           </div>
         ) : listSourceEvents.length > 0 &&
           (feedFullSearchActive ? showCount < listSourceEvents.length : hasMore) ? (

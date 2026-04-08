@@ -4,7 +4,10 @@
  * nostr.build generates a lightweight thumbnail at /thumb/<filename> for every
  * uploaded image. Thumbnails are typically < 50 KB regardless of the original
  * file size — a huge bandwidth win for profile pictures and feed previews.
+ * Note: the /thumb/ route only works for image files — never apply it to video URLs.
  */
+
+import { isVideo } from './url'
 
 /** Returns true when a URL is hosted on any nostr.build domain. */
 export function isNostrBuildUrl(url: string): boolean {
@@ -17,10 +20,12 @@ export function isNostrBuildUrl(url: string): boolean {
   }
 }
 
-/** Returns true when the URL is on nostr.build but does NOT yet use the /thumb/ path. */
+/** Returns true when the URL is on nostr.build but does NOT yet use the /thumb/ path, and is not a video file. */
 export function canUseNostrBuildThumb(url: string): boolean {
   const u = (url ?? '').trim()
   if (!u) return false
+  // /thumb/ is image-only on nostr.build — never apply it to video files
+  if (isVideo(u)) return false
   try {
     const parsed = new URL(u)
     if (!parsed.hostname.endsWith('nostr.build')) return false

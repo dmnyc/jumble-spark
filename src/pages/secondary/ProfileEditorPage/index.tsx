@@ -33,6 +33,7 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { canUseNostrBuildThumb, toNostrBuildThumbUrl } from '@/lib/nostr-build'
+import { isVideo } from '@/lib/url'
 import { ChevronDown, Fingerprint, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import type { Event } from 'nostr-tools'
 import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
@@ -457,14 +458,28 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
           onUploadStart={() => setUploadingAvatar(true)}
           onUploadEnd={() => setUploadingAvatar(false)}
           className="w-24 h-24 absolute bottom-0 left-4 translate-y-1/2 border-4 border-background cursor-pointer rounded-full"
+          accept="image/*,video/mp4,video/webm,video/quicktime"
           maxFileSizeMb={2}
         >
-          <Avatar className="w-full h-full">
-            <AvatarImage src={avatar} className="object-cover object-center" />
-            <AvatarFallback>
-              <img src={defaultImage} />
-            </AvatarFallback>
-          </Avatar>
+          <div className="w-full h-full overflow-hidden rounded-full bg-muted">
+            {isVideo(avatar) ? (
+              <video
+                src={avatar}
+                className="w-full h-full object-cover object-center"
+                autoPlay
+                muted
+                loop
+                playsInline
+              />
+            ) : (
+              <Avatar className="w-full h-full">
+                <AvatarImage src={avatar} className="object-cover object-center" />
+                <AvatarFallback>
+                  <img src={defaultImage} />
+                </AvatarFallback>
+              </Avatar>
+            )}
+          </div>
           <div className="absolute top-0 bg-muted/30 w-full h-full rounded-full flex flex-col justify-center items-center">
             {uploadingAvatar ? (
               <Skeleton className="size-4 shrink-0 rounded-sm" aria-hidden />
