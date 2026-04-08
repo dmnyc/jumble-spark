@@ -14,7 +14,7 @@ import {
   stableSpellFeedFilterKey
 } from '@/lib/spell-feed-request-identity'
 import logger from '@/lib/logger'
-import { normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
+import { isLocalNetworkUrl, normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import { shouldIncludeZapReceiptAtReplyThreshold } from '@/lib/event-metadata'
 import { isTouchDevice } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
@@ -528,7 +528,7 @@ const NoteList = forwardRef(
     const { startLogin, pubkey } = useNostr()
     const { isUserTrusted } = useUserTrust()
     const { mutePubkeySet } = useMuteList()
-    const { hideContentMentioningMutedUsers } = useContentPolicy()
+    const { hideContentMentioningMutedUsers, isOffline } = useContentPolicy()
     const { isEventDeleted } = useDeletedEvent()
     const { zapReplyThreshold } = useZap()
     const { favoriteRelays, blockedRelays } = useFavoriteRelays()
@@ -1315,6 +1315,18 @@ const NoteList = forwardRef(
       }, 500)
     }, [scrollToTop])
 
+    // Re-subscribe whenever connectivity flips so we immediately switch between
+    // local-only (offline) and normal (online) relay sets without waiting for
+    // the next user-triggered refresh.
+    const isOfflineRef = useRef(isOffline)
+    useEffect(() => {
+      const prev = isOfflineRef.current
+      isOfflineRef.current = isOffline
+      if (prev !== isOffline) {
+        setRefreshCount((n) => n + 1)
+      }
+    }, [isOffline])
+
     const onPerformFeedFullSearch = useCallback(async () => {
       if (!showFeedClientFilter) return
       const reqs = subRequestsRef.current
@@ -1468,6 +1480,26 @@ const NoteList = forwardRef(
         return () => {}
       }
 
+      // Synchronous offline check — must run before the async init() so state
+      // updates happen in the same React batch as the effect itself.
+      // If every relay URL in every shard is non-local while offline, show an
+      // immediate empty state instead of spinning while waiting for connections
+      // that can never succeed.
+      if (isOfflineRef.current && subRequestsRef.current.length > 0) {
+        const hasAnyLocalRelay = subRequestsRef.current.some((req) =>
+          req.urls.some((u) => isLocalNetworkUrl(u))
+        )
+        if (!hasAnyLocalRelay) {
+          feedPaintLiveRelayDoneRef.current = true
+          setFeedEmptyToastGateTick((n) => n + 1)
+          setFeedTimelineEmptyUiReady(true)
+          setLoading(false)
+          setHasMore(false)
+          setEvents([])
+          return () => {}
+        }
+      }
+
       const prevSubKey = prevSubRequestsKeyForTimelineRef.current
       const userPulledRefresh = refreshCount !== timelineEffectLastRefreshCountRef.current
       if (userPulledRefresh) {
@@ -1541,6 +1573,14 @@ const NoteList = forwardRef(
         const seeAllNoSpell = seeAllFeedEventsRef.current && !useFilterAsIsRef.current
 
         const mappedSubRequests = mapLiveSubRequestsForTimeline(subRequestsRef.current)
+          .map((req) =>
+            isOfflineRef.current
+              ? { ...req, urls: req.urls.filter((u) => isLocalNetworkUrl(u)) }
+              : req
+          )
+          // Drop shards whose every relay was filtered out; avoids timeline-cache
+          // key collisions where all offline relay-specific views share the same key.
+          .filter((req) => req.urls.length > 0)
 
         const filterMissingKinds = (f: Filter) => !f.kinds || f.kinds.length === 0
         const invalidFilters = mappedSubRequests.filter(({ urls, filter: f }) => {

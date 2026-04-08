@@ -284,6 +284,12 @@ class ClientService extends EventTarget {
       url: string,
       params?: { connectionTimeout?: number; abort?: AbortSignal }
     ) => {
+      // While offline, skip any relay that isn't on the local network.
+      // This prevents a flood of failed WebSocket/HTTP connection attempts across
+      // every part of the app (feeds, profile lookups, relay-list fetches, etc.).
+      if (!navigator.onLine && !isLocalNetworkUrl(url)) {
+        throw new Error(`[offline] skipping non-local relay ${url}`)
+      }
       const n = normalizeUrl(url) || url
       const base = params?.connectionTimeout ?? RELAY_POOL_CONNECTION_TIMEOUT_MS
       const connectionTimeout = READ_ONLY_RELAY_CONNECT_BOOST_URLS.has(n)
@@ -1928,6 +1934,11 @@ class ClientService extends EventTarget {
   ) {
     const originalDedupedRelays = Array.from(new Set(urls))
     let relays = originalDedupedRelays.filter((url) => !isHttpRelayUrl(url))
+    // While offline, silently drop every non-local relay so nothing is added to
+    // groupedRequests and no session strike is recorded for a connectivity-induced failure.
+    if (!navigator.onLine) {
+      relays = relays.filter((url) => isLocalNetworkUrl(url))
+    }
     const filters = sanitizeSubscribeFiltersBeforeReq(filter)
     if (filters.length === 0) {
       logger.debug('[relay-req] batch_skip', {
@@ -2284,9 +2295,14 @@ class ClientService extends EventTarget {
     } = {}
   ) {
     let relays = Array.from(new Set(urls))
+    // While offline, strip non-local relays before any further processing so the
+    // capital-letter-tag fallback below cannot re-introduce internet relays.
+    if (!navigator.onLine) {
+      relays = relays.filter((url) => isLocalNetworkUrl(url))
+    }
     if (relayFiltersUseCapitalLetterTagKeys(filter as Filter)) {
       relays = relayUrlsStripExtendedTagReqBlocked(relays)
-      if (relays.length === 0) {
+      if (relays.length === 0 && navigator.onLine) {
         relays = relayUrlsStripExtendedTagReqBlocked([...FAST_READ_RELAY_URLS])
       }
     }

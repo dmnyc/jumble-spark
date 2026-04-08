@@ -331,36 +331,61 @@ export default defineConfig(({ mode }) => {
             handler: 'NetworkOnly'
           },
           {
-            urlPattern: /^https:\/\/image\.nostr\.build\/.*/i,
+            // Well-known nostr media CDNs: cache aggressively since content is addressed by hash
+            urlPattern:
+              /^https:\/\/(?:image\.nostr\.build|cdn\.satellite\.earth|nostrimg\.com|void\.cat\/d|files\.sovbit\.host|cdn\.hzrd149\.com|blossom\.band|r2[a-z]?\.primal\.net)\/.*/i,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'nostr-images',
+              cacheName: 'nostr-media-cdn',
               expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 30 * 24 * 60 * 60 // 30 days
-              }
+                maxEntries: 300,
+                maxAgeSeconds: 60 * 24 * 60 * 60 // 60 days — hash-addressed, effectively immutable
+              },
+              // Only cache genuine 200 OK responses; prevents opaque/error responses from
+              // filling storage quota with unusable entries.
+              cacheableResponse: { statuses: [200] }
             }
           },
           {
-            urlPattern: /^https:\/\/cdn\.satellite\.earth\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'satellite-images',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 30 * 24 * 60 * 60 // 30 days
-              }
-            }
-          },
-          {
-            urlPattern: /^https:\/\/.*\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
+            // Generic cross-origin images by file extension (covers hosts not matched above)
+            urlPattern: /^https?:\/\/.+\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico)(?:\?.*)?$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'external-images',
               expiration: {
-                maxEntries: 200,
+                maxEntries: 300,
                 maxAgeSeconds: 7 * 24 * 60 * 60 // 7 days
-              }
+              },
+              cacheableResponse: { statuses: [200] }
+            }
+          },
+          {
+            // Audio files (podcasts, voice notes) — stale-while-revalidate so playback starts
+            // immediately from cache while the network check runs in the background.
+            urlPattern: /^https?:\/\/.+\.(?:mp3|ogg|opus|flac|m4a|aac|wav)(?:\?.*)?$/i,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'external-audio',
+              expiration: {
+                maxEntries: 30,
+                maxAgeSeconds: 7 * 24 * 60 * 60 // 7 days
+              },
+              cacheableResponse: { statuses: [200] }
+            }
+          },
+          {
+            // NIP-11 relay info documents: short-lived cache so relay metadata is fresh but
+            // the app can render offline or on a slow connection without blocking on network.
+            urlPattern: ({ request }: { request: Request }) =>
+              request.headers.get('accept')?.includes('application/nostr+json') ?? false,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'nip11-relay-info',
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 // 1 hour
+              },
+              cacheableResponse: { statuses: [200] }
             }
           }
         ]

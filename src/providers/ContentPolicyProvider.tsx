@@ -16,6 +16,9 @@ type TContentPolicyContext = {
   autoLoadMedia: boolean
   mediaAutoLoadPolicy: TMediaAutoLoadPolicy
   setMediaAutoLoadPolicy: (policy: TMediaAutoLoadPolicy) => void
+
+  /** True when `navigator.onLine` is false or the connection type is 'none'. */
+  isOffline: boolean
 }
 
 const ContentPolicyContext = createContext<TContentPolicyContext | undefined>(undefined)
@@ -41,19 +44,27 @@ export function ContentPolicyProvider({ children }: { children: React.ReactNode 
   )
   const [mediaAutoLoadPolicy, setMediaAutoLoadPolicy] = useState(storage.getMediaAutoLoadPolicy())
   const [connectionType, setConnectionType] = useState((navigator as any).connection?.type)
+  const [isOffline, setIsOffline] = useState(
+    () => !navigator.onLine || (navigator as any).connection?.type === 'none'
+  )
 
   useEffect(() => {
     const connection = (navigator as any).connection
-    if (!connection) {
-      setConnectionType(undefined)
-      return
+
+    const refresh = () => {
+      const conn = (navigator as any).connection
+      setConnectionType(conn?.type)
+      setIsOffline(!navigator.onLine || conn?.type === 'none')
     }
-    const handleConnectionChange = () => {
-      setConnectionType(connection.type)
-    }
-    connection.addEventListener('change', handleConnectionChange)
+
+    window.addEventListener('online', refresh)
+    window.addEventListener('offline', refresh)
+    connection?.addEventListener('change', refresh)
+
     return () => {
-      connection.removeEventListener('change', handleConnectionChange)
+      window.removeEventListener('online', refresh)
+      window.removeEventListener('offline', refresh)
+      connection?.removeEventListener('change', refresh)
     }
   }, [])
 
@@ -101,7 +112,8 @@ export function ContentPolicyProvider({ children }: { children: React.ReactNode 
         setHideContentMentioningMutedUsers: updateHideContentMentioningMutedUsers,
         autoLoadMedia,
         mediaAutoLoadPolicy,
-        setMediaAutoLoadPolicy: updateMediaAutoLoadPolicy
+        setMediaAutoLoadPolicy: updateMediaAutoLoadPolicy,
+        isOffline
       }}
     >
       {children}
