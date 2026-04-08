@@ -122,7 +122,17 @@ const FEED_PROFILE_BATCH_DEBOUNCE_MS = 50
 /** Larger chunks + parallel fetches below — sequential 36-pubkey rounds made notification avatars lag. */
 const FEED_PROFILE_CHUNK = 80
 
-function mergeEventBatchesById(prev: Event[], incoming: Event[], cap: number): Event[] {
+function mergeEventBatchesById(
+  prev: Event[],
+  incoming: Event[],
+  cap: number,
+  preserveOrder = false
+): Event[] {
+  if (preserveOrder) {
+    const incomingIds = new Set(incoming.map((e) => e.id))
+    const prevOnly = prev.filter((e) => !incomingIds.has(e.id))
+    return [...incoming, ...prevOnly].slice(0, cap)
+  }
   const byId = new Map<string, Event>()
   for (const e of prev) {
     byId.set(e.id, e)
@@ -1822,7 +1832,7 @@ const NoteList = forwardRef(
                             narrowed,
                             oneShotAfterMergeComparatorRef.current
                           )
-                        : mergeEventBatchesById(prev, narrowed, eventCap)
+                        : mergeEventBatchesById(prev, narrowed, eventCap, areAlgoRelays)
                       lastEventsForTimelinePrefetchRef.current = next
                       return next
                     })
@@ -2145,7 +2155,7 @@ const NoteList = forwardRef(
                 if (batch.length > 0) {
                   if (narrowed.length > 0) {
                     setEvents((prev) => {
-                      const next = mergeEventBatchesById(prev, narrowed, eventCapDelta)
+                      const next = mergeEventBatchesById(prev, narrowed, eventCapDelta, areAlgoRelays)
                       lastEventsForTimelinePrefetchRef.current = next
                       return next
                     })

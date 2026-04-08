@@ -107,42 +107,41 @@ export default function ImageGallery({
   return (
     <div className={cn(displayImages.length === 1 ? 'w-fit max-w-[400px]' : 'w-full', className)}>
       {imageContent}
-      {index >= 0 &&
-        createPortal(
-          <div onClick={(e) => e.stopPropagation()}>
-            <Lightbox
-              index={index}
-              slides={(() => {
-                const slides = images.map(({ url, alt }) => ({
-                  src: preferBlossomPrimalDisplayUrl(url),
-                  alt: alt || url,
-                  title: alt || undefined
-                }))
-                logger.debug('[ImageGallery] Lightbox slides:', { index, slidesCount: slides.length, slides })
-                return slides
-              })()}
-              plugins={[Zoom, Captions]}
-              open={index >= 0}
-              close={() => setIndex(-1)}
-              controller={{
-                closeOnBackdropClick: false,
-                closeOnPullUp: true,
-                closeOnPullDown: true
-              }}
-              render={{
-                buttonPrev: images.length <= 1 ? () => null : undefined,
-                buttonNext: images.length <= 1 ? () => null : undefined
-              }}
-              styles={{
-                toolbar: { paddingTop: '2.25rem' }
-              }}
-              carousel={{
-                finite: false
-              }}
-            />
-          </div>,
-          document.body
-        )}
+      {createPortal(
+        <div onClick={(e) => e.stopPropagation()}>
+          <Lightbox
+            index={index}
+            slides={(() => {
+              const slides = images.map(({ url, alt }) => ({
+                src: preferBlossomPrimalDisplayUrl(url),
+                alt: alt || url,
+                title: alt || undefined
+              }))
+              logger.debug('[ImageGallery] Lightbox slides:', { index, slidesCount: slides.length, slides })
+              return slides
+            })()}
+            plugins={[Zoom, Captions]}
+            open={index >= 0}
+            close={() => setIndex(-1)}
+            controller={{
+              closeOnBackdropClick: false,
+              closeOnPullUp: true,
+              closeOnPullDown: true
+            }}
+            render={{
+              buttonPrev: images.length <= 1 ? () => null : undefined,
+              buttonNext: images.length <= 1 ? () => null : undefined
+            }}
+            styles={{
+              toolbar: { paddingTop: '2.25rem' }
+            }}
+            carousel={{
+              finite: false
+            }}
+          />
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

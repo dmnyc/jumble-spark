@@ -1,13 +1,14 @@
 import { DEFAULT_FAVORITE_RELAYS } from '@/constants'
-import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
-import { getRelaySetFromEvent } from '@/lib/event-metadata'
+import { getFavoritesFeedRelayUrls, mergeRelayUrlLayers } from '@/lib/favorites-feed-relays'
+import { getRelaySetFromEvent, getRelayListFromEvent, getHttpRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { isHttpRelayUrl, isWebsocketUrl, normalizeAnyRelayUrl } from '@/lib/url'
+import { buildWispTrendingNotesRelayUrl } from '@/lib/wisp-trending-relay'
 import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import { TFeedInfo, TFeedType } from '@/types'
 import { kinds } from 'nostr-tools'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { FeedContext } from './feed-context'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
 import { useNostr } from './NostrProvider'
@@ -16,8 +17,27 @@ export { useFeed } from './feed-context'
 export type { TFeedContext } from './feed-context'
 
 export function FeedProvider({ children }: { children: React.ReactNode }) {
-  const { pubkey, isInitialized } = useNostr()
+  const { pubkey, isInitialized, cacheRelayListEvent, httpRelayListEvent } = useNostr()
   const { relaySets, favoriteRelays, blockedRelays } = useFavoriteRelays()
+
+  /**
+   * Extra relay URLs always merged into the all-favorites feed:
+   * - Cache relays (kind 10432) if the user has configured any
+   * - HTTP index relays (kind 10243) if the user has configured any
+   * - The Wisp trending relay (always included)
+   */
+  const extraFeedRelayUrls = useMemo(() => {
+    const extra: string[] = [buildWispTrendingNotesRelayUrl()]
+    if (cacheRelayListEvent) {
+      const list = getRelayListFromEvent(cacheRelayListEvent)
+      extra.push(...list.read, ...list.write)
+    }
+    if (httpRelayListEvent) {
+      const list = getHttpRelayListFromEvent(httpRelayListEvent)
+      extra.push(...list.httpRead, ...list.httpWrite)
+    }
+    return extra
+  }, [cacheRelayListEvent, httpRelayListEvent])
   const [relayUrls, setRelayUrls] = useState<string[]>([])
   const [isReady, setIsReady] = useState(false)
   const [feedInfo, setFeedInfo] = useState<TFeedInfo>({
@@ -103,7 +123,8 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
       return
     }
     if (feedType === 'all-favorites') {
-      const finalRelays = getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
+      const baseRelays = getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
+      const finalRelays = mergeRelayUrlLayers([baseRelays, extraFeedRelayUrls], blockedRelays)
       logger.debug('Switching to all-favorites, finalRelays:', finalRelays)
       const newFeedInfo = { feedType }
       setFeedInfo(newFeedInfo)
@@ -116,7 +137,7 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
       return
     }
     setIsReady(true)
-  }, [pubkey, favoriteRelays, blockedRelays, relaySets])
+  }, [pubkey, favoriteRelays, blockedRelays, relaySets, extraFeedRelayUrls])
 
   useEffect(() => {
     const init = async () => {
@@ -199,13 +220,14 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
     init()
   }, [pubkey, isInitialized, favoriteRelays, blockedRelays, switchFeed])
 
-  // Update relay URLs when favoriteRelays change and we're in all-favorites mode
+  // Update relay URLs when favoriteRelays, blocked, or extra relay lists change while in all-favorites mode
   useEffect(() => {
     if (feedInfo.feedType !== 'all-favorites') return
-    const finalRelays = getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
+    const baseRelays = getFavoritesFeedRelayUrls(favoriteRelays, blockedRelays)
+    const finalRelays = mergeRelayUrlLayers([baseRelays, extraFeedRelayUrls], blockedRelays)
     logger.debug('Updating relay URLs for all-favorites:', finalRelays)
     setRelayUrls(finalRelays)
-  }, [feedInfo.feedType, favoriteRelays, blockedRelays])
+  }, [feedInfo.feedType, favoriteRelays, blockedRelays, extraFeedRelayUrls])
 
   return (
     <FeedContext.Provider

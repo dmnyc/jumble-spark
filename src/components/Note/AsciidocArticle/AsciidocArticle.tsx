@@ -2121,7 +2121,7 @@ export default function AsciidocArticle({
       </div>
       
       {/* Image gallery lightbox */}
-      {allImages.length > 0 && lightboxIndex >= 0 && createPortal(
+      {allImages.length > 0 && createPortal(
         <div onClick={(e) => e.stopPropagation()}>
           <Lightbox
             index={lightboxIndex}

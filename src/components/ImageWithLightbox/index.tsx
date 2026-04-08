@@ -31,6 +31,13 @@ export default function ImageWithLightbox({
   const [display, setDisplay] = useState(autoLoadMedia)
   const [index, setIndex] = useState(-1)
 
+  useEffect(() => {
+    setDisplay(autoLoadMedia)
+    if (!autoLoadMedia) {
+      setIndex(-1)
+    }
+  }, [autoLoadMedia])
+
   const logLightboxEvent = useCallback((stage: string, details?: Record<string, unknown>) => {
     logger.info('[LightboxTrace]', {
       stage,
@@ -84,20 +91,6 @@ export default function ImageWithLightbox({
     }
   }, [index, logLightboxEvent])
 
-  if (!display) {
-    return (
-      <span
-        className="text-primary hover:underline truncate w-fit cursor-pointer inline-block"
-        onClick={(e) => {
-          e.stopPropagation()
-          setDisplay(true)
-        }}
-      >
-        [{t('Click to load image')}]
-      </span>
-    )
-  }
-
   const handlePhotoClick = (event: React.MouseEvent) => {
     logLightboxEvent('thumbnail-click', {
       defaultPreventedBefore: event.defaultPrevented
@@ -108,70 +101,85 @@ export default function ImageWithLightbox({
     setIndex(0)
   }
 
+  // The portal is always mounted (not conditional on `index >= 0`) so that React
+  // never removes it while yet-another-react-lightbox is mid-cleanup, which would
+  // otherwise cause "Node.removeChild: The node to be removed is not a child of
+  // this node". Visibility is controlled via the `open` prop instead.
   return (
     <div className="max-w-[400px]">
-      <Image
-        key={0}
-        className={className}
-        classNames={{
-          wrapper: cn('rounded-lg cursor-zoom-in', classNames.wrapper),
-          errorPlaceholder: 'aspect-square h-[30vh]'
-        }}
-        image={image}
-        onClick={(e) => handlePhotoClick(e)}
-      />
-      {index >= 0 &&
-        createPortal(
-          <div
-            data-lightbox-overlay
-            onClick={(e) => {
-              logLightboxEvent('overlay-click', { target: (e.target as HTMLElement)?.tagName })
-              e.stopPropagation()
+      {display ? (
+        <Image
+          key={0}
+          className={className}
+          classNames={{
+            wrapper: cn('rounded-lg cursor-zoom-in', classNames.wrapper),
+            errorPlaceholder: 'aspect-square h-[30vh]'
+          }}
+          image={image}
+          onClick={(e) => handlePhotoClick(e)}
+        />
+      ) : (
+        <span
+          className="text-primary hover:underline truncate w-fit cursor-pointer inline-block"
+          onClick={(e) => {
+            e.stopPropagation()
+            setDisplay(true)
+          }}
+        >
+          [{t('Click to load image')}]
+        </span>
+      )}
+      {createPortal(
+        <div
+          data-lightbox-overlay
+          onClick={(e) => {
+            logLightboxEvent('overlay-click', { target: (e.target as HTMLElement)?.tagName })
+            e.stopPropagation()
+          }}
+          onPointerDown={(e) => {
+            logLightboxEvent('overlay-pointerdown', { target: (e.target as HTMLElement)?.tagName })
+            e.stopPropagation()
+          }}
+          onMouseDown={(e) => {
+            logLightboxEvent('overlay-mousedown', { target: (e.target as HTMLElement)?.tagName })
+            e.stopPropagation()
+          }}
+          onTouchStart={(e) => {
+            logLightboxEvent('overlay-touchstart', { target: (e.target as HTMLElement)?.tagName })
+            e.stopPropagation()
+          }}
+        >
+          <Lightbox
+            index={index}
+            slides={[
+              {
+                src: preferBlossomPrimalDisplayUrl(image.url),
+                alt: image.alt || image.url,
+                title: image.alt || undefined
+              }
+            ]}
+            plugins={[Zoom, Captions]}
+            open={index >= 0}
+            close={() => {
+              logLightboxEvent('lightbox-close-callback')
+              setIndex(-1)
             }}
-            onPointerDown={(e) => {
-              logLightboxEvent('overlay-pointerdown', { target: (e.target as HTMLElement)?.tagName })
-              e.stopPropagation()
+            controller={{
+              closeOnBackdropClick: false,
+              closeOnPullUp: true,
+              closeOnPullDown: true
             }}
-            onMouseDown={(e) => {
-              logLightboxEvent('overlay-mousedown', { target: (e.target as HTMLElement)?.tagName })
-              e.stopPropagation()
+            render={{
+              buttonPrev: () => null,
+              buttonNext: () => null
             }}
-            onTouchStart={(e) => {
-              logLightboxEvent('overlay-touchstart', { target: (e.target as HTMLElement)?.tagName })
-              e.stopPropagation()
+            styles={{
+              toolbar: { paddingTop: '2.25rem' }
             }}
-          >
-            <Lightbox
-              index={index}
-              slides={[
-                {
-                  src: preferBlossomPrimalDisplayUrl(image.url),
-                  alt: image.alt || image.url,
-                  title: image.alt || undefined
-                }
-              ]}
-              plugins={[Zoom, Captions]}
-              open={index >= 0}
-              close={() => {
-                logLightboxEvent('lightbox-close-callback')
-                setIndex(-1)
-              }}
-              controller={{
-                closeOnBackdropClick: false,
-                closeOnPullUp: true,
-                closeOnPullDown: true
-              }}
-              render={{
-                buttonPrev: () => null,
-                buttonNext: () => null
-              }}
-              styles={{
-                toolbar: { paddingTop: '2.25rem' }
-              }}
-            />
-          </div>,
-          document.body
-        )}
+          />
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

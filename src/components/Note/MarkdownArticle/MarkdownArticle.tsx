@@ -5083,7 +5083,7 @@ export default function MarkdownArticle({
       </div>
       
       {/* Image gallery lightbox */}
-      {allImages.length > 0 && lightboxOpen && createPortal(
+      {allImages.length > 0 && createPortal(
         <div
           data-lightbox-overlay
           onClick={(e) => e.stopPropagation()}

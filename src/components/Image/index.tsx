@@ -67,6 +67,11 @@ export default function Image({
   const [imageUrl, setImageUrl] = useState(url)
   const [fallbackIndex, setFallbackIndex] = useState(0)
   const loadWatchRef = useRef<number | null>(null)
+  // Track whether this image started in the held state (required an explicit click to reveal).
+  // The timeout is only meaningful when the user already triggered a load — for auto-revealed
+  // images, <img loading="lazy"> delays the browser request until the element nears the viewport,
+  // so a 10 s timeout would fire before off-screen images are even fetched.
+  const wasInitiallyHeldRef = useRef(holdUntilClick)
 
   const finalAlt = imetaAlt || alt
   const openLinkHref =
@@ -102,6 +107,11 @@ export default function Image({
   useEffect(() => {
     clearLoadWatch()
     if (badSrc || !url?.trim() || !revealed) return
+    // Skip the timeout for auto-load images (holdUntilClick was false from mount).
+    // Their <img loading="lazy"> request hasn't necessarily started yet when revealed
+    // becomes true, so the timeout would fire before the browser even fetches the image.
+    // For those images, onError is sufficient — it fires whenever the browser does try.
+    if (!wasInitiallyHeldRef.current) return
     loadWatchRef.current = window.setTimeout(() => {
       loadWatchRef.current = null
       setIsLoading(false)

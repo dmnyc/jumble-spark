@@ -64,8 +64,10 @@ export function ContentPolicyProvider({ children }: { children: React.ReactNode 
     if (mediaAutoLoadPolicy === MEDIA_AUTO_LOAD_POLICY.NEVER) {
       return false
     }
-    // WIFI_ONLY
-    return connectionType === 'wifi' || connectionType === 'ethernet'
+    // WIFI_ONLY: block only when explicitly on cellular — connection.type returns
+    // 'unknown' on Linux/Windows desktop (Network Information API is reliable only
+    // on Android/ChromeOS), so an allowlist would wrongly block desktop wifi.
+    return connectionType !== 'cellular'
   }, [mediaAutoLoadPolicy, connectionType])
 
   const updateAutoplay = (autoplay: boolean) => {

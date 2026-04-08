@@ -169,7 +169,7 @@ const RelaysFeed = forwardRef<
     <NormalFeed
       ref={ref}
       subRequests={subRequests}
-      areAlgoRelays={areAlgoRelays}
+      areAlgoRelays={wispTrendingSingleRelay || areAlgoRelays}
       isMainFeed
       setSubHeader={setSubHeader}
       onSubHeaderRefresh={onSubHeaderRefresh}
