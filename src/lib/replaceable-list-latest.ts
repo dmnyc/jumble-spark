@@ -1,7 +1,7 @@
 import { METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS, METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS } from '@/constants'
 import { normalizeHexPubkey } from '@/lib/pubkey'
-import { normalizeUrl } from '@/lib/url'
-import client, { queryService } from '@/services/client.service'
+import { normalizeAnyRelayUrl } from '@/lib/url'
+import client from '@/services/client.service'
 import type { TPersonalListBech32Ref } from '@/lib/personal-list-mutations'
 import type { Event } from 'nostr-tools'
 
@@ -15,17 +15,16 @@ export async function fetchLatestReplaceableListEvent(
   relayUrls: string[]
 ): Promise<Event | undefined> {
   const pk = normalizeHexPubkey(pubkeyHex)
-  const urls = [...new Set(relayUrls.map((u) => normalizeUrl(u) || u).filter(Boolean))]
-  if (!urls.length) return undefined
-  const rows = await queryService.fetchEvents(
-    urls,
-    { authors: [pk], kinds: [kind], limit: 80 },
-    {
-      replaceableRace: true,
-      eoseTimeout: METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS,
-      globalTimeout: METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS
-    }
-  )
+  const allUrls = [...new Set(relayUrls.map((u) => normalizeAnyRelayUrl(u) || u).filter(Boolean))]
+  if (!allUrls.length) return undefined
+
+  // client.fetchEvents() handles both HTTP index relays and WebSocket relays internally.
+  const rows = await client.fetchEvents(allUrls, { authors: [pk], kinds: [kind], limit: 80 }, {
+    replaceableRace: true,
+    eoseTimeout: METADATA_BATCH_QUERY_EOSE_TIMEOUT_MS,
+    globalTimeout: METADATA_BATCH_QUERY_GLOBAL_TIMEOUT_MS
+  })
+
   if (!rows.length) return undefined
   return rows.reduce((best, e) => (e.created_at > best.created_at ? e : best))
 }

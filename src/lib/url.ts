@@ -31,6 +31,24 @@ export function normalizeHttpRelayUrl(url: string): string {
 }
 
 /**
+ * In dev, loopback HTTP relay bases (`http://localhost:*` / `http://127.0.0.1:*`) use the Vite
+ * same-origin `/dev-index-relay` proxy (see `vite.config.ts`) so JSON APIs and NIP-11 avoid CORS.
+ */
+export function devProxyLoopbackHttpRelayBase(normalizedBase: string): string {
+  if (import.meta.env.PROD || typeof window === 'undefined') return normalizedBase
+  let u: URL
+  try {
+    u = new URL(normalizedBase)
+  } catch {
+    return normalizedBase
+  }
+  if (u.protocol !== 'http:') return normalizedBase
+  const h = u.hostname
+  if (h !== 'localhost' && h !== '127.0.0.1') return normalizedBase
+  return `${window.location.origin}/dev-index-relay`
+}
+
+/**
  * Normalize relay URL for deduplication: WebSocket URLs via {@link normalizeUrl}, HTTPS index relays via {@link normalizeHttpRelayUrl}.
  */
 export function normalizeAnyRelayUrl(url: string): string {

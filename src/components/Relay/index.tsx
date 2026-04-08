@@ -5,7 +5,7 @@ import SearchInput from '@/components/SearchInput'
 import { useFetchRelayInfo } from '@/hooks'
 import type { TPrimaryPageName } from '@/PageManager'
 import { SINGLE_RELAY_KINDLESS_REQ_LIMIT } from '@/constants'
-import { normalizeUrl } from '@/lib/url'
+import { isHttpRelayUrl, normalizeAnyRelayUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import client, { JUMBLE_SESSION_RELAY_STRIKES_CHANGED } from '@/services/client.service'
 import type { TFeedSubRequest } from '@/types'
@@ -19,7 +19,8 @@ const Relay = forwardRef<
 >(function Relay({ url, className, hostPrimaryPageName }, ref) {
   const { t } = useTranslation()
   const { addRelayUrls, removeRelayUrls } = useCurrentRelays()
-  const normalizedUrl = useMemo(() => (url ? normalizeUrl(url) : undefined), [url])
+  const normalizedUrl = useMemo(() => (url ? normalizeAnyRelayUrl(url) : undefined), [url])
+  const isHttpRelay = useMemo(() => !!normalizedUrl && isHttpRelayUrl(normalizedUrl), [normalizedUrl])
   const { relayInfo } = useFetchRelayInfo(normalizedUrl)
   const [searchInput, setSearchInput] = useState('')
   const [debouncedInput, setDebouncedInput] = useState(searchInput)
@@ -82,7 +83,7 @@ const Relay = forwardRef<
 
     const handleRelayRefresh = (event: CustomEvent) => {
       const { relayUrl } = event.detail
-      if (normalizeUrl(relayUrl) === normalizedUrl) {
+      if (normalizeAnyRelayUrl(relayUrl) === normalizedUrl) {
         if (noteListRef && typeof noteListRef !== 'function') {
           noteListRef.current?.refresh()
         }
@@ -97,7 +98,7 @@ const Relay = forwardRef<
   }, [normalizedUrl, noteListRef])
 
   const relayFeedSubRequests = useMemo<TFeedSubRequest[]>(() => {
-    if (!normalizedUrl) return []
+    if (!normalizedUrl || isHttpRelay) return []
     const q = debouncedInput.trim()
     return [
       {
@@ -107,7 +108,7 @@ const Relay = forwardRef<
           : { limit: SINGLE_RELAY_KINDLESS_REQ_LIMIT }
       }
     ]
-  }, [normalizedUrl, debouncedInput])
+  }, [normalizedUrl, isHttpRelay, debouncedInput])
 
   if (!normalizedUrl) {
     return <NotFound />

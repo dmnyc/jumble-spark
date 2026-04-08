@@ -26,7 +26,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl } from '@/lib/url'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -47,7 +47,7 @@ export default function SaveRelayDropdownMenu({
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
   const { favoriteRelays, relaySets } = useFavoriteRelays()
-  const normalizedUrls = useMemo(() => urls.map((url) => normalizeUrl(url)).filter(Boolean), [urls])
+  const normalizedUrls = useMemo(() => urls.map((url) => normalizeAnyRelayUrl(url)).filter(Boolean), [urls])
   const alreadySaved = useMemo(() => {
     return (
       normalizedUrls.every((url) => favoriteRelays.includes(url)) ||
@@ -188,8 +188,8 @@ function RelaySetItem({ set, urls }: { set: TRelaySet; urls: string[] }) {
       updateRelaySet({
         ...set,
         relayUrls: Array.from(new Set([
-          ...set.relayUrls.map(url => normalizeUrl(url) || url),
-          ...urls.map(url => normalizeUrl(url) || url)
+          ...set.relayUrls.map(url => normalizeAnyRelayUrl(url) || url),
+          ...urls.map(url => normalizeAnyRelayUrl(url) || url)
         ]))
       })
     }

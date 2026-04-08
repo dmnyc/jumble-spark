@@ -5,7 +5,7 @@ import { FAST_READ_RELAY_URLS, ExtendedKind } from '@/constants'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
 import { relayReviewDTagsForRelayUrl, relayReviewsFeedSnapshotKey } from '@/lib/relay-review-feed'
-import { normalizeUrl, simplifyUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl, simplifyUrl } from '@/lib/url'
 import type { TFeedSubRequest } from '@/types'
 import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -26,7 +26,7 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
     return () => registerPrimaryPanelRefresh(null)
   }, [hideTitlebar, registerPrimaryPanelRefresh, bumpFeed])
 
-  const normalizedUrl = useMemo(() => (url ? normalizeUrl(url) : undefined), [url])
+  const normalizedUrl = useMemo(() => (url ? normalizeAnyRelayUrl(url) : undefined), [url])
   /** `d` tag values vary by client (raw vs normalized URL); REQ must OR-match every variant. */
   const relayReviewDTags = useMemo(
     () => (url ? relayReviewDTagsForRelayUrl(url) : []),

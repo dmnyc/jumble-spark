@@ -8,30 +8,12 @@
  */
 import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 import logger from '@/lib/logger'
-import { normalizeHttpRelayUrl } from '@/lib/url'
+import { devProxyLoopbackHttpRelayBase, normalizeHttpRelayUrl } from '@/lib/url'
 import type { Filter, Event as NEvent } from 'nostr-tools'
 import { verifyEvent } from 'nostr-tools'
 
 function trimSlash(base: string): string {
   return base.replace(/\/+$/, '')
-}
-
-/**
- * Avoid browser CORS in dev: `http://localhost:1122/api/...` becomes same-origin `…/dev-index-relay/api/…`
- * and Vite forwards to the real relay (see `vite.config.ts`).
- */
-function devProxyLoopbackIndexRelayBase(normalizedBase: string): string {
-  if (import.meta.env.PROD || typeof window === 'undefined') return normalizedBase
-  let u: URL
-  try {
-    u = new URL(normalizedBase)
-  } catch {
-    return normalizedBase
-  }
-  if (u.protocol !== 'http:') return normalizedBase
-  const h = u.hostname
-  if (h !== 'localhost' && h !== '127.0.0.1') return normalizedBase
-  return `${window.location.origin}/dev-index-relay`
 }
 
 export function indexRelayFilterUrl(baseUrl: string): string {
@@ -162,7 +144,7 @@ export async function queryIndexRelay(
   filter: Filter | Filter[],
   options?: { signal?: AbortSignal; onHardFailure?: () => void }
 ): Promise<NEvent[]> {
-  const base = devProxyLoopbackIndexRelayBase(normalizeHttpRelayUrl(baseUrl) || baseUrl)
+  const base = devProxyLoopbackHttpRelayBase(normalizeHttpRelayUrl(baseUrl) || baseUrl)
   const endpoint = indexRelayFilterUrl(base)
   const filters = Array.isArray(filter) ? filter : [filter]
   const out: NEvent[] = []
@@ -225,12 +207,12 @@ function filterForIndexRelay(f: Filter): Filter {
   return rest as Filter
 }
 
-export async function publishEventToIndexRelay(
+export async function publishEventToHttpRelay(
   baseUrl: string,
   event: NEvent,
   options?: { signal?: AbortSignal }
 ): Promise<void> {
-  const base = devProxyLoopbackIndexRelayBase(normalizeHttpRelayUrl(baseUrl) || baseUrl)
+  const base = devProxyLoopbackHttpRelayBase(normalizeHttpRelayUrl(baseUrl) || baseUrl)
   const endpoint = indexRelayPublishUrl(base)
   try {
     const res = await fetchWithTimeout(endpoint, {

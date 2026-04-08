@@ -89,7 +89,7 @@ import {
 import { prefixNostrAddresses } from '@/lib/nostr-address'
 import dayjs from 'dayjs'
 import { TDraftEvent } from '@/types'
-import { useGroupList } from '@/providers/GroupListProvider'
+import { useGroupList } from '@/providers/group-list-context'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { DISCUSSION_TOPICS } from '@/pages/primary/DiscussionsPage/discussionTopics'

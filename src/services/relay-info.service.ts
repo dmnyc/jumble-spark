@@ -1,4 +1,4 @@
-import { simplifyUrl } from '@/lib/url'
+import { devProxyLoopbackHttpRelayBase, normalizeHttpRelayUrl, simplifyUrl } from '@/lib/url'
 import indexDb from '@/services/indexed-db.service'
 import { TAwesomeRelayCollection, TRelayInfo } from '@/types'
 import DataLoader from 'dataloader'
@@ -148,10 +148,14 @@ class RelayInfoService {
   private async fetchRelayNip11(url: string) {
     try {
       logger.debug('Fetching NIP-11 metadata', { url })
-      const res = await fetchWithTimeout(url.replace('ws://', 'http://').replace('wss://', 'https://'), {
+      const httpCandidate = url.trim().replace(/^ws:\/\//i, 'http://').replace(/^wss:\/\//i, 'https://')
+      const httpBase = normalizeHttpRelayUrl(httpCandidate) || httpCandidate
+      const fetchUrl = devProxyLoopbackHttpRelayBase(httpBase)
+      const res = await fetchWithTimeout(fetchUrl, {
         headers: { Accept: 'application/nostr+json' },
         timeoutMs: 12_000
       })
+      if (!res.ok) return undefined
       return res.json() as Omit<TRelayInfo, 'url' | 'shortUrl'>
     } catch {
       return undefined

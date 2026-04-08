@@ -16,15 +16,15 @@ export async function buildAccountListRelayUrlsForMerge(options: {
   const myRelayList = await client.fetchRelayList(accountPubkey)
   const favoritesTier = getFavoritesFeedRelayUrls(favoriteRelays ?? [], blockedRelays)
   const read = buildPrioritizedReadRelayUrls({
-    userReadRelays: [...(myRelayList.httpRead ?? []), ...(myRelayList.read ?? [])],
-    userWriteRelays: [...(myRelayList.httpWrite ?? []), ...(myRelayList.write ?? [])],
+    userReadRelays: myRelayList.read ?? [],
+    userWriteRelays: myRelayList.write ?? [],
     favoriteRelays: favoritesTier,
     blockedRelays,
     maxRelays: 100,
     applySocialKindBlockedFilter: false
   })
   const write = buildPrioritizedWriteRelayUrls({
-    userWriteRelays: [...(myRelayList.httpWrite ?? []), ...(myRelayList.write ?? [])],
+    userWriteRelays: myRelayList.write ?? [],
     favoriteRelays: favoritesTier,
     blockedRelays,
     maxRelays: 100,

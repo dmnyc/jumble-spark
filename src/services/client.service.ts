@@ -106,7 +106,7 @@ import {
 import {
   IndexRelayTransportError,
   isIndexRelayTransportFailure,
-  publishEventToIndexRelay
+  publishEventToHttpRelay
 } from '@/lib/index-relay-http'
 import {
   relayFiltersUseCapitalLetterTagKeys,
@@ -285,6 +285,14 @@ class ClientService extends EventTarget {
       params?: { connectionTimeout?: number; abort?: AbortSignal }
     ) => {
       const n = normalizeUrl(url) || url
+      // ── DIAGNOSTIC: catch any local-network WS attempt so we can trace its origin ──
+      if (isLocalNetworkUrl(n)) {
+        logger.warn('[DIAG] pool.ensureRelay called with LOCAL-NETWORK WS URL', {
+          url,
+          normalizedUrl: n,
+          stack: new Error('stack').stack?.split('\n').slice(1, 8).join(' | ')
+        })
+      }
       const base = params?.connectionTimeout ?? RELAY_POOL_CONNECTION_TIMEOUT_MS
       const connectionTimeout = READ_ONLY_RELAY_CONNECT_BOOST_URLS.has(n)
         ? Math.max(base, RELAY_READ_ONLY_POOL_CONNECT_TIMEOUT_MS)
@@ -429,7 +437,7 @@ class ClientService extends EventTarget {
    */
   async fetchNip66DiscoveryForRelay(relayUrl: string): Promise<void> {
     const discoveryRelays = Array.from(new Set([...FAST_READ_RELAY_URLS, ...NIP66_DISCOVERY_RELAY_URLS]))
-    const dTag = normalizeUrl(relayUrl) || relayUrl
+    const dTag = normalizeAnyRelayUrl(relayUrl) || relayUrl
     const shortForm = simplifyUrl(dTag)
     const dValues = dTag !== shortForm ? [dTag, shortForm] : [dTag]
     try {
@@ -576,11 +584,10 @@ class ClientService extends EventTarget {
     let userWriteSet = new Set<string>()
     try {
       const rl = await this.fetchRelayList(event.pubkey)
-      userWriteSet = new Set(
-        (rl?.write ?? [])
-          .map((u) => normalizeUrl(u) || u)
-          .filter((u): u is string => !!u)
-      )
+      userWriteSet = new Set([
+        ...(rl?.write ?? []).map((u) => normalizeUrl(u) || u).filter((u): u is string => !!u),
+        ...(rl?.httpWrite ?? []).map((u) => normalizeHttpRelayUrl(u) || u).filter((u): u is string => !!u)
+      ])
     } catch {
       // ignore
     }
@@ -617,7 +624,7 @@ class ClientService extends EventTarget {
     const t4: string[] = []
     const t5: string[] = []
     for (const u of relayUrls) {
-      const n = normalizeUrl(u) || u
+      const n = normalizeAnyRelayUrl(u) || u
       if (!n) continue
       if (userWriteSet.has(n)) t0.push(n)
       else if (authorReadSet.has(n)) t1.push(n)
@@ -628,7 +635,7 @@ class ClientService extends EventTarget {
     }
     return dedupeNormalizeRelayUrlsOrdered([...t0, ...t1, ...t2, ...t3, ...t4, ...t5])
       .filter((url) => {
-        const n = normalizeUrl(url) || url
+        const n = normalizeAnyRelayUrl(url) || url
         if (readOnlySet.has(n)) return false
         if (isSocialKindBlockedKind(event.kind) && socialKindBlockedSet.has(n)) return false
         return true
@@ -673,9 +680,13 @@ class ClientService extends EventTarget {
     if (event.kind === kinds.Report) {
       // Start with user's write relays (outboxes) - these are the primary targets for reports
       const relayList = await this.fetchRelayList(event.pubkey)
-      const userWriteRelays = dedupeNormalizeRelayUrlsOrdered(
-        (relayList?.write ?? []).map((url) => normalizeUrl(url) || url).filter((u): u is string => !!u)
-      )
+      const reportHttpWrites = (relayList?.httpWrite ?? [])
+        .map((url) => normalizeHttpRelayUrl(url) || url)
+        .filter((u): u is string => !!u)
+      const reportWsWrites = (relayList?.write ?? [])
+        .map((url) => normalizeUrl(url) || url)
+        .filter((u): u is string => !!u)
+      const userWriteRelays = dedupeNormalizeRelayUrlsOrdered([...reportHttpWrites, ...reportWsWrites])
       
       // Get seen relays where the reported event was found
       const targetEventId = event.tags.find(tagNameEquals('e'))?.[1]
@@ -685,9 +696,9 @@ class ClientService extends EventTarget {
         const allSeenRelays = this.getSeenEventRelayUrls(targetEventId)
         // Filter seen relays: only include those that are in user's write list
         // This ensures we don't try to publish to read-only relays
-        const userWriteRelaySet = new Set(userWriteRelays.map(url => normalizeUrl(url) || url))
+        const userWriteRelaySet = new Set(userWriteRelays.map(url => normalizeAnyRelayUrl(url) || url))
         seenRelays.push(...allSeenRelays.filter(url => {
-          const normalized = normalizeUrl(url) || url
+          const normalized = normalizeAnyRelayUrl(url) || url
           return userWriteRelaySet.has(normalized)
         }))
       }
@@ -722,8 +733,14 @@ class ClientService extends EventTarget {
       event.kind === ExtendedKind.PUBLIC_MESSAGE ||
       event.kind === ExtendedKind.CALENDAR_EVENT_RSVP
     ) {
-      const authorRelayList = await this.fetchRelayList(event.pubkey).catch(() => ({ write: [] as string[], read: [] as string[] }))
-      let authorWrite = (authorRelayList?.write ?? []).map((url) => normalizeUrl(url)).filter(Boolean) as string[]
+      const authorRelayList = await this.fetchRelayList(event.pubkey).catch(() => ({ write: [] as string[], read: [] as string[], httpWrite: [] as string[], httpRead: [] as string[] }))
+      const authorHttpWrites = (authorRelayList?.httpWrite ?? [])
+        .map((url) => normalizeHttpRelayUrl(url))
+        .filter((url): url is string => !!url)
+      const authorWsWrites = (authorRelayList?.write ?? [])
+        .map((url) => normalizeUrl(url))
+        .filter((url): url is string => !!url)
+      let authorWrite = dedupeNormalizeRelayUrlsOrdered([...authorHttpWrites, ...authorWsWrites])
       if (authorWrite.length === 0) {
         authorWrite = [...FAST_WRITE_RELAY_URLS]
       }
@@ -735,10 +752,11 @@ class ClientService extends EventTarget {
       let recipientRead: string[] = []
       if (recipientPubkeys.length > 0) {
         const recipientRelayLists = await this.fetchRelayLists(recipientPubkeys)
-        recipientRead = recipientRelayLists.flatMap((rl) => rl?.read ?? [])
-        recipientRead = recipientRead
-          .map((url) => normalizeUrl(url))
-          .filter((url): url is string => !!url && !isLocalNetworkUrl(url))
+        recipientRead = recipientRelayLists.flatMap((rl) => [
+          ...(rl?.httpRead ?? []).map((url) => normalizeHttpRelayUrl(url)).filter((u): u is string => !!u && !isLocalNetworkUrl(u)),
+          ...(rl?.read ?? []).map((url) => normalizeUrl(url)).filter((u): u is string => !!u && !isLocalNetworkUrl(u))
+        ])
+        recipientRead = dedupeNormalizeRelayUrlsOrdered(recipientRead)
       }
       let pubRelays = mergeRelayPriorityLayers(
         [relayUrlsLocalsFirst(authorWrite), dedupeNormalizeRelayUrlsOrdered(recipientRead)],
@@ -791,14 +809,16 @@ class ClientService extends EventTarget {
             httpOriginalRelays: []
           }
         }
-        const normalizedWrite = dedupeNormalizeRelayUrlsOrdered(
-          (spellRelayList?.write ?? [])
-            .map((url) => normalizeUrl(url))
-            .filter((url): url is string => !!url)
-        )
+        const spellHttpWrites = (spellRelayList?.httpWrite ?? [])
+          .map((url) => normalizeHttpRelayUrl(url))
+          .filter((url): url is string => !!url)
+        const spellWsWrites = (spellRelayList?.write ?? [])
+          .map((url) => normalizeUrl(url))
+          .filter((url): url is string => !!url)
+        const normalizedWrite = dedupeNormalizeRelayUrlsOrdered([...spellHttpWrites, ...spellWsWrites])
         const readOnlySet = new Set(READ_ONLY_RELAY_URLS.map((u) => normalizeUrl(u) || u))
         const spellWriteFiltered = normalizedWrite.filter((url) => {
-          const n = normalizeUrl(url) || url
+          const n = normalizeAnyRelayUrl(url) || url
           return !readOnlySet.has(n)
         })
         return this.filterPublishingRelays(
@@ -826,6 +846,10 @@ class ClientService extends EventTarget {
         if (ctxPubkeys.length > 0) {
           const relayLists = await this.fetchRelayLists(ctxPubkeys)
           relayLists.forEach((relayList) => {
+            for (const u of relayList.httpRead ?? []) {
+              const n = normalizeHttpRelayUrl(u) || u
+              if (n) authorInboxFromContext.push(n)
+            }
             for (const u of relayList.read ?? []) {
               const n = normalizeUrl(u) || u
               if (n) authorInboxFromContext.push(n)
@@ -904,9 +928,13 @@ class ClientService extends EventTarget {
           writeRelays: relayList?.write?.slice(0, MAX_PUBLISH_RELAYS) ?? []
         })
       }
-      const userWritesOrdered = dedupeNormalizeRelayUrlsOrdered(
-        (relayList?.write ?? []).map((u) => normalizeUrl(u) || u).filter((u): u is string => !!u)
-      )
+      const wsWrites = (relayList?.write ?? [])
+        .map((u) => normalizeUrl(u) || u)
+        .filter((u): u is string => !!u)
+      const httpWrites = (relayList?.httpWrite ?? [])
+        .map((u) => normalizeHttpRelayUrl(u) || u)
+        .filter((u): u is string => !!u)
+      const userWritesOrdered = dedupeNormalizeRelayUrlsOrdered([...httpWrites, ...wsWrites])
       relays = this.filterPublishingRelays(
         buildPrioritizedWriteRelayUrls({
           userWriteRelays: userWritesOrdered,
@@ -1005,6 +1033,14 @@ class ClientService extends EventTarget {
   private recordSessionRelayFailure(url: string) {
     const n = normalizeAnyRelayUrl(url) || url
     if (!n) return
+    // ── DIAGNOSTIC: trace who is recording failures for local-network relays ──
+    if (isLocalNetworkUrl(n)) {
+      logger.warn('[DIAG] recordSessionRelayFailure for LOCAL-NETWORK relay', {
+        url,
+        normalizedUrl: n,
+        stack: new Error('stack').stack?.split('\n').slice(1, 8).join(' | ')
+      })
+    }
     const prev = this.publishStrikeCount.get(n) ?? 0
     if (prev >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) {
       return
@@ -1373,7 +1409,7 @@ class ClientService extends EventTarget {
               const base = normalizeHttpRelayUrl(url) || url
               logger.debug(`[PublishEvent] Publishing to HTTP index relay`, { url: base })
               await Promise.race([
-                publishEventToIndexRelay(base, event),
+                publishEventToHttpRelay(base, event),
                 new Promise<never>((_, reject) =>
                   setTimeout(() => reject(new Error(`HTTP publish timeout after ${publishTimeout}ms`)), publishTimeout)
                 )
@@ -1906,6 +1942,15 @@ class ClientService extends EventTarget {
     relayReqLog?: { groupId?: string; onBatchEnd?: (rows: RelayOpTerminalRow[]) => void }
   ) {
     const originalDedupedRelays = Array.from(new Set(urls))
+    // ── DIAGNOSTIC: trace local-network URLs entering subscribe() ──
+    const localInSubscribe = originalDedupedRelays.filter((u) => isLocalNetworkUrl(normalizeAnyRelayUrl(u) || u))
+    if (localInSubscribe.length > 0) {
+      logger.warn('[DIAG] subscribe() received LOCAL-NETWORK relay URLs', {
+        localUrls: localInSubscribe,
+        allUrls: originalDedupedRelays,
+        stack: new Error('stack').stack?.split('\n').slice(1, 8).join(' | ')
+      })
+    }
     let relays = originalDedupedRelays.filter((url) => !isHttpRelayUrl(url))
     const filters = sanitizeSubscribeFiltersBeforeReq(filter)
     if (filters.length === 0) {
@@ -2263,6 +2308,16 @@ class ClientService extends EventTarget {
     } = {}
   ) {
     let relays = Array.from(new Set(urls))
+    // ── DIAGNOSTIC: trace local-network URLs entering _subscribeTimeline ──
+    const localInTimeline = relays.filter((u) => isLocalNetworkUrl(normalizeAnyRelayUrl(u) || u))
+    if (localInTimeline.length > 0) {
+      logger.warn('[DIAG] _subscribeTimeline received LOCAL-NETWORK relay URLs', {
+        localUrls: localInTimeline,
+        allUrls: relays,
+        httpOnes: relays.filter((u) => isHttpRelayUrl(u)),
+        stack: new Error('stack').stack?.split('\n').slice(1, 10).join(' | ')
+      })
+    }
     if (relayFiltersUseCapitalLetterTagKeys(filter as Filter)) {
       relays = relayUrlsStripExtendedTagReqBlocked(relays)
       if (relays.length === 0) {
@@ -2605,7 +2660,7 @@ class ClientService extends EventTarget {
   getSeenEventRelayUrls(eventId: string): string[] {
     const key = canonicalSeenOnEventId(eventId)
     const poolUrls = this.getSeenEventRelays(key).map((r) => normalizeUrl(r.url) || r.url)
-    const queryUrls = this.queryService.getSeenEventRelayUrls(key).map((u) => normalizeUrl(u) || u)
+    const queryUrls = this.queryService.getSeenEventRelayUrls(key).map((u) => normalizeAnyRelayUrl(u) || u)
     return Array.from(new Set([...poolUrls, ...queryUrls].filter(Boolean)))
   }
 
@@ -2717,9 +2772,20 @@ class ClientService extends EventTarget {
     filter: Filter | Filter[],
     options?: { globalTimeout?: number }
   ): Promise<{ events: NEvent[]; connectionError?: string }> {
-    const normalized = normalizeUrl(url) || url
+    const normalized = normalizeAnyRelayUrl(url) || url
     if (!normalized) {
       return { events: [], connectionError: 'Invalid relay URL' }
+    }
+    if (isHttpRelayUrl(normalized)) {
+      // HTTP index relay: use HTTP API instead of WebSocket pool
+      try {
+        const events = await this.queryService.query([normalized], filter, undefined, {
+          globalTimeout: options?.globalTimeout ?? 25_000
+        })
+        return { events, connectionError: undefined }
+      } catch (e) {
+        return { events: [], connectionError: e instanceof Error ? e.message : String(e) }
+      }
     }
     const usableAfterStrikes = this.relayUrlsAfterStrikesOrRecover([normalized])
     if (usableAfterStrikes.length === 0) {
@@ -3476,8 +3542,6 @@ class ClientService extends EventTarget {
     const urls = dedupeNormalizeRelayUrlsOrdered([
       ...relayList.write.map((u) => normalizeUrl(u) || u),
       ...relayList.read.map((u) => normalizeUrl(u) || u),
-      ...relayList.httpRead.map((u) => normalizeHttpRelayUrl(u) || u),
-      ...relayList.httpWrite.map((u) => normalizeHttpRelayUrl(u) || u),
       ...FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u),
       ...PROFILE_FETCH_RELAY_URLS.map((u) => normalizeUrl(u) || u)
     ]).filter(Boolean)

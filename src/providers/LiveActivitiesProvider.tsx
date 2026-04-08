@@ -21,7 +21,7 @@ import {
   useState
 } from 'react'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
-import { useFollowListOptional } from './FollowListProvider'
+import { useFollowListOptional } from './follow-list-context'
 import { useNostr } from './NostrProvider'
 import { useUserPreferencesOptional } from './UserPreferencesProvider'
 

@@ -3,7 +3,7 @@ import { createFavoriteRelaysDraftEvent, createBlockedRelaysDraftEvent, createRe
 import { getReplaceableEventIdentifier } from '@/lib/event'
 import { getRelaySetFromEvent } from '@/lib/event-metadata'
 import { randomString } from '@/lib/random'
-import { isWebsocketUrl, normalizeUrl } from '@/lib/url'
+import { isHttpRelayUrl, isWebsocketUrl, normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import { queryService } from '@/services/client.service'
 import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
@@ -54,7 +54,7 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
         if (!tagValue) return
 
         if (tagName === 'relay') {
-          const normalizedUrl = normalizeUrl(tagValue)
+          const normalizedUrl = normalizeAnyRelayUrl(tagValue)
           if (normalizedUrl && !relays.includes(normalizedUrl)) {
             relays.push(normalizedUrl)
           }
@@ -84,7 +84,7 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
       setRelaySetEvents(storedRelaySetEvents.filter(Boolean) as Event[])
 
       const normalizedRelays = [
-        ...(relayList?.write ?? []).map(url => normalizeUrl(url) || url),
+        ...(relayList?.write ?? []).map(url => normalizeAnyRelayUrl(url) || url),
         ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url)
       ]
       const newRelaySetEvents = await queryService.fetchEvents(
@@ -133,7 +133,7 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
     const relays: string[] = []
     blockedRelaysEvent.tags.forEach(([tagName, tagValue]) => {
       if (tagName === 'relay' && tagValue) {
-        const normalizedUrl = normalizeUrl(tagValue)
+        const normalizedUrl = normalizeAnyRelayUrl(tagValue)
         if (normalizedUrl && !relays.includes(normalizedUrl)) {
           relays.push(normalizedUrl)
         }
@@ -151,7 +151,7 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
   const addFavoriteRelays = useCallback(
     async (relayUrls: string[]) => {
       const normalizedUrls = relayUrls
-        .map((relayUrl) => normalizeUrl(relayUrl))
+        .map((relayUrl) => normalizeAnyRelayUrl(relayUrl))
         .filter((url) => !!url && !favoriteRelays.includes(url))
       if (!normalizedUrls.length) return
 
@@ -168,7 +168,7 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
   const deleteFavoriteRelays = useCallback(
     async (relayUrls: string[]) => {
       const normalizedUrls = relayUrls
-        .map((relayUrl) => normalizeUrl(relayUrl))
+        .map((relayUrl) => normalizeAnyRelayUrl(relayUrl))
         .filter((url) => !!url && favoriteRelays.includes(url))
       if (!normalizedUrls.length) return
 
@@ -185,8 +185,8 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
   const createRelaySet = useCallback(
     async (relaySetName: string, relayUrls: string[] = []) => {
       const normalizedUrls = relayUrls
-        .map((url) => normalizeUrl(url))
-        .filter((url) => isWebsocketUrl(url))
+        .map((url) => normalizeAnyRelayUrl(url))
+        .filter((url) => isWebsocketUrl(url) || isHttpRelayUrl(url))
       const id = randomString()
       const relaySetDraftEvent = createRelaySetDraftEvent({
         id,
@@ -271,7 +271,7 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
   const addBlockedRelays = useCallback(
     async (relayUrls: string[]) => {
       const normalizedUrls = relayUrls
-        .map((relayUrl) => normalizeUrl(relayUrl))
+        .map((relayUrl) => normalizeAnyRelayUrl(relayUrl))
         .filter((url) => !!url && !blockedRelays.includes(url))
       if (!normalizedUrls.length) return
       const newBlockedRelays = [...blockedRelays, ...normalizedUrls]
@@ -285,7 +285,7 @@ export function FavoriteRelaysProvider({ children }: { children: React.ReactNode
 
   const deleteBlockedRelays = useCallback(
     async (relayUrls: string[]) => {
-      const normalizedUrls = relayUrls.map((relayUrl) => normalizeUrl(relayUrl)).filter(Boolean)
+      const normalizedUrls = relayUrls.map((relayUrl) => normalizeAnyRelayUrl(relayUrl)).filter(Boolean)
       const newBlockedRelays = blockedRelays.filter((relay) => !normalizedUrls.includes(relay))
       setBlockedRelays(newBlockedRelays)
       const draftEvent = createBlockedRelaysDraftEvent(newBlockedRelays)

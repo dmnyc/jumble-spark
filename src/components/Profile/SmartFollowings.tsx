@@ -1,7 +1,7 @@
 import { useFetchFollowings } from '@/hooks'
 import { toFollowingList } from '@/lib/link'
 import { useSmartFollowingListNavigation } from '@/PageManager'
-import { useFollowListOptional } from '@/providers/FollowListProvider'
+import { useFollowListOptional } from '@/providers/follow-list-context'
 import { useNostr } from '@/providers/NostrProvider'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslation } from 'react-i18next'

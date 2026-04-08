@@ -66,7 +66,7 @@ import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { FAST_READ_RELAY_URLS, FAST_WRITE_RELAY_URLS } from '@/constants'
 import { nip66Service } from '@/services/nip66.service'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl } from '@/lib/url'
 import type { TProfile } from '@/types'
 
 /**
@@ -292,11 +292,11 @@ export default function Profile({
   /** All available relays: current feed, favorites, relay sets, defaults (FAST_READ, FAST_WRITE). */
   const allAvailableRelayUrls = useMemo(() => {
     const urls = [
-      ...currentBrowsingRelayUrls.map(url => normalizeUrl(url) || url),
-      ...favoriteRelays.map(url => normalizeUrl(url) || url),
-      ...relaySets.flatMap(set => set.relayUrls.map(url => normalizeUrl(url) || url)),
-      ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url),
-      ...FAST_WRITE_RELAY_URLS.map(url => normalizeUrl(url) || url)
+      ...currentBrowsingRelayUrls.map(url => normalizeAnyRelayUrl(url) || url),
+      ...favoriteRelays.map(url => normalizeAnyRelayUrl(url) || url),
+      ...relaySets.flatMap(set => set.relayUrls.map(url => normalizeAnyRelayUrl(url) || url)),
+      ...FAST_READ_RELAY_URLS.map(url => normalizeAnyRelayUrl(url) || url),
+      ...FAST_WRITE_RELAY_URLS.map(url => normalizeAnyRelayUrl(url) || url)
     ].filter(Boolean) as string[]
     return Array.from(new Set(urls))
   }, [currentBrowsingRelayUrls, favoriteRelays, relaySets])

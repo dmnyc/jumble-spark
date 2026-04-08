@@ -85,7 +85,7 @@ export default defineConfig(({ mode }) => {
   // `.env.local` is not on `process.env` when this file is evaluated unless we load it.
   const env = loadEnv(mode, process.cwd(), '')
   const devIndexRelayTarget =
-    env.VITE_DEV_INDEX_RELAY_TARGET?.trim() || 'http://127.0.0.1:1122'
+    env.VITE_DEV_INDEX_RELAY_TARGET?.trim() || 'http://127.0.0.1:4000'
 
   return {
     base: '/',

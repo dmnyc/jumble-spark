@@ -24,7 +24,7 @@ import { getLatestEvent, minePow } from '@/lib/event'
 import { getHttpRelayListFromEvent, getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
 import { LoginRequiredError } from '@/lib/nostr-errors'
-import { normalizeHttpRelayUrl, normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { showPublishingFeedback, showSimplePublishSuccess } from '@/lib/publishing-feedback'
 import client from '@/services/client.service'
@@ -70,7 +70,7 @@ function favoriteRelayUrlsForPublish(favoriteRelaysEvent: Event | null, pubkey: 
   const urls: string[] = []
   favoriteRelaysEvent.tags.forEach(([name, v]) => {
     if (name === 'relay' && v) {
-      const n = normalizeUrl(v) || v
+      const n = normalizeAnyRelayUrl(v) || v
       if (n && !urls.includes(n)) urls.push(n)
     }
   })
@@ -82,7 +82,7 @@ function blockedRelayUrlsFromEvent(blockedRelaysEvent: Event | null): string[] {
   if (!blockedRelaysEvent) return out
   blockedRelaysEvent.tags.forEach(([tagName, tagValue]) => {
     if (tagName === 'relay' && tagValue) {
-      const n = normalizeUrl(tagValue)
+      const n = normalizeAnyRelayUrl(tagValue)
       if (n && !out.includes(n)) out.push(n)
     }
   })
@@ -477,8 +477,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       const normalizedRelays = [
         ...mergedRelayList.write.map((url: string) => normalizeUrl(url) || url),
         ...mergedRelayList.read.map((url: string) => normalizeUrl(url) || url),
-        ...mergedRelayList.httpRead.map((url: string) => normalizeHttpRelayUrl(url) || url),
-        ...mergedRelayList.httpWrite.map((url: string) => normalizeHttpRelayUrl(url) || url),
         ...FAST_WRITE_RELAY_URLS.map((url: string) => normalizeUrl(url) || url),
         ...PROFILE_FETCH_RELAY_URLS.map((url: string) => normalizeUrl(url) || url)
       ]

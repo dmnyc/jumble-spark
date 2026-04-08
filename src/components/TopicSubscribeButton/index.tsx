@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useInterestList } from '@/providers/InterestListProvider'
+import { useInterestList } from '@/providers/interest-list-context'
 import { useNostr } from '@/providers/NostrProvider'
 import { Bell, BellOff } from 'lucide-react'
 import { useTranslation } from 'react-i18next'

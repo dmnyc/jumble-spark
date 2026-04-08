@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toRelay } from '@/lib/link'
 import { cn } from '@/lib/utils'
-import { isWebsocketUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
+import { isHttpRelayUrl, isWebsocketUrl, normalizeAnyRelayUrl, simplifyUrl } from '@/lib/url'
 import { RefreshButton } from '@/components/RefreshButton'
 import PrimaryPageLayout from '@/layouts/PrimaryPageLayout'
 import { syncUserDeletionTombstones } from '@/lib/sync-user-deletions'
@@ -35,7 +35,7 @@ function dedupeNormalizedRelayUrls(urls: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const u of urls) {
-    const k = normalizeUrl(u) || u
+    const k = normalizeAnyRelayUrl(u) || u.trim()
     if (!k || seen.has(k)) continue
     seen.add(k)
     out.push(k)
@@ -232,8 +232,8 @@ function ExploreRelaySearchSection() {
   const tryOpenRelay = () => {
     const trimmed = relayQuery.trim()
     if (!trimmed) return
-    const normalized = normalizeUrl(trimmed)
-    if (!normalized || !isWebsocketUrl(normalized)) {
+    const normalized = normalizeAnyRelayUrl(trimmed)
+    if (!normalized || (!isHttpRelayUrl(normalized) && !isWebsocketUrl(normalized))) {
       toast.error(t('invalid relay URL'))
       return
     }

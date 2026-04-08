@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { buildHiveTalkJoinUrl, roomIdForPubkeys } from '@/lib/hivetalk'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl } from '@/lib/url'
 import { useMuteList } from '@/contexts/mute-list-context'
 import { muteSetHas } from '@/lib/mute-set'
 import { useNostr } from '@/providers/NostrProvider'
@@ -82,11 +82,11 @@ export default function ProfileOptions({
   /** All available relays: current feed, favorites, relay sets, defaults (FAST_READ, FAST_WRITE). */
   const allAvailableRelayUrls = useMemo(() => {
     const urls = [
-      ...currentBrowsingRelayUrls.map(url => normalizeUrl(url) || url),
-      ...favoriteRelays.map(url => normalizeUrl(url) || url),
-      ...relaySets.flatMap(set => set.relayUrls.map(url => normalizeUrl(url) || url)),
-      ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url),
-      ...FAST_WRITE_RELAY_URLS.map(url => normalizeUrl(url) || url)
+      ...currentBrowsingRelayUrls.map(url => normalizeAnyRelayUrl(url) || url),
+      ...favoriteRelays.map(url => normalizeAnyRelayUrl(url) || url),
+      ...relaySets.flatMap(set => set.relayUrls.map(url => normalizeAnyRelayUrl(url) || url)),
+      ...FAST_READ_RELAY_URLS.map(url => normalizeAnyRelayUrl(url) || url),
+      ...FAST_WRITE_RELAY_URLS.map(url => normalizeAnyRelayUrl(url) || url)
     ].filter(Boolean) as string[]
     return Array.from(new Set(urls))
   }, [currentBrowsingRelayUrls, favoriteRelays, relaySets])

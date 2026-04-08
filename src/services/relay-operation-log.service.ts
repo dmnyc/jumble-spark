@@ -1,11 +1,11 @@
 import logger from '@/lib/logger'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl } from '@/lib/url'
 import type { Filter } from 'nostr-tools'
 
 let batchSeq = 0
 
 function relayHostForPublishLog(url: string): string {
-  const n = normalizeUrl(url) || url
+  const n = normalizeAnyRelayUrl(url) || url
   try {
     const u = new URL(n.replace(/^wss:/i, 'https:').replace(/^ws:/i, 'http:'))
     const path = u.pathname && u.pathname !== '/' ? u.pathname.replace(/\/$/, '') : ''

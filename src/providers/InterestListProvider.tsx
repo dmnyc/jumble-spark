@@ -4,36 +4,12 @@ import { normalizeTopic } from '@/lib/discussion-topics'
 import { fetchLatestReplaceableListEvent } from '@/lib/replaceable-list-latest'
 import logger from '@/lib/logger'
 import client from '@/services/client.service'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useNostr } from '@/providers/nostr-context'
 import { useFavoriteRelays } from './FavoriteRelaysProvider'
-
-type TInterestListContext = {
-  subscribedTopics: Set<string>
-  changing: boolean
-  isSubscribed: (topic: string) => boolean
-  subscribe: (topic: string) => Promise<void>
-  unsubscribe: (topic: string) => Promise<void>
-  getSubscribedTopics: () => string[]
-}
-
-const InterestListContext = createContext<TInterestListContext | undefined>(undefined)
-
-export const useInterestList = () => {
-  const context = useContext(InterestListContext)
-  if (!context) {
-    throw new Error('useInterestList must be used within an InterestListProvider')
-  }
-  return context
-}
-
-/**
- * Optional variant for routes/components that can be mounted
- * during transient navigation/HMR paths before providers settle.
- */
-export const useInterestListOptional = () => useContext(InterestListContext)
+import { InterestListContext } from './interest-list-context'
 
 export function InterestListProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()

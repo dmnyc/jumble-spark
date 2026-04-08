@@ -11,7 +11,7 @@ import {
   parsePublicationATagCoordinate,
   type PublicationSectionRef
 } from '@/lib/publication-section-fetch'
-import { normalizeUrl, simplifyUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl, normalizeHttpRelayUrl, simplifyUrl } from '@/lib/url'
 import { speakNoteReadAloud } from '@/lib/read-aloud'
 import {
   buildPinListTagsAfterToggle,
@@ -104,25 +104,30 @@ export function useMenuActions({
   // Use useContext directly to avoid error if provider is not available
   const primaryPageContext = useContext(PrimaryPageContext)
   const currentPrimaryPage = primaryPageContext?.current ?? null
-  const { pubkey, profile, attemptDelete, publish, account } = useNostr()
+  const { pubkey, profile, attemptDelete, publish, account, relayList } = useNostr()
   const canSignEvents = account != null && account.signerType !== 'npub'
   const { relayUrls: currentBrowsingRelayUrls } = useCurrentRelays()
   const { relaySets, favoriteRelays } = useFavoriteRelays()
+  const httpWriteRelayUrls = useMemo(() => {
+    return (relayList?.httpWrite ?? [])
+      .map(url => normalizeHttpRelayUrl(url) || url)
+      .filter(Boolean) as string[]
+  }, [relayList?.httpWrite])
   const relayUrls = useMemo(() => {
     return Array.from(new Set([
-      ...currentBrowsingRelayUrls.map(url => normalizeUrl(url) || url),
-      ...favoriteRelays.map(url => normalizeUrl(url) || url)
+      ...currentBrowsingRelayUrls.map(url => normalizeAnyRelayUrl(url) || url),
+      ...favoriteRelays.map(url => normalizeAnyRelayUrl(url) || url)
     ]))
   }, [currentBrowsingRelayUrls, favoriteRelays])
 
   /** All available relays: current feed, favorites, relay sets, defaults (BIG, FAST_READ, FAST_WRITE). */
   const allAvailableRelayUrls = useMemo(() => {
     const urls = [
-      ...currentBrowsingRelayUrls.map(url => normalizeUrl(url) || url),
-      ...favoriteRelays.map(url => normalizeUrl(url) || url),
-      ...relaySets.flatMap(set => set.relayUrls.map(url => normalizeUrl(url) || url)),
-      ...FAST_READ_RELAY_URLS.map(url => normalizeUrl(url) || url),
-      ...FAST_WRITE_RELAY_URLS.map(url => normalizeUrl(url) || url)
+      ...currentBrowsingRelayUrls.map(url => normalizeAnyRelayUrl(url) || url),
+      ...favoriteRelays.map(url => normalizeAnyRelayUrl(url) || url),
+      ...relaySets.flatMap(set => set.relayUrls.map(url => normalizeAnyRelayUrl(url) || url)),
+      ...FAST_READ_RELAY_URLS.map(url => normalizeAnyRelayUrl(url) || url),
+      ...FAST_WRITE_RELAY_URLS.map(url => normalizeAnyRelayUrl(url) || url)
     ].filter(Boolean) as string[]
     return Array.from(new Set(urls))
   }, [currentBrowsingRelayUrls, favoriteRelays, relaySets])
@@ -163,7 +168,7 @@ export function useMenuActions({
           ...FAST_WRITE_RELAY_URLS
         ]
         const comprehensiveRelays = Array.from(
-          new Set(allRelays.map(url => normalizeUrl(url)).filter((url): url is string => !!url))
+          new Set(allRelays.map(url => normalizeAnyRelayUrl(url)).filter((url): url is string => !!url))
         )
         const pinListEvent = await fetchNewestPinListForPubkey(pubkey, comprehensiveRelays)
         if (pinListEvent) {
@@ -196,7 +201,7 @@ export function useMenuActions({
       ]
       
       const normalizedRelays = allRelays
-        .map(url => normalizeUrl(url))
+        .map(url => normalizeAnyRelayUrl(url))
         .filter((url): url is string => !!url)
       
       const comprehensiveRelays = Array.from(new Set(normalizedRelays))
@@ -386,9 +391,10 @@ export function useMenuActions({
       )
     }
 
-    if (relayUrls.length) {
+    const wsAndHttpRelayUrls = Array.from(new Set([...relayUrls, ...httpWriteRelayUrls]))
+    if (wsAndHttpRelayUrls.length) {
       items.push(
-        ...relayUrls.map((relay, index) => ({
+        ...wsAndHttpRelayUrls.map((relay, index) => ({
           label: (
             <div className="flex items-center gap-2 w-full">
               <RelayIcon url={relay} />
@@ -418,7 +424,7 @@ export function useMenuActions({
     }
 
     return items
-  }, [pubkey, relayUrls, relaySets, allAvailableRelayUrls, monitoringListRelayCount, event, closeDrawer, t])
+  }, [pubkey, relayUrls, httpWriteRelayUrls, relaySets, allAvailableRelayUrls, monitoringListRelayCount, event, closeDrawer, t])
 
   // Check if this is an article-type event
   const isArticleType = useMemo(() => {

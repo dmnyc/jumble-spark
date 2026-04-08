@@ -2,7 +2,7 @@ import { DEFAULT_FAVORITE_RELAYS } from '@/constants'
 import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
 import { getRelaySetFromEvent } from '@/lib/event-metadata'
 import logger from '@/lib/logger'
-import { isWebsocketUrl, normalizeUrl } from '@/lib/url'
+import { isHttpRelayUrl, isWebsocketUrl, normalizeAnyRelayUrl } from '@/lib/url'
 import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import { TFeedInfo, TFeedType } from '@/types'
@@ -38,10 +38,12 @@ export function FeedProvider({ children }: { children: React.ReactNode }) {
     logger.debug('switchFeed called:', { feedType, options })
     setIsReady(false)
     if (feedType === 'relay') {
-      const normalizedUrl = normalizeUrl(options.relay ?? '')
-      logger.debug('Relay switchFeed:', { normalizedUrl, isWebsocketUrl: isWebsocketUrl(normalizedUrl), blockedRelays })
-      
-      if (!normalizedUrl || !isWebsocketUrl(normalizedUrl)) {
+      const normalizedUrl = normalizeAnyRelayUrl(options.relay ?? '')
+      const isRelayFeedUrl =
+        !!normalizedUrl && (isHttpRelayUrl(normalizedUrl) || isWebsocketUrl(normalizedUrl))
+      logger.debug('Relay switchFeed:', { normalizedUrl, isRelayFeedUrl, blockedRelays })
+
+      if (!isRelayFeedUrl) {
         logger.debug('Invalid relay URL, setting isReady to true')
         setIsReady(true)
         return

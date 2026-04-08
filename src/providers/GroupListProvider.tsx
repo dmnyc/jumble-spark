@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNostr } from '@/providers/NostrProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { ExtendedKind } from '@/constants'
@@ -7,23 +7,7 @@ import { fetchLatestReplaceableListEvent } from '@/lib/replaceable-list-latest'
 import { buildPrioritizedReadRelayUrls } from '@/lib/relay-url-priority'
 import client from '@/services/client.service'
 import logger from '@/lib/logger'
-
-interface GroupListContextType {
-  userGroups: string[]
-  isUserInGroup: (groupId: string) => boolean
-  refreshGroupList: () => Promise<void>
-  isLoading: boolean
-}
-
-const GroupListContext = createContext<GroupListContextType | undefined>(undefined)
-
-export const useGroupList = () => {
-  const context = useContext(GroupListContext)
-  if (context === undefined) {
-    throw new Error('useGroupList must be used within a GroupListProvider')
-  }
-  return context
-}
+import { GroupListContext } from './group-list-context'
 
 export function GroupListProvider({ children }: { children: React.ReactNode }) {
   const { pubkey: accountPubkey } = useNostr()

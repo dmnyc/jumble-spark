@@ -19,7 +19,7 @@ import {
 } from '@/lib/event'
 import logger from '@/lib/logger'
 import { getZapInfoFromEvent, shouldIncludeZapReceiptAtReplyThreshold } from '@/lib/event-metadata'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import { shouldHideThreadResponseEvent } from '@/lib/thread-response-filter'
 import { getCachedThreadContextEvents } from '@/lib/navigation-related-events'
 import { toNote } from '@/lib/link'
@@ -768,7 +768,7 @@ function ReplyNoteList({
           // READ from: FAST_READ_RELAY_URLS + user's inboxes + local relays + OP author's outboxes
           const opAuthorPubkey = rootInfo.type === 'E' || rootInfo.type === 'A' ? rootInfo.pubkey : undefined
           const seenOn = client.getSeenEventRelayUrls(event.id).map((u) => normalizeUrl(u) || u).filter(Boolean)
-          const fromBrowsingFeed = browsingRelayUrls.map((u) => normalizeUrl(u) || u).filter(Boolean)
+          const fromBrowsingFeed = browsingRelayUrls.map((u) => normalizeAnyRelayUrl(u) || u).filter(Boolean)
           const threadRelayHints = [
             ...new Set([...relayHintsFromEventTags(event), ...seenOn, ...fromBrowsingFeed])
           ]

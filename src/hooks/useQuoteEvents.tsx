@@ -6,7 +6,7 @@ import {
 } from '@/constants'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { buildNormalizedBlockedRelaySet } from '@/lib/thread-response-filter'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
@@ -69,7 +69,7 @@ export function useQuoteEvents(event: Event | null, enabled: boolean) {
       }, INITIAL_QUOTE_LOAD_TIMEOUT_MS)
 
       const userRelays = userRelayList?.read || []
-      const fromFeed = browsingRelayUrls.map((u) => normalizeUrl(u) || u).filter(Boolean)
+      const fromFeed = browsingRelayUrls.map((u) => normalizeAnyRelayUrl(u) || u).filter(Boolean)
       const seenOn = client.getSeenEventRelayUrls(ev.id)
       const eTagBlockedSet = new Set(
         E_TAG_FILTER_BLOCKED_RELAY_URLS.map((u) => normalizeUrl(u) || u)
