@@ -1,37 +1,39 @@
 import { useSmartNoteNavigation, useSmartRelayNavigation } from '@/PageManager'
 import { getRelayUrlFromRelayReviewEvent, getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
 import { toNote, toRelay } from '@/lib/link'
-import { simplifyUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
+import { useFetchRelayInfo } from '@/hooks'
 import client from '@/services/client.service'
-import { Link2 } from 'lucide-react'
 import { NostrEvent } from 'nostr-tools'
 import { useMemo } from 'react'
 import ClientTag from '../ClientTag'
 import ContentPreview from '../ContentPreview'
 import { FormattedTimestamp } from '../FormattedTimestamp'
 import Nip05 from '../Nip05'
+import RelayIcon from '../RelayIcon'
 import Stars from '../Stars'
 import { SimpleUserAvatar } from '../UserAvatar'
 import { SimpleUsername } from '../Username'
 
 export default function RelayReviewCard({
   event,
-  className
+  className,
+  showRelayInfo = true
 }: {
   event: NostrEvent
   className?: string
+  showRelayInfo?: boolean
 }) {
   const { navigateToNote } = useSmartNoteNavigation()
   const { navigateToRelay } = useSmartRelayNavigation()
   const stars = useMemo(() => getStarsFromRelayReviewEvent(event), [event])
   const relayUrl = useMemo(() => getRelayUrlFromRelayReviewEvent(event), [event])
+  const { relayInfo } = useFetchRelayInfo(relayUrl)
 
   return (
     <div
       className={cn('clickable border rounded-lg bg-muted/20 p-3 h-full', className)}
       onClick={(e) => {
-        // Don't navigate if clicking on interactive elements
         const target = e.target as HTMLElement
         if (target.closest('button') || target.closest('[role="button"]') || target.closest('a') || target.closest('[data-embedded-note]') || target.closest('[data-parent-note-preview]')) {
           return
@@ -40,6 +42,24 @@ export default function RelayReviewCard({
         navigateToNote(toNote(event), event)
       }}
     >
+      {showRelayInfo && relayUrl && (
+        <button
+          type="button"
+          className="flex w-full min-w-0 items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5 text-left hover:bg-muted/60 mb-2"
+          onClick={(e) => {
+            e.stopPropagation()
+            navigateToRelay(toRelay(relayUrl))
+          }}
+        >
+          <RelayIcon url={relayUrl} className="h-6 w-6 shrink-0" iconSize={12} />
+          <div className="min-w-0 flex-1">
+            {relayInfo?.name && (
+              <div className="truncate text-xs font-semibold leading-tight">{relayInfo.name}</div>
+            )}
+            <div className="truncate font-mono text-xs text-muted-foreground leading-tight">{relayUrl}</div>
+          </div>
+        </button>
+      )}
       <div className="flex justify-between items-start gap-2">
         <div className="flex items-center space-x-2 flex-1">
           <SimpleUserAvatar userId={event.pubkey} size="medium" />
@@ -58,22 +78,7 @@ export default function RelayReviewCard({
             </div>
           </div>
         </div>
-      </div>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-        <Stars stars={stars} className="gap-0.5 [&_svg]:size-3 shrink-0" />
-        {relayUrl ? (
-          <button
-            type="button"
-            className="flex min-w-0 max-w-full items-center gap-1 text-left text-xs text-muted-foreground hover:text-foreground"
-            onClick={(e) => {
-              e.stopPropagation()
-              navigateToRelay(toRelay(relayUrl))
-            }}
-          >
-            <Link2 className="size-3 shrink-0" aria-hidden />
-            <span className="truncate font-mono">{simplifyUrl(relayUrl)}</span>
-          </button>
-        ) : null}
+        <Stars stars={stars} className="gap-0.5 [&_svg]:size-3 shrink-0 mt-0.5" />
       </div>
       <ContentPreview className="mt-2 line-clamp-4" event={event} />
     </div>

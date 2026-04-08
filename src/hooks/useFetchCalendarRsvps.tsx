@@ -6,7 +6,7 @@ import { queryService } from '@/services/client.service'
 import { useNostr } from '@/providers/NostrProvider'
 import { Event } from 'nostr-tools'
 import { useEffect, useState } from 'react'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl } from '@/lib/url'
 import { FAST_READ_RELAY_URLS } from '@/constants'
 import { userReadRelaysWithHttp } from '@/lib/favorites-feed-relays'
 import { tagNameEquals } from '@/lib/tag'
@@ -42,8 +42,8 @@ export function useFetchCalendarRsvps(calendarEvent: Event | undefined) {
     const coordinate = getReplaceableCoordinateFromEvent(calendarEvent)
     const userRead = userReadRelaysWithHttp(relayList)
     const baseUrls = new Set<string>([
-      ...FAST_READ_RELAY_URLS.map((url) => normalizeUrl(url) || url),
-      ...userRead.map((url) => normalizeUrl(url) || url)
+      ...FAST_READ_RELAY_URLS.map((url) => normalizeAnyRelayUrl(url) || url),
+      ...userRead.map((url) => normalizeAnyRelayUrl(url) || url)
     ].filter(Boolean) as string[])
 
     // Include organizer's relays so RSVPs are found when viewing an attendee's profile (RSVPs are often on organizer's outbox/inbox)
@@ -52,12 +52,13 @@ export function useFetchCalendarRsvps(calendarEvent: Event | undefined) {
       .fetchRelayList(organizerPubkey)
       .then((organizerRelays) => {
         if (cancelled) return
-        organizerRelays?.read?.forEach((url) => {
-          const u = normalizeUrl(url)
-          if (u) baseUrls.add(u)
-        })
-        organizerRelays?.write?.forEach((url) => {
-          const u = normalizeUrl(url)
+        ;[
+          ...(organizerRelays?.httpRead ?? []),
+          ...(organizerRelays?.read ?? []),
+          ...(organizerRelays?.httpWrite ?? []),
+          ...(organizerRelays?.write ?? [])
+        ].forEach((url) => {
+          const u = normalizeAnyRelayUrl(url)
           if (u) baseUrls.add(u)
         })
         return Array.from(baseUrls)

@@ -583,7 +583,7 @@ function normalizeSetextHeaders(content: string): string {
  * Returns both rendered nodes and a set of hashtags found in content (for deduplication)
  */
 // Deprecated legacy parser kept only as a fallback reference during migration.
-export function parseMarkdownContentLegacy(
+function parseMarkdownContentLegacy(
   content: string,
   options: {
     eventPubkey: string

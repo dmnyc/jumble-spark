@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Event } from 'nostr-tools'
 import { CALENDAR_EVENT_KINDS, ExtendedKind, isSocialKindBlockedKind } from '@/constants'
 import { buildProfilePageReadRelayUrls } from '@/lib/favorites-feed-relays'
-import { normalizeUrl, subtractNormalizedRelayUrls } from '@/lib/url'
+import { normalizeAnyRelayUrl, subtractNormalizedRelayUrls } from '@/lib/url'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 
 type ProfileTimelineMemoryEntry = {
@@ -112,8 +112,8 @@ function postProcessEvents(
 }
 
 function relayListsContentKey(favoriteRelays: string[], blockedRelays: string[]): string {
-  const fav = [...favoriteRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort().join('\u0001')
-  const blk = [...blockedRelays].map((u) => normalizeUrl(u) || u).filter(Boolean).sort().join('\u0001')
+  const fav = [...favoriteRelays].map((u) => normalizeAnyRelayUrl(u) || u).filter(Boolean).sort().join('\u0001')
+  const blk = [...blockedRelays].map((u) => normalizeAnyRelayUrl(u) || u).filter(Boolean).sort().join('\u0001')
   return `${fav}\u0000${blk}`
 }
 
@@ -250,7 +250,9 @@ export function useProfileTimeline({
       void (async () => {
         const authorRl = await client.fetchRelayList(pubkey).catch(() => ({
           read: [] as string[],
-          write: [] as string[]
+          write: [] as string[],
+          httpRead: [] as string[],
+          httpWrite: [] as string[]
         }))
         if (cancelled) return
         const fullFeedUrls = buildProfilePageReadRelayUrls(

@@ -124,6 +124,11 @@ class RelayInfoService {
     const at = relayInfo.cachedAt
     if (at == null) return true
     const age = Date.now() - at
+    // In dev, use a shorter TTL for localhost relay URLs so stale data from proxy misconfigurations
+    // (e.g. wrong NIP-11 cached for ws://localhost:7777) self-heals within the same session.
+    if (import.meta.env.DEV && /^(ws|wss|http|https):\/\/localhost/.test(relayInfo.url)) {
+      return age > 30 * 60 * 1000
+    }
     const hasNip11Data = !!(relayInfo.name || relayInfo.description || relayInfo.pubkey)
     if (!hasNip11Data) return age > RelayInfoService.RELAY_INFO_EMPTY_RETRY_TTL_MS
     const hasImages = !!(relayInfo.icon || relayInfo.banner)
@@ -158,7 +163,11 @@ class RelayInfoService {
     try {
       const httpCandidate = url.trim().replace(/^ws:\/\//i, 'http://').replace(/^wss:\/\//i, 'https://')
       const httpBase = normalizeHttpRelayUrl(httpCandidate) || httpCandidate
-      const fetchUrl = devProxyLoopbackHttpRelayBase(httpBase)
+      // WS relay NIP-11 must NOT go through the dev proxy — the proxy is fixed to the HTTP index relay
+      // port and would return that relay's NIP-11 for any localhost WS relay (wrong data).
+      // HTTP index relay URLs do use the proxy to avoid CORS.
+      const isWsRelay = /^wss?:\/\//i.test(url.trim())
+      const fetchUrl = isWsRelay ? httpBase : devProxyLoopbackHttpRelayBase(httpBase)
       logger.debug('[RelayInfo] Fetching NIP-11', { url, fetchUrl })
       const res = await fetchWithTimeout(fetchUrl, {
         headers: { Accept: 'application/nostr+json' },

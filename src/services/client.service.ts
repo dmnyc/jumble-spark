@@ -2578,20 +2578,48 @@ class ClientService extends EventTarget {
 
     // HTTP index relays are handled via httpTimelinePollBases above — never pass them to the WS subscribe path.
     const wsRelays = relays.filter((u) => !isHttpRelayUrl(u))
+
+    // When there are HTTP relays but NO WS relays, subscribe([]) would fire oneose + onBatchEnd
+    // immediately (via microtask) — before the HTTP initial poll returns any events. That causes:
+    //   (a) handleTimelineEose to set eosedAt=now with 0 events, so HTTP poll events arrive
+    //       post-eose and land in onNew rather than the initial-load onEvents path.
+    //   (b) onBatchEnd([]) (empty row array) → feedSubscribeRelayOutcomes stays length 0 →
+    //       the "Looking for more events…" banner never clears.
+    // Fix: for HTTP-only shards, skip oneose + relayReqLog on the (no-op) WS subscribe and
+    // defer both to after the HTTP initial poll completes.
+    const httpOnlyShard = httpTimelinePollBases.length > 0 && wsRelays.length === 0
+
     const subCloser = this.subscribe(wsRelays, filter, {
       startLogin,
       onevent: (evt: NEvent) => {
         applySubscribedTimelineEvent(evt)
       },
-      oneose: handleTimelineEose,
+      oneose: httpOnlyShard ? undefined : handleTimelineEose,
       onclose: onClose
     },
-    relayReqLog)
+    httpOnlyShard ? undefined : relayReqLog)
 
     if (httpTimelinePollBases.length > 0) {
       const backfillFilter = { ...(filter as Filter) } as Filter & { until?: number }
       delete backfillFilter.until
-      void runHttpTimelinePollQuery(backfillFilter)
+      const httpInitialPoll = runHttpTimelinePollQuery(backfillFilter)
+      if (httpOnlyShard) {
+        void httpInitialPoll.then(() => {
+          // Report HTTP relay outcomes first so feedSubscribeRelayOutcomes is non-empty
+          // before feedTimelineEmptyUiReady flips to true (both land in the same React batch).
+          if (relayReqLog?.onBatchEnd) {
+            const t0 = performance.now()
+            const httpRows: RelayOpTerminalRow[] = httpTimelinePollBases.map((url, i) => ({
+              cmdIndex: i,
+              relayUrl: url,
+              outcome: 'eose' as const,
+              msFromBatchStart: Math.round(performance.now() - t0)
+            }))
+            relayReqLog.onBatchEnd(httpRows)
+          }
+          handleTimelineEose(true)
+        })
+      }
     }
 
     return {
@@ -2662,7 +2690,7 @@ class ClientService extends EventTarget {
    */
   getSeenEventRelayUrls(eventId: string): string[] {
     const key = canonicalSeenOnEventId(eventId)
-    const poolUrls = this.getSeenEventRelays(key).map((r) => normalizeUrl(r.url) || r.url)
+    const poolUrls = this.getSeenEventRelays(key).map((r) => normalizeAnyRelayUrl(r.url) || r.url)
     const queryUrls = this.queryService.getSeenEventRelayUrls(key).map((u) => normalizeAnyRelayUrl(u) || u)
     return Array.from(new Set([...poolUrls, ...queryUrls].filter(Boolean)))
   }

@@ -197,7 +197,12 @@ export async function queryIndexRelay(
     }
   }
   if (sawHardFailure && out.length === 0 && filters.length > 0) {
-    options?.onHardFailure?.()
+    // In dev, transport failures on the Vite loopback proxy (relay unreachable / proxy not yet ready)
+    // should not record session strikes — the relay may be temporarily down or the dev server
+    // needs a restart. Only real application errors (4xx/5xx from a live relay) trigger strikes in dev.
+    if (!isDevViteIndexRelayProxyPath(endpoint)) {
+      options?.onHardFailure?.()
+    }
   }
   return out
 }

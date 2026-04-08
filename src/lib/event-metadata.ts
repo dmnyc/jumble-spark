@@ -6,7 +6,7 @@ import { getReplaceableEventIdentifier } from './event'
 import { getAmountFromInvoice, getLightningAddressFromProfile } from './lightning'
 import { formatPubkey, pubkeyToNpub } from './pubkey'
 import { generateBech32IdFromATag, generateBech32IdFromETag, getImetaInfoFromImetaTag, tagNameEquals } from './tag'
-import { isHttpRelayUrl, isWebsocketUrl, normalizeHttpRelayUrl, normalizeHttpUrl, normalizeUrl } from './url'
+import { isHttpRelayUrl, isWebsocketUrl, normalizeAnyRelayUrl, normalizeHttpRelayUrl, normalizeHttpUrl, normalizeUrl } from './url'
 import { isTorBrowser } from './utils'
 import logger from '@/lib/logger'
 
@@ -712,5 +712,5 @@ export function getStarsFromRelayReviewEvent(event: Event): number {
 export function getRelayUrlFromRelayReviewEvent(event: Event): string | undefined {
   const d = event.tags.find((t) => t[0] === 'd')?.[1]?.trim()
   if (!d) return undefined
-  return normalizeUrl(d) || d
+  return normalizeAnyRelayUrl(d) || d
 }

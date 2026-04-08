@@ -1,13 +1,17 @@
+import RelayIcon from '@/components/RelayIcon'
 import RelayReviewCard from '@/components/RelayInfo/RelayReviewCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExtendedKind } from '@/constants'
+import { useFetchRelayInfo } from '@/hooks'
 import { getReplaceableCoordinateFromEvent, isReplaceableEvent } from '@/lib/event'
 import { getRelayUrlFromRelayReviewEvent } from '@/lib/event-metadata'
 import {
   getRelayUrlsWithFavoritesFastReadAndInbox,
   userReadRelaysWithHttp
 } from '@/lib/favorites-feed-relays'
+import { toRelay } from '@/lib/link'
 import { appendCuratedReadOnlyRelays } from '@/pages/primary/SpellsPage/fauxSpellFeeds'
+import { useSmartRelayNavigation } from '@/PageManager'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
@@ -15,6 +19,31 @@ import indexedDb, { StoreNames } from '@/services/indexed-db.service'
 import type { Event } from 'nostr-tools'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
+function RelayGroupHeader({ url, reviewCount }: { url: string; reviewCount: number }) {
+  const { navigateToRelay } = useSmartRelayNavigation()
+  const { relayInfo } = useFetchRelayInfo(url)
+  return (
+    <button
+      type="button"
+      className="flex w-full min-w-0 items-center gap-2 px-4 md:px-4 pt-4 pb-2 border-b text-left hover:opacity-75 transition-opacity"
+      onClick={() => navigateToRelay(toRelay(url))}
+    >
+      <RelayIcon url={url} className="h-8 w-8 shrink-0 rounded-sm" iconSize={16} />
+      <div className="min-w-0 flex-1">
+        {relayInfo?.name && (
+          <div className="truncate font-semibold text-sm leading-tight">{relayInfo.name}</div>
+        )}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="truncate font-mono text-xs text-muted-foreground leading-tight">{url}</div>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            · {reviewCount} {reviewCount === 1 ? 'review' : 'reviews'}
+          </span>
+        </div>
+      </div>
+    </button>
+  )
+}
 
 const REVIEW_QUERY_LIMIT = 100
 const SHOW_COUNT = 20
@@ -149,6 +178,18 @@ export default function ExploreRelayReviews() {
   }, [showCount, events.length])
 
   const visible = events.slice(0, showCount)
+
+  const groupedVisible = useMemo(() => {
+    const groups = new Map<string, Event[]>()
+    for (const event of visible) {
+      const url = getRelayUrlFromRelayReviewEvent(event)
+      if (!url) continue
+      if (!groups.has(url)) groups.set(url, [])
+      groups.get(url)!.push(event)
+    }
+    return Array.from(groups.entries())
+  }, [visible])
+
   const showInitialSkeleton = loading && events.length === 0
   const showEmptyAfterLoad = !loading && events.length === 0
 
@@ -164,11 +205,21 @@ export default function ExploreRelayReviews() {
         <p className="px-4 py-6 text-center text-sm text-muted-foreground">{t('no relays found')}</p>
       ) : (
         <>
-          <div className="grid min-w-0 md:px-4 md:grid-cols-2 md:gap-3">
-            {visible.map((event) => (
-              <RelayReviewCard key={event.id} event={event} className="border-b md:border md:border-border" />
-            ))}
-          </div>
+          {groupedVisible.map(([relayUrl, relayEvents]) => (
+            <div key={relayUrl} className="mb-4">
+              <RelayGroupHeader url={relayUrl} reviewCount={relayEvents.length} />
+              <div className="grid min-w-0 md:px-4 md:grid-cols-2 md:gap-3 mt-2">
+                {relayEvents.map((event) => (
+                  <RelayReviewCard
+                    key={event.id}
+                    event={event}
+                    showRelayInfo={false}
+                    className="border-b md:border md:border-border"
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
           {loading ? (
             <div
               className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 md:px-4"

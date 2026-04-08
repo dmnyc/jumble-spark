@@ -5,7 +5,7 @@ import {
   relayFilterIncludesSocialKindBlockedKind
 } from '@/constants'
 import type { TFeedSubRequest } from '@/types'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import {
   buildPrioritizedReadRelayUrls,
   buildReadRelayPriorityLayers,
@@ -14,10 +14,9 @@ import {
   mergeRelayPriorityLayers,
   relayUrlsLocalsFirst
 } from '@/lib/relay-url-priority'
-import { normalizeAnyRelayUrl } from '@/lib/url'
 
 const blockedSet = (blockedRelays: string[]) =>
-  new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
+  new Set(blockedRelays.map((b) => normalizeAnyRelayUrl(b) || b))
 
 /**
  * Logged-in user’s favorite relays (kind 10012 `relay` tags via {@link useFavoriteRelays}, plus bootstrap defaults
@@ -42,14 +41,14 @@ export function getFavoritesFeedRelayUrls(
 ): string[] {
   const blocked = blockedSet(blockedRelays)
   const visible = favoriteRelays.filter((r) => {
-    const k = normalizeUrl(r) || r
+    const k = normalizeAnyRelayUrl(r) || r
     return k && !blocked.has(k)
   })
   const base = visible.length > 0 ? visible : DEFAULT_FAVORITE_RELAYS
   const seen = new Set<string>()
   const out: string[] = []
   for (const u of base) {
-    const k = normalizeUrl(u) || u
+    const k = normalizeAnyRelayUrl(u) || u
     if (!k || seen.has(k)) continue
     seen.add(k)
     out.push(k)
@@ -66,7 +65,7 @@ export function mergeRelayUrlLayers(layers: string[][], blockedRelays: string[])
   const out: string[] = []
   for (const layer of layers) {
     for (const u of layer) {
-      const k = normalizeUrl(u) || u
+      const k = normalizeAnyRelayUrl(u) || u
       if (!k || blocked.has(k) || seen.has(k)) continue
       seen.add(k)
       out.push(k)
@@ -80,11 +79,17 @@ export function mergeRelayUrlLayers(layers: string[][], blockedRelays: string[])
  * stripped. Used for profile pins + Medien before {@link buildProfileAugmentedReadRelayUrls}.
  */
 export function buildAuthorInboxOutboxRelayUrls(
-  authorRelayList: { read: string[]; write: string[] },
+  authorRelayList: { read: string[]; write: string[]; httpRead?: string[]; httpWrite?: string[] },
   blockedRelays: string[]
 ): string[] {
-  const inboxLayer = relayUrlsLocalsFirst(authorRelayList.read ?? [])
-  const outboxLayer = relayUrlsLocalsFirst(authorRelayList.write ?? [])
+  const inboxLayer = relayUrlsLocalsFirst([
+    ...(authorRelayList.httpRead ?? []),
+    ...(authorRelayList.read ?? [])
+  ])
+  const outboxLayer = relayUrlsLocalsFirst([
+    ...(authorRelayList.httpWrite ?? []),
+    ...(authorRelayList.write ?? [])
+  ])
   return mergeRelayUrlLayers([inboxLayer, outboxLayer], blockedRelays)
 }
 
@@ -161,15 +166,15 @@ export const PROFILE_PAGE_PINS_RESOLVE_LIMIT = 10
 export function buildProfilePageReadRelayUrls(
   favoriteRelays: string[],
   blockedRelays: string[],
-  authorRelayList: { read: string[]; write: string[] },
+  authorRelayList: { read: string[]; write: string[]; httpRead?: string[]; httpWrite?: string[] },
   kindsIncludeSocialBlockedKind: boolean
 ): string[] {
   return getRelayUrlsWithFavoritesFastReadAndInbox(
     favoriteRelays,
     blockedRelays,
-    authorRelayList.read ?? [],
+    [...(authorRelayList.httpRead ?? []), ...(authorRelayList.read ?? [])],
     {
-      userWriteRelays: authorRelayList.write ?? [],
+      userWriteRelays: [...(authorRelayList.httpWrite ?? []), ...(authorRelayList.write ?? [])],
       authorWriteRelays: [],
       maxRelays: PROFILE_PAGE_FEED_MAX_RELAYS,
       applySocialKindBlockedFilter: kindsIncludeSocialBlockedKind
