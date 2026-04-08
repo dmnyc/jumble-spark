@@ -1,4 +1,4 @@
-import CacheRelaysSetting from '@/components/CacheRelaysSetting'
+import InBrowserCacheSetting from '@/components/InBrowserCacheSetting'
 import EventArchiveCacheSettings from '@/components/EventArchiveCacheSettings'
 import { RefreshButton } from '@/components/RefreshButton'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
@@ -29,8 +29,8 @@ const CacheSettingsPage = forwardRef(
         title={hideTitlebar ? undefined : t('Cache & offline storage')}
         controls={hideTitlebar ? undefined : <RefreshButton onClick={bump} />}
       >
-        <div key={contentKey} className="px-4 py-3">
-          <CacheRelaysSetting />
+        <div key={contentKey} className="px-4 py-3 space-y-6">
+          <InBrowserCacheSetting />
           <EventArchiveCacheSettings />
         </div>
       </SecondaryPageLayout>

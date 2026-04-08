@@ -10,14 +10,16 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { getFavoritesFeedRelayUrls } from '@/lib/favorites-feed-relays'
+import { getHttpRelayListFromEvent } from '@/lib/event-metadata'
 import { toRelaySettings } from '@/lib/link'
-import { normalizeUrl, simplifyUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl, normalizeUrl, simplifyUrl } from '@/lib/url'
 import { buildWispTrendingNotesRelayUrl } from '@/lib/wisp-trending-relay'
 import { cn } from '@/lib/utils'
 import { useContainerWidth } from '@/hooks/useContainerWidth'
 import { useSecondaryPage } from '@/PageManager'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useFeed } from '@/providers/FeedProvider'
+import { useNostr } from '@/providers/NostrProvider'
 import { SquarePen } from 'lucide-react'
 import { useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -36,7 +38,7 @@ function selectValueToRelaySetId(v: string) {
   return decodeURIComponent(v.slice(3))
 }
 
-/** Top-of-feed control: all favorites, Wisp trending (nostrarchives), relay sets, then single relays. */
+/** Top-of-feed control: all favorites, Wisp trending (nostrarchives), relay sets, single relays, HTTP index relays. */
 export default function FavoriteRelaysFeedPicker() {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -47,6 +49,7 @@ export default function FavoriteRelaysFeedPicker() {
   const { push } = useSecondaryPage()
   const { favoriteRelays, blockedRelays, relaySets } = useFavoriteRelays()
   const { feedInfo, switchFeed } = useFeed()
+  const { httpRelayListEvent } = useNostr()
 
   const openFavoriteRelaySettings = () => {
     push(toRelaySettings('favorite-relays'))
@@ -59,6 +62,22 @@ export default function FavoriteRelaysFeedPicker() {
     [favoriteRelays, blockedRelays]
   )
 
+  /** HTTP index relay URLs from kind 10243, deduped, excluding any already in favorites. */
+  const httpRelayUrls = useMemo(() => {
+    if (!httpRelayListEvent) return []
+    const list = getHttpRelayListFromEvent(httpRelayListEvent)
+    const favKeys = new Set(urls.map((u) => normalizeAnyRelayUrl(u) || u))
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const u of [...list.httpRead, ...list.httpWrite]) {
+      const k = normalizeAnyRelayUrl(u) || u
+      if (!k || seen.has(k) || favKeys.has(k)) continue
+      seen.add(k)
+      out.push(k)
+    }
+    return out
+  }, [httpRelayListEvent, urls])
+
   const wispTrendingRelayUrl = useMemo(() => buildWispTrendingNotesRelayUrl(), [])
   const wispTrendingRelayKey = useMemo(
     () => normalizeUrl(wispTrendingRelayUrl) || wispTrendingRelayUrl,
@@ -69,8 +88,11 @@ export default function FavoriteRelaysFeedPicker() {
     [urls, wispTrendingRelayKey]
   )
 
+  // Use normalizeAnyRelayUrl so HTTP relay IDs are matched correctly (normalizeUrl converts http→ws).
   const currentRelayKey =
-    feedInfo.feedType === 'relay' && feedInfo.id ? normalizeUrl(feedInfo.id) || feedInfo.id : null
+    feedInfo.feedType === 'relay' && feedInfo.id
+      ? normalizeAnyRelayUrl(feedInfo.id) || feedInfo.id
+      : null
 
   const allActive = feedInfo.feedType === 'all-favorites'
 
@@ -103,7 +125,10 @@ export default function FavoriteRelaysFeedPicker() {
       items.push({ value: relaySetToSelectValue(orphanRelaySetId) })
     }
     for (const url of urls) {
-      items.push({ value: normalizeUrl(url) || url })
+      items.push({ value: normalizeAnyRelayUrl(url) || url })
+    }
+    for (const url of httpRelayUrls) {
+      items.push({ value: normalizeAnyRelayUrl(url) || url })
     }
     if (
       !allActive &&
@@ -111,11 +136,12 @@ export default function FavoriteRelaysFeedPicker() {
       feedInfo.id &&
       !items.some((i) => i.value === currentRelayKey)
     ) {
-      items.push({ value: normalizeUrl(feedInfo.id) || feedInfo.id })
+      items.push({ value: normalizeAnyRelayUrl(feedInfo.id) || feedInfo.id })
     }
     return items
   }, [
     urls,
+    httpRelayUrls,
     allActive,
     feedInfo.feedType,
     feedInfo.id,
@@ -132,8 +158,11 @@ export default function FavoriteRelaysFeedPicker() {
 
   const resolveRelayUrl = (value: string) => {
     if (value === ALL_FAVORITES_VALUE) return null
-    const fromList = urls.find((u) => (normalizeUrl(u) || u) === value)
-    return fromList ?? value
+    const fromFav = urls.find((u) => (normalizeAnyRelayUrl(u) || u) === value)
+    if (fromFav) return fromFav
+    const fromHttp = httpRelayUrls.find((u) => (normalizeAnyRelayUrl(u) || u) === value)
+    if (fromHttp) return fromHttp
+    return value
   }
 
   const onPickValue = (v: string) => {
@@ -154,7 +183,7 @@ export default function FavoriteRelaysFeedPicker() {
     if (relay) void switchFeed('relay', { relay })
   }
 
-  if (urls.length === 0 && relaySets.length === 0) return null
+  if (urls.length === 0 && httpRelayUrls.length === 0 && relaySets.length === 0) return null
 
   const editSettingsButton = (
     <Button
@@ -223,13 +252,29 @@ export default function FavoriteRelaysFeedPicker() {
                 <>
                   {relaySets.length > 0 || orphanRelaySetId ? <SelectSeparator /> : null}
                   {urls.map((url) => {
-                    const v = normalizeUrl(url) || url
+                    const v = normalizeAnyRelayUrl(url) || url
                     return (
                       <SelectItem key={v} value={v} className="font-mono text-xs" title={url}>
                         {simplifyUrl(url)}
                       </SelectItem>
                     )
                   })}
+                </>
+              ) : null}
+              {httpRelayUrls.length > 0 ? (
+                <>
+                  <SelectSeparator />
+                  <SelectGroup>
+                    <SelectLabel className="pl-2">{t('HTTP relays')}</SelectLabel>
+                    {httpRelayUrls.map((url) => {
+                      const v = normalizeAnyRelayUrl(url) || url
+                      return (
+                        <SelectItem key={v} value={v} className="font-mono text-xs" title={url}>
+                          {simplifyUrl(url)}
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectGroup>
                 </>
               ) : null}
             </SelectContent>
@@ -314,7 +359,30 @@ export default function FavoriteRelaysFeedPicker() {
           <div className="mx-0.5 shrink-0 self-stretch border-l border-border/80" aria-hidden />
         )}
         {urls.map((url) => {
-          const key = normalizeUrl(url) || url
+          const key = normalizeAnyRelayUrl(url) || url
+          const active = feedInfo.feedType === 'relay' && currentRelayKey === key
+          return (
+            <button
+              key={key}
+              type="button"
+              className={cn(
+                'max-w-[11rem] shrink-0 truncate rounded-full border px-3 py-1 font-mono text-xs font-semibold transition-colors',
+                active
+                  ? 'border-primary bg-primary/15 text-foreground'
+                  : 'border-border bg-muted/40 text-muted-foreground hover:bg-accent'
+              )}
+              title={url}
+              onClick={() => void switchFeed('relay', { relay: url })}
+            >
+              {simplifyUrl(url)}
+            </button>
+          )
+        })}
+        {httpRelayUrls.length > 0 && (
+          <div className="mx-0.5 shrink-0 self-stretch border-l border-border/80" aria-hidden />
+        )}
+        {httpRelayUrls.map((url) => {
+          const key = normalizeAnyRelayUrl(url) || url
           const active = feedInfo.feedType === 'relay' && currentRelayKey === key
           return (
             <button

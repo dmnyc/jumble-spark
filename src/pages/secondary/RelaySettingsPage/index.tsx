@@ -1,3 +1,4 @@
+import CacheRelaysSetting from '@/components/CacheRelaysSetting'
 import HttpRelaysSetting from '@/components/HttpRelaysSetting'
 import JsonViewDialog from '@/components/JsonViewDialog'
 import MailboxSetting from '@/components/MailboxSetting'
@@ -70,6 +71,9 @@ const RelaySettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?:
       case '#favorite-relays':
         setTabValue('favorite-relays')
         break
+      case '#cache-relays':
+        setTabValue('cache-relays')
+        break
     }
   }, [])
 
@@ -115,6 +119,7 @@ const RelaySettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?:
           <TabsTrigger value="mailbox" className="w-full sm:w-auto">{t('Read & Write Relays')}</TabsTrigger>
           <TabsTrigger value="http-relays" className="w-full sm:w-auto">{t('HTTP relays')}</TabsTrigger>
           <TabsTrigger value="session-relays" className="w-full sm:w-auto">{t('Session relays')}</TabsTrigger>
+          <TabsTrigger value="cache-relays" className="w-full sm:w-auto">{t('Cache Relays')}</TabsTrigger>
         </TabsList>
         <TabsContent value="favorite-relays">
           <FavoriteRelaysSetting />
@@ -127,6 +132,9 @@ const RelaySettingsPage = forwardRef(({ index, hideTitlebar = false }: { index?:
         </TabsContent>
         <TabsContent value="session-relays">
           <SessionRelaysTab />
+        </TabsContent>
+        <TabsContent value="cache-relays">
+          <CacheRelaysSetting />
         </TabsContent>
       </Tabs>
     </SecondaryPageLayout>

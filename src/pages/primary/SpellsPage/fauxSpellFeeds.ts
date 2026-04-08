@@ -19,7 +19,7 @@ import { RENDERABLE_NOTE_KINDS_SORTED } from '@/lib/note-renderable-kinds'
 import { buildProfileAugmentedReadRelayUrls } from '@/lib/favorites-feed-relays'
 import { normalizeTopic } from '@/lib/discussion-topics'
 import { userIdToPubkey } from '@/lib/pubkey'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl } from '@/lib/url'
 import type { TFeedSubRequest } from '@/types'
 import { type Event, type Filter } from 'nostr-tools'
 
@@ -78,17 +78,17 @@ const INTERESTS_MAX_TOPIC_TAG_VALUES = INTERESTS_MAX_TOPICS * 4
  * filled the cap.
  */
 export function appendCuratedReadOnlyRelays(curated: string[], blockedRelays: string[]): string[] {
-  const blocked = new Set(blockedRelays.map((b) => normalizeUrl(b) || b))
+  const blocked = new Set(blockedRelays.map((b) => normalizeAnyRelayUrl(b) || b))
   const seen = new Set<string>()
   const out: string[] = []
   for (const u of READ_ONLY_RELAY_URLS) {
-    const k = normalizeUrl(u) || u
+    const k = normalizeAnyRelayUrl(u) || u
     if (!k || blocked.has(k) || seen.has(k)) continue
     seen.add(k)
     out.push(k)
   }
   for (const u of curated) {
-    const k = normalizeUrl(u) || u
+    const k = normalizeAnyRelayUrl(u) || u
     if (!k || seen.has(k)) continue
     seen.add(k)
     out.push(k)

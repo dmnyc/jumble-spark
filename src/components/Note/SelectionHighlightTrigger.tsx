@@ -2,7 +2,7 @@ import { buildHighlightDataFromEvent } from '@/lib/build-highlight-data'
 import { useCreateHighlight } from './CreateHighlightContext'
 import { Event } from 'nostr-tools'
 import { Highlighter } from 'lucide-react'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
@@ -36,8 +36,11 @@ export default function SelectionHighlightTrigger({
     top: number
     left: number
   } | null>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // True while a touch is physically in contact with the screen.
+  const isTouchActiveRef = useRef(false)
 
-  const handleMouseUp = useCallback(() => {
+  const evaluateSelection = useCallback(() => {
     if (!openHighlight || !containerRef.current) return
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
@@ -54,14 +57,63 @@ export default function SelectionHighlightTrigger({
       setToolbar(null)
       return
     }
+
     const rect = range.getBoundingClientRect()
-    setToolbar({
-      selectedText,
-      paragraphContext: getParagraphContextFromRange(range),
-      top: rect.top - 44,
-      left: rect.left + rect.width / 2 - 80
-    })
+    const toolbarHeight = 44
+    const margin = 8
+    // Prefer above the selection; fall back to below if too close to top of viewport.
+    const top =
+      rect.top - toolbarHeight < margin ? rect.bottom + margin : rect.top - toolbarHeight
+    const rawLeft = rect.left + rect.width / 2 - 80
+    const left = Math.max(margin, Math.min(rawLeft, window.innerWidth - 176 - margin))
+
+    setToolbar({ selectedText, paragraphContext: getParagraphContextFromRange(range), top, left })
   }, [openHighlight])
+
+  // Desktop: mouseup fires reliably after text selection by mouse.
+  const handleMouseUp = useCallback(() => {
+    evaluateSelection()
+  }, [evaluateSelection])
+
+  useEffect(() => {
+    if (!openHighlight) return
+
+    const schedule = (delayMs: number) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(evaluateSelection, delayMs)
+    }
+
+    // Mobile: finger touches screen — mark active so selectionchange is suppressed during
+    // the gesture itself (avoids positioning the toolbar mid-drag).
+    const onTouchStart = () => {
+      isTouchActiveRef.current = true
+    }
+
+    // Mobile: finger lifts — wait for the browser to settle the selection, then evaluate.
+    // The 600 ms matches the delay used in RssFeedItem for the same reason.
+    const onTouchEnd = () => {
+      isTouchActiveRef.current = false
+      schedule(600)
+    }
+
+    // Both: covers keyboard selection (Shift+Arrow) on desktop and selection-handle
+    // dragging on mobile (which may not generate touch events in our DOM).
+    const onSelectionChange = () => {
+      if (isTouchActiveRef.current) return
+      schedule(80)
+    }
+
+    document.addEventListener('touchstart', onTouchStart, { passive: true })
+    document.addEventListener('touchend', onTouchEnd, { passive: true })
+    document.addEventListener('selectionchange', onSelectionChange)
+
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart)
+      document.removeEventListener('touchend', onTouchEnd)
+      document.removeEventListener('selectionchange', onSelectionChange)
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [openHighlight, evaluateSelection])
 
   const handleCreateHighlight = useCallback(() => {
     if (!toolbar || !openHighlight) return
@@ -84,10 +136,7 @@ export default function SelectionHighlightTrigger({
         <>
           <div
             className="fixed z-[150] flex items-center gap-1 rounded-md border bg-background px-2 py-1.5 shadow-lg"
-            style={{
-              top: toolbar.top,
-              left: Math.max(8, Math.min(toolbar.left, typeof window !== 'undefined' ? window.innerWidth - 176 : toolbar.left))
-            }}
+            style={{ top: toolbar.top, left: toolbar.left }}
           >
             <Button
               type="button"
@@ -103,11 +152,7 @@ export default function SelectionHighlightTrigger({
               {t('Cancel')}
             </Button>
           </div>
-          <div
-            className="fixed inset-0 z-[149]"
-            aria-hidden
-            onClick={handleDismiss}
-          />
+          <div className="fixed inset-0 z-[149]" aria-hidden onClick={handleDismiss} />
         </>
       )}
     </div>
