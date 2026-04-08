@@ -2,7 +2,6 @@ import ClientTag from '@/components/ClientTag'
 import { Card } from '@/components/ui/card'
 import { ExtendedKind, POLL_TYPE } from '@/constants'
 import {
-  buildAltTag,
   buildClientTag,
   stripImwaldAttributionTags,
   transformCustomEmojisInContent
@@ -164,7 +163,7 @@ export default function Preview({
     }
     const stripped = stripImwaldAttributionTags(tags)
     if (addClientTag) {
-      stripped.push(buildClientTag(), buildAltTag())
+      stripped.push(buildClientTag())
     }
     return stripped
   }, [emojiTags, highlightTags, pollTags, mediaImetaTags, articleMetadata, kind, extraPreviewTags, addClientTag])

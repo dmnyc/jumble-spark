@@ -1405,12 +1405,8 @@ export function buildClientTag(handlerPubkey?: string, handlerIdentifier?: strin
   return ['client', 'imwald']
 }
 
-/** Canonical `alt` we attach for Imwald / jumble.imwald.eu publishing attribution (NIP-31). */
-export const IMWALD_ATTRIBUTION_ALT_TEXT = 'This event was published by https://jumble.imwald.eu.'
-
-export function buildAltTag(): string[] {
-  return ['alt', IMWALD_ATTRIBUTION_ALT_TEXT]
-}
+/** Canonical `alt` text used in legacy Jumble/Imwald attribution tags (kept for stripping old events). */
+const IMWALD_ATTRIBUTION_ALT_TEXT = 'This event was published by https://jumble.imwald.eu.'
 
 /**
  * True for `alt` tags that are *our* app attribution (current or legacy Jumble/Imwald wording).
@@ -1445,7 +1441,7 @@ export function stripImwaldAttributionTags(tags: string[][]): string[][] {
 
 /**
  * Before sign/publish: strip all `client` tags and Imwald/Jumble attribution `alt` tags, then
- * append exactly one {@link buildClientTag} + {@link buildAltTag} when `addClientTag !== false`.
+ * append exactly one {@link buildClientTag} when `addClientTag !== false`.
  */
 export function applyImwaldAttributionTags(
   draftEvent: TDraftEvent,
@@ -1456,7 +1452,7 @@ export function applyImwaldAttributionTags(
   const sanitizedTags = stripImwaldAttributionTags(existingTags)
   const shouldAdd = options?.addClientTag !== false
   if (shouldAdd) {
-    draft.tags = [...sanitizedTags, buildClientTag(), buildAltTag()]
+    draft.tags = [...sanitizedTags, buildClientTag()]
   } else {
     draft.tags = [...sanitizedTags]
   }
