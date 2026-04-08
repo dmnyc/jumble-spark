@@ -1,8 +1,7 @@
 import { Button } from '@/components/ui/button'
 import { DEFAULT_SUGGESTED_EMOJIS } from '@/lib/like-reaction-emojis'
-import { parseEmojiPickerUnified } from '@/lib/utils'
+import { getRecentlyUsedEmojis } from '@/lib/recently-used-emojis'
 import { TEmoji } from '@/types'
-import { getSuggested } from 'emoji-picker-react/src/dataUtils/suggested'
 import { MoreHorizontal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import Emoji from '../Emoji'
@@ -19,22 +18,17 @@ export default function SuggestedEmojis({
 
   useEffect(() => {
     try {
-      const suggested = getSuggested()
+      const recent = getRecentlyUsedEmojis()
+      if (recent.length === 0) return
+
       const emojiSet = new Set<string>()
-      const suggestEmojis = (
-        suggested
-          .sort((a, b) => b.count - a.count)
-          .map((item) => parseEmojiPickerUnified(item.unified))
-          .filter(Boolean) as (string | TEmoji)[]
-      )
-        .concat(DEFAULT_SUGGESTED_EMOJIS)
-        .filter((emoji) => {
-          if (typeof emoji !== 'string') return true
-          if (emojiSet.has(emoji)) return false
-          emojiSet.add(emoji)
-          return true
-        })
-      setSuggestedEmojis(suggestEmojis.slice(0, 9))
+      const merged = [...recent, ...DEFAULT_SUGGESTED_EMOJIS].filter((emoji) => {
+        const key = typeof emoji === 'string' ? emoji : emoji.shortcode
+        if (emojiSet.has(key)) return false
+        emojiSet.add(key)
+        return true
+      })
+      setSuggestedEmojis(merged.slice(0, 9))
     } catch {
       // ignore
     }

@@ -1,10 +1,8 @@
 import { getEmojisAndEmojiSetsFromEvent, getEmojisFromEvent } from '@/lib/event-metadata'
-import { parseEmojiPickerUnified } from '@/lib/utils'
+import { recordEmojiUsed } from '@/lib/recently-used-emojis'
 import client from '@/services/client.service'
 import { TEmoji } from '@/types'
 import { sha256 } from '@noble/hashes/sha2'
-import { SkinTones } from 'emoji-picker-react'
-import { getSuggested, setSuggested } from 'emoji-picker-react/src/dataUtils/suggested'
 import FlexSearch from 'flexsearch'
 import { Event, kinds } from 'nostr-tools'
 
@@ -115,20 +113,8 @@ class CustomEmojiService {
   async searchEmojis(query: string = '', viewerPubkey?: string | null): Promise<string[]> {
     const v = viewerPubkey?.toLowerCase() ?? ''
     if (!query) {
-      const idSet = new Set<string>()
-      getSuggested()
-        .sort((a, b) => b.count - a.count)
-        .map((item) => parseEmojiPickerUnified(item.unified))
-        .forEach((item) => {
-          if (item && typeof item !== 'string') {
-            const id = this.getEmojiId(item)
-            idSet.add(id)
-          }
-        })
-      for (const key of this.emojiMap.keys()) {
-        idSet.add(key)
-      }
-      return this.sortEmojiIdsForViewer(Array.from(idSet), v)
+      const ids = this.sortEmojiIdsForViewer(Array.from(this.emojiMap.keys()), v)
+      return ids
     }
     const results = await this.emojiIndex.searchAsync(query)
     const filtered = results.filter((id) => typeof id === 'string') as string[]
@@ -141,14 +127,22 @@ class CustomEmojiService {
     return this.emojiMap.get(id)
   }
 
-  getAllCustomEmojisForPicker(viewerPubkey?: string | null) {
+  /** Returns the emojis that the viewer themselves authored, sorted by shortcode. */
+  getOwnCustomEmojis(viewerPubkey: string): TEmoji[] {
+    const v = viewerPubkey.toLowerCase()
+    const own: TEmoji[] = []
+    for (const [hashId, emoji] of this.emojiMap.entries()) {
+      if (this.emojiAuthorById.get(hashId) === v) own.push(emoji)
+    }
+    return own.sort((a, b) => a.shortcode.localeCompare(b.shortcode))
+  }
+
+  getAllCustomEmojisForPicker(
+    viewerPubkey?: string | null
+  ): Array<{ name: string; shortcodes: [string]; url: string; category: string }> {
     const v = viewerPubkey?.toLowerCase() ?? ''
     const rows = Array.from(this.emojiMap.entries()).map(([hashId, emoji]) => ({
-      row: {
-        id: `:${emoji.shortcode}:${emoji.url}`,
-        imgUrl: emoji.url,
-        names: [emoji.shortcode] as [string]
-      },
+      emoji,
       author: this.emojiAuthorById.get(hashId) ?? ''
     }))
     rows.sort((a, b) => {
@@ -157,9 +151,14 @@ class CustomEmojiService {
         const bOwn = b.author === v ? 0 : 1
         if (aOwn !== bOwn) return aOwn - bOwn
       }
-      return a.row.names[0].localeCompare(b.row.names[0])
+      return a.emoji.shortcode.localeCompare(b.emoji.shortcode)
     })
-    return rows.map((r) => r.row)
+    return rows.map((r) => ({
+      name: r.emoji.shortcode,
+      shortcodes: [r.emoji.shortcode] as [string],
+      url: r.emoji.url,
+      category: 'Custom'
+    }))
   }
 
   isCustomEmojiId(shortcode: string) {
@@ -188,16 +187,7 @@ class CustomEmojiService {
   updateSuggested(id: string) {
     const emoji = this.getEmojiById(id)
     if (!emoji) return
-
-    setSuggested(
-      {
-        n: [emoji.shortcode.toLowerCase()],
-        u: `:${emoji.shortcode}:${emoji.url}`.toLowerCase(),
-        a: '0',
-        imgUrl: emoji.url
-      },
-      SkinTones.NEUTRAL
-    )
+    recordEmojiUsed(emoji)
   }
 }
 

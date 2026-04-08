@@ -315,13 +315,23 @@ class LocalStorageService {
           showKinds.push(ExtendedKind.GIT_RELEASE)
         }
       }
+      if (showKindsVersion < 12) {
+        // Add WIKI_ARTICLE_MARKDOWN (30817) for users who already have long-form articles (30023) or
+        // wiki articles (30818) enabled — it was omitted from the earlier v4 migration.
+        if (
+          (showKinds.includes(kinds.LongFormArticle) || showKinds.includes(ExtendedKind.WIKI_ARTICLE)) &&
+          !showKinds.includes(ExtendedKind.WIKI_ARTICLE_MARKDOWN)
+        ) {
+          showKinds.push(ExtendedKind.WIKI_ARTICLE_MARKDOWN)
+        }
+      }
       // v9: boosts are optional in the same filter list as other kinds; do not auto-enable (leave absent).
       this.showKinds = showKinds
       // Only persist when we read from localStorage. If SHOW_KINDS is missing here (migrated to IDB and
       // keys cleared), persisting would write DEFAULT_FEED_SHOW_KINDS to IndexedDB and wipe the user's
       // saved filter before initAsync/applySettings runs.
       this.persistSetting(StorageKey.SHOW_KINDS, JSON.stringify(this.showKinds))
-      this.persistSetting(StorageKey.SHOW_KINDS_VERSION, '11')
+      this.persistSetting(StorageKey.SHOW_KINDS_VERSION, '12')
     }
 
     // Feed filter: kind 1 OPs, kind 1 replies, kind 1111 (migrate from legacy showRepliesAndComments if set)

@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 import { normalizeUrl } from '@/lib/url'
 import {
   fetchGifs,
+  getCachedGifs,
   searchGifs,
   gifShouldOfferNip94Archive,
   type GifMetadata
@@ -25,6 +26,9 @@ import mediaUpload from '@/services/media-upload.service'
 import { Download, ExternalLink, X } from 'lucide-react'
 import { kinds } from 'nostr-tools'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+/** In-session cache: survives Drawer/Dropdown open↔close without a relay re-fetch. */
+let _sessionGifs: GifMetadata[] = []
 import { useTranslation } from 'react-i18next'
 
 const GIFBUDDY_URL = 'https://www.gifbuddy.lol/'
@@ -48,7 +52,9 @@ export default function GifPicker({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
-  const [gifs, setGifs] = useState<GifMetadata[]>([])
+  // Initialise from the module-level session cache so re-opens are instant
+  const [gifs, setGifsState] = useState<GifMetadata[]>(() => _sessionGifs)
+  const gifsRef = useRef<GifMetadata[]>(_sessionGifs)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -93,15 +99,42 @@ export default function GifPicker({
       })
   }, [userWriteRelays])
 
+  /** Keep gifsRef, session cache, and React state in sync. */
+  const setGifs = useCallback((newGifs: GifMetadata[], isSearch = false) => {
+    gifsRef.current = newGifs
+    if (!isSearch) _sessionGifs = newGifs
+    setGifsState(newGifs)
+  }, [])
+
   const loadGifs = useCallback(async (q: string, forceRefresh = false) => {
     setError(null)
-    setLoading(true)
+    const isSearch = q.trim() !== ''
+
+    // For a search or a forced refresh with no data: clear and show skeleton immediately.
+    if (isSearch) {
+      gifsRef.current = []
+      setGifsState([])
+      setLoading(true)
+    } else if (gifsRef.current.length === 0) {
+      // No data yet — try the IDB cache first so we can show something instantly.
+      try {
+        const cached = await getCachedGifs(pubkey ?? null)
+        if (cached.length > 0) {
+          setGifs(cached)
+        }
+      } catch { /* ignore */ }
+      // If still empty after the cache read, show the skeleton while we wait for relays.
+      if (gifsRef.current.length === 0) setLoading(true)
+    }
+    // If we already have data (session cache or IDB seed above): no skeleton —
+    // results will update silently when the relay fetch completes.
+
     try {
-      const results = q.trim()
+      const results = isSearch
         ? await searchGifs(q.trim(), 50, forceRefresh, userReadRelays, pubkey ?? null)
         : await fetchGifs(undefined, 50, forceRefresh, userReadRelays, pubkey ?? null)
-      setGifs(results)
-      if (results.length === 0 && !q.trim()) {
+      setGifs(results, isSearch)
+      if (results.length === 0 && !isSearch) {
         setError(
           t(
             'No GIFs found. Try searching or add your own. GIFs come from Nostr kind 1063 (NIP-94) events on GIF relays.'
@@ -110,11 +143,11 @@ export default function GifPicker({
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load GIFs')
-      setGifs([])
+      if (gifsRef.current.length === 0) setGifsState([])
     } finally {
       setLoading(false)
     }
-  }, [t, userReadRelays, pubkey])
+  }, [t, userReadRelays, pubkey, setGifs])
 
   useEffect(() => {
     if (!open) return

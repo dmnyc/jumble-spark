@@ -1764,7 +1764,7 @@ export default function AsciidocArticle({
   useEffect(() => {
     const initHighlight = async () => {
       if (typeof window !== 'undefined') {
-        const hljs = await import('highlight.js')
+        const hljs = await import('@/lib/highlight')
         if (contentRef.current) {
           contentRef.current.querySelectorAll('pre code').forEach((block) => {
             const element = block as HTMLElement

@@ -361,6 +361,20 @@ export async function fetchMemes(
   return result
 }
 
+/**
+ * Return whatever is currently in the IndexedDB meme cache without fetching from relays.
+ * Used to seed the picker immediately on open; the caller can then trigger a background refresh.
+ */
+export async function getCachedMemes(userPubkey: string | null = null): Promise<MemeMetadata[]> {
+  try {
+    const cached = await indexedDb.getMemeCache()
+    if (!cached?.memes?.length) return []
+    return sortMemesForPicker(cached.memes as MemeMetadata[], userPubkey).slice(0, 50)
+  } catch {
+    return []
+  }
+}
+
 export async function searchMemes(
   query: string,
   limit: number = 50,

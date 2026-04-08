@@ -1,87 +1,162 @@
-import { parseEmojiPickerUnified } from '@/lib/utils'
+import { DEFAULT_SUGGESTED_EMOJIS } from '@/lib/like-reaction-emojis'
+import { recordEmojiUsed } from '@/lib/recently-used-emojis'
 import { useNostr } from '@/providers/NostrProvider'
-import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useTheme } from '@/providers/ThemeProvider'
 import customEmojiService from '@/services/custom-emoji.service'
 import { TEmoji } from '@/types'
-import EmojiPickerReact, {
-  EmojiStyle,
-  SkinTonePickerLocation,
-  SuggestionMode,
-  Theme
-} from 'emoji-picker-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-export { EMOJI_PICKER_REACTIONS } from '@/lib/like-reaction-emojis'
+export { DEFAULT_SUGGESTED_EMOJIS as EMOJI_PICKER_REACTIONS } from '@/lib/like-reaction-emojis'
 
 export default function EmojiPicker({
   onEmojiClick,
   reactionsDefaultOpen,
   reactions
 }: {
-  onEmojiClick: (emoji: string | TEmoji | undefined, event: MouseEvent) => void
-  /** When true, show the compact reactions row first (tap + for full picker). */
+  onEmojiClick: (emoji: string | TEmoji | undefined, event: Event) => void
   reactionsDefaultOpen?: boolean
-  /** Unified ids for the reactions row; for likes use {@link EMOJI_PICKER_REACTIONS}. */
   reactions?: string[]
 }) {
   const { themeSetting } = useTheme()
-  const { isSmallScreen } = useScreenSize()
   const { pubkey } = useNostr()
-  const [viewportW, setViewportW] = useState(
-    () => (typeof window !== 'undefined' ? window.innerWidth : 390)
+  const [mode, setMode] = useState<'reactions' | 'full'>(
+    reactionsDefaultOpen ? 'reactions' : 'full'
   )
-  const [viewportH, setViewportH] = useState(
-    () => (typeof window !== 'undefined' ? window.innerHeight : 700)
-  )
-  useEffect(() => {
-    const onResize = () => {
-      setViewportW(window.innerWidth)
-      setViewportH(window.innerHeight)
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
   const [customEmojiTick, setCustomEmojiTick] = useState(0)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const pickerRef = useRef<(HTMLElement & { customEmoji: unknown[] }) | null>(null)
+
   useEffect(() => customEmojiService.subscribeIndexUpdate(() => setCustomEmojiTick((t) => t + 1)), [])
+
   const customEmojis = useMemo(
     () => customEmojiService.getAllCustomEmojisForPicker(pubkey ?? null),
     [pubkey, customEmojiTick]
   )
 
-  const pickerWidth = isSmallScreen ? Math.max(260, viewportW - 24) : 350
-  const pickerHeight = isSmallScreen
-    ? Math.max(280, Math.min(Math.round(viewportH * 0.52), 460))
-    : 450
+  const ownEmojis = useMemo(
+    () => (pubkey ? customEmojiService.getOwnCustomEmojis(pubkey) : []),
+    [pubkey, customEmojiTick]
+  )
+
+  useEffect(() => {
+    if (mode !== 'full') return
+
+    let cancelled = false
+
+    import('emoji-picker-element').then(({ Picker }) => {
+      if (cancelled || !containerRef.current) return
+
+      const picker = new Picker() as HTMLElement & { customEmoji: unknown[] }
+      pickerRef.current = picker
+
+      picker.customEmoji = customEmojis
+
+      if (themeSetting === 'dark') {
+        picker.className = 'dark'
+      } else if (themeSetting === 'light') {
+        picker.className = 'light'
+      }
+
+      picker.style.width = '100%'
+      picker.style.setProperty('--num-columns', '8')
+
+      const handleClick = (e: Event) => {
+        const detail = (e as CustomEvent).detail as {
+          unicode?: string
+          emoji: { custom?: boolean; shortcodes?: string[]; url?: string }
+        }
+        let result: string | TEmoji | undefined
+        if (detail.unicode) {
+          result = detail.unicode
+        } else if (detail.emoji?.custom && detail.emoji.shortcodes?.[0] && detail.emoji.url) {
+          result = { shortcode: detail.emoji.shortcodes[0], url: detail.emoji.url }
+        }
+        if (result !== undefined) recordEmojiUsed(result)
+        onEmojiClick(result, e)
+      }
+
+      picker.addEventListener('emoji-click', handleClick)
+      containerRef.current.appendChild(picker)
+    })
+
+    return () => {
+      cancelled = true
+      if (pickerRef.current) {
+        pickerRef.current.remove()
+        pickerRef.current = null
+      }
+    }
+  }, [mode])
+
+  useEffect(() => {
+    if (pickerRef.current) {
+      pickerRef.current.customEmoji = customEmojis
+    }
+  }, [customEmojis])
+
+  useEffect(() => {
+    if (!pickerRef.current) return
+    if (themeSetting === 'dark') {
+      pickerRef.current.className = 'dark'
+    } else if (themeSetting === 'light') {
+      pickerRef.current.className = 'light'
+    } else {
+      pickerRef.current.className = ''
+    }
+  }, [themeSetting])
+
+  const reactionsList = reactions ?? [...DEFAULT_SUGGESTED_EMOJIS]
+
+  if (mode === 'reactions') {
+    return (
+      <div className="flex flex-wrap items-center gap-1 p-2">
+        {reactionsList.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            className="text-2xl p-1 rounded hover:bg-muted leading-none"
+            onClick={(e) => {
+              recordEmojiUsed(emoji)
+              onEmojiClick(emoji, e.nativeEvent)
+            }}
+          >
+            {emoji}
+          </button>
+        ))}
+        <button
+          type="button"
+          title="More emojis"
+          className="p-1 rounded hover:bg-muted text-muted-foreground flex items-center justify-center"
+          onClick={() => setMode('full')}
+        >
+          <Plus size={20} />
+        </button>
+      </div>
+    )
+  }
 
   return (
-    <EmojiPickerReact
-      theme={
-        themeSetting === 'system' ? Theme.AUTO : themeSetting === 'dark' ? Theme.DARK : Theme.LIGHT
-      }
-      width={pickerWidth}
-      height={pickerHeight}
-      autoFocusSearch={false}
-      emojiStyle={EmojiStyle.NATIVE}
-      skinTonePickerLocation={SkinTonePickerLocation.PREVIEW}
-      style={
-        {
-          '--epr-bg-color': 'hsl(var(--background))',
-          '--epr-category-label-bg-color': 'hsl(var(--background))',
-          '--epr-text-color': 'hsl(var(--foreground))',
-          '--epr-hover-bg-color': 'hsl(var(--muted) / 0.5)',
-          '--epr-picker-border-color': 'transparent',
-          '--epr-search-input-bg-color': 'hsl(var(--muted) / 0.5)'
-        } as React.CSSProperties
-      }
-      suggestedEmojisMode={SuggestionMode.FREQUENT}
-      onEmojiClick={(data, e) => {
-        const emoji = parseEmojiPickerUnified(data.unified)
-        onEmojiClick(emoji, e)
-      }}
-      customEmojis={customEmojis}
-      {...(reactionsDefaultOpen !== undefined ? { reactionsDefaultOpen } : {})}
-      {...(reactions !== undefined ? { reactions } : {})}
-    />
+    <div className="w-full flex flex-col">
+      {ownEmojis.length > 0 && (
+        <div className="flex items-center gap-0.5 px-1 py-1 border-b overflow-x-auto scrollbar-hide">
+          {ownEmojis.map((emoji) => (
+            <button
+              key={emoji.shortcode}
+              type="button"
+              title={`:${emoji.shortcode}:`}
+              className="shrink-0 w-8 h-8 rounded hover:bg-muted flex items-center justify-center"
+              onClick={(e) => {
+                recordEmojiUsed(emoji)
+                onEmojiClick(emoji, e.nativeEvent)
+              }}
+            >
+              <img src={emoji.url} alt={emoji.shortcode} className="w-6 h-6 object-contain" />
+            </button>
+          ))}
+        </div>
+      )}
+      <div ref={containerRef} />
+    </div>
   )
 }

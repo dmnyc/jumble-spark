@@ -334,7 +334,7 @@ function CodeBlock({ id, code, language }: { id: string; code: string; language:
     const initHighlight = async () => {
       if (typeof window === 'undefined') return
       try {
-        const hljs = await import('highlight.js')
+        const hljs = await import('@/lib/highlight')
         if (cancelled) return
         const root = codeRef.current
         if (!root) return

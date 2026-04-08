@@ -217,8 +217,7 @@ function parseGifFromEvent(event: NEvent): GifMetadata | null {
   }
 }
 
-const CACHE_MAX_AGE_MS = 5 * 60 * 1000 // 5 minutes; cache lives in IndexedDB
-/** Partial fetches (timeouts, relay issues) used to get cached as-is and hide the grid for 5 minutes. */
+const CACHE_MAX_AGE_MS = 60 * 60 * 1000 // 1 hour; short enough to stay fresh, long enough to survive browser restarts
 const MIN_GIF_CACHE_ENTRIES = 8
 
 /** Ensured on the kind 1063 (NIP-94) relay set even if absent from merged read lists. */
@@ -332,6 +331,20 @@ export async function fetchGifs(
   }
 
   return result
+}
+
+/**
+ * Return whatever is currently in the IndexedDB GIF cache without fetching from relays.
+ * Used to seed the picker immediately on open; the caller can then trigger a background refresh.
+ */
+export async function getCachedGifs(userPubkey: string | null = null): Promise<GifMetadata[]> {
+  try {
+    const cached = await indexedDb.getGifCache()
+    if (!cached?.gifs?.length) return []
+    return sortGifsForPicker(cached.gifs as GifMetadata[], userPubkey).slice(0, 50)
+  } catch {
+    return []
+  }
 }
 
 /** Search GIFs by query (same as fetchGifs with query). */

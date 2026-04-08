@@ -1,19 +1,8 @@
 /**
- * Single source for the quick-like emoji row (SuggestedEmojis “+” row uses the same glyphs;
- * emoji-picker-react needs hex unified ids — see {@link EMOJI_PICKER_REACTIONS}).
+ * Single source for the quick-like emoji row used by SuggestedEmojis and the EmojiPicker
+ * reactions row. Also re-exported as EMOJI_PICKER_REACTIONS for LikeButton.
  */
 export const DEFAULT_SUGGESTED_EMOJIS = ['❤️', '👍', '🔥', '😂', '😢', '🫂', '🚀'] as const
 
-function emojiToPickerUnified(emoji: string): string {
-  const parts: string[] = []
-  for (const ch of emoji) {
-    const cp = ch.codePointAt(0)
-    if (cp != null) parts.push(cp.toString(16))
-  }
-  return parts.join('-')
-}
-
-/** Unified ids for `emoji-picker-react` reactions row — derived from {@link DEFAULT_SUGGESTED_EMOJIS}. */
-export const EMOJI_PICKER_REACTIONS: readonly string[] = DEFAULT_SUGGESTED_EMOJIS.map((e) =>
-  emojiToPickerUnified(e)
-)
+/** Emoji characters for the reactions row in the like-button picker. */
+export const EMOJI_PICKER_REACTIONS: readonly string[] = DEFAULT_SUGGESTED_EMOJIS

@@ -1,6 +1,6 @@
 {
   "name": "imwald",
-  "version": "22.2.0",
+  "version": "22.3.0",
   "description": "Imwald — a user-friendly Nostr client focused on relay feed browsing, publications, and relay discovery",
   "private": true,
   "type": "module",
@@ -79,7 +79,7 @@
     "dayjs": "^1.11.13",
     "embla-carousel-react": "^8.6.0",
     "embla-carousel-wheel-gestures": "^8.1.0",
-    "emoji-picker-react": "^4.12.2",
+    "emoji-picker-element": "^1.29.1",
     "flexsearch": "^0.7.43",
     "highlight.js": "^11.9.0",
     "i18next": "^24.2.0",

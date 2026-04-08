@@ -669,8 +669,8 @@ class NoteStatsService {
 
     return this.addZap(
       senderPubkey,
-      originalEventId,
-      invoice,
+      originalEventId!,
+      invoice!,
       amount,
       comment,
       evt.created_at,

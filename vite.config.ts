@@ -183,7 +183,7 @@ export default defineConfig(({ mode }) => {
             return 'vendor-dnd'
           }
 
-          if (norm.includes('highlight.js')) {
+          if (norm.includes('highlight.js') || norm.includes('/src/lib/highlight')) {
             return 'vendor-highlight'
           }
 
@@ -191,7 +191,7 @@ export default defineConfig(({ mode }) => {
             return 'vendor-flexsearch'
           }
 
-          if (norm.includes('emoji-picker-react')) {
+          if (norm.includes('emoji-picker-element')) {
             return 'vendor-emoji'
           }
 

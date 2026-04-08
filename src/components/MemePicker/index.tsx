@@ -16,6 +16,7 @@ import { ExtendedKind, GIF_RELAY_URLS } from '@/constants'
 import { normalizeUrl } from '@/lib/url'
 import {
   fetchMemes,
+  getCachedMemes,
   mergeMemesIntoIdbCache,
   memeMetadataFrom1063Event,
   searchMemes,
@@ -24,6 +25,9 @@ import {
 import mediaUpload from '@/services/media-upload.service'
 import { ExternalLink, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+/** In-session cache: survives Drawer/Dropdown open↔close without a relay re-fetch. */
+let _sessionMemes: MemeMetadata[] = []
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -68,7 +72,9 @@ export default function MemePicker({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
-  const [memes, setMemes] = useState<MemeMetadata[]>([])
+  // Initialise from the module-level session cache so re-opens are instant
+  const [memes, setMemesState] = useState<MemeMetadata[]>(() => _sessionMemes)
+  const memesRef = useRef<MemeMetadata[]>(_sessionMemes)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -83,16 +89,38 @@ export default function MemePicker({
   const userReadRelays = useMemo(() => userReadRelaysWithHttp(relayList), [relayList])
   const userWriteRelays = relayList?.write ?? []
 
+  /** Keep memesRef, session cache, and React state in sync. */
+  const setMemes = useCallback((newMemes: MemeMetadata[], isSearch = false) => {
+    memesRef.current = newMemes
+    if (!isSearch) _sessionMemes = newMemes
+    setMemesState(newMemes)
+  }, [])
+
   const loadMemes = useCallback(
     async (q: string, forceRefresh = false) => {
       setError(null)
-      setLoading(true)
+      const isSearch = q.trim() !== ''
+
+      if (isSearch) {
+        memesRef.current = []
+        setMemesState([])
+        setLoading(true)
+      } else if (memesRef.current.length === 0) {
+        try {
+          const cached = await getCachedMemes(pubkey ?? null)
+          if (cached.length > 0) {
+            setMemes(cached)
+          }
+        } catch { /* ignore */ }
+        if (memesRef.current.length === 0) setLoading(true)
+      }
+
       try {
-        const results = q.trim()
+        const results = isSearch
           ? await searchMemes(q.trim(), 50, forceRefresh, userReadRelays, pubkey ?? null)
           : await fetchMemes(undefined, 50, forceRefresh, userReadRelays, pubkey ?? null)
-        setMemes(results)
-        if (results.length === 0 && !q.trim()) {
+        setMemes(results, isSearch)
+        if (results.length === 0 && !isSearch) {
           setError(
             t(
               'No meme templates found. Try searching or open Meme Amigo. The grid only lists kind 1063 (NIP-94) files tagged memeamigo (not random photos from notes).'
@@ -101,12 +129,12 @@ export default function MemePicker({
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load memes')
-        setMemes([])
+        if (memesRef.current.length === 0) setMemesState([])
       } finally {
         setLoading(false)
       }
     },
-    [t, userReadRelays, pubkey]
+    [t, userReadRelays, pubkey, setMemes]
   )
 
   useEffect(() => {
@@ -166,10 +194,8 @@ export default function MemePicker({
       const meta = memeMetadataFrom1063Event(published)
       if (meta) {
         await mergeMemesIntoIdbCache([meta])
-        setMemes((prev) => {
-          const next = [meta, ...prev.filter((m) => m.eventId !== meta.eventId)]
-          return next.slice(0, 50)
-        })
+        const next = [meta, ...memesRef.current.filter((m) => m.eventId !== meta.eventId)].slice(0, 50)
+        setMemes(next)
       }
       setPublishDescription('')
       setQuery('')

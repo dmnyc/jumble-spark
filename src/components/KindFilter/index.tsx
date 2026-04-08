@@ -17,6 +17,7 @@ const KIND_1 = kinds.ShortTextNote
 const KIND_1111 = ExtendedKind.COMMENT
 
 const KIND_FILTER_OPTIONS = [
+  { kindGroup: [kinds.LongFormArticle, ExtendedKind.WIKI_ARTICLE, ExtendedKind.WIKI_ARTICLE_MARKDOWN], label: 'Articles' },
   { kindGroup: [kinds.Highlights], label: 'Highlights' },
   { kindGroup: [ExtendedKind.POLL], label: 'Polls' },
   { kindGroup: [ExtendedKind.ZAP_POLL], label: 'Zap polls' },
