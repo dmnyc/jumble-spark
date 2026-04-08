@@ -210,9 +210,12 @@ const NoteListPage = forwardRef<HTMLDivElement, NoteListPageProps>(({ index, hid
             new Set([...NIP_SEARCH_DOCUMENT_KINDS, ...(kinds.length > 0 ? kinds : [])])
           ).sort((a, b) => a - b)
           const kindFilter = { kinds: mergedReqKinds }
+          // NIP-50 full-text search works better with natural-language spacing;
+          // convert the hyphenated slug back to a space-separated query for the search relay.
+          const searchQuery = domain.replace(/-/g, ' ')
           setSubRequests([
             {
-              filter: { search: domain, ...kindFilter },
+              filter: { search: searchQuery, ...kindFilter },
               urls: [...new Set([...relayUrls, ...SEARCHABLE_RELAY_URLS])]
             },
             {

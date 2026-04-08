@@ -6,13 +6,41 @@ export function getDTagValue(event: Event): string | undefined {
   return t
 }
 
-/** d-tag contains needle or note content contains needle (case-insensitive). */
+const TEXT_META_TAG_NAMES = new Set(['title', 'summary', 'description', 'subject', 'name'])
+
+/**
+ * d-tag, content, or common text metadata tags (title, summary, description, subject, name)
+ * contain the needle (case-insensitive).
+ *
+ * NIP-50 full-text search can match on metadata tags not in the `d` tag or `content` field,
+ * so we check them here to avoid incorrectly hiding those results.
+ *
+ * Also checks a space-separated variant of the needle so that a hyphenated d-tag slug like
+ * "bitcoin-wallet" matches content/titles written as "Bitcoin Wallet".
+ */
 export function eventMatchesDTagLooseQuery(needle: string, event: Event): boolean {
   const q = needle.trim().toLowerCase()
   if (!q) return true
+  // Also try the space-separated variant (e.g. "bitcoin-wallet" → "bitcoin wallet")
+  const qSpace = q.replace(/-/g, ' ')
+  const checks = qSpace !== q ? [q, qSpace] : [q]
+
   const d = getDTagValue(event)?.toLowerCase() ?? ''
-  if (d.includes(q)) return true
-  if ((event.content ?? '').toLowerCase().includes(q)) return true
+  for (const c of checks) {
+    if (d.includes(c)) return true
+  }
+  const content = (event.content ?? '').toLowerCase()
+  for (const c of checks) {
+    if (content.includes(c)) return true
+  }
+  for (const tag of event.tags) {
+    if (tag[1] && TEXT_META_TAG_NAMES.has(tag[0])) {
+      const val = tag[1].toLowerCase()
+      for (const c of checks) {
+        if (val.includes(c)) return true
+      }
+    }
+  }
   return false
 }
 
