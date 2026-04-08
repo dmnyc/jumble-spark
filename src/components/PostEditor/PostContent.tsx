@@ -10,6 +10,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import {
@@ -196,6 +198,7 @@ export default function PostContent({
   )
   const [text, setText] = useState('')
   const textareaRef = useRef<TPostTextareaHandle>(null)
+  const mediaUploaderBtnRef = useRef<HTMLButtonElement>(null)
   const [posting, setPosting] = useState(false)
   const [uploadProgresses, setUploadProgresses] = useState<
     { file: File; progress: number; cancel: () => void }[]
@@ -2673,168 +2676,190 @@ export default function PostContent({
           mediaImetaTags={mediaImetaTags}
           mediaUrl={mediaUrl}
           headerActions={
-            <>
-              {/* Media button - show for new posts only (replies have audio button at bottom) */}
-              {!parentEvent && (
-                <>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    title={t('composeModeKind1')}
-                    className={isPlainShortNoteToolbar ? 'bg-accent' : ''}
-                    aria-pressed={isPlainShortNoteToolbar}
-                    onClick={handlePlainNoteMode}
-                  >
-                    <StickyNote className="h-4 w-4" />
-                  </Button>
-                  <Uploader
-                    onUploadSuccess={handleMediaUploadSuccess}
-                    onUploadStart={handleUploadStart}
-                    onUploadEnd={handleUploadEnd}
-                    onProgress={handleUploadProgress}
-                    accept="image/*,audio/*,video/*"
-                  >
-                    <Button 
-                      type="button"
-                      variant="ghost" 
-                      size="icon"
-                      title={t('Upload Media')}
-                      className={mediaNoteKind !== null ? 'bg-accent' : ''}
-                    >
-                      <Upload className="h-4 w-4" />
+            !parentEvent ? (() => {
+              const ActiveIcon =
+                isLongFormArticle ? FileText :
+                isWikiArticle ? FileText :
+                isWikiArticleMarkdown ? FileText :
+                isPublicationContent ? Book :
+                isCitationInternal || isCitationExternal || isCitationHardcopy || isCitationPrompt ? Quote :
+                isHighlight ? Highlighter :
+                isPublicMessage ? MessageCircle :
+                isPoll ? ListTodo :
+                isDiscussionThread ? MessagesSquare :
+                mediaNoteKind !== null ? Upload :
+                StickyNote
+              const activeLabel =
+                isLongFormArticle ? t('Long-form Article') :
+                isWikiArticle ? t('Wiki Article (AsciiDoc)') :
+                isWikiArticleMarkdown ? t('Wiki Article (Markdown)') :
+                isPublicationContent ? t('Publication Note') :
+                isCitationInternal ? t('Internal Citation') :
+                isCitationExternal ? t('External Citation') :
+                isCitationHardcopy ? t('Hardcopy Citation') :
+                isCitationPrompt ? t('Prompt Citation') :
+                isHighlight ? t('Highlight') :
+                isPublicMessage ? t('Public Message') :
+                isPoll ? t('Poll') :
+                isDiscussionThread ? t('Thread') :
+                mediaNoteKind !== null ? t('Media Note') :
+                t('Short Note')
+              return (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1.5 h-8 text-sm font-normal">
+                      <ActiveIcon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="max-w-[120px] truncate">{activeLabel}</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
                     </Button>
-                  </Uploader>
-                </>
-              )}
-              {/* Note creation buttons - only show when not replying */}
-              {!parentEvent && (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title={t('Create Highlight')}
-                    className={isHighlight ? 'bg-accent' : ''}
-                    onClick={handleHighlightToggle}
-                  >
-                    <Highlighter className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title={t('Send Public Message')}
-                    className={isPublicMessage ? 'bg-accent' : ''}
-                    onClick={handlePublicMessageToggle}
-                  >
-                    <MessageCircle className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title={t('Create Poll')}
-                    className={isPoll ? 'bg-accent' : ''}
-                    onClick={handlePollToggle}
-                  >
-                    <ListTodo className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title={t('Create Thread')}
-                    className={isDiscussionThread ? 'bg-accent' : ''}
-                    onClick={() => checkLogin(() => handleDiscussionThreadToggle())}
-                  >
-                    <MessagesSquare className="h-4 w-4" />
-                  </Button>
-                  {/* Article dropdown - only show if has private relays for publication content */}
-                  {(hasPrivateRelaysAvailable || !isPublicationContent) && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title={t('Create Article')}
-                          className={
-                            isLongFormArticle || isWikiArticle || isWikiArticleMarkdown || isPublicationContent
-                              ? 'bg-accent'
-                              : ''
-                          }
-                        >
-                          <FileText className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => handleArticleToggle('longform')}>
-                          {t('Long-form Article')}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleArticleToggle('wiki')}>
-                          {t('Wiki Article (AsciiDoc)')}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleArticleToggle('wiki-markdown')}>
-                          {t('Wiki Article (Markdown)')}
-                        </DropdownMenuItem>
-                        {hasPrivateRelaysAvailable && (
-                          <DropdownMenuItem onClick={() => handleArticleToggle('publication')}>
-                            {t('Take a note')}
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                  {/* Citations (private relays) */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title={t('Create Citation')}
-                        className={
-                          isCitationInternal ||
-                          isCitationExternal ||
-                          isCitationHardcopy ||
-                          isCitationPrompt
-                            ? 'bg-accent'
-                            : ''
-                        }
-                      >
-                        <Quote className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      {hasPrivateRelaysAvailable ? (
-                        <>
-                          <DropdownMenuItem onClick={() => handleCitationToggle('internal')}>
-                            {t('Internal Citation')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleCitationToggle('external')}>
-                            {t('External Citation')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleCitationToggle('hardcopy')}>
-                            {t('Hardcopy Citation')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleCitationToggle('prompt')}>
-                            {t('Prompt Citation')}
-                          </DropdownMenuItem>
-                        </>
-                      ) : (
-                        <div className="px-2 py-1.5 text-xs text-muted-foreground max-w-[14rem]">
-                          {t('Citations require private relays (NIP-65).')}
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-64">
+                    <DropdownMenuLabel className="text-xs font-medium text-muted-foreground px-2 py-1">
+                      {t('Note type')}
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem onClick={handlePlainNoteMode} className="gap-3 py-2 cursor-pointer">
+                      <StickyNote className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium leading-none">{t('Short Note')}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{t('Plain text note (kind 1)')}</span>
+                      </div>
+                      {isPlainShortNoteToolbar && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => mediaUploaderBtnRef.current?.click()} className="gap-3 py-2 cursor-pointer">
+                      <Upload className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium leading-none">{t('Media Note')}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{t('Attach image, audio, or video')}</span>
+                      </div>
+                      {mediaNoteKind !== null && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleHighlightToggle} className="gap-3 py-2 cursor-pointer">
+                      <Highlighter className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium leading-none">{t('Highlight')}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{t('Save a quote or passage')}</span>
+                      </div>
+                      {isHighlight && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handlePublicMessageToggle} className="gap-3 py-2 cursor-pointer">
+                      <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium leading-none">{t('Public Message')}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{t('Public direct message (kind 4)')}</span>
+                      </div>
+                      {isPublicMessage && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handlePollToggle} className="gap-3 py-2 cursor-pointer">
+                      <ListTodo className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium leading-none">{t('Poll')}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{t('Create a voting poll')}</span>
+                      </div>
+                      {isPoll && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => checkLogin(() => handleDiscussionThreadToggle())} className="gap-3 py-2 cursor-pointer">
+                      <MessagesSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium leading-none">{t('Thread')}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{t('Start a discussion thread')}</span>
+                      </div>
+                      {isDiscussionThread && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs font-medium text-muted-foreground px-2 py-1">
+                      {t('Articles')}
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => handleArticleToggle('longform')} className="gap-3 py-2 cursor-pointer">
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium leading-none">{t('Long-form Article')}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{t('Markdown article (NIP-23)')}</span>
+                      </div>
+                      {isLongFormArticle && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleArticleToggle('wiki')} className="gap-3 py-2 cursor-pointer">
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium leading-none">{t('Wiki Article (AsciiDoc)')}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{t('AsciiDoc wiki contribution')}</span>
+                      </div>
+                      {isWikiArticle && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleArticleToggle('wiki-markdown')} className="gap-3 py-2 cursor-pointer">
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium leading-none">{t('Wiki Article (Markdown)')}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{t('Markdown wiki contribution')}</span>
+                      </div>
+                      {isWikiArticleMarkdown && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                    </DropdownMenuItem>
+                    {hasPrivateRelaysAvailable && (
+                      <DropdownMenuItem onClick={() => handleArticleToggle('publication')} className="gap-3 py-2 cursor-pointer">
+                        <Book className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <span className="font-medium leading-none">{t('Publication Note')}</span>
+                          <span className="text-xs text-muted-foreground mt-0.5">{t('Private relay publication')}</span>
                         </div>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    title={t('Create event with custom kind')}
-                    onClick={() => checkLogin(() => setCreateCustomEventOpen(true))}
-                  >
-                    <HelpCircle className="h-4 w-4" />
-                  </Button>
-                </>
-              )}
-            </>
+                        {isPublicationContent && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs font-medium text-muted-foreground px-2 py-1">
+                      {t('Citations')}
+                    </DropdownMenuLabel>
+                    {hasPrivateRelaysAvailable ? (
+                      <>
+                        <DropdownMenuItem onClick={() => handleCitationToggle('internal')} className="gap-3 py-2 cursor-pointer">
+                          <Quote className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="font-medium leading-none">{t('Internal Citation')}</span>
+                            <span className="text-xs text-muted-foreground mt-0.5">{t('Cite from private relay')}</span>
+                          </div>
+                          {isCitationInternal && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleCitationToggle('external')} className="gap-3 py-2 cursor-pointer">
+                          <Quote className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="font-medium leading-none">{t('External Citation')}</span>
+                            <span className="text-xs text-muted-foreground mt-0.5">{t('Cite from external source')}</span>
+                          </div>
+                          {isCitationExternal && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleCitationToggle('hardcopy')} className="gap-3 py-2 cursor-pointer">
+                          <Quote className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="font-medium leading-none">{t('Hardcopy Citation')}</span>
+                            <span className="text-xs text-muted-foreground mt-0.5">{t('Physical source citation')}</span>
+                          </div>
+                          {isCitationHardcopy && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleCitationToggle('prompt')} className="gap-3 py-2 cursor-pointer">
+                          <Quote className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="font-medium leading-none">{t('Prompt Citation')}</span>
+                            <span className="text-xs text-muted-foreground mt-0.5">{t('AI / LLM prompt citation')}</span>
+                          </div>
+                          {isCitationPrompt && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                        </DropdownMenuItem>
+                      </>
+                    ) : (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                        {t('Citations require private relays (NIP-65).')}
+                      </div>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => checkLogin(() => setCreateCustomEventOpen(true))} className="gap-3 py-2 cursor-pointer">
+                      <HelpCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className="font-medium leading-none">{t('Custom Event')}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5">{t('Create event with custom kind')}</span>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )
+            })() : undefined
           }
         />
       {isDiscussionThread && !parentEvent && (
@@ -2929,6 +2954,19 @@ export default function PostContent({
             <p className="mt-1 text-sm text-destructive">{threadErrors.relay}</p>
           )}
         </div>
+      )}
+      {/* Hidden uploader for the "Media Note" dropdown item */}
+      {!parentEvent && (
+        <Uploader
+          onUploadSuccess={handleMediaUploadSuccess}
+          onUploadStart={handleUploadStart}
+          onUploadEnd={handleUploadEnd}
+          onProgress={handleUploadProgress}
+          accept="image/*,audio/*,video/*"
+          className="sr-only"
+        >
+          <button ref={mediaUploaderBtnRef} type="button" aria-hidden="true" tabIndex={-1} />
+        </Uploader>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
         <div className="flex gap-2 items-center min-w-0 shrink-0">
