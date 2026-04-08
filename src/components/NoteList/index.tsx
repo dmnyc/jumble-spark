@@ -14,7 +14,7 @@ import {
   stableSpellFeedFilterKey
 } from '@/lib/spell-feed-request-identity'
 import logger from '@/lib/logger'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import { shouldIncludeZapReceiptAtReplyThreshold } from '@/lib/event-metadata'
 import { isTouchDevice } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
@@ -625,7 +625,7 @@ const NoteList = forwardRef(
     const subRequestsKey = useMemo(() => {
       return JSON.stringify(
         subRequests.map((req) => ({
-          urls: [...req.urls].map((u) => normalizeUrl(u) || u).filter(Boolean).sort(),
+          urls: [...req.urls].map((u) => normalizeAnyRelayUrl(u) || u).filter(Boolean).sort(),
           filter: stableSpellFeedFilterKey(req.filter)
         }))
       )
@@ -635,7 +635,7 @@ const NoteList = forwardRef(
       () =>
         JSON.stringify(
           (followingFeedDeltaSubRequests ?? []).map((req) => ({
-            urls: [...req.urls].map((u) => normalizeUrl(u) || u).filter(Boolean).sort(),
+            urls: [...req.urls].map((u) => normalizeAnyRelayUrl(u) || u).filter(Boolean).sort(),
             filter: stableSpellFeedFilterKey(req.filter)
           }))
         ),

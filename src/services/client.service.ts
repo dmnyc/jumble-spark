@@ -2576,7 +2576,9 @@ class ClientService extends EventTarget {
       that.scheduleTimelinePersist(key)
     }
 
-    const subCloser = this.subscribe(relays, filter, {
+    // HTTP index relays are handled via httpTimelinePollBases above — never pass them to the WS subscribe path.
+    const wsRelays = relays.filter((u) => !isHttpRelayUrl(u))
+    const subCloser = this.subscribe(wsRelays, filter, {
       startLogin,
       onevent: (evt: NEvent) => {
         applySubscribedTimelineEvent(evt)

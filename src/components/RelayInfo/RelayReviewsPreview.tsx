@@ -21,7 +21,7 @@ import {
   relayReviewEventTargetsRelay,
   relayReviewsFeedSnapshotKey
 } from '@/lib/relay-review-feed'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl } from '@/lib/url'
 import { cn, isTouchDevice } from '@/lib/utils'
 import { useMuteList } from '@/contexts/mute-list-context'
 import { muteSetHas } from '@/lib/mute-set'
@@ -93,7 +93,7 @@ export default function RelayReviewsPreview({ relayUrl }: { relayUrl: string }) 
     setReviews([])
     setInitialized(false)
 
-    const normalizedTarget = normalizeUrl(relayUrl) || relayUrl
+    const normalizedTarget = normalizeAnyRelayUrl(relayUrl) || relayUrl
     const dTags = relayReviewDTagsForRelayUrl(relayUrl)
     const snapKey = relayReviewsFeedSnapshotKey(normalizedTarget)
     const fromSession = getSessionFeedSnapshot(snapKey)
