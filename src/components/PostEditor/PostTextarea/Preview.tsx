@@ -218,7 +218,7 @@ export default function Preview({
   if (kind === kinds.ShortTextNote || kind === ExtendedKind.COMMENT || kind === ExtendedKind.VOICE_COMMENT) {
     return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
-        <MarkdownArticle event={fakeEvent} hideMetadata={true} />
+        <MarkdownArticle event={fakeEvent} hideMetadata={true} lazyMedia={false} />
       </Card>
     )
   }
@@ -226,7 +226,7 @@ export default function Preview({
   if (kind === ExtendedKind.DISCUSSION) {
     return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
-        <MarkdownArticle event={fakeEvent} hideMetadata={true} />
+        <MarkdownArticle event={fakeEvent} hideMetadata={true} lazyMedia={false} />
       </Card>
     )
   }
@@ -235,7 +235,7 @@ export default function Preview({
   if (kind === kinds.LongFormArticle) {
     return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
-        <MarkdownArticle event={fakeEvent} hideMetadata={true} />
+        <MarkdownArticle event={fakeEvent} hideMetadata={true} lazyMedia={false} />
       </Card>
     )
   }
@@ -253,7 +253,7 @@ export default function Preview({
   if (kind === ExtendedKind.WIKI_ARTICLE_MARKDOWN) {
     return withClientBadge(
       <Card className={cn('p-3', className, selectableClass)}>
-        <MarkdownArticle event={fakeEvent} hideMetadata={true} />
+        <MarkdownArticle event={fakeEvent} hideMetadata={true} lazyMedia={false} />
       </Card>
     )
   }
