@@ -1,4 +1,4 @@
-import { FAST_READ_RELAY_URLS, POLL_TYPE } from '@/constants'
+import { ExtendedKind, FAST_READ_RELAY_URLS, POLL_TYPE } from '@/constants'
 import { TEmoji, TMailboxRelay, TPollType, TRelayList, TRelaySet, TPaymentInfo, TProfile } from '@/types'
 import { Event, kinds } from 'nostr-tools'
 import { buildATag } from './draft-event'
@@ -343,7 +343,43 @@ export function getRelaySetFromEvent(event: Event, blockedRelays?: string[]): TR
 }
 
 export function getZapInfoFromEvent(receiptEvent: Event) {
-  if (receiptEvent.kind !== kinds.Zap) return null
+  if (receiptEvent.kind !== kinds.Zap && receiptEvent.kind !== ExtendedKind.ZAP_REQUEST) return null
+
+  // Kind 9734 — zap request: all data is directly on the event (no bolt11, no description wrapper).
+  if (receiptEvent.kind === ExtendedKind.ZAP_REQUEST) {
+    const senderPubkey = receiptEvent.pubkey
+    let recipientPubkey: string | undefined
+    let originalEventId: string | undefined
+    let eventId: string | undefined
+    let amount: number | undefined
+    const comment = receiptEvent.content || undefined
+    try {
+      receiptEvent.tags.forEach((tag) => {
+        const [tagName, tagValue] = tag
+        switch (tagName) {
+          case 'p':
+            recipientPubkey = tagValue
+            break
+          case 'e':
+          case 'E':
+            originalEventId = tag[1]
+            eventId = generateBech32IdFromETag(tag)
+            break
+          case 'a':
+            originalEventId = tag[1]
+            eventId = generateBech32IdFromATag(tag)
+            break
+          case 'amount':
+            if (tagValue) amount = Math.floor(parseInt(tagValue, 10) / 1000)
+            break
+        }
+      })
+      if (!recipientPubkey || !amount) return null
+      return { senderPubkey, recipientPubkey, eventId, originalEventId, invoice: undefined, amount, comment, preimage: undefined }
+    } catch {
+      return null
+    }
+  }
 
   let senderPubkey: string | undefined
   let recipientPubkey: string | undefined

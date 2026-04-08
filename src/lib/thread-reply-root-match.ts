@@ -102,6 +102,17 @@ export function eventReplyMatchesThreadRoot(evt: Event, root: TThreadRootRef): b
       const hu = getHighlightSourceHttpUrl(evt)
       return !!hu && canonicalizeRssArticleUrl(hu) === canonicalizeRssArticleUrl(root.id)
     }
+    // Some clients omit the root I tag on nested replies. Walk one level up via the session
+    // cache: if the declared root or direct parent is a URL-thread comment, accept this event.
+    const urlMatchesRoot = (hexId: string | undefined): boolean => {
+      if (!hexId || !/^[0-9a-f]{64}$/i.test(hexId)) return false
+      const ancestor = client.peekSessionCachedEvent(hexId.toLowerCase())
+      if (!ancestor) return false
+      const aUrl = getArticleUrlFromCommentITags(ancestor)
+      return !!aUrl && canonicalizeRssArticleUrl(aUrl) === canonicalizeRssArticleUrl(root.id)
+    }
+    if (urlMatchesRoot(getRootEventHexId(evt))) return true
+    if (urlMatchesRoot(getParentEventHexId(evt))) return true
     return false
   }
   if (root.type === 'A') {

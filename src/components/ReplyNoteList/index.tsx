@@ -846,8 +846,26 @@ function ReplyNoteList({
             filters.push(...buildRssArticleUrlThreadInteractionFilters(rootInfo.id, LIMIT))
           }
 
+          // For URL threads: stream events as they arrive from each relay so replies appear
+          // immediately, rather than waiting up to 10 s for all relays to EOSE.
+          const urlThreadRootInfo = rootInfo.type === 'I' ? rootInfo : null
+          const urlThreadOnevent = urlThreadRootInfo
+            ? (evt: NEvent) => {
+                if (fetchGeneration !== replyFetchGenRef.current) return
+                if (!isRssArticleUrlThreadInteraction(evt, urlThreadRootInfo.id)) return
+                if (shouldHideThreadResponseEvent(evt, mutePubkeySet, hideContentMentioningMutedUsers))
+                  return
+                addReplies([evt])
+                if (!hasCache) setLoading(false)
+              }
+            : undefined
+
           // Use fetchEvents instead of subscribeTimeline for one-time fetching
-          const allReplies = await queryService.fetchEvents(finalRelayUrls, filters)
+          const allReplies = await queryService.fetchEvents(
+            finalRelayUrls,
+            filters,
+            urlThreadOnevent ? { onevent: urlThreadOnevent } : undefined
+          )
 
           if (fetchGeneration !== replyFetchGenRef.current) return
 
@@ -886,6 +904,43 @@ function ReplyNoteList({
           if (!hasCache) {
             // No cache: stop loading after adding replies
             setLoading(false)
+          }
+
+          // Second pass for URL threads: fetch replies to individual comments that may omit the
+          // root I tag (non-NIP-22-compliant clients). NoteStats counts them via #e; without this
+          // pass they appear as reply counts only, with no actual content shown.
+          if (rootInfo.type === 'I' && regularReplies.length > 0) {
+            const commentKinds = [
+              ExtendedKind.COMMENT,
+              ExtendedKind.VOICE_COMMENT,
+              kinds.ShortTextNote
+            ]
+            const parentIds = regularReplies
+              .filter((evt) => commentKinds.includes(evt.kind))
+              .map((evt) => evt.id)
+            if (parentIds.length > 0) {
+              const nestedFilters: Filter[] = [
+                { '#e': parentIds, kinds: commentKinds, limit: LIMIT }
+              ]
+              const nestedReplies = await queryService.fetchEvents(finalRelayUrls, nestedFilters, {
+                onevent: (evt: NEvent) => {
+                  if (fetchGeneration !== replyFetchGenRef.current) return
+                  if (shouldHideThreadResponseEvent(evt, mutePubkeySet, hideContentMentioningMutedUsers))
+                    return
+                  addReplies([evt])
+                }
+              })
+              if (fetchGeneration !== replyFetchGenRef.current) return
+              const validNested = nestedReplies.filter(
+                (evt) =>
+                  !shouldHideThreadResponseEvent(evt, mutePubkeySet, hideContentMentioningMutedUsers)
+              )
+              if (validNested.length > 0) {
+                discussionFeedCache.setCachedReplies(rootInfo, validNested)
+                const merged = discussionFeedCache.getCachedReplies(rootInfo)
+                addReplies(merged ?? validNested)
+              }
+            }
           }
         } catch (error) {
           logger.error('[ReplyNoteList] Error fetching replies:', error)

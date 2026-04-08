@@ -57,7 +57,7 @@ export default function RssWebFeedCard({
       }}
     >
       <div
-        className="flex items-center gap-1.5 border-b border-border/40 px-3 py-1.5 text-[11px] sm:text-xs text-muted-foreground"
+        className="flex min-w-0 items-center gap-1.5 border-b border-border/40 px-3 py-1.5 text-[11px] sm:text-xs text-muted-foreground"
         aria-label={hasRealRss ? t('RSS feed item label') : t('Web URL item label')}
       >
         {hasRealRss ? (
@@ -65,7 +65,7 @@ export default function RssWebFeedCard({
         ) : (
           <Globe className="size-3.5 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
         )}
-        <span>{hasRealRss ? t('RSS feed item label') : t('Web URL item label')}</span>
+        <span className="min-w-0 flex-1 truncate">{canonicalUrl}</span>
       </div>
 
       <div className="not-prose max-w-full border-b border-border/60 bg-muted/10 pointer-events-none">
