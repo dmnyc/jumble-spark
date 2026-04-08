@@ -1,3 +1,7 @@
+// This file exports both React components and hooks alongside inline JSX in callbacks,
+// making it incompatible with Vite's Fast Refresh auto-detection. Opting into explicit
+// full-reload mode to suppress the "incompatible export" HMR warning.
+// @refresh reset
 import { RefreshButton } from '@/components/RefreshButton'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -1435,37 +1439,16 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
 
     const onPopState = (e: PopStateEvent) => {
       if (ignorePopStateRef.current) {
-        logger.info('[LightboxTrace][PageManager] popstate ignored', {
-          reason: 'ignorePopStateRef',
-          pathname: window.location.pathname,
-          state: e.state
-        })
         ignorePopStateRef.current = false
         return
       }
-
-      logger.info('[LightboxTrace][PageManager] popstate received', {
-        pathname: window.location.pathname,
-        state: e.state,
-        secondaryStackLength: secondaryStackRef.current.length,
-        drawerOpen,
-        drawerNoteId,
-        panelMode,
-        isSmallScreen
-      })
 
       // If the side panel has frames, this popstate is almost certainly stack navigation — do not let
       // modalManager steal it (history.forward + return), which leaves the URL changed and the panel stale.
       if (secondaryStackRef.current.length === 0) {
         const closeModal = modalManager.pop()
-        logger.info('[LightboxTrace][PageManager] modalManager.pop result', {
-          closeModal,
-          pathname: window.location.pathname,
-          state: e.state
-        })
         if (closeModal) {
           ignorePopStateRef.current = true
-          logger.info('[LightboxTrace][PageManager] modal popped, forcing history.forward')
           window.history.forward()
           return
         }

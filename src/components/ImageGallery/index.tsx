@@ -108,7 +108,13 @@ export default function ImageGallery({
     <div className={cn(displayImages.length === 1 ? 'w-fit max-w-[400px]' : 'w-full', className)}>
       {imageContent}
       {createPortal(
-        <div onClick={(e) => e.stopPropagation()}>
+        <div
+          data-lightbox-overlay
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
           <Lightbox
             index={index}
             slides={(() => {

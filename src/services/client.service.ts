@@ -285,14 +285,6 @@ class ClientService extends EventTarget {
       params?: { connectionTimeout?: number; abort?: AbortSignal }
     ) => {
       const n = normalizeUrl(url) || url
-      // ── DIAGNOSTIC: catch any local-network WS attempt so we can trace its origin ──
-      if (isLocalNetworkUrl(n)) {
-        logger.warn('[DIAG] pool.ensureRelay called with LOCAL-NETWORK WS URL', {
-          url,
-          normalizedUrl: n,
-          stack: new Error('stack').stack?.split('\n').slice(1, 8).join(' | ')
-        })
-      }
       const base = params?.connectionTimeout ?? RELAY_POOL_CONNECTION_TIMEOUT_MS
       const connectionTimeout = READ_ONLY_RELAY_CONNECT_BOOST_URLS.has(n)
         ? Math.max(base, RELAY_READ_ONLY_POOL_CONNECT_TIMEOUT_MS)
@@ -1033,14 +1025,6 @@ class ClientService extends EventTarget {
   private recordSessionRelayFailure(url: string) {
     const n = normalizeAnyRelayUrl(url) || url
     if (!n) return
-    // ── DIAGNOSTIC: trace who is recording failures for local-network relays ──
-    if (isLocalNetworkUrl(n)) {
-      logger.warn('[DIAG] recordSessionRelayFailure for LOCAL-NETWORK relay', {
-        url,
-        normalizedUrl: n,
-        stack: new Error('stack').stack?.split('\n').slice(1, 8).join(' | ')
-      })
-    }
     const prev = this.publishStrikeCount.get(n) ?? 0
     if (prev >= ClientService.SESSION_RELAY_FAILURE_STRIKE_THRESHOLD) {
       return
@@ -1811,9 +1795,9 @@ class ClientService extends EventTarget {
                 eventIdSet.add(evt.id)
                 events.push(evt)
               })
-              events = events
-                .sort((a, b) => b.created_at - a.created_at)
-                .slice(0, mergedTimelineLimit)
+              events = needSort
+                ? events.sort((a, b) => b.created_at - a.created_at).slice(0, mergedTimelineLimit)
+                : events.slice(0, mergedTimelineLimit)
               eventIdSet = new Set(events.map((evt) => evt.id))
 
               scheduleOuterFlush(!!_eosed)
@@ -1943,15 +1927,6 @@ class ClientService extends EventTarget {
     relayReqLog?: { groupId?: string; onBatchEnd?: (rows: RelayOpTerminalRow[]) => void }
   ) {
     const originalDedupedRelays = Array.from(new Set(urls))
-    // ── DIAGNOSTIC: trace local-network URLs entering subscribe() ──
-    const localInSubscribe = originalDedupedRelays.filter((u) => isLocalNetworkUrl(normalizeAnyRelayUrl(u) || u))
-    if (localInSubscribe.length > 0) {
-      logger.warn('[DIAG] subscribe() received LOCAL-NETWORK relay URLs', {
-        localUrls: localInSubscribe,
-        allUrls: originalDedupedRelays,
-        stack: new Error('stack').stack?.split('\n').slice(1, 8).join(' | ')
-      })
-    }
     let relays = originalDedupedRelays.filter((url) => !isHttpRelayUrl(url))
     const filters = sanitizeSubscribeFiltersBeforeReq(filter)
     if (filters.length === 0) {
@@ -2309,16 +2284,6 @@ class ClientService extends EventTarget {
     } = {}
   ) {
     let relays = Array.from(new Set(urls))
-    // ── DIAGNOSTIC: trace local-network URLs entering _subscribeTimeline ──
-    const localInTimeline = relays.filter((u) => isLocalNetworkUrl(normalizeAnyRelayUrl(u) || u))
-    if (localInTimeline.length > 0) {
-      logger.warn('[DIAG] _subscribeTimeline received LOCAL-NETWORK relay URLs', {
-        localUrls: localInTimeline,
-        allUrls: relays,
-        httpOnes: relays.filter((u) => isHttpRelayUrl(u)),
-        stack: new Error('stack').stack?.split('\n').slice(1, 10).join(' | ')
-      })
-    }
     if (relayFiltersUseCapitalLetterTagKeys(filter as Filter)) {
       relays = relayUrlsStripExtendedTagReqBlocked(relays)
       if (relays.length === 0) {

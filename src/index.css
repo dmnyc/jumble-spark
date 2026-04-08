@@ -605,6 +605,12 @@
   max-height: 100% !important;
   max-width: 100% !important;
 }
+/* Radix UI modal dialogs (e.g. NoteDrawer Sheet) set pointer-events:none on document.body
+   to block background interaction. Override this for the lightbox portal so it remains
+   fully interactive when opened from inside a Radix modal. */
+.yarl__portal {
+  pointer-events: auto;
+}
 @media (max-width: 768px) {
   .yarl__slide_captions_container {
     padding: 12px;
