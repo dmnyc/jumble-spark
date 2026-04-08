@@ -49,6 +49,16 @@ export default function RelayInfo({ url, className }: { url: string; className?:
 
   return (
     <div className={cn('space-y-4 mb-2', className)}>
+      {relayInfo.banner && (
+        <div className="w-full h-48 overflow-hidden rounded-b-none">
+          <img
+            src={relayInfo.banner}
+            alt=""
+            className="w-full h-full object-cover object-center"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+        </div>
+      )}
       <div className="px-4 space-y-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2 justify-between">

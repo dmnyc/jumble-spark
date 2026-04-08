@@ -7,7 +7,12 @@ import {
   CarouselNext,
   CarouselPrevious
 } from '@/components/ui/carousel'
-import { FAST_READ_RELAY_URLS, ExtendedKind } from '@/constants'
+import { ExtendedKind } from '@/constants'
+import {
+  getRelayUrlsWithFavoritesFastReadAndInbox,
+  userReadRelaysWithHttp
+} from '@/lib/favorites-feed-relays'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { compareEvents } from '@/lib/event'
 import { getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
 import { toRelayReviews } from '@/lib/link'
@@ -35,7 +40,8 @@ import ReviewEditor from './ReviewEditor'
 export default function RelayReviewsPreview({ relayUrl }: { relayUrl: string }) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
-  const { pubkey, checkLogin } = useNostr()
+  const { pubkey, checkLogin, relayList } = useNostr()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
   const { hideUntrustedNotes, isUserTrusted } = useUserTrust()
   const { mutePubkeySet } = useMuteList()
   const [showEditor, setShowEditor] = useState(false)
@@ -112,9 +118,12 @@ export default function RelayReviewsPreview({ relayUrl }: { relayUrl: string }) 
       setReviews([...seedByPubkey.values()].sort((a, b) => compareEvents(b, a)))
     }
 
-    const uniqueUrls = [
-      ...new Set([normalizedTarget, ...FAST_READ_RELAY_URLS.map((u) => normalizeUrl(u) || u)])
-    ]
+    const base = getRelayUrlsWithFavoritesFastReadAndInbox(
+      favoriteRelays,
+      blockedRelays,
+      userReadRelaysWithHttp(relayList)
+    )
+    const uniqueUrls = [...new Set([normalizedTarget, ...base])]
 
     const filter = {
       kinds: [ExtendedKind.RELAY_REVIEW],
@@ -153,7 +162,7 @@ export default function RelayReviewsPreview({ relayUrl }: { relayUrl: string }) 
       window.clearTimeout(safety)
       finish()
     }
-  }, [relayUrl, ingestReviewEvent])
+  }, [relayUrl, ingestReviewEvent, favoriteRelays, blockedRelays, relayList])
 
   const handleReviewed = (evt: NostrEvent) => {
     setMyReview(evt)

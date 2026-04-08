@@ -25,7 +25,7 @@ import {
 } from '@/lib/rss-article'
 import { userReadRelaysWithHttp } from '@/lib/favorites-feed-relays'
 import { getEmojiInfosFromEmojiTags, getFirstHexEventIdFromETags, tagNameEquals } from '@/lib/tag'
-import { normalizeUrl } from '@/lib/url'
+import { normalizeAnyRelayUrl, normalizeUrl } from '@/lib/url'
 import client, { eventService } from '@/services/client.service'
 import { TEmoji } from '@/types'
 import dayjs from 'dayjs'
@@ -253,7 +253,9 @@ class NoteStatsService {
 
     const add = (url: string | undefined) => {
       if (!url) return
-      const n = normalizeUrl(url)
+      // Must use normalizeAnyRelayUrl, not normalizeUrl: the latter converts http(s)://
+      // index relay URLs into ws(s):// which then hit the WebSocket pool and get session strikes.
+      const n = normalizeAnyRelayUrl(url)
       if (!n || blocked.has(n.toLowerCase()) || seen.has(n)) return
       seen.add(n)
     }

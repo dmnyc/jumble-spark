@@ -98,7 +98,7 @@ const Relay = forwardRef<
   }, [normalizedUrl, noteListRef])
 
   const relayFeedSubRequests = useMemo<TFeedSubRequest[]>(() => {
-    if (!normalizedUrl || isHttpRelay) return []
+    if (!normalizedUrl) return []
     const q = debouncedInput.trim()
     return [
       {

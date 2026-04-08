@@ -76,6 +76,7 @@ export type TRelayInfo = {
   name?: string
   description?: string
   icon?: string
+  banner?: string
   pubkey?: string
   contact?: string
   supported_nips?: number[]

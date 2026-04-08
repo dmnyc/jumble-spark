@@ -236,6 +236,8 @@ export async function publishEventToHttpRelay(
       timeoutMs: 25_000
     })
     if (!res.ok) {
+      // 409 Conflict means the relay already has this event — treat as success.
+      if (res.status === 409) return
       if (isDevViteIndexRelayProxyPath(endpoint) && res.status === 500) {
         throw new IndexRelayTransportError()
       }

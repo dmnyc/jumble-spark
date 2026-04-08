@@ -40,6 +40,10 @@ class RelayInfoService {
 
   /** Relay info cache TTL: refetch NIP-11 after this long (24h). */
   private static RELAY_INFO_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+  /** TTL for entries with NIP-11 text data but no images — retry sooner in case icon/banner were added. */
+  private static RELAY_INFO_PARTIAL_CACHE_TTL_MS = 30 * 60 * 1000
+  /** Short retry TTL for entries where NIP-11 fetch failed entirely (no name/description/pubkey). */
+  private static RELAY_INFO_EMPTY_RETRY_TTL_MS = 5 * 60 * 1000
 
   async search(query: string) {
     if (this.initPromise) {
@@ -119,7 +123,12 @@ class RelayInfoService {
   private isStale(relayInfo: TRelayInfo): boolean {
     const at = relayInfo.cachedAt
     if (at == null) return true
-    return Date.now() - at > RelayInfoService.RELAY_INFO_CACHE_TTL_MS
+    const age = Date.now() - at
+    const hasNip11Data = !!(relayInfo.name || relayInfo.description || relayInfo.pubkey)
+    if (!hasNip11Data) return age > RelayInfoService.RELAY_INFO_EMPTY_RETRY_TTL_MS
+    const hasImages = !!(relayInfo.icon || relayInfo.banner)
+    if (!hasImages) return age > RelayInfoService.RELAY_INFO_PARTIAL_CACHE_TTL_MS
+    return age > RelayInfoService.RELAY_INFO_CACHE_TTL_MS
   }
 
   private async _getRelayInfo(url: string) {
@@ -147,17 +156,29 @@ class RelayInfoService {
 
   private async fetchRelayNip11(url: string) {
     try {
-      logger.debug('Fetching NIP-11 metadata', { url })
       const httpCandidate = url.trim().replace(/^ws:\/\//i, 'http://').replace(/^wss:\/\//i, 'https://')
       const httpBase = normalizeHttpRelayUrl(httpCandidate) || httpCandidate
       const fetchUrl = devProxyLoopbackHttpRelayBase(httpBase)
+      logger.debug('[RelayInfo] Fetching NIP-11', { url, fetchUrl })
       const res = await fetchWithTimeout(fetchUrl, {
         headers: { Accept: 'application/nostr+json' },
         timeoutMs: 12_000
       })
-      if (!res.ok) return undefined
-      return res.json() as Omit<TRelayInfo, 'url' | 'shortUrl'>
-    } catch {
+      if (!res.ok) {
+        logger.warn('[RelayInfo] NIP-11 fetch failed', { url, status: res.status })
+        return undefined
+      }
+      const data = await res.json() as Omit<TRelayInfo, 'url' | 'shortUrl'>
+      logger.info('[RelayInfo] NIP-11 received', {
+        url,
+        name: data.name,
+        icon: data.icon,
+        banner: data.banner,
+        supported_nips: data.supported_nips
+      })
+      return data
+    } catch (err) {
+      logger.warn('[RelayInfo] NIP-11 fetch threw', { url, err })
       return undefined
     }
   }

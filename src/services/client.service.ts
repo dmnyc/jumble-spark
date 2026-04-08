@@ -1415,6 +1415,7 @@ class ClientService extends EventTarget {
                 )
               ])
               that.recordPublishSuccess(url, Date.now() - startMs)
+              that.queryService.trackEventSeenOnByUrl(event.id, base)
               successCount++
               relayStatuses.push({ url, success: true })
               return

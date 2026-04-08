@@ -1,11 +1,17 @@
 import type { TNoteListRef } from '@/components/NoteList'
 import NoteList from '@/components/NoteList'
 import { RefreshButton } from '@/components/RefreshButton'
-import { FAST_READ_RELAY_URLS, ExtendedKind } from '@/constants'
+import { ExtendedKind } from '@/constants'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryNoteView } from '@/contexts/primary-note-view-context'
+import {
+  getRelayUrlsWithFavoritesFastReadAndInbox,
+  userReadRelaysWithHttp
+} from '@/lib/favorites-feed-relays'
 import { relayReviewDTagsForRelayUrl, relayReviewsFeedSnapshotKey } from '@/lib/relay-review-feed'
 import { normalizeAnyRelayUrl, simplifyUrl } from '@/lib/url'
+import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
+import { useNostr } from '@/providers/NostrProvider'
 import type { TFeedSubRequest } from '@/types'
 import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -16,6 +22,8 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
   const { registerPrimaryPanelRefresh } = usePrimaryNoteView()
   const feedRef = useRef<TNoteListRef>(null)
   const bumpFeed = useCallback(() => feedRef.current?.refresh(), [])
+  const { relayList } = useNostr()
+  const { favoriteRelays, blockedRelays } = useFavoriteRelays()
 
   useEffect(() => {
     if (!hideTitlebar) {
@@ -32,16 +40,25 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
     () => (url ? relayReviewDTagsForRelayUrl(url) : []),
     [url]
   )
-  /** Stable identity for session feed snapshot (decoupled from FAST_READ_RELAY_URLS JSON churn). */
+  /** Stable identity for session feed snapshot (decoupled from relay URL list churn). */
   const relayReviewsFeedSubscriptionKey = useMemo(
     () => (normalizedUrl ? relayReviewsFeedSnapshotKey(normalizedUrl) : ''),
     [normalizedUrl]
   )
+  const reviewRelayUrls = useMemo(() => {
+    if (!normalizedUrl) return []
+    const base = getRelayUrlsWithFavoritesFastReadAndInbox(
+      favoriteRelays,
+      blockedRelays,
+      userReadRelaysWithHttp(relayList)
+    )
+    return [...new Set([normalizedUrl, ...base])]
+  }, [normalizedUrl, favoriteRelays, blockedRelays, relayList])
   const reviewsSubRequests = useMemo<TFeedSubRequest[]>(() => {
     if (!normalizedUrl || relayReviewDTags.length === 0) return []
     return [
       {
-        urls: [normalizedUrl, ...FAST_READ_RELAY_URLS],
+        urls: reviewRelayUrls,
         filter: {
           kinds: [ExtendedKind.RELAY_REVIEW],
           '#d': relayReviewDTags,
@@ -49,7 +66,7 @@ const RelayReviewsPage = forwardRef(({ url, index, hideTitlebar = false }: { url
         }
       }
     ]
-  }, [normalizedUrl, relayReviewDTags])
+  }, [normalizedUrl, relayReviewDTags, reviewRelayUrls])
   const title = useMemo(
     () => (url ? t('Reviews for {{relay}}', { relay: simplifyUrl(url) }) : undefined),
     [url, t]

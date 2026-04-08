@@ -227,8 +227,11 @@ export class QueryService {
   }
 
   trackEventSeenOn(eventId: string, relay: AbstractRelay): void {
+    this.trackEventSeenOnByUrl(eventId, relay.url)
+  }
+
+  trackEventSeenOnByUrl(eventId: string, url: string): void {
     const id = this.canonicalSeenOnEventId(eventId)
-    const url = relay.url
     let set = this.eventSeenOnRelays.get(id)
     if (!set) {
       set = new Set()
@@ -326,6 +329,7 @@ export class QueryService {
                     eventCount++
                     onevent?.(evt)
                     events.push(evt)
+                    this.trackEventSeenOnByUrl(evt.id, base)
                     if (!shouldDropEventOnIngest(evt)) {
                       this.onQueryResultIngest?.([evt])
                     }
