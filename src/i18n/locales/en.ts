@@ -598,7 +598,12 @@ export default {
     'liveActivities.heading': 'Live now',
     'liveActivities.regionLabel': 'Live spaces and streams',
     'liveActivities.fromFollow': 'From someone you follow',
+    'liveActivities.fromFollowNamed': '{{name}} (followed)',
+    'liveActivities.previousSlide': 'Previous',
+    'liveActivities.nextSlide': 'Next',
     'liveActivities.goToSlide': 'Show live item {{n}}',
+    'liveActivities.loading': 'Loading\u2026',
+    'liveActivities.noEvents': 'No live events right now',
     'liveActivities.settingsToggle': 'Live activities banner',
     'liveActivities.settingsHint':
       'Shows NIP-53 live rooms (audio/video spaces) from your relays. Updates on a quarter-hour schedule and when the app finishes its initial session warm-up.',

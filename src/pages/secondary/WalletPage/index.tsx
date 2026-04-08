@@ -83,7 +83,7 @@ const WalletPage = forwardRef(({ index, hideTitlebar = false }: { index?: number
         ) : (
           <div>
             <Button
-              className="bg-foreground hover:bg-foreground/90"
+              className="bg-foreground text-background hover:bg-foreground/90"
               onClick={() => {
                 launchModal()
               }}

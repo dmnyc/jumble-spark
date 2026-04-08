@@ -603,7 +603,12 @@ export default {
     'liveActivities.heading': 'Jetzt live',
     'liveActivities.regionLabel': 'Live-Räume und Streams',
     'liveActivities.fromFollow': 'Von jemandem, dem du folgst',
+    'liveActivities.fromFollowNamed': '{{name}} (gefolgt)',
+    'liveActivities.previousSlide': 'Zurück',
+    'liveActivities.nextSlide': 'Weiter',
     'liveActivities.goToSlide': 'Live-Eintrag {{n}} anzeigen',
+    'liveActivities.loading': 'Laden\u2026',
+    'liveActivities.noEvents': 'Gerade keine Live-Events',
     'liveActivities.settingsToggle': 'Banner für Live-Aktivitäten',
     'liveActivities.settingsHint':
       'Zeigt NIP-53-Live-Räume (Audio/Video) von deinen Relays. Aktualisierung zur Viertelstunde und nach dem ersten Session-Warm-up.',

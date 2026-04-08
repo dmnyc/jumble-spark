@@ -37,7 +37,7 @@ export const LIVE_ACTIVITY_KINDS = [30311, 30312, 30313] as const
 
 export const LIVE_ACTIVITIES_MAX_ITEMS = 10
 
-export const LIVE_ACTIVITIES_SLIDE_INTERVAL_MS = 30_000
+export const LIVE_ACTIVITIES_SLIDE_INTERVAL_MS = 15_000
 
 export type TLiveActivityItem = {
   address: string
