@@ -1,5 +1,5 @@
 import NewNotesButton from '@/components/NewNotesButton'
-import { ExtendedKind, FIRST_RELAY_RESULT_GRACE_MS, SINGLE_RELAY_KINDLESS_REQ_LIMIT } from '@/constants'
+import { ExtendedKind, FIRST_RELAY_RESULT_GRACE_MS, SINGLE_RELAY_KINDLESS_EOSE_TIMEOUT_MS, SINGLE_RELAY_KINDLESS_REQ_LIMIT } from '@/constants'
 import {
   collectEmbeddedEventPrefetchTargets,
   getReplaceableCoordinateFromEvent,
@@ -593,6 +593,8 @@ const NoteList = forwardRef(
     const singleRelayKindlessFallbackAttemptedRef = useRef(false)
     const onSingleRelayKindlessEmptyRef = useRef(onSingleRelayKindlessEmpty)
     onSingleRelayKindlessEmptyRef.current = onSingleRelayKindlessEmpty
+    /** Timeout handle for kindless EOSE fallback; cleared when EOSE arrives or effect tears down. */
+    const kindlessEoseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     /** Dedupe {@link toast.error} when relays return nothing for a feed load. */
     const emptyRelayNoHitsToastKeyRef = useRef('')
     /** Per-relay outcomes for the current subscribe wave (merged shards); drives empty-feed toast detail. */
@@ -1787,6 +1789,40 @@ const NoteList = forwardRef(
             return undefined
           }
 
+          // Kindless single-relay mode: fall back to explicit kinds if EOSE is too slow.
+          // Relays that can't efficiently handle a filter with no kinds clause may hang for tens
+          // of seconds; the timeout fires the same fallback as the empty-EOSE path so the user
+          // sees content without waiting indefinitely.
+          if (
+            allowKindlessRelayExploreRef.current &&
+            useFilterAsIsRef.current &&
+            mappedSubRequests.length === 1 &&
+            mappedSubRequests[0] &&
+            mappedSubRequests[0].urls.length === 1 &&
+            !singleRelayKindlessFallbackAttemptedRef.current &&
+            onSingleRelayKindlessEmptyRef.current
+          ) {
+            if (kindlessEoseTimeoutRef.current) clearTimeout(kindlessEoseTimeoutRef.current)
+            kindlessEoseTimeoutRef.current = setTimeout(() => {
+              kindlessEoseTimeoutRef.current = null
+              if (!effectActive) return
+              if (singleRelayKindlessFallbackAttemptedRef.current) return
+              const reqs = subRequestsRef.current
+              const f0 = reqs[0]
+              if (
+                reqs.length === 1 &&
+                f0 &&
+                f0.urls.length === 1 &&
+                allowKindlessRelayExploreRef.current &&
+                useFilterAsIsRef.current &&
+                (!f0.filter.kinds || (f0.filter.kinds as unknown[]).length === 0)
+              ) {
+                singleRelayKindlessFallbackAttemptedRef.current = true
+                onSingleRelayKindlessEmptyRef.current?.()
+              }
+            }, SINGLE_RELAY_KINDLESS_EOSE_TIMEOUT_MS)
+          }
+
           timelineSubscribePromise = client.subscribeTimeline(
             mappedSubRequests as Array<{ urls: string[]; filter: TSubRequestFilter }>,
             {
@@ -1794,6 +1830,11 @@ const NoteList = forwardRef(
                 if (!effectActive) return
                 if (batch.length > 0) {
                   feedRelayReturnedAnyEventRef.current = true
+                }
+                // EOSE arrived — cancel the kindless timeout so the fallback doesn't fire afterwards.
+                if (eosed && kindlessEoseTimeoutRef.current) {
+                  clearTimeout(kindlessEoseTimeoutRef.current)
+                  kindlessEoseTimeoutRef.current = null
                 }
                 const narrowed = narrowLiveBatch(batch)
                 const paintDoneBefore = feedPaintLiveRelayDoneRef.current
@@ -2027,6 +2068,10 @@ const NoteList = forwardRef(
         followingFeedDeltaCloserRef.current?.()
         followingFeedDeltaCloserRef.current = null
         setSessionFeedSnapshot(snapshotKeyForCleanup, eventsRef.current)
+        if (kindlessEoseTimeoutRef.current) {
+          clearTimeout(kindlessEoseTimeoutRef.current)
+          kindlessEoseTimeoutRef.current = null
+        }
         if (timelinePrefetchDebounceRef.current) {
           clearTimeout(timelinePrefetchDebounceRef.current)
           timelinePrefetchDebounceRef.current = null

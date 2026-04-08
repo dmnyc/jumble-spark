@@ -154,6 +154,13 @@ export const FEED_FIRST_RELAY_RESULT_GRACE_MIN_LIMIT = 200
 export const SINGLE_RELAY_KINDLESS_REQ_LIMIT = 500
 
 /**
+ * If a kindless single-relay REQ hasn't EOSEd within this many milliseconds, fall back to an
+ * explicit-kinds filter (same path as when the kindless query returns no events). Prevents
+ * relays that are very slow on open-ended filters from stalling the home feed indefinitely.
+ */
+export const SINGLE_RELAY_KINDLESS_EOSE_TIMEOUT_MS = 6000
+
+/**
  * Minimum time between full account network hydrates (NostrProvider: relay + replaceable fetch from relays).
  * IndexedDB cache still applies on every load; this only skips redundant network merges after a recent run.
  */
