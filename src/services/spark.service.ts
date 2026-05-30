@@ -102,7 +102,6 @@ class SparkService {
       this.config = defaultConfig(network)
       this.config.apiKey = apiKey
       this.config.privateEnabledDefault = true
-      this.config.supportLnurlVerify = true
       console.log('[SparkService] Config created:', {
         network: this.config.network,
         syncIntervalSecs: this.config.syncIntervalSecs,
@@ -372,7 +371,7 @@ class SparkService {
         // Prepare LNURL-Pay with the payRequest details
         const prepareResponse = await this.sdk.prepareLnurlPay({
           payRequest,
-          amountSats
+          amount: BigInt(amountSats)
         })
 
         console.log('[SparkService] LNURL-Pay prepared:', prepareResponse)
@@ -393,7 +392,7 @@ class SparkService {
         // For lnurlPay type, the parsed input IS the payRequest
         const prepareResponse = await this.sdk.prepareLnurlPay({
           payRequest: parsedInput as any,
-          amountSats
+          amount: BigInt(amountSats)
         })
 
         console.log('[SparkService] LNURL-Pay prepared:', prepareResponse)
