@@ -106,13 +106,11 @@ const WalletPage = forwardRef(({ index }: { index?: number }, ref) => {
                 </a>
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {sparkConnecting
-                ? 'Initializing Spark wallet...'
-                : sparkConnected
-                  ? 'Your Spark wallet is ready'
-                  : 'Experimental Spark wallet integration'}
-            </p>
+            {(sparkConnecting || sparkConnected) && (
+              <p className="text-xs text-muted-foreground mt-2">
+                {sparkConnecting ? 'Initializing Spark wallet...' : 'Your Spark wallet is ready'}
+              </p>
+            )}
           </div>
           <div className="pt-4 border-t">
             <div className="flex items-center gap-2">

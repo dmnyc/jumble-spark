@@ -12,6 +12,7 @@ import { SubCloser } from 'nostr-tools/abstract-pool'
 import { makeZapRequest } from 'nostr-tools/nip57'
 import { utf8Decoder } from 'nostr-tools/utils'
 import client from './client.service'
+import sparkSentZapService from './spark-sent-zap.service'
 
 export type TRecentSupporter = { pubkey: string; amount: number; comment?: string }
 
@@ -106,6 +107,8 @@ class LightningService {
         console.log('[LightningService] Paying zap with Spark wallet, amount:', sats, 'sats')
         const response = await sparkService.sendPayment(pr)
         console.log('[LightningService] Spark zap successful!')
+        // Remember the recipient so the payment history can show their avatar
+        sparkSentZapService.record(pr, recipient, comment)
         closeOuterModel?.()
         return { preimage: (response as any).preimage || '', invoice: pr }
       } catch (error) {

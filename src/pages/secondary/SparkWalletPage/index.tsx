@@ -2505,7 +2505,7 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
             <HardDrive className="size-3" /> Saved locally on this device
           </p>
           <p className="flex items-center gap-1.5">
-            <AlertTriangle className="size-3" /> Experimental - do not use with large amounts!
+            <AlertTriangle className="size-3" /> Do not use with large amounts!
           </p>
         </div>
       </div>

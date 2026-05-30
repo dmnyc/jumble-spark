@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import sparkZapReceiptService from '@/services/spark-zap-receipt.service'
+import sparkSentZapService from '@/services/spark-sent-zap.service'
 import { SimpleUserAvatar } from '@/components/UserAvatar'
 import { SimpleUsername } from '@/components/Username'
 import { FormattedTimestamp } from '@/components/FormattedTimestamp'
@@ -135,10 +136,14 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
         const isExpanded = expandedPayments.has(payment.id)
         const isRefreshing = refreshingPayments.has(payment.id)
 
-        // Incoming zaps carry the sender's Nostr identity; outgoing Lightning
-        // payments may carry the recipient's Lightning address.
+        // Incoming zaps carry the sender's Nostr identity in the payment itself;
+        // outgoing zaps are matched to the recipient we recorded at send time.
         const zapInfo =
-          payment.paymentType === 'receive' ? sparkZapReceiptService.getZapInfo(payment) : null
+          payment.paymentType === 'receive'
+            ? sparkZapReceiptService.getZapInfo(payment)
+            : payment.details?.type === 'lightning'
+              ? sparkSentZapService.getZapInfo(payment.details.invoice)
+              : null
         const lnAddress =
           payment.details?.type === 'lightning' ? payment.details.lnurlPayInfo?.lnAddress : undefined
 
