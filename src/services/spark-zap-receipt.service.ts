@@ -107,19 +107,20 @@ class SparkZapReceiptService {
    */
   private extractZapRequestFromPayment(payment: Payment): NostrEvent | null {
     try {
-      // For Lightning payments, description is in details.description
-      let description: string | undefined
+      // For Lightning payments, the zap request may be carried in a dedicated
+      // metadata field (preferred) or fall back to the invoice description.
+      let raw: string | undefined
 
       if (payment.details && payment.details.type === 'lightning') {
-        description = payment.details.description
+        raw = payment.details.lnurlReceiveMetadata?.nostrZapRequest || payment.details.description
       }
 
-      if (!description) {
+      if (!raw) {
         return null
       }
 
       // Try to parse as JSON
-      const zapRequest = JSON.parse(description)
+      const zapRequest = JSON.parse(raw)
 
       // Validate it's a proper zap request (kind 9734)
       if (
@@ -132,7 +133,7 @@ class SparkZapReceiptService {
       }
 
       return null
-    } catch (error) {
+    } catch {
       // Not a valid zap request
       return null
     }
@@ -194,6 +195,22 @@ class SparkZapReceiptService {
    */
   isZapPayment(payment: Payment): boolean {
     return this.extractZapRequestFromPayment(payment) !== null
+  }
+
+  /**
+   * Extract the Nostr identity behind a zap payment: the zapper's pubkey and
+   * optional comment. Returns null for non-zap payments.
+   */
+  getZapInfo(payment: Payment): { pubkey: string; comment?: string } | null {
+    const zapRequest = this.extractZapRequestFromPayment(payment)
+    if (!zapRequest) {
+      return null
+    }
+
+    return {
+      pubkey: zapRequest.pubkey,
+      comment: zapRequest.content || undefined
+    }
   }
 }
 

@@ -1,8 +1,12 @@
-import { ChevronDown, ChevronRight, Copy, Loader2, RefreshCw } from 'lucide-react'
+import { ChevronDown, ChevronLeft, Loader2, RefreshCw } from 'lucide-react'
 import { Payment } from '@breeztech/breez-sdk-spark/web'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import sparkZapReceiptService from '@/services/spark-zap-receipt.service'
+import { SimpleUserAvatar } from '@/components/UserAvatar'
+import { SimpleUsername } from '@/components/Username'
+import { FormattedTimestamp } from '@/components/FormattedTimestamp'
 
 interface SparkPaymentsListProps {
   payments: Payment[]
@@ -11,8 +15,8 @@ interface SparkPaymentsListProps {
   isBalanceHidden?: boolean
 }
 
-const SentIcon = () => <img src="/sent_icon.svg" alt="Sent" className="size-5" />
-const ReceivedIcon = () => <img src="/received_icon.svg" alt="Received" className="size-5" />
+const SentIcon = () => <img src="/sent_icon.svg" alt="Sent" className="size-7 shrink-0" />
+const ReceivedIcon = () => <img src="/received_icon.svg" alt="Received" className="size-7 shrink-0" />
 
 export default function SparkPaymentsList({ payments, loading, onRefreshPayment, isBalanceHidden = false }: SparkPaymentsListProps) {
   const [expandedPayments, setExpandedPayments] = useState<Set<string>>(new Set())
@@ -56,7 +60,7 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
     try {
       await onRefreshPayment(paymentId)
       toast.success('Payment status refreshed')
-    } catch (error) {
+    } catch {
       toast.error('Failed to refresh payment')
     } finally {
       setRefreshingPayments(prev => {
@@ -72,13 +76,12 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
     toast.success(`${label} copied to clipboard`)
   }
 
-  const formatDate = (timestamp: number) => {
-    // Check if timestamp is in seconds (Unix timestamp) or milliseconds
+  const toMilliseconds = (timestamp: number) =>
     // If the timestamp is less than 10^12, it's in seconds (before year 2286)
-    const milliseconds = timestamp < 10000000000 ? timestamp * 1000 : timestamp
-    const date = new Date(milliseconds)
-    return date.toLocaleString()
-  }
+    timestamp < 10000000000 ? timestamp * 1000 : timestamp
+
+  // Full date + time, used in the expanded details
+  const formatDate = (timestamp: number) => new Date(toMilliseconds(timestamp)).toLocaleString()
 
   const formatPendingDuration = (timestamp: number) => {
     const milliseconds = timestamp < 10000000000 ? timestamp * 1000 : timestamp
@@ -132,6 +135,13 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
         const isExpanded = expandedPayments.has(payment.id)
         const isRefreshing = refreshingPayments.has(payment.id)
 
+        // Incoming zaps carry the sender's Nostr identity; outgoing Lightning
+        // payments may carry the recipient's Lightning address.
+        const zapInfo =
+          payment.paymentType === 'receive' ? sparkZapReceiptService.getZapInfo(payment) : null
+        const lnAddress =
+          payment.details?.type === 'lightning' ? payment.details.lnurlPayInfo?.lnAddress : undefined
+
         return (
           <div
             key={payment.id || index}
@@ -141,36 +151,71 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
               className="flex items-center justify-between gap-3 cursor-pointer"
               onClick={() => toggleExpanded(payment.id)}
             >
-              {/* Icon and Amount - Left side */}
+              {/* Icon/avatar + amount and details - Left side */}
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                {isExpanded ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
-                {payment.paymentType === 'send' ? <SentIcon /> : <ReceivedIcon />}
-                {formatAmount(payment.amount, payment.fees, payment.paymentType)}
+                {zapInfo ? (
+                  <SimpleUserAvatar userId={zapInfo.pubkey} size="small" className="shrink-0" />
+                ) : payment.paymentType === 'send' ? (
+                  <SentIcon />
+                ) : (
+                  <ReceivedIcon />
+                )}
+                <div className="flex min-w-0 flex-col">
+                  {formatAmount(payment.amount, payment.fees, payment.paymentType)}
+                  {zapInfo ? (
+                    <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                      <SimpleUsername
+                        userId={zapInfo.pubkey}
+                        className="shrink-0 truncate text-xs font-medium text-foreground"
+                        withoutSkeleton
+                      />
+                      {zapInfo.comment && (
+                        <span className="min-w-0 truncate text-xs text-muted-foreground">
+                          {zapInfo.comment}
+                        </span>
+                      )}
+                    </div>
+                  ) : lnAddress ? (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{lnAddress}</p>
+                  ) : (
+                    payment.details &&
+                    'description' in payment.details &&
+                    payment.details.description && (
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {payment.details.description}
+                      </p>
+                    )
+                  )}
+                </div>
               </div>
 
-              {/* Date and Status - Right side */}
+              {/* Date, status, expand caret - Right side */}
               <div className="flex items-center gap-2 shrink-0">
-                <span className="text-xs text-muted-foreground">
-                  {formatDate(payment.timestamp)}
-                </span>
-                <span className={`text-xs px-1.5 py-0.5 rounded ${
-                  payment.status === 'completed'
-                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                    : payment.status === 'pending'
-                    ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
-                    : 'bg-gray-100 dark:bg-gray-900/30 text-gray-700 dark:text-gray-300'
-                }`}>
-                  {payment.status}
-                </span>
+                <FormattedTimestamp
+                  timestamp={Math.floor(toMilliseconds(payment.timestamp) / 1000)}
+                  short
+                  className="text-xs text-muted-foreground"
+                />
+                {payment.status !== 'completed' && (
+                  <span
+                    className={`text-xs px-1.5 py-0.5 rounded ${
+                      payment.status === 'pending'
+                        ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                        : payment.status === 'failed'
+                        ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                        : 'bg-gray-100 dark:bg-gray-900/30 text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    {payment.status}
+                  </span>
+                )}
+                {isExpanded ? (
+                  <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronLeft className="size-4 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+                )}
               </div>
             </div>
-
-            {/* Description - Full width on second line if exists */}
-            {payment.details && 'description' in payment.details && payment.details.description && (
-              <p className="text-xs text-muted-foreground mt-1 truncate ml-8">
-                {payment.details.description}
-              </p>
-            )}
 
             {/* Expanded Details */}
             {isExpanded && (
@@ -189,25 +234,25 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
                 )}
 
                 <div className="grid gap-3">
+                  {/* Date */}
+                  <div className="flex items-center justify-between gap-2 min-h-6">
+                    <span className="text-muted-foreground font-medium">Date:</span>
+                    <span className="text-xs">{formatDate(payment.timestamp)}</span>
+                  </div>
+
                   {/* Payment ID */}
                   <div className="flex items-center justify-between gap-2 min-h-6">
                     <span className="text-muted-foreground font-medium">Payment ID:</span>
-                    <div className="flex items-center gap-1 min-w-0">
-                      <code className="text-xs bg-muted px-1 py-0.5 rounded truncate max-w-[200px]">
-                        {payment.id}
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="size-6 p-0"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          copyToClipboard(payment.id, 'Payment ID')
-                        }}
-                      >
-                        <Copy className="size-3" />
-                      </Button>
-                    </div>
+                    <code
+                      title="Click to copy"
+                      className="max-w-[200px] cursor-pointer truncate rounded bg-muted px-1 py-0.5 text-xs hover:bg-muted/80"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        copyToClipboard(payment.id, 'Payment ID')
+                      }}
+                    >
+                      {payment.id}
+                    </code>
                   </div>
 
                   {/* Payment Method */}
@@ -226,66 +271,48 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
                         {lightningDetails.htlcDetails?.paymentHash && (
                         <div className="flex items-center justify-between gap-2 min-h-6">
                           <span className="text-muted-foreground font-medium">Payment Hash:</span>
-                          <div className="flex items-center gap-1 min-w-0">
-                            <code className="text-xs bg-muted px-1 py-0.5 rounded truncate max-w-[200px]">
-                              {lightningDetails.htlcDetails.paymentHash}
-                            </code>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="size-6 p-0"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                copyToClipboard(lightningDetails.htlcDetails!.paymentHash, 'Payment hash')
-                              }}
-                            >
-                              <Copy className="size-3" />
-                            </Button>
-                          </div>
+                          <code
+                            title="Click to copy"
+                            className="max-w-[200px] cursor-pointer truncate rounded bg-muted px-1 py-0.5 text-xs hover:bg-muted/80"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              copyToClipboard(lightningDetails.htlcDetails!.paymentHash, 'Payment hash')
+                            }}
+                          >
+                            {lightningDetails.htlcDetails.paymentHash}
+                          </code>
                         </div>
                         )}
 
                         {lightningDetails.invoice && (
                           <div className="flex items-center justify-between gap-2 min-h-6">
                             <span className="text-muted-foreground font-medium">Invoice:</span>
-                            <div className="flex items-center gap-1 min-w-0">
-                              <code className="text-xs bg-muted px-1 py-0.5 rounded truncate max-w-[200px]">
-                                {lightningDetails.invoice.substring(0, 20)}...
-                              </code>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="size-6 p-0"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  copyToClipboard(lightningDetails.invoice, 'Invoice')
-                                }}
-                              >
-                                <Copy className="size-3" />
-                              </Button>
-                            </div>
+                            <code
+                              title="Click to copy"
+                              className="max-w-[200px] cursor-pointer truncate rounded bg-muted px-1 py-0.5 text-xs hover:bg-muted/80"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                copyToClipboard(lightningDetails.invoice, 'Invoice')
+                              }}
+                            >
+                              {lightningDetails.invoice.substring(0, 20)}...
+                            </code>
                           </div>
                         )}
 
                         {lightningDetails.htlcDetails?.preimage && (
                           <div className="flex items-center justify-between gap-2 min-h-6">
                             <span className="text-muted-foreground font-medium">Preimage:</span>
-                            <div className="flex items-center gap-1 min-w-0">
-                              <code className="text-xs bg-muted px-1 py-0.5 rounded truncate max-w-[200px]">
-                                {lightningDetails.htlcDetails.preimage}
-                              </code>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="size-6 p-0"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  copyToClipboard(lightningDetails.htlcDetails!.preimage!, 'Preimage')
-                                }}
-                              >
-                                <Copy className="size-3" />
-                              </Button>
-                            </div>
+                            <code
+                              title="Click to copy"
+                              className="max-w-[200px] cursor-pointer truncate rounded bg-muted px-1 py-0.5 text-xs hover:bg-muted/80"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                copyToClipboard(lightningDetails.htlcDetails!.preimage!, 'Preimage')
+                              }}
+                            >
+                              {lightningDetails.htlcDetails.preimage}
+                            </code>
                           </div>
                         )}
                       </>
@@ -302,22 +329,16 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
                         {sparkDetails.invoiceDetails.invoice && (
                           <div className="flex items-center justify-between gap-2 min-h-6">
                             <span className="text-muted-foreground font-medium">Invoice:</span>
-                            <div className="flex items-center gap-1 min-w-0">
-                              <code className="text-xs bg-muted px-1 py-0.5 rounded truncate max-w-[200px]">
-                                {sparkDetails.invoiceDetails.invoice.substring(0, 20)}...
-                              </code>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="size-6 p-0"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  copyToClipboard(sparkDetails.invoiceDetails!.invoice, 'Invoice')
-                                }}
-                              >
-                                <Copy className="size-3" />
-                              </Button>
-                            </div>
+                            <code
+                              title="Click to copy"
+                              className="max-w-[200px] cursor-pointer truncate rounded bg-muted px-1 py-0.5 text-xs hover:bg-muted/80"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                copyToClipboard(sparkDetails.invoiceDetails!.invoice, 'Invoice')
+                              }}
+                            >
+                              {sparkDetails.invoiceDetails.invoice.substring(0, 20)}...
+                            </code>
                           </div>
                         )}
                       </>
