@@ -3,6 +3,9 @@ import client from '@/services/client.service'
 import { TImetaInfo } from '@/types'
 import { LRUCache } from 'lru-cache'
 import { Event, kinds, nip19, UnsignedEvent } from 'nostr-tools'
+// NOTE: nostr-tools is pinned to 2.19.4 (see package.json) because fastEventHash
+// was removed in 2.23.x. If nostr-tools is upgraded, replace fastEventHash with
+// getEventHash from 'nostr-tools'.
 import { fastEventHash, getPow } from 'nostr-tools/nip13'
 import {
   generateBech32IdFromATag,
