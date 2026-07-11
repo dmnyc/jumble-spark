@@ -7,6 +7,28 @@ export function isWebsocketUrl(url: string): boolean {
   }
 }
 
+export function isInsecureUrl(url: string): boolean {
+  // Consider .onion URLs as secure (accessed over Tor, no mixed-content concern)
+  if (isOnionUrl(url)) {
+    return false
+  }
+
+  // NOTE: We intentionally do NOT exempt local network URLs here. Although
+  // loopback (localhost/127.0.0.1/::1) is a "potentially trustworthy" origin,
+  // other private ranges (192.168.x, 10.x, 172.16-31.x, *.local, fe80::, fc/fd)
+  // are NOT, so loading their http:// resources from an https page triggers the
+  // browser's mixed-content "not secure" warning. Insecure relays the user
+  // actually owns or is browsing are allowed via the pool's trusted-relay
+  // allowlist instead (see SmartPool.setTrustedInsecureRelayUrls).
+
+  try {
+    const protocol = new URL(url).protocol
+    return protocol === 'ws:' || protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
 export function isOnionUrl(url: string): boolean {
   try {
     const hostname = new URL(url).hostname
@@ -91,8 +113,8 @@ export function isLocalNetworkUrl(urlString: string): boolean {
     const url = new URL(urlString)
     const hostname = url.hostname
 
-    // Check if it's localhost
-    if (hostname === 'localhost' || hostname === '::1') {
+    // Check if it's localhost or an mDNS .local hostname (e.g. umbrel.local)
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname.endsWith('.local')) {
       return true
     }
 
@@ -181,6 +203,10 @@ export const truncateUrl = (url: string, maxLength: number = 40) => {
 
     if (domain.startsWith('www.')) {
       domain = domain.slice(4)
+    }
+
+    if (domain.length > maxLength - 3) {
+      return domain.slice(0, maxLength - 3) + '...'
     }
 
     if (!path || path === '/') {

@@ -1,8 +1,11 @@
 import 'yet-another-react-lightbox/styles.css'
 import './index.css'
 
+import EmojiDetailDialog from '@/components/EmojiDetailDialog'
+import KeySyncRequestHandler from '@/components/KeySyncRequestDialog'
 import { Toaster } from '@/components/ui/sonner'
 import { BookmarksProvider } from '@/providers/BookmarksProvider'
+import { DraftBoxProvider } from '@/providers/DraftBoxProvider'
 import { ContentPolicyProvider } from '@/providers/ContentPolicyProvider'
 import { CurrencyPreferencesProvider } from '@/providers/CurrencyPreferencesProvider'
 import { DeletedEventProvider } from '@/providers/DeletedEventProvider'
@@ -20,56 +23,72 @@ import { ScreenSizeProvider } from '@/providers/ScreenSizeProvider'
 import { SparkWalletProvider } from '@/providers/SparkWalletProvider'
 import { ThemeProvider } from '@/providers/ThemeProvider'
 import { TranslationServiceProvider } from '@/providers/TranslationServiceProvider'
+import { UpdaterProvider } from '@/providers/UpdaterProvider'
 import { UserPreferencesProvider } from '@/providers/UserPreferencesProvider'
 import { UserTrustProvider } from '@/providers/UserTrustProvider'
 import { ZapProvider } from '@/providers/ZapProvider'
+import { DirectionProvider } from '@radix-ui/react-direction'
+import { useTranslation } from 'react-i18next'
 import { PageManager } from './PageManager'
+
+function RadixDirectionProvider({ children }: { children: React.ReactNode }) {
+  const { i18n } = useTranslation()
+  return <DirectionProvider dir={i18n.dir()}>{children}</DirectionProvider>
+}
 
 export default function App(): JSX.Element {
   return (
-    <ScreenSizeProvider>
-      <UserPreferencesProvider>
-        <ThemeProvider>
-          <ContentPolicyProvider>
-            <DeletedEventProvider>
-              <NostrProvider>
-                <SparkWalletProvider>
-                  <ZapProvider>
-                    <CurrencyPreferencesProvider>
-                      <TranslationServiceProvider>
-                        <FavoriteRelaysProvider>
-                          <FollowListProvider>
-                            <MuteListProvider>
-                              <UserTrustProvider>
-                                <BookmarksProvider>
-                                  <EmojiPackProvider>
-                                    <PinListProvider>
-                                      <PinnedUsersProvider>
-                                        <FeedProvider>
-                                          <MediaUploadServiceProvider>
-                                            <KindFilterProvider>
-                                              <PageManager />
-                                              <Toaster />
-                                            </KindFilterProvider>
-                                          </MediaUploadServiceProvider>
-                                        </FeedProvider>
-                                      </PinnedUsersProvider>
-                                    </PinListProvider>
-                                  </EmojiPackProvider>
-                                </BookmarksProvider>
-                              </UserTrustProvider>
-                            </MuteListProvider>
-                          </FollowListProvider>
-                        </FavoriteRelaysProvider>
-                      </TranslationServiceProvider>
-                    </CurrencyPreferencesProvider>
-                  </ZapProvider>
-                </SparkWalletProvider>
-              </NostrProvider>
-            </DeletedEventProvider>
-          </ContentPolicyProvider>
-        </ThemeProvider>
-      </UserPreferencesProvider>
-    </ScreenSizeProvider>
+    <RadixDirectionProvider>
+      <ScreenSizeProvider>
+        <UpdaterProvider>
+          <UserPreferencesProvider>
+            <ThemeProvider>
+              <ContentPolicyProvider>
+                <DeletedEventProvider>
+                  <NostrProvider>
+                    <SparkWalletProvider>
+                      <DraftBoxProvider>
+                        <ZapProvider>
+                          <CurrencyPreferencesProvider>
+                            <TranslationServiceProvider>
+                              <FavoriteRelaysProvider>
+                                <FollowListProvider>
+                                  <MuteListProvider>
+                                    <UserTrustProvider>
+                                      <BookmarksProvider>
+                                        <EmojiPackProvider>
+                                          <PinListProvider>
+                                            <PinnedUsersProvider>
+                                              <FeedProvider>
+                                                <MediaUploadServiceProvider>
+                                                  <KindFilterProvider>
+                                                    <PageManager />
+                                                    <KeySyncRequestHandler />
+                                                    <EmojiDetailDialog />
+                                                    <Toaster />
+                                                  </KindFilterProvider>
+                                                </MediaUploadServiceProvider>
+                                              </FeedProvider>
+                                            </PinnedUsersProvider>
+                                          </PinListProvider>
+                                        </EmojiPackProvider>
+                                      </BookmarksProvider>
+                                    </UserTrustProvider>
+                                  </MuteListProvider>
+                                </FollowListProvider>
+                              </FavoriteRelaysProvider>
+                            </TranslationServiceProvider>
+                          </CurrencyPreferencesProvider>
+                        </ZapProvider>
+                      </DraftBoxProvider>
+                    </SparkWalletProvider>
+                  </NostrProvider>
+                </DeletedEventProvider>
+              </ContentPolicyProvider>
+            </ThemeProvider>
+          </UserPreferencesProvider>
+        </UpdaterProvider>
+      </ScreenSizeProvider>
+    </RadixDirectionProvider>
   )
 }

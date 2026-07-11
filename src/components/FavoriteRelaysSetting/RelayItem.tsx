@@ -1,3 +1,4 @@
+import { IS_COMMUNITY_MODE } from '@/constants'
 import { toRelay } from '@/lib/link'
 import { useSecondaryPage } from '@/PageManager'
 import { useSortable } from '@dnd-kit/sortable'
@@ -20,7 +21,7 @@ export default function RelayItem({ relay }: { relay: string }) {
 
   return (
     <div
-      className="clickable group relative flex select-none items-center justify-between gap-2 rounded-lg border p-2 pr-2.5"
+      className="clickable group relative flex select-none items-center justify-between gap-2 rounded-lg border p-2 pe-2.5"
       ref={setNodeRef}
       style={style}
       onClick={() => push(toRelay(relay))}
@@ -38,7 +39,7 @@ export default function RelayItem({ relay }: { relay: string }) {
           <div className="w-0 flex-1 truncate font-semibold">{relay}</div>
         </div>
       </div>
-      <SaveRelayDropdownMenu urls={[relay]} />
+      {!IS_COMMUNITY_MODE && <SaveRelayDropdownMenu urls={[relay]} />}
     </div>
   )
 }

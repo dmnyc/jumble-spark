@@ -1,8 +1,15 @@
 import { formatError } from '@/lib/error'
-import { getNoteBech32Id, isProtectedEvent } from '@/lib/event'
-import { toNjump } from '@/lib/link'
+import {
+  getEventAuthorPubkey,
+  getNoteBech32Id,
+  getReplaceableCoordinateFromEvent,
+  isProtectedEvent,
+  isReplaceableEvent
+} from '@/lib/event'
+import { toJumbleNote } from '@/lib/link'
 import { pubkeyToNpub } from '@/lib/pubkey'
 import { simplifyUrl } from '@/lib/url'
+import { useBookmarks } from '@/providers/BookmarksProvider'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
@@ -12,6 +19,8 @@ import client from '@/services/client.service'
 import {
   Bell,
   BellOff,
+  Bookmark,
+  BookmarkX,
   Code,
   Copy,
   Link,
@@ -61,7 +70,7 @@ export function useMenuActions({
   isSmallScreen
 }: UseMenuActionsProps) {
   const { t } = useTranslation()
-  const { pubkey, attemptDelete } = useNostr()
+  const { pubkey, attemptDelete, bookmarkListEvent, checkLogin } = useNostr()
   const { relayUrls: currentBrowsingRelayUrls } = useCurrentRelays()
   const { relaySets, favoriteRelays } = useFavoriteRelays()
   const relayUrls = useMemo(() => {
@@ -69,13 +78,22 @@ export function useMenuActions({
   }, [currentBrowsingRelayUrls, favoriteRelays])
   const { mutePubkeyPublicly, mutePubkeyPrivately, unmutePubkey, mutePubkeySet } = useMuteList()
   const { pinnedEventHexIdSet, pin, unpin } = usePinList()
-  const isMuted = useMemo(() => mutePubkeySet.has(event.pubkey), [mutePubkeySet, event])
+  const { addBookmark, removeBookmark } = useBookmarks()
+  const authorPubkey = getEventAuthorPubkey(event)
+  const isMuted = useMemo(() => mutePubkeySet.has(authorPubkey), [mutePubkeySet, authorPubkey])
+  const isBookmarked = useMemo(() => {
+    const isReplaceable = isReplaceableEvent(event.kind)
+    const eventKey = isReplaceable ? getReplaceableCoordinateFromEvent(event) : event.id
+    return !!bookmarkListEvent?.tags.some((tag) =>
+      isReplaceable ? tag[0] === 'a' && tag[1] === eventKey : tag[0] === 'e' && tag[1] === eventKey
+    )
+  }, [bookmarkListEvent, event])
 
   const broadcastSubMenu: SubMenuAction[] = useMemo(() => {
     const items = []
     if (pubkey && event.pubkey === pubkey) {
       items.push({
-        label: <div className="text-left"> {t('Optimal relays')}</div>,
+        label: <div className="text-start"> {t('Optimal relays')}</div>,
         onClick: async () => {
           closeDrawer()
           const promise = async () => {
@@ -106,7 +124,7 @@ export function useMenuActions({
         ...relaySets
           .filter((set) => set.relayUrls.length)
           .map((set, index) => ({
-            label: <div className="truncate text-left">{set.name}</div>,
+            label: <div className="truncate text-start">{set.name}</div>,
             onClick: async () => {
               closeDrawer()
               const promise = client.publishEvent(set.relayUrls, event)
@@ -134,7 +152,7 @@ export function useMenuActions({
           label: (
             <div className="flex w-full items-center gap-2">
               <RelayIcon url={relay} />
-              <div className="flex-1 truncate text-left">{simplifyUrl(relay)}</div>
+              <div className="flex-1 truncate text-start">{simplifyUrl(relay)}</div>
             </div>
           ),
           onClick: async () => {
@@ -175,7 +193,7 @@ export function useMenuActions({
         icon: Copy,
         label: t('Copy user ID'),
         onClick: () => {
-          navigator.clipboard.writeText(pubkeyToNpub(event.pubkey) ?? '')
+          navigator.clipboard.writeText(pubkeyToNpub(authorPubkey) ?? '')
           closeDrawer()
         }
       },
@@ -183,7 +201,15 @@ export function useMenuActions({
         icon: Link,
         label: t('Copy share link'),
         onClick: () => {
-          navigator.clipboard.writeText(toNjump(getNoteBech32Id(event)))
+          navigator.clipboard.writeText(toJumbleNote(event))
+          closeDrawer()
+        }
+      },
+      {
+        icon: Copy,
+        label: t('Copy note content'),
+        onClick: () => {
+          navigator.clipboard.writeText(event.content)
           closeDrawer()
         }
       },
@@ -197,6 +223,24 @@ export function useMenuActions({
         separator: true
       }
     ]
+
+    if (pubkey) {
+      actions.push({
+        icon: isBookmarked ? BookmarkX : Bookmark,
+        label: isBookmarked ? t('Remove bookmark') : t('Bookmark'),
+        onClick: () => {
+          closeDrawer()
+          checkLogin(async () => {
+            if (isBookmarked) {
+              await removeBookmark(event)
+            } else {
+              await addBookmark(event)
+            }
+          })
+        },
+        separator: true
+      })
+    }
 
     const isProtected = isProtectedEvent(event)
     if (!isProtected || event.pubkey === pubkey) {
@@ -223,7 +267,7 @@ export function useMenuActions({
       })
     }
 
-    if (pubkey && event.pubkey !== pubkey) {
+    if (pubkey && authorPubkey !== pubkey) {
       actions.push({
         icon: TriangleAlert,
         label: t('Report'),
@@ -236,14 +280,14 @@ export function useMenuActions({
       })
     }
 
-    if (pubkey && event.pubkey !== pubkey) {
+    if (pubkey && authorPubkey !== pubkey) {
       if (isMuted) {
         actions.push({
           icon: Bell,
           label: t('Unmute user'),
           onClick: () => {
             closeDrawer()
-            unmutePubkey(event.pubkey)
+            unmutePubkey(authorPubkey)
           },
           className: 'text-destructive focus:text-destructive',
           separator: true
@@ -255,7 +299,7 @@ export function useMenuActions({
             label: t('Mute user privately'),
             onClick: () => {
               closeDrawer()
-              mutePubkeyPrivately(event.pubkey)
+              mutePubkeyPrivately(authorPubkey)
             },
             className: 'text-destructive focus:text-destructive',
             separator: true
@@ -265,7 +309,7 @@ export function useMenuActions({
             label: t('Mute user publicly'),
             onClick: () => {
               closeDrawer()
-              mutePubkeyPublicly(event.pubkey)
+              mutePubkeyPublicly(authorPubkey)
             },
             className: 'text-destructive focus:text-destructive'
           }
@@ -290,8 +334,10 @@ export function useMenuActions({
   }, [
     t,
     event,
+    authorPubkey,
     pubkey,
     isMuted,
+    isBookmarked,
     isSmallScreen,
     broadcastSubMenu,
     pinnedEventHexIdSet,
@@ -300,7 +346,10 @@ export function useMenuActions({
     setIsRawEventDialogOpen,
     mutePubkeyPrivately,
     mutePubkeyPublicly,
-    unmutePubkey
+    unmutePubkey,
+    checkLogin,
+    addBookmark,
+    removeBookmark
   ])
 
   return menuActions

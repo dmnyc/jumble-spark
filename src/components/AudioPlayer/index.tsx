@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
+import { useBlossomUrl } from '@/hooks/useBlossomUrl'
 import { cn } from '@/lib/utils'
 import mediaManager from '@/services/media-manager.service'
 import { Minimize2, Pause, Play, X } from 'lucide-react'
@@ -8,6 +9,7 @@ import ExternalLink from '../ExternalLink'
 
 interface AudioPlayerProps {
   src: string
+  pubkey?: string
   autoPlay?: boolean
   startTime?: number
   isMinimized?: boolean
@@ -16,17 +18,18 @@ interface AudioPlayerProps {
 
 export default function AudioPlayer({
   src,
+  pubkey,
   autoPlay = false,
   startTime,
   isMinimized = false,
   className
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
+  const { url: audioUrl, error, handleError, markSuccess } = useBlossomUrl(src, pubkey)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [error, setError] = useState(false)
-  const seekTimeoutRef = useRef<NodeJS.Timeout>()
+  const seekTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
   const isSeeking = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -134,7 +137,13 @@ export default function AudioPlayer({
       )}
       onClick={(e) => e.stopPropagation()}
     >
-      <audio ref={audioRef} src={src} preload="metadata" onError={() => setError(false)} />
+      <audio
+        ref={audioRef}
+        src={audioUrl}
+        preload="metadata"
+        onError={handleError}
+        onLoadedMetadata={markSuccess}
+      />
 
       {/* Play/Pause Button */}
       <Button size="icon" className="shrink-0 rounded-full" onClick={togglePlay}>
@@ -170,7 +179,9 @@ export default function AudioPlayer({
           variant="ghost"
           size="icon"
           className="shrink-0 rounded-full text-muted-foreground"
-          onClick={() => mediaManager.playAudioBackground(src, audioRef.current?.currentTime || 0)}
+          onClick={() =>
+            mediaManager.playAudioBackground(src, audioRef.current?.currentTime || 0, pubkey)
+          }
         >
           <Minimize2 />
         </Button>

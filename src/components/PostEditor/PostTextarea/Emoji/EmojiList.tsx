@@ -2,10 +2,12 @@ import Emoji from '@/components/Emoji'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import customEmojiService from '@/services/custom-emoji.service'
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react'
+import recentEmojiService from '@/services/recent-emoji.service'
+import { TEmoji } from '@/types'
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
 export interface EmojiListProps {
-  items: string[]
+  items: TEmoji[]
   command: (params: { name?: string }) => void
 }
 
@@ -18,12 +20,10 @@ export const EmojiList = forwardRef<EmojiListHandler, EmojiListProps>((props, re
 
   const selectItem = (index: number): void => {
     const item = props.items[index]
+    if (!item) return
 
-    if (item) {
-      props.command({ name: item })
-    }
-
-    customEmojiService.updateSuggested(item)
+    props.command({ name: customEmojiService.getEmojiId(item) })
+    recentEmojiService.add(item)
   }
 
   const upHandler = (): void => {
@@ -74,39 +74,34 @@ export const EmojiList = forwardRef<EmojiListHandler, EmojiListProps>((props, re
       onTouchMove={(e) => e.stopPropagation()}
     >
       <div className="p-1">
-        {props.items.map((item, index) => {
-          return (
-            <EmojiListItem
-              key={item}
-              id={item}
-              selectedIndex={selectedIndex}
-              index={index}
-              selectItem={selectItem}
-              setSelectedIndex={setSelectedIndex}
-            />
-          )
-        })}
+        {props.items.map((emoji, index) => (
+          <EmojiListItem
+            key={`${emoji.shortcode}|${emoji.url}`}
+            emoji={emoji}
+            selectedIndex={selectedIndex}
+            index={index}
+            selectItem={selectItem}
+            setSelectedIndex={setSelectedIndex}
+          />
+        ))}
       </div>
     </ScrollArea>
   )
 })
 
 function EmojiListItem({
-  id,
+  emoji,
   selectedIndex,
   index,
   selectItem,
   setSelectedIndex
 }: {
-  id: string
+  emoji: TEmoji
   selectedIndex: number
   index: number
   selectItem: (index: number) => void
   setSelectedIndex: (index: number) => void
 }) {
-  const emoji = useMemo(() => customEmojiService.getEmojiById(id), [id])
-  if (!emoji) return null
-
   return (
     <button
       className={cn(

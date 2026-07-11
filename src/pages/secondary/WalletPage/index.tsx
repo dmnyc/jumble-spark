@@ -1,4 +1,3 @@
-import { useSecondaryPage } from '@/PageManager'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,13 +9,18 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
+import {
+  SettingsGroup,
+  SettingsPageContainer,
+  SettingsRow
+} from '@/components/ui/settings'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { toRizful, toSparkTest } from '@/lib/link'
+import { useSecondaryPage } from '@/PageManager'
 import { useSparkWallet } from '@/providers/SparkWalletProvider'
 import { useZap } from '@/providers/ZapProvider'
 import { disconnect, launchModal } from '@getalby/bitcoin-connect-react'
-import { Info } from 'lucide-react'
+import { Plug, Sparkles, Unplug, Zap } from 'lucide-react'
 import { forwardRef, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import DefaultZapAmountInput from './DefaultZapAmountInput'
@@ -42,94 +46,81 @@ const WalletPage = forwardRef(({ index }: { index?: number }, ref) => {
 
   return (
     <SecondaryPageLayout ref={ref} index={index} title={t('Wallet')}>
-      {isWalletConnected ? (
-        <div className="px-4 pt-3 space-y-4">
-          <div>
-            {walletInfo?.node.alias && (
-              <div className="mb-2">
-                {t('Connected to')} <strong>{walletInfo.node.alias}</strong>
-              </div>
-            )}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive">{t('Disconnect Wallet')}</Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>{t('Are you absolutely sure?')}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t('You will not be able to send zaps to others.')}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
-                  <AlertDialogAction variant="destructive" onClick={() => disconnect()}>
-                    {t('Disconnect')}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-          <DefaultZapAmountInput />
-          <DefaultZapCommentInput />
-          <QuickZapSwitch />
-          <LightningAddressInput />
-        </div>
-      ) : (
-        <div className="px-4 pt-3 space-y-4">
-          <div>
-            <div className="flex items-center gap-1">
-              <Button
-                className="bg-foreground hover:bg-foreground/90 flex items-center gap-2 font-bold"
-                onClick={() => push(toSparkTest())}
-              >
-                <img src="/spark-logo.svg" alt="Spark" className="w-5 h-5" />
-                {sparkConnecting
-                  ? 'Setting up Spark...'
+      <SettingsPageContainer>
+        {isWalletConnected ? (
+          <>
+            <SettingsGroup title={t('Connection')}>
+              <SettingsRow
+                icon={<Plug />}
+                title={t('Connected wallet')}
+                trailing={walletInfo?.node.alias ?? ''}
+              />
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <SettingsRow
+                    icon={<Unplug />}
+                    title={t('Disconnect Wallet')}
+                    destructive
+                    clickable
+                    chevron
+                  />
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('Are you absolutely sure?')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('You will not be able to send zaps to others.')}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+                    <AlertDialogAction variant="destructive" onClick={() => disconnect()}>
+                      {t('Disconnect')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </SettingsGroup>
+
+            <SettingsGroup title={t('Zap defaults')}>
+              <LightningAddressInput />
+              <DefaultZapAmountInput />
+              <DefaultZapCommentInput />
+              <QuickZapSwitch />
+            </SettingsGroup>
+          </>
+        ) : (
+          <SettingsGroup title={t('Connect wallet')}>
+            <SettingsRow
+              icon={<img src="/spark-logo.svg" alt="Spark" className="size-5" />}
+              title={
+                sparkConnecting
+                  ? t('Setting up Spark...')
                   : sparkConnected
-                    ? 'Open Spark Wallet ✓'
-                    : 'Try Breez SDK + Spark'}
-              </Button>
-              <img src="/breez-logo.svg" alt="Breez" className="h-5 ml-3" />
-              <Button
-                variant="link"
-                size="icon"
-                className="text-muted-foreground hover:text-foreground px-0"
-                asChild
-              >
-                <a
-                  href="https://breez.technology/spark/"
-                  target="_blank"
-                  rel="noreferrer noopener"
-                >
-                  <Info className="h-4 w-4" />
-                </a>
-              </Button>
-            </div>
-            {(sparkConnecting || sparkConnected) && (
-              <p className="text-xs text-muted-foreground mt-2">
-                {sparkConnecting ? 'Initializing Spark wallet...' : 'Your Spark wallet is ready'}
-              </p>
-            )}
-          </div>
-          <div className="pt-4 border-t">
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" className="font-normal" onClick={() => push(toRizful())}>
-                {t('Start with a Rizful Vault')}
-              </Button>
-              <Button
-                variant="link"
-                className="text-muted-foreground hover:text-foreground px-0"
-                onClick={() => {
-                  launchModal()
-                }}
-              >
-                {t('or other wallets')}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+                    ? t('Open Spark Wallet ✓')
+                    : t('Try Breez SDK + Spark')
+              }
+              description={t('Self-custodial Lightning wallet powered by Breez SDK')}
+              chevron
+              onClick={() => push(toSparkTest())}
+            />
+            <SettingsRow
+              icon={<Zap />}
+              title={t('Connect wallet via NWC')}
+              description={t('Use any NWC-compatible Lightning wallet')}
+              chevron
+              onClick={() => launchModal()}
+            />
+            <SettingsRow
+              icon={<Sparkles />}
+              title={t('Start with a Rizful Vault')}
+              description={t('Quickly create a custodial Lightning vault')}
+              chevron
+              onClick={() => push(toRizful())}
+            />
+          </SettingsGroup>
+        )}
+      </SettingsPageContainer>
     </SecondaryPageLayout>
   )
 })

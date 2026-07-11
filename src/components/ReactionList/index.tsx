@@ -2,13 +2,14 @@ import { useSecondaryPage } from '@/PageManager'
 import { SPECIAL_TRUST_SCORE_FILTER_ID } from '@/constants'
 import { useStuff } from '@/hooks/useStuff'
 import { useStuffStatsById } from '@/hooks/useStuffStatsById'
-import { toProfile } from '@/lib/link'
+import { toNote } from '@/lib/link'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import { TEmoji } from '@/types'
 import { Event } from 'nostr-tools'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import ClickableCard from '../ClickableCard'
 import Emoji from '../Emoji'
 import { FormattedTimestamp } from '../FormattedTimestamp'
 import Nip05 from '../Nip05'
@@ -27,6 +28,7 @@ export default function ReactionList({ stuff }: { stuff: Event | string }) {
   const [filteredLikes, setFilteredLikes] = useState<
     Array<{
       id: string
+      eventId: string
       pubkey: string
       emoji: string | TEmoji
       created_at: number
@@ -38,6 +40,7 @@ export default function ReactionList({ stuff }: { stuff: Event | string }) {
       const likes = noteStats?.likes ?? []
       const filtered: {
         id: string
+        eventId: string
         pubkey: string
         created_at: number
         emoji: string | TEmoji
@@ -78,14 +81,15 @@ export default function ReactionList({ stuff }: { stuff: Event | string }) {
   return (
     <div className="min-h-[80vh]">
       {filteredLikes.slice(0, showCount).map((like) => (
-        <div
+        <ClickableCard
           key={like.id}
           className="clickable flex items-center gap-3 border-b px-4 py-3 transition-colors"
-          onClick={() => push(toProfile(like.pubkey))}
+          onClick={() => push(toNote(like.eventId))}
         >
           <div className="flex w-6 flex-col items-center">
             <Emoji
               emoji={like.emoji}
+              clickable
               classNames={{
                 text: 'text-xl'
               }}
@@ -109,7 +113,7 @@ export default function ReactionList({ stuff }: { stuff: Event | string }) {
               />
             </div>
           </div>
-        </div>
+        </ClickableCard>
       ))}
 
       <div ref={bottomRef} />

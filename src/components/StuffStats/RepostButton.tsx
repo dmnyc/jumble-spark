@@ -1,11 +1,12 @@
 import { Button } from '@/components/ui/button'
-import { Drawer, DrawerContent, DrawerOverlay } from '@/components/ui/drawer'
+import { Drawer, DrawerContent } from '@/components/ui/drawer'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { useFilteredRepostCount } from '@/hooks/useFilteredRepostCount'
 import { useStuffStatsById } from '@/hooks/useStuffStatsById'
 import { useStuff } from '@/hooks/useStuff'
 import { createRepostDraftEvent } from '@/lib/draft-event'
@@ -13,59 +14,30 @@ import { getNoteBech32Id } from '@/lib/event'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import { useUserTrust } from '@/providers/UserTrustProvider'
 import stuffStatsService from '@/services/stuff-stats.service'
 import { Loader, PencilLine, Repeat } from 'lucide-react'
 import { Event } from 'nostr-tools'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import PostEditor from '../PostEditor'
 import { formatCount } from './utils'
-import { SPECIAL_TRUST_SCORE_FILTER_ID } from '@/constants'
 import { formatError } from '@/lib/error'
 import { toast } from 'sonner'
 
 export default function RepostButton({ stuff }: { stuff: Event | string }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
-  const { getMinTrustScore, meetsMinTrustScore } = useUserTrust()
   const { publish, checkLogin, pubkey } = useNostr()
   const { event, stuffKey } = useStuff(stuff)
   const noteStats = useStuffStatsById(stuffKey)
+  const repostCount = useFilteredRepostCount(stuffKey)
   const [reposting, setReposting] = useState(false)
   const [isPostDialogOpen, setIsPostDialogOpen] = useState(false)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
-  const [repostCount, setRepostCount] = useState(0)
   const hasReposted = useMemo(() => {
     return pubkey ? noteStats?.repostPubkeySet?.has(pubkey) : false
   }, [noteStats, pubkey])
 
-  useEffect(() => {
-    const filterReposts = async () => {
-      if (!event) {
-        setRepostCount(0)
-        return
-      }
-
-      const reposts = noteStats?.reposts || []
-      let count = 0
-
-      const trustScoreThreshold = getMinTrustScore(SPECIAL_TRUST_SCORE_FILTER_ID.INTERACTIONS)
-      if (!trustScoreThreshold) {
-        setRepostCount(reposts.length)
-        return
-      }
-      await Promise.all(
-        reposts.map(async (repost) => {
-          if (await meetsMinTrustScore(repost.pubkey, trustScoreThreshold)) {
-            count++
-          }
-        })
-      )
-      setRepostCount(count)
-    }
-    filterReposts()
-  }, [noteStats, event, meetsMinTrustScore, getMinTrustScore])
   const canRepost = !hasReposted && !reposting && !!event
 
   const repost = async () => {
@@ -103,7 +75,7 @@ export default function RepostButton({ stuff }: { stuff: Event | string }) {
   const trigger = (
     <button
       className={cn(
-        'flex h-full items-center gap-1 px-3 enabled:hover:text-lime-500 disabled:text-muted-foreground/40',
+        'disabled:text-muted-foreground/40 flex h-full cursor-pointer items-center gap-1 px-3 enabled:hover:text-lime-500',
         hasReposted ? 'text-lime-500' : 'text-muted-foreground'
       )}
       disabled={!event}
@@ -138,8 +110,7 @@ export default function RepostButton({ stuff }: { stuff: Event | string }) {
       <>
         {trigger}
         <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
-          <DrawerOverlay onClick={() => setIsDrawerOpen(false)} />
-          <DrawerContent hideOverlay>
+          <DrawerContent title={t('Repost')}>
             <div className="py-2">
               <Button
                 onClick={(e) => {

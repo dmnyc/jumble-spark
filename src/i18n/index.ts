@@ -18,6 +18,7 @@ import pt_BR from './locales/pt-BR'
 import pt_PT from './locales/pt-PT'
 import ru from './locales/ru'
 import th from './locales/th'
+import tr from './locales/tr'
 import zh from './locales/zh'
 import zh_TW from './locales/zh-TW'
 
@@ -38,6 +39,7 @@ const languages = {
   'pt-PT': { resource: pt_PT, name: 'Português (Portugal)' },
   ru: { resource: ru, name: 'Русский' },
   th: { resource: th, name: 'ไทย' },
+  tr: { resource: tr, name: 'Türkçe' },
   zh: { resource: zh, name: '简体中文' },
   'zh-TW': { resource: zh_TW, name: '繁體中文' }
 } as const
@@ -51,6 +53,21 @@ for (const [key, value] of Object.entries(languages)) {
   LocalizedLanguageNames[lang] = value.name
   resources[lang] = value.resource
   supportedLanguages.push(lang)
+}
+
+const RTL_LANGUAGES: readonly TLanguage[] = ['ar', 'fa']
+
+export function isRTL(lang: string | undefined | null): boolean {
+  if (!lang) return false
+  const base = lang.split('-')[0]
+  return (RTL_LANGUAGES as readonly string[]).includes(base)
+}
+
+function applyDocumentDirection(lang: string | undefined) {
+  if (typeof document === 'undefined') return
+  const root = document.documentElement
+  root.dir = isRTL(lang) ? 'rtl' : 'ltr'
+  if (lang) root.lang = lang
 }
 
 i18n
@@ -73,6 +90,9 @@ i18n
       }
     }
   })
+  .then(() => applyDocumentDirection(i18n.resolvedLanguage ?? i18n.language))
+
+i18n.on('languageChanged', (lang) => applyDocumentDirection(lang))
 
 i18n.services.formatter?.add('date', (timestamp, lng) => {
   switch (lng) {
@@ -83,6 +103,7 @@ i18n.services.formatter?.add('date', (timestamp, lng) => {
     case 'pl':
     case 'de':
     case 'ru':
+    case 'tr':
       return dayjs(timestamp).format('DD.MM.YYYY')
     case 'fa':
     case 'hu':
@@ -100,6 +121,36 @@ i18n.services.formatter?.add('date', (timestamp, lng) => {
       return dayjs(timestamp).format('YYYY년 MM월 DD일')
     default:
       return dayjs(timestamp).format('MMM D, YYYY')
+  }
+})
+
+i18n.services.formatter?.add('date_short', (timestamp, lng) => {
+  switch (lng) {
+    case 'zh':
+    case 'zh-TW':
+    case 'ja':
+      return dayjs(timestamp).format('MM月DD日')
+    case 'pl':
+    case 'de':
+    case 'ru':
+    case 'tr':
+      return dayjs(timestamp).format('DD.MM')
+    case 'fa':
+    case 'hu':
+      return dayjs(timestamp).format('MM/DD')
+    case 'it':
+    case 'es':
+    case 'fr':
+    case 'pt-BR':
+    case 'pt-PT':
+    case 'ar':
+    case 'hi':
+    case 'th':
+      return dayjs(timestamp).format('DD/MM')
+    case 'ko':
+      return dayjs(timestamp).format('MM월 DD일')
+    default:
+      return dayjs(timestamp).format('MMM D')
   }
 })
 

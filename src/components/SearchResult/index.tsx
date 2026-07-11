@@ -1,5 +1,5 @@
-import { SEARCHABLE_RELAY_URLS, SPECIAL_TRUST_SCORE_FILTER_ID } from '@/constants'
-import { getDefaultRelayUrls } from '@/lib/relay'
+import { SPECIAL_FEED_ID } from '@/constants'
+import { getDefaultRelayUrls, getSearchRelayUrls } from '@/lib/relay'
 import { TSearchParams } from '@/types'
 import NormalFeed from '../NormalFeed'
 import Profile from '../Profile'
@@ -20,8 +20,8 @@ export default function SearchResult({ searchParams }: { searchParams: TSearchPa
   if (searchParams.type === 'notes') {
     return (
       <NormalFeed
-        trustScoreFilterId={SPECIAL_TRUST_SCORE_FILTER_ID.SEARCH}
-        subRequests={[{ urls: SEARCHABLE_RELAY_URLS, filter: { search: searchParams.search } }]}
+        feedId={SPECIAL_FEED_ID.SEARCH}
+        subRequests={[{ urls: getSearchRelayUrls(), filter: { search: searchParams.search } }]}
         showRelayCloseReason
       />
     )
@@ -29,7 +29,7 @@ export default function SearchResult({ searchParams }: { searchParams: TSearchPa
   if (searchParams.type === 'hashtag') {
     return (
       <NormalFeed
-        trustScoreFilterId={SPECIAL_TRUST_SCORE_FILTER_ID.HASHTAG}
+        feedId={SPECIAL_FEED_ID.HASHTAG}
         subRequests={[{ urls: getDefaultRelayUrls(), filter: { '#t': [searchParams.search] } }]}
         showRelayCloseReason
       />
@@ -38,7 +38,7 @@ export default function SearchResult({ searchParams }: { searchParams: TSearchPa
   if (searchParams.type === 'nak') {
     return (
       <NormalFeed
-        trustScoreFilterId={SPECIAL_TRUST_SCORE_FILTER_ID.NAK}
+        feedId={SPECIAL_FEED_ID.NAK}
         subRequests={[searchParams.request]}
         showRelayCloseReason
       />

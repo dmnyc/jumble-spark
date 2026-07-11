@@ -1,8 +1,8 @@
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
-import { StorageKey } from '@/constants'
-import { Dispatch, SetStateAction, useEffect } from 'react'
+import storage from '@/services/local-storage.service'
+import { Dispatch, SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export default function PostOptions({
@@ -26,15 +26,11 @@ export default function PostOptions({
 }) {
   const { t } = useTranslation()
 
-  useEffect(() => {
-    setAddClientTag(window.localStorage.getItem(StorageKey.ADD_CLIENT_TAG) === 'true')
-  }, [])
-
   if (!show) return null
 
   const onAddClientTagChange = (checked: boolean) => {
     setAddClientTag(checked)
-    window.localStorage.setItem(StorageKey.ADD_CLIENT_TAG, checked.toString())
+    storage.setAddClientTag(checked)
   }
 
   const onNsfwChange = (checked: boolean) => {
@@ -44,7 +40,7 @@ export default function PostOptions({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2">
           <Label htmlFor="add-client-tag">{t('Add client tag')}</Label>
           <Switch
             id="add-client-tag"
@@ -58,7 +54,7 @@ export default function PostOptions({
         </div>
       </div>
 
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center gap-2">
         <Label htmlFor="add-nsfw-tag">{t('NSFW')}</Label>
         <Switch
           id="add-nsfw-tag"

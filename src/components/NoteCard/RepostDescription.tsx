@@ -1,6 +1,6 @@
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { cn } from '@/lib/utils'
-import { Repeat2 } from 'lucide-react'
+import { Repeat } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import UserAvatar from '../UserAvatar'
 import Username from '../Username'
@@ -22,8 +22,8 @@ export default function RepostDescription({
   if (!reposters?.length) return null
 
   return (
-    <div className={cn('mb-1 flex items-center gap-1 text-sm text-muted-foreground', className)}>
-      <Repeat2 size={16} className="shrink-0" />
+    <div className={cn('text-muted-foreground mb-1 flex items-center gap-1 text-sm', className)}>
+      <Repeat size={16} className="shrink-0" />
       <Username
         key={reposters[0]}
         userId={reposters[0]}

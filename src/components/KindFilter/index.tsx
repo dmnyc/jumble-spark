@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Drawer, DrawerContent, DrawerHeader, DrawerTrigger } from '@/components/ui/drawer'
+import { Drawer, DrawerContent } from '@/components/ui/drawer'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ExtendedKind } from '@/constants'
@@ -12,7 +12,7 @@ import { kinds } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-const KIND_FILTER_OPTIONS = [
+export const KIND_FILTER_OPTIONS = [
   { kindGroup: [kinds.ShortTextNote, ExtendedKind.COMMENT], label: 'Posts' },
   { kindGroup: [kinds.Repost, kinds.GenericRepost], label: 'Reposts' },
   { kindGroup: [kinds.LongFormArticle], label: 'Articles' },
@@ -33,26 +33,23 @@ const KIND_FILTER_OPTIONS = [
 const ALL_KINDS = KIND_FILTER_OPTIONS.flatMap(({ kindGroup }) => kindGroup)
 
 export default function KindFilter({
+  feedId,
   showKinds,
   onShowKindsChange
 }: {
+  feedId: string
   showKinds: number[]
   onShowKindsChange: (kinds: number[]) => void
 }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
-  const { showKinds: savedShowKinds } = useKindFilter()
+  const { showKinds: defaultShowKinds, updateShowKinds, updateShowKindsForFeed, clearShowKindsForFeed } = useKindFilter()
   const [open, setOpen] = useState(false)
-  const { updateShowKinds } = useKindFilter()
   const [temporaryShowKinds, setTemporaryShowKinds] = useState(showKinds)
   const [isPersistent, setIsPersistent] = useState(false)
-  const isDifferentFromSaved = useMemo(
-    () => !isSameKindFilter(showKinds, savedShowKinds),
-    [showKinds, savedShowKinds]
-  )
-  const isTemporaryDifferentFromSaved = useMemo(
-    () => !isSameKindFilter(temporaryShowKinds, savedShowKinds),
-    [temporaryShowKinds, savedShowKinds]
+  const isDifferentFromDefault = useMemo(
+    () => !isSameKindFilter(showKinds, defaultShowKinds),
+    [showKinds, defaultShowKinds]
   )
 
   useEffect(() => {
@@ -62,17 +59,22 @@ export default function KindFilter({
 
   const handleApply = () => {
     if (temporaryShowKinds.length === 0) {
-      // must select at least one kind
       return
     }
 
     const newShowKinds = [...temporaryShowKinds].sort()
-    if (!isSameKindFilter(newShowKinds, showKinds)) {
-      onShowKindsChange(newShowKinds)
-    }
 
     if (isPersistent) {
       updateShowKinds(newShowKinds)
+      clearShowKindsForFeed(feedId)
+      if (!isSameKindFilter(newShowKinds, showKinds)) {
+        onShowKindsChange(newShowKinds)
+      }
+    } else {
+      if (!isSameKindFilter(newShowKinds, showKinds)) {
+        onShowKindsChange(newShowKinds)
+      }
+      updateShowKindsForFeed(feedId, newShowKinds)
     }
 
     setIsPersistent(false)
@@ -85,7 +87,7 @@ export default function KindFilter({
       size="titlebar-icon"
       className={cn(
         'relative hover:text-foreground',
-        !isDifferentFromSaved && 'text-muted-foreground'
+        !isDifferentFromDefault && 'text-muted-foreground'
       )}
       onClick={() => {
         if (isSmallScreen) {
@@ -94,8 +96,8 @@ export default function KindFilter({
       }}
     >
       <ListFilter size={16} />
-      {isDifferentFromSaved && (
-        <div className="absolute left-7 top-2 size-2 rounded-full bg-primary ring-2 ring-background" />
+      {isDifferentFromDefault && (
+        <div className="absolute start-7 top-2 size-2 rounded-full bg-primary ring-2 ring-background" />
       )}
     </Button>
   )
@@ -114,10 +116,8 @@ export default function KindFilter({
               )}
               onClick={() => {
                 if (!checked) {
-                  // add all kinds in this group
                   setTemporaryShowKinds((prev) => Array.from(new Set([...prev, ...kindGroup])))
                 } else {
-                  // remove all kinds in this group
                   setTemporaryShowKinds((prev) => prev.filter((k) => !kindGroup.includes(k)))
                 }
               }}
@@ -148,8 +148,8 @@ export default function KindFilter({
         </Button>
         <Button
           variant="secondary"
-          onClick={() => setTemporaryShowKinds(savedShowKinds)}
-          disabled={!isTemporaryDifferentFromSaved}
+          onClick={() => setTemporaryShowKinds(defaultShowKinds)}
+          disabled={isSameKindFilter(temporaryShowKinds, defaultShowKinds)}
         >
           {t('Reset')}
         </Button>
@@ -179,9 +179,7 @@ export default function KindFilter({
       <>
         {trigger}
         <Drawer open={open} onOpenChange={setOpen}>
-          <DrawerTrigger asChild></DrawerTrigger>
-          <DrawerContent className="px-4">
-            <DrawerHeader />
+          <DrawerContent title={t('Filter')} className="px-4">
             {content}
           </DrawerContent>
         </Drawer>

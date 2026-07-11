@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { Drawer, DrawerContent, DrawerOverlay } from '@/components/ui/drawer'
+import { Drawer, DrawerContent } from '@/components/ui/drawer'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +14,15 @@ import { Bell, BellOff, Copy, Ellipsis } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-export default function ProfileOptions({ pubkey }: { pubkey: string }) {
+export default function ProfileOptions({
+  pubkey,
+  variant = 'secondary',
+  size = 'icon'
+}: {
+  pubkey: string
+  variant?: 'secondary' | 'ghost'
+  size?: 'icon' | 'titlebar-icon'
+}) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
   const { pubkey: accountPubkey } = useNostr()
@@ -26,9 +34,9 @@ export default function ProfileOptions({ pubkey }: { pubkey: string }) {
 
   const trigger = (
     <Button
-      variant="secondary"
-      size="icon"
-      className="rounded-full"
+      variant={variant}
+      size={size}
+      className={variant === 'secondary' ? 'rounded-full' : undefined}
       onClick={() => {
         if (isSmallScreen) {
           setIsDrawerOpen(true)
@@ -44,8 +52,7 @@ export default function ProfileOptions({ pubkey }: { pubkey: string }) {
       <>
         {trigger}
         <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
-          <DrawerOverlay onClick={() => setIsDrawerOpen(false)} />
-          <DrawerContent hideOverlay>
+          <DrawerContent title={t('Profile options')}>
             <div className="py-2">
               <Button
                 onClick={() => {

@@ -2,11 +2,9 @@ import { EMBEDDED_MENTION_REGEX, ExtendedKind } from '@/constants'
 import client from '@/services/client.service'
 import { TImetaInfo } from '@/types'
 import { LRUCache } from 'lru-cache'
+import { sha256 } from '@noble/hashes/sha2'
+import { bytesToHex } from '@noble/hashes/utils'
 import { Event, kinds, nip19, UnsignedEvent } from 'nostr-tools'
-// NOTE: nostr-tools is pinned to 2.19.4 (see package.json) because fastEventHash
-// was removed in 2.23.x. If nostr-tools is upgraded, replace fastEventHash with
-// getEventHash from 'nostr-tools'.
-import { fastEventHash, getPow } from 'nostr-tools/nip13'
 import {
   generateBech32IdFromATag,
   generateBech32IdFromETag,
@@ -18,6 +16,25 @@ import { randomString } from './random'
 const EVENT_EMBEDDED_NOTES_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_EMBEDDED_PUBKEYS_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_IS_REPLY_NOTE_CACHE = new LRUCache<string, boolean>({ max: 10000 })
+
+const utf8Encoder = new TextEncoder()
+
+// Count leading zero bits directly on the sha256 bytes so the mining loop can
+// skip bytesToHex on every failed candidate. nostr-tools has the same helper
+// internally but does not export it.
+function getPowFromBytes(hash: Uint8Array): number {
+  let count = 0
+  for (let i = 0; i < hash.length; i++) {
+    const byte = hash[i]
+    if (byte === 0) {
+      count += 8
+    } else {
+      count += Math.clz32(byte) - 24
+      break
+    }
+  }
+  return count
+}
 
 export function isNsfwEvent(event: Event) {
   return event.tags.some(
@@ -259,6 +276,27 @@ export function getEventKey(event: Event) {
   return isReplaceableEvent(event.kind) ? getReplaceableCoordinateFromEvent(event) : event.id
 }
 
+// Zap receipts are signed by a wallet service, but the zap request identifies
+// the user who authored the zap.
+export function getEventAuthorPubkey(event: Event): string {
+  if (event.kind !== kinds.Zap) return event.pubkey
+
+  const senderPubkey = event.tags.find(tagNameEquals('P'))?.[1]
+  if (senderPubkey) return senderPubkey
+
+  const description = event.tags.find(tagNameEquals('description'))?.[1]
+  if (description) {
+    try {
+      const zapRequest = JSON.parse(description) as { pubkey?: string }
+      if (zapRequest.pubkey) return zapRequest.pubkey
+    } catch {
+      // Fall back to the receipt signer when the embedded request is malformed.
+    }
+  }
+
+  return event.pubkey
+}
+
 // Only used for e, E, a, A, i, I tags
 export function getKeyFromTag([, tagValue]: (string | undefined)[]) {
   return tagValue
@@ -386,9 +424,21 @@ export async function minePow(
         }
 
         tag[1] = (++count).toString()
-        event.id = fastEventHash(event)
+        const hash = sha256(
+          utf8Encoder.encode(
+            JSON.stringify([
+              0,
+              event.pubkey,
+              event.created_at,
+              event.kind,
+              event.tags,
+              event.content
+            ])
+          )
+        )
 
-        if (getPow(event.id) >= difficulty) {
+        if (getPowFromBytes(hash) >= difficulty) {
+          event.id = bytesToHex(hash)
           resolve(event)
           return
         }

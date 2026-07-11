@@ -1,11 +1,5 @@
 import { Button } from '@/components/ui/button'
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerOverlay,
-  DrawerTitle
-} from '@/components/ui/drawer'
+import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,7 +44,7 @@ export default function SaveRelayDropdownMenu({
     </Button>
   ) : (
     <button
-      className="pr-0 pt-0.5 enabled:hover:text-primary [&_svg]:size-5"
+      className="pe-0 pt-0.5 enabled:hover:text-primary [&_svg]:size-5"
       onClick={(e) => {
         e.stopPropagation()
         setIsDrawerOpen(true)
@@ -66,11 +60,10 @@ export default function SaveRelayDropdownMenu({
         {trigger}
         <div onClick={(e) => e.stopPropagation()}>
           <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
-            <DrawerOverlay onClick={() => setIsDrawerOpen(false)} />
-            <DrawerContent hideOverlay>
-              <DrawerHeader>
+            <DrawerContent>
+              <div className="grid gap-1.5 p-4 text-center sm:text-start">
                 <DrawerTitle>{t('Save to')} ...</DrawerTitle>
-              </DrawerHeader>
+              </div>
               <div className="py-2">
                 <RelayItem urls={normalizedUrls} />
                 {relaySets.map((set) => (

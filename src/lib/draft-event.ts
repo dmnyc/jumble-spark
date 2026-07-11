@@ -1,4 +1,10 @@
-import { ApplicationDataKey, EMBEDDED_EVENT_REGEX, ExtendedKind, POLL_TYPE } from '@/constants'
+import {
+  ApplicationDataKey,
+  EMBEDDED_EVENT_REGEX,
+  EMOJI_SHORT_CODE_REGEX,
+  ExtendedKind,
+  POLL_TYPE
+} from '@/constants'
 import client from '@/services/client.service'
 import customEmojiService from '@/services/custom-emoji.service'
 import mediaUpload from '@/services/media-upload.service'
@@ -17,6 +23,7 @@ import {
   getReplaceableCoordinate,
   getReplaceableCoordinateFromEvent,
   getRootTag,
+  getEventAuthorPubkey,
   isProtectedEvent,
   isReplaceableEvent
 } from './event'
@@ -60,8 +67,9 @@ function generateDraftEventCacheKey(draft: Omit<TDraftEvent, 'created_at'>) {
 // https://github.com/nostr-protocol/nips/blob/master/25.md
 export function createReactionDraftEvent(event: Event, emoji: TEmoji | string = '+'): TDraftEvent {
   const tags: string[][] = []
+  const targetPubkey = getEventAuthorPubkey(event)
   tags.push(buildETag(event.id, event.pubkey))
-  tags.push(buildPTag(event.pubkey))
+  tags.push(buildPTag(targetPubkey))
   if (event.kind !== kinds.ShortTextNote) {
     tags.push(buildKTag(event.kind))
   }
@@ -116,7 +124,8 @@ export function createExternalContentReactionDraftEvent(
 // https://github.com/nostr-protocol/nips/blob/master/18.md
 export function createRepostDraftEvent(event: Event): TDraftEvent {
   const isProtected = isProtectedEvent(event)
-  const tags = [buildETag(event.id, event.pubkey), buildPTag(event.pubkey)]
+  const authorPubkey = getEventAuthorPubkey(event)
+  const tags = [buildETag(event.id, event.pubkey), buildPTag(authorPubkey)]
 
   if (event.kind === kinds.ShortTextNote) {
     return {
@@ -203,10 +212,15 @@ export async function createShortTextNoteDraftEvent(
 }
 
 // https://github.com/nostr-protocol/nips/blob/master/51.md
-export function createRelaySetDraftEvent(relaySet: Omit<TRelaySet, 'aTag'>): TDraftEvent {
+export function createRelaySetDraftEvent(
+  relaySet: Omit<TRelaySet, 'aTag'>,
+  content = ''
+): TDraftEvent {
   return {
     kind: kinds.Relaysets,
-    content: '',
+    // Preserve any existing encrypted payload (e.g. private relays) when
+    // republishing an existing relay set instead of discarding it.
+    content,
     tags: [
       buildDTag(relaySet.id),
       buildTitleTag(relaySet.name),
@@ -230,14 +244,16 @@ export async function createCommentDraftEvent(
   const {
     quoteTags,
     rootEventId,
+    rootEventPubkey,
     rootCoordinateTag,
     rootKind,
-    rootPubkey,
+    rootAuthorPubkey,
     rootUrl,
     parentEvent,
     externalContent
   } = await extractCommentMentions(transformedEmojisContent, parentStuff)
   const hashtags = extractHashtags(transformedEmojisContent)
+  const parentEventAuthorPubkey = parentEvent ? getEventAuthorPubkey(parentEvent) : undefined
 
   const tags = emojiTags.concat(hashtags.map((hashtag) => buildTTag(hashtag))).concat(quoteTags)
 
@@ -248,17 +264,17 @@ export async function createCommentDraftEvent(
 
   tags.push(
     ...mentions
-      .filter((pubkey) => pubkey !== parentEvent?.pubkey)
+      .filter((pubkey) => pubkey !== parentEventAuthorPubkey)
       .map((pubkey) => buildPTag(pubkey))
   )
 
   if (rootCoordinateTag) {
     tags.push(rootCoordinateTag)
   } else if (rootEventId) {
-    tags.push(buildETag(rootEventId, rootPubkey, '', true))
+    tags.push(buildETag(rootEventId, rootEventPubkey, '', true))
   }
-  if (rootPubkey) {
-    tags.push(buildPTag(rootPubkey, true))
+  if (rootAuthorPubkey) {
+    tags.push(buildPTag(rootAuthorPubkey, true))
   }
   if (rootKind) {
     tags.push(buildKTag(rootKind, true))
@@ -272,7 +288,7 @@ export async function createCommentDraftEvent(
           isReplaceableEvent(parentEvent.kind)
             ? buildATag(parentEvent)
             : buildETag(parentEvent.id, parentEvent.pubkey),
-          buildPTag(parentEvent.pubkey)
+          ...(parentEventAuthorPubkey ? [buildPTag(parentEventAuthorPubkey)] : [])
         ]
       : externalContent
         ? [buildITag(externalContent)]
@@ -413,7 +429,8 @@ export function createProfileDraftEvent(content: string, tags: string[][] = []):
 
 export function createFavoriteRelaysDraftEvent(
   favoriteRelays: string[],
-  relaySetEventsOrATags: Event[] | string[][]
+  relaySetEventsOrATags: Event[] | string[][],
+  content = ''
 ): TDraftEvent {
   const tags: string[][] = []
   favoriteRelays.forEach((url) => {
@@ -428,7 +445,9 @@ export function createFavoriteRelaysDraftEvent(
   })
   return {
     kind: ExtendedKind.FAVORITE_RELAYS,
-    content: '',
+    // Preserve any existing encrypted payload (e.g. private favorite relays
+    // written by Amethyst and other clients) instead of discarding it.
+    content,
     tags,
     created_at: dayjs().unix()
   }
@@ -466,6 +485,22 @@ export function createUserEmojiListDraftEvent(tags: string[][], content = ''): T
     kind: kinds.UserEmojiList,
     content,
     tags,
+    created_at: dayjs().unix()
+  }
+}
+
+export function createEmojiSetDraftEvent(
+  emojis: TEmoji[],
+  title: string,
+  d: string = randomString(16),
+  content = ''
+): TDraftEvent {
+  return {
+    kind: kinds.Emojisets,
+    // Preserve any existing encrypted payload when republishing an existing
+    // emoji set instead of discarding it.
+    content,
+    tags: [buildDTag(d), buildTitleTag(title), ...emojis.map((emoji) => buildEmojiTag(emoji))],
     created_at: dayjs().unix()
   }
 }
@@ -577,10 +612,11 @@ export function createDeletionRequestDraftEvent(event: Event): TDraftEvent {
 
 export function createReportDraftEvent(event: Event, reason: string): TDraftEvent {
   const tags: string[][] = []
+  const authorPubkey = getEventAuthorPubkey(event)
   if (event.kind === kinds.Metadata) {
-    tags.push(['p', event.pubkey, reason])
+    tags.push(['p', authorPubkey, reason])
   } else {
-    tags.push(['p', event.pubkey])
+    tags.push(['p', authorPubkey])
     tags.push(['e', event.id, reason])
     if (isReplaceableEvent(event.kind)) {
       tags.push(['a', getReplaceableCoordinateFromEvent(event), reason])
@@ -627,6 +663,17 @@ export function createLeaveDraftEvent(): TDraftEvent {
     created_at: Math.floor(Date.now() / 1000),
     tags: [['-']],
     content: ''
+  }
+}
+
+export function createDmRelaysDraftEvent(relays: string[]): TDraftEvent {
+  const tags = relays.map((url) => ['relay', url])
+
+  return {
+    kind: ExtendedKind.DM_RELAYS,
+    content: '',
+    created_at: dayjs().unix(),
+    tags
   }
 }
 
@@ -692,15 +739,23 @@ async function extractCommentMentions(content: string, parentStuff: Event | stri
         ? buildATag(parentEvent, true)
         : undefined
     : undefined
-  const rootEventId = isComment ? parentEvent.tags.find(tagNameEquals('E'))?.[1] : parentEvent?.id
+  const rootEventTag = isComment ? parentEvent.tags.find(tagNameEquals('E')) : undefined
+  const rootEventId = isComment ? rootEventTag?.[1] : parentEvent?.id
+  let rootEventPubkey = isComment ? rootEventTag?.[3] : parentEvent?.pubkey
+  if (rootEventId && !rootEventPubkey) {
+    const rootEvent = await client.fetchEvent(rootEventId)
+    rootEventPubkey = rootEvent?.pubkey
+  }
   const rootKind = isComment
     ? parentEvent.tags.find(tagNameEquals('K'))?.[1]
     : parentEvent
       ? parentEvent.kind
       : determineExternalContentKind(parentStuff as string)
-  const rootPubkey = isComment
+  const rootAuthorPubkey = isComment
     ? parentEvent.tags.find(tagNameEquals('P'))?.[1]
-    : parentEvent?.pubkey
+    : parentEvent
+      ? getEventAuthorPubkey(parentEvent)
+      : undefined
   const rootUrl = isComment ? parentEvent.tags.find(tagNameEquals('I'))?.[1] : externalContent
 
   const quoteTags = extractQuoteTags(content)
@@ -708,9 +763,10 @@ async function extractCommentMentions(content: string, parentStuff: Event | stri
   return {
     quoteTags,
     rootEventId,
+    rootEventPubkey,
     rootCoordinateTag,
     rootKind,
-    rootPubkey,
+    rootAuthorPubkey,
     rootUrl,
     parentEvent,
     externalContent
@@ -774,7 +830,7 @@ function extractImagesFromContent(content: string) {
 export function transformCustomEmojisInContent(content: string) {
   const emojiTags: string[][] = []
   let processedContent = content
-  const matches = content.match(/:[a-zA-Z0-9]+:/g)
+  const matches = content.match(EMOJI_SHORT_CODE_REGEX)
 
   const emojiIdSet = new Set<string>()
   matches?.forEach((m) => {
@@ -871,8 +927,8 @@ function buildTTag(hashtag: string) {
   return ['t', hashtag]
 }
 
-function buildEmojiTag(emoji: TEmoji) {
-  return ['emoji', emoji.shortcode, emoji.url]
+export function buildEmojiTag(emoji: TEmoji) {
+  return trimTagEnd(['emoji', emoji.shortcode, emoji.url, emoji.setAddress ?? ''])
 }
 
 function buildTitleTag(title: string) {

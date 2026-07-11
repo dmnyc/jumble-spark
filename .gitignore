@@ -9,10 +9,16 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-electron
 dist-ssr
 dev-dist
+release
+flatpak/build-dir
+flatpak/.flatpak-builder
+flatpak/repo
 *.local
 .env
+electron-builder.env
 
 # Editor directories and files
 .vscode/*
@@ -39,3 +45,5 @@ BREEZ_NIP57_FEATURE_REQUEST.md
 
 # Screenshots
 screenshots/
+
+.claude/

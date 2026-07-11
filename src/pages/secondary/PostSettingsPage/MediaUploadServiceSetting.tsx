@@ -1,4 +1,3 @@
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -6,12 +5,12 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
+import { SettingsRow } from '@/components/ui/settings'
 import { DEFAULT_NIP_96_SERVICE, NIP_96_SERVICE } from '@/constants'
 import { simplifyUrl } from '@/lib/url'
 import { useMediaUploadService } from '@/providers/MediaUploadServiceProvider'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import BlossomServerListSetting from './BlossomServerListSetting'
 
 const BLOSSOM = 'blossom'
 
@@ -33,27 +32,28 @@ export default function MediaUploadServiceSetting() {
   }
 
   return (
-    <div className="space-y-2">
-      <Label htmlFor="media-upload-service-select">{t('Media upload service')}</Label>
-      <Select
-        defaultValue={DEFAULT_NIP_96_SERVICE}
-        value={selectedValue}
-        onValueChange={handleSelectedValueChange}
-      >
-        <SelectTrigger id="media-upload-service-select" className="w-48">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={BLOSSOM}>{t('Blossom')}</SelectItem>
-          {NIP_96_SERVICE.map((url) => (
-            <SelectItem key={url} value={url}>
-              {simplifyUrl(url)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {selectedValue === BLOSSOM && <BlossomServerListSetting />}
-    </div>
+    <SettingsRow
+      htmlFor="media-upload-service-select"
+      title={t('Media upload service')}
+      control={
+        <Select
+          defaultValue={DEFAULT_NIP_96_SERVICE}
+          value={selectedValue}
+          onValueChange={handleSelectedValueChange}
+        >
+          <SelectTrigger id="media-upload-service-select" className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={BLOSSOM}>{t('Blossom')}</SelectItem>
+            {NIP_96_SERVICE.map((url) => (
+              <SelectItem key={url} value={url}>
+                {simplifyUrl(url)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      }
+    />
   )
 }

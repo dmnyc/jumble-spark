@@ -1,10 +1,12 @@
 import { useFetchWebMetadata } from '@/hooks/useFetchWebMetadata'
+import { isInsecureUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import { useUserPreferences } from '@/providers/UserPreferencesProvider'
 import { useMemo } from 'react'
-import Image from '../Image'
 import ExternalLink from '../ExternalLink'
+import Image from '../Image'
 
 export default function WebPreview({
   url,
@@ -16,6 +18,7 @@ export default function WebPreview({
   mustLoad?: boolean
 }) {
   const { autoLoadMedia } = useContentPolicy()
+  const { allowInsecureConnection } = useUserPreferences()
   const { isSmallScreen } = useScreenSize()
   const { title, description, image } = useFetchWebMetadata(url)
 
@@ -26,6 +29,10 @@ export default function WebPreview({
       return ''
     }
   }, [url])
+
+  if (!allowInsecureConnection && isInsecureUrl(url)) {
+    return null
+  }
 
   if (!autoLoadMedia && !mustLoad) {
     return null
@@ -75,9 +82,9 @@ export default function WebPreview({
       {image && (
         <Image
           image={{ url: image }}
-          className="aspect-[4/3] h-44 bg-foreground xl:aspect-video"
+          className="aspect-4/3 h-44 bg-foreground xl:aspect-video"
           classNames={{
-            wrapper: 'rounded-none border-r'
+            wrapper: 'rounded-none border-e'
           }}
           hideIfError
         />

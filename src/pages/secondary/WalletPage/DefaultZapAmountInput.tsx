@@ -1,5 +1,5 @@
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { SettingsRow } from '@/components/ui/settings'
 import { useZap } from '@/providers/ZapProvider'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -10,11 +10,14 @@ export default function DefaultZapAmountInput() {
   const [defaultZapAmountInput, setDefaultZapAmountInput] = useState(defaultZapSats)
 
   return (
-    <div className="w-full space-y-1">
-      <Label htmlFor="default-zap-amount-input">{t('Default zap amount')}</Label>
-      <div className="flex w-full items-center gap-2">
+    <SettingsRow
+      htmlFor="default-zap-amount-input"
+      title={t('Default zap amount')}
+      control={
         <Input
           id="default-zap-amount-input"
+          inputMode="numeric"
+          className="w-32 text-end"
           value={defaultZapAmountInput}
           onChange={(e) => {
             setDefaultZapAmountInput((pre) => {
@@ -32,7 +35,7 @@ export default function DefaultZapAmountInput() {
             updateDefaultSats(defaultZapAmountInput)
           }}
         />
-      </div>
-    </div>
+      }
+    />
   )
 }

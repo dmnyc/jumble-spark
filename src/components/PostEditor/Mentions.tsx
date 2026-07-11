@@ -1,18 +1,20 @@
 import { Button } from '@/components/ui/button'
-import { Drawer, DrawerContent, DrawerOverlay } from '@/components/ui/drawer'
+import { Drawer, DrawerContent } from '@/components/ui/drawer'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { getEventAuthorPubkey } from '@/lib/event'
 import { cn } from '@/lib/utils'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import client from '@/services/client.service'
+import lightning from '@/services/lightning.service'
 import { Check } from 'lucide-react'
-import { Event, nip19 } from 'nostr-tools'
+import { Event, kinds, nip19 } from 'nostr-tools'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SimpleUserAvatar } from '../UserAvatar'
@@ -110,14 +112,8 @@ export default function Mentions({
           {potentialMentions.length > 0 && `(${mentions.length}/${potentialMentions.length})`}
         </Button>
         <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
-          <DrawerOverlay onClick={() => setIsDrawerOpen(false)} />
-          <DrawerContent className="max-h-[80vh]" hideOverlay>
-            <div
-              className="overflow-y-auto overscroll-contain py-2"
-              style={{ touchAction: 'pan-y' }}
-            >
-              {items}
-            </div>
+          <DrawerContent title={t('Mentions')} className="max-h-[80dvh]">
+            <div className="overflow-y-auto overscroll-contain py-2">{items}</div>
           </DrawerContent>
         </Drawer>
       </>
@@ -191,7 +187,7 @@ function MenuItem({
 }
 
 async function extractMentions(content: string, parentEvent?: Event) {
-  const parentEventPubkey = parentEvent ? parentEvent.pubkey : undefined
+  const parentEventPubkey = parentEvent ? getEventAuthorPubkey(parentEvent) : undefined
   const pubkeys: string[] = []
   const relatedPubkeys: string[] = []
   const matches = content.match(
@@ -214,7 +210,8 @@ async function extractMentions(content: string, parentEvent?: Event) {
       } else if (['nevent', 'note'].includes(type)) {
         const event = await client.fetchEvent(id)
         if (event) {
-          addToSet(pubkeys, event.pubkey)
+          if (event.kind === kinds.Zap && !(await lightning.validateZapReceipt(event))) continue
+          addToSet(pubkeys, getEventAuthorPubkey(event))
         }
       }
     } catch (e) {

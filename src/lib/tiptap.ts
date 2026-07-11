@@ -3,31 +3,34 @@ import { emojis, shortcodeToEmoji } from '@tiptap/extension-emoji'
 import { JSONContent } from '@tiptap/react'
 import { nip19 } from 'nostr-tools'
 
-export function parseEditorJsonToText(node?: JSONContent) {
+export function parseEditorJsonToText(node?: JSONContent, options?: { trim?: boolean }) {
   const text = _parseEditorJsonToText(node)
   const regex = /(^|\s+|@)(nostr:)?(nevent|naddr|nprofile|npub)1[a-zA-Z0-9]+/g
 
-  return text
-    .replace(regex, (match, leadingWhitespace) => {
-      let bech32 = match.trim()
-      const whitespace = leadingWhitespace || ''
+  const normalized = text.replace(regex, (match, leadingWhitespace) => {
+    let bech32 = match.trim()
+    const whitespace = leadingWhitespace || ''
 
-      if (bech32.startsWith('@nostr:')) {
-        bech32 = bech32.slice(7)
-      } else if (bech32.startsWith('@')) {
-        bech32 = bech32.slice(1)
-      } else if (bech32.startsWith('nostr:')) {
-        bech32 = bech32.slice(6)
-      }
+    if (bech32.startsWith('@nostr:')) {
+      bech32 = bech32.slice(7)
+    } else if (bech32.startsWith('@')) {
+      bech32 = bech32.slice(1)
+    } else if (bech32.startsWith('nostr:')) {
+      bech32 = bech32.slice(6)
+    }
 
-      try {
-        nip19.decode(bech32)
-        return `${whitespace}nostr:${bech32}`
-      } catch {
-        return match
-      }
-    })
-    .trim()
+    try {
+      nip19.decode(bech32)
+      return `${whitespace}nostr:${bech32}`
+    } catch {
+      return match
+    }
+  })
+
+  // Trimming the outer whitespace is right when producing the final note body,
+  // but the clipboard serializer reuses this and must preserve a copied
+  // selection's leading/trailing spaces — those callers pass { trim: false }.
+  return options?.trim === false ? normalized : normalized.trim()
 }
 
 function _parseEditorJsonToText(node?: JSONContent): string {
@@ -63,7 +66,7 @@ function _parseEditorJsonToText(node?: JSONContent): string {
 
 function parseEmojiNodeName(name?: string): string {
   if (!name) return ''
-  if (customEmojiService.isCustomEmojiId(name)) {
+  if (customEmojiService.getEmojiById(name)) {
     return `:${name}:`
   }
   const emoji = shortcodeToEmoji(name, emojis)

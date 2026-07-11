@@ -30,13 +30,24 @@ const SearchBar = forwardRef<
     input: string
     setInput: (input: string) => void
     onSearch: (params: TSearchParams | null) => void
+    onSaveHistory: (text: string) => void
   }
->(({ input, setInput, onSearch }, ref) => {
+>(({ input, setInput, onSearch, onSaveHistory }, ref) => {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
   const { isSmallScreen } = useScreenSize()
   const [debouncedInput, setDebouncedInput] = useState(input)
-  const { profiles, isFetching: isFetchingProfiles } = useSearchProfiles(debouncedInput, 5)
+  const isIdSearch = useMemo(() => {
+    const search = debouncedInput.trim()
+    if (!search) return false
+    if (/^[0-9a-f]{64}$/.test(search)) return true
+    const id = search.startsWith('nostr:') ? search.slice(6) : search
+    return /^(npub1|nprofile1|note1|nevent1|naddr1)/.test(id)
+  }, [debouncedInput])
+  const { profiles, isFetching: isFetchingProfiles } = useSearchProfiles(
+    isIdSearch ? '' : debouncedInput,
+    5
+  )
   const [searching, setSearching] = useState(false)
   const [displayList, setDisplayList] = useState(false)
   const [selectableOptions, setSelectableOptions] = useState<TSearchParams[]>([])
@@ -88,7 +99,12 @@ const SearchBar = forwardRef<
     searchInputRef.current?.blur()
   }
 
+  const saveHistory = useCallback(() => {
+    onSaveHistory(input)
+  }, [input, onSaveHistory])
+
   const updateSearch = (params: TSearchParams) => {
+    saveHistory()
     blur()
 
     if (params.type === 'note') {
@@ -281,6 +297,7 @@ const SearchBar = forwardRef<
         if (selectableOptions.length <= 0) {
           return
         }
+        saveHistory()
         onSearch(selectableOptions[selectedIndex >= 0 ? selectedIndex : 0])
         blur()
         return
@@ -309,7 +326,7 @@ const SearchBar = forwardRef<
         return
       }
     },
-    [input, onSearch, selectableOptions, selectedIndex]
+    [input, onSearch, saveHistory, selectableOptions, selectedIndex]
   )
 
   return (
@@ -367,7 +384,7 @@ function NormalItem({
   return (
     <Item onClick={onClick} selected={selected}>
       <div className="flex size-10 items-center justify-center">
-        <Search className="flex-shrink-0 text-muted-foreground" />
+        <Search className="shrink-0 text-muted-foreground" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="truncate font-semibold">{search}</div>
@@ -390,7 +407,7 @@ function HashtagItem({
   return (
     <Item onClick={onClick} selected={selected}>
       <div className="flex size-10 items-center justify-center">
-        <Hash className="flex-shrink-0 text-muted-foreground" />
+        <Hash className="shrink-0 text-muted-foreground" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="truncate font-semibold">#{hashtag}</div>
@@ -413,7 +430,7 @@ function NoteItem({
   return (
     <Item onClick={onClick} selected={selected}>
       <div className="flex size-10 items-center justify-center">
-        <Notebook className="flex-shrink-0 text-muted-foreground" />
+        <Notebook className="shrink-0 text-muted-foreground" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="truncate font-mono text-sm font-semibold">{id}</div>
@@ -460,7 +477,7 @@ function RelayItem({
   return (
     <Item onClick={onClick} selected={selected}>
       <div className="flex size-10 items-center justify-center">
-        <Server className="flex-shrink-0 text-muted-foreground" />
+        <Server className="shrink-0 text-muted-foreground" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="truncate font-semibold">{url}</div>
@@ -483,7 +500,7 @@ function ExternalContentItem({
   return (
     <Item onClick={onClick} selected={selected}>
       <div className="flex size-10 items-center justify-center">
-        <MessageSquare className="flex-shrink-0 text-muted-foreground" />
+        <MessageSquare className="shrink-0 text-muted-foreground" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="truncate font-semibold">{search}</div>
@@ -505,7 +522,7 @@ function NakItem({
   return (
     <Item onClick={onClick} selected={selected}>
       <div className="flex size-10 items-center justify-center">
-        <Terminal className="flex-shrink-0 text-muted-foreground" />
+        <Terminal className="shrink-0 text-muted-foreground" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="truncate font-semibold">REQ</div>

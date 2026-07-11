@@ -7,6 +7,9 @@ type TContentPolicyContext = {
   autoplay: boolean
   setAutoplay: (autoplay: boolean) => void
 
+  videoLoop: boolean
+  setVideoLoop: (videoLoop: boolean) => void
+
   nsfwDisplayPolicy: TNsfwDisplayPolicy
   setNsfwDisplayPolicy: (policy: TNsfwDisplayPolicy) => void
 
@@ -40,6 +43,7 @@ export const useContentPolicy = () => {
 
 export function ContentPolicyProvider({ children }: { children: React.ReactNode }) {
   const [autoplay, setAutoplay] = useState(storage.getAutoplay())
+  const [videoLoop, setVideoLoop] = useState(storage.getVideoLoop())
   const [nsfwDisplayPolicy, setNsfwDisplayPolicy] = useState(storage.getNsfwDisplayPolicy())
   const [hideContentMentioningMutedUsers, setHideContentMentioningMutedUsers] = useState(
     storage.getHideContentMentioningMutedUsers()
@@ -78,20 +82,19 @@ export function ContentPolicyProvider({ children }: { children: React.ReactNode 
     return connectionType === 'wifi' || connectionType === 'ethernet'
   }, [mediaAutoLoadPolicy, connectionType])
 
-  const autoLoadProfilePicture = useMemo(() => {
-    if (profilePictureAutoLoadPolicy === PROFILE_PICTURE_AUTO_LOAD_POLICY.ALWAYS) {
-      return true
-    }
-    if (profilePictureAutoLoadPolicy === PROFILE_PICTURE_AUTO_LOAD_POLICY.NEVER) {
-      return false
-    }
-    // WIFI_ONLY
-    return connectionType === 'wifi' || connectionType === 'ethernet'
-  }, [profilePictureAutoLoadPolicy, connectionType])
+  const autoLoadProfilePicture = useMemo(
+    () => profilePictureAutoLoadPolicy === PROFILE_PICTURE_AUTO_LOAD_POLICY.ALWAYS,
+    [profilePictureAutoLoadPolicy]
+  )
 
   const updateAutoplay = (autoplay: boolean) => {
     storage.setAutoplay(autoplay)
     setAutoplay(autoplay)
+  }
+
+  const updateVideoLoop = (videoLoop: boolean) => {
+    storage.setVideoLoop(videoLoop)
+    setVideoLoop(videoLoop)
   }
 
   const updateNsfwDisplayPolicy = (policy: TNsfwDisplayPolicy) => {
@@ -129,6 +132,8 @@ export function ContentPolicyProvider({ children }: { children: React.ReactNode 
       value={{
         autoplay,
         setAutoplay: updateAutoplay,
+        videoLoop,
+        setVideoLoop: updateVideoLoop,
         nsfwDisplayPolicy,
         setNsfwDisplayPolicy: updateNsfwDisplayPolicy,
         hideContentMentioningMutedUsers,

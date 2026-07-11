@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { SettingsRow } from '@/components/ui/settings'
 import { createProfileDraftEvent } from '@/lib/draft-event'
 import { formatError } from '@/lib/error'
 import { isEmail } from '@/lib/utils'
@@ -62,8 +62,11 @@ export default function LightningAddressInput() {
   }
 
   return (
-    <div className="w-full space-y-1">
-      <Label htmlFor="ln-address">{t('Lightning Address (or LNURL)')}</Label>
+    <SettingsRow
+      layout="stacked"
+      title={t('Lightning Address (or LNURL)')}
+      htmlFor="ln-address"
+    >
       <div className="flex w-full items-center gap-2">
         <Input
           id="ln-address"
@@ -78,6 +81,6 @@ export default function LightningAddressInput() {
           {saving ? <Loader className="animate-spin" /> : t('Save')}
         </Button>
       </div>
-    </div>
+    </SettingsRow>
   )
 }

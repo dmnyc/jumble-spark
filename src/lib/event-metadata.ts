@@ -74,6 +74,7 @@ export function getProfileFromEvent(event: Event) {
       lud06: profileObj.lud06,
       lud16: profileObj.lud16,
       lightningAddress: getLightningAddressFromProfile(profileObj),
+      sp: profileObj.sp,
       created_at: event.created_at,
       emojis: emojis.length > 0 ? emojis : undefined
     }
@@ -384,6 +385,26 @@ export function getEmojiPackInfoFromEvent(event: Event) {
 export function getEmojisFromEvent(event: Event): TEmoji[] {
   const info = getEmojiPackInfoFromEvent(event)
   return info.emojis
+}
+
+export function getVideoMetadataFromEvent(event: Event) {
+  let title: string | undefined
+  const tags = new Set<string>()
+
+  event.tags.forEach(([tagName, tagValue]) => {
+    if (tagName === 'title') {
+      title = tagValue
+    } else if (tagName === 't' && tagValue && tags.size < 6) {
+      const normalizedTagValue = tagValue.toLocaleLowerCase()
+      if (normalizedTagValue.startsWith('#')) {
+        tags.add(normalizedTagValue)
+      } else {
+        tags.add(`#${normalizedTagValue}`) // Ensure the tag is treated as a hashtag
+      }
+    }
+  })
+
+  return { title, tags: Array.from(tags) }
 }
 
 export function getStarsFromRelayReviewEvent(event: Event): number {

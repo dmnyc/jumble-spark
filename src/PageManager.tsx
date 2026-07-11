@@ -15,6 +15,8 @@ import {
 } from 'react'
 import BackgroundAudio from './components/BackgroundAudio'
 import BottomNavigationBar from './components/BottomNavigationBar'
+import DraftBox from './components/DraftBox'
+import DraftEditorHost from './components/DraftBox/DraftEditorHost'
 import TooManyRelaysAlertDialog from './components/TooManyRelaysAlertDialog'
 import { normalizeUrl } from './lib/url'
 import { NotificationProvider } from './providers/NotificationProvider'
@@ -42,6 +44,7 @@ type TStackItem = {
   url: string
   element: React.ReactElement | null
   ref: RefObject<TPageRef> | null
+  hideBottomBar: boolean
 }
 
 const PrimaryPageContext = createContext<TPrimaryPageContext | undefined>(undefined)
@@ -75,9 +78,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
     }
   ])
   const [secondaryStack, setSecondaryStack] = useState<TStackItem[]>([])
+  const bottomBarHidden = secondaryStack.length > 0 && secondaryStack[secondaryStack.length - 1].hideBottomBar
+  const bottomBarOffset = bottomBarHidden ? '0px' : 'calc(env(safe-area-inset-bottom) + 3rem)'
   const { isSmallScreen } = useScreenSize()
   const { themeSetting } = useTheme()
-  const { enableSingleColumnLayout } = useUserPreferences()
+  const { enableSingleColumnLayout, sidebarCollapse } = useUserPreferences()
   const ignorePopStateRef = useRef(false)
 
   useEffect(() => {
@@ -139,6 +144,10 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           navigatePrimaryPage('relay', { url })
         }
       }
+      const page = searchParams.get('page')
+      if (page && page in PRIMARY_PAGE_MAP) {
+        navigatePrimaryPage(page as TPrimaryPageName)
+      }
     }
 
     const onPopState = (e: PopStateEvent) => {
@@ -183,21 +192,23 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         const topItem = newStack[newStack.length - 1] as TStackItem | undefined
         if (!topItem) {
           // Create a new stack item if it's not exist (e.g. when the user refreshes the page, the stack will be empty)
-          const { element, ref } = findAndCloneElement(state.url, state.index)
+          const { element, ref, hideBottomBar } = findAndCloneElement(state.url, state.index)
           if (element) {
             newStack.push({
               index: state.index,
               url: state.url,
               element,
-              ref
+              ref,
+              hideBottomBar: hideBottomBar ?? false
             })
           }
         } else if (!topItem.element) {
           // Load the element if it's not cached
-          const { element, ref } = findAndCloneElement(topItem.url, state.index)
+          const { element, ref, hideBottomBar } = findAndCloneElement(topItem.url, state.index)
           if (element) {
             topItem.element = element
             topItem.ref = ref
+            topItem.hideBottomBar = hideBottomBar ?? false
           }
         }
         if (newStack.length === 0) {
@@ -288,6 +299,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         >
           <CurrentRelaysProvider>
             <NotificationProvider>
+              <div style={{ '--bottom-bar-offset': bottomBarOffset } as React.CSSProperties}>
               {!!secondaryStack.length &&
                 secondaryStack.map((item, index) => (
                   <div
@@ -310,8 +322,11 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                   {props ? cloneElement(element as React.ReactElement, props) : element}
                 </div>
               ))}
-              <BottomNavigationBar />
+              {!bottomBarHidden && <BottomNavigationBar />}
               <TooManyRelaysAlertDialog />
+              <DraftBox />
+              <DraftEditorHost />
+              </div>
             </NotificationProvider>
           </CurrentRelaysProvider>
         </SecondaryPageContext.Provider>
@@ -339,11 +354,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
         >
           <CurrentRelaysProvider>
             <NotificationProvider>
-              <div className="flex w-full lg:justify-around">
-                <div className="sticky top-0 flex h-[var(--vh)] justify-end self-start lg:w-full">
-                  <Sidebar />
-                </div>
-                <div className="w-0 flex-1 border-x bg-background lg:w-[640px] lg:flex-auto lg:shrink-0">
+              <div className="flex w-full wide:justify-around">
+                <div className={cn('wide:w-full', sidebarCollapse ? 'w-16' : 'w-52')} />
+                <div className="min-h-screen w-0 flex-1 border-x bg-background wide:w-[640px] wide:flex-auto wide:shrink-0">
                   {!!secondaryStack.length &&
                     secondaryStack.map((item, index) => (
                       <div
@@ -369,10 +382,22 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                     </div>
                   ))}
                 </div>
-                <div className="hidden lg:block lg:w-full" />
+                <div className="hidden wide:block wide:w-full" />
+              </div>
+              <div
+                className={cn(
+                  'pointer-events-none fixed start-0 top-0 z-10 flex h-(--vh) justify-end wide:w-[calc((100%-640px)/2)]',
+                  sidebarCollapse ? 'w-16' : 'w-52'
+                )}
+              >
+                <div className="pointer-events-auto">
+                  <Sidebar />
+                </div>
               </div>
               <TooManyRelaysAlertDialog />
-              <BackgroundAudio className="fixed bottom-20 right-0 z-50 w-80 overflow-hidden rounded-l-full rounded-r-none border shadow-lg" />
+              <BackgroundAudio className="fixed bottom-20 end-0 z-50 w-80 overflow-hidden rounded-s-full rounded-e-none border shadow-lg" />
+              <DraftBox />
+              <DraftEditorHost />
             </NotificationProvider>
           </CurrentRelaysProvider>
         </SecondaryPageContext.Provider>
@@ -399,7 +424,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
           <NotificationProvider>
             <div className="flex flex-col items-center bg-surface-background">
               <div
-                className="flex h-[var(--vh)] w-full bg-surface-background"
+                className="flex h-(--vh) w-full bg-surface-background"
                 style={{
                   maxWidth: '1920px'
                 }}
@@ -408,13 +433,13 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                 <div
                   className={cn(
                     'grid w-full grid-cols-2',
-                    themeSetting === 'pure-black' ? '' : 'gap-2 py-2 pr-2'
+                    themeSetting === 'pure-black' ? '' : 'gap-2 py-2 pe-2'
                   )}
                 >
                   <div
                     className={cn(
                       'overflow-hidden bg-background',
-                      themeSetting === 'pure-black' ? 'border-l' : 'rounded-2xl shadow-lg'
+                      themeSetting === 'pure-black' ? 'border-s' : 'rounded-2xl shadow-lg'
                     )}
                   >
                     {primaryPages.map(({ name, element, props }) => (
@@ -432,7 +457,7 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
                   <div
                     className={cn(
                       'overflow-hidden bg-background',
-                      themeSetting === 'pure-black' ? 'border-l' : 'rounded-2xl',
+                      themeSetting === 'pure-black' ? 'border-s' : 'rounded-2xl',
                       themeSetting !== 'pure-black' && secondaryStack.length > 0 && 'shadow-lg',
                       secondaryStack.length === 0 ? 'bg-surface' : ''
                     )}
@@ -451,7 +476,9 @@ export function PageManager({ maxStackSize = 5 }: { maxStackSize?: number }) {
               </div>
             </div>
             <TooManyRelaysAlertDialog />
-            <BackgroundAudio className="fixed bottom-20 right-0 z-50 w-80 overflow-hidden rounded-l-full rounded-r-none border shadow-lg" />
+            <BackgroundAudio className="fixed bottom-20 end-0 z-50 w-80 overflow-hidden rounded-s-full rounded-e-none border shadow-lg" />
+            <DraftBox />
+            <DraftEditorHost />
           </NotificationProvider>
         </CurrentRelaysProvider>
       </SecondaryPageContext.Provider>
@@ -496,13 +523,13 @@ function isCurrentPage(stack: TStackItem[], url: string) {
 
 function findAndCloneElement(url: string, index: number) {
   const path = url.split('?')[0].split('#')[0]
-  for (const { matcher, element } of SECONDARY_ROUTES) {
+  for (const { matcher, element, hideBottomBar } of SECONDARY_ROUTES) {
     const match = matcher(path)
     if (!match) continue
 
     if (!element) return {}
     const ref = createRef<TPageRef>()
-    return { element: cloneElement(element, { ...match.params, index, ref } as any), ref }
+    return { element: cloneElement(element, { ...match.params, index, ref } as any), ref, hideBottomBar }
   }
   return {}
 }
@@ -516,10 +543,10 @@ function pushNewPageToStack(
   const currentItem = stack[stack.length - 1]
   const currentIndex = specificIndex ?? (currentItem ? currentItem.index + 1 : 0)
 
-  const { element, ref } = findAndCloneElement(url, currentIndex)
+  const { element, ref, hideBottomBar } = findAndCloneElement(url, currentIndex)
   if (!element) return { newStack: stack, newItem: null }
 
-  const newItem = { element, ref, url, index: currentIndex }
+  const newItem: TStackItem = { element, ref, url, index: currentIndex, hideBottomBar: hideBottomBar ?? false }
   const newStack = [...stack, newItem]
   const lastCachedIndex = newStack.findIndex((stack) => stack.element)
   // Clear the oldest cached element if there are too many cached elements

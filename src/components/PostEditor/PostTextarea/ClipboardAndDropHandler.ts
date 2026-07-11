@@ -3,18 +3,18 @@ import { Extension } from '@tiptap/core'
 import { EditorView } from '@tiptap/pm/view'
 import { Plugin, TextSelection } from 'prosemirror-state'
 
-const DRAGOVER_CLASS_LIST = [
-  'outline-2',
-  'outline-offset-4',
-  'outline-dashed',
-  'outline-border',
-  'rounded-md'
-]
+// Only show the drop overlay / intercept the drop when the drag carries OS
+// files. Internal text drags (e.g. reordering selected text) must fall through
+// to ProseMirror's default handling.
+function isFileDrag(event: DragEvent) {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files')
+}
 
 export interface ClipboardAndDropHandlerOptions {
   onUploadStart?: (file: File, cancel: () => void) => void
   onUploadEnd?: (file: File) => void
   onUploadProgress?: (file: File, progress: number) => void
+  onDragStateChange?: (isDragging: boolean) => void
 }
 
 export const ClipboardAndDropHandler = Extension.create<ClipboardAndDropHandlerOptions>({
@@ -27,7 +27,8 @@ export const ClipboardAndDropHandler = Extension.create<ClipboardAndDropHandlerO
       onUploadError: undefined,
       onUploadEnd: undefined,
       onUploadProgress: undefined,
-      onProvideCancel: undefined
+      onProvideCancel: undefined,
+      onDragStateChange: undefined
     }
   },
 
@@ -38,31 +39,40 @@ export const ClipboardAndDropHandler = Extension.create<ClipboardAndDropHandlerO
       new Plugin({
         props: {
           handleDOMEvents: {
-            dragenter(view, event) {
+            dragenter(_view, event) {
+              if (!isFileDrag(event)) return false
               event.preventDefault()
-              view.dom.classList.add(...DRAGOVER_CLASS_LIST)
+              options.onDragStateChange?.(true)
               return true
             },
-            dragover(view, event) {
+            dragover(_view, event) {
+              if (!isFileDrag(event)) return false
               event.preventDefault()
-              view.dom.classList.add(...DRAGOVER_CLASS_LIST)
+              options.onDragStateChange?.(true)
               return true
             },
-            dragleave(view) {
-              view.dom.classList.remove(...DRAGOVER_CLASS_LIST)
+            dragleave(view, event) {
+              // dragleave also fires when the pointer moves onto a descendant of
+              // the editor; only hide when it actually exits the editor area.
+              const related = event.relatedTarget as Node | null
+              if (related && view.dom.contains(related)) return false
+              options.onDragStateChange?.(false)
               return true
             }
           },
           handleDrop(view: EditorView, event: DragEvent) {
+            if (!isFileDrag(event)) return false
             event.preventDefault()
             event.stopPropagation()
-            view.dom.classList.remove(...DRAGOVER_CLASS_LIST)
+            options.onDragStateChange?.(false)
 
             const items = Array.from(event.dataTransfer?.files ?? [])
             const mediaFiles = items.filter(
-              (item) => item.type.includes('image') || item.type.includes('video')
+              (item) => item.type.includes('image') || item.type.includes('video') || item.type.includes('audio')
             )
-            if (!mediaFiles.length) return false
+            // Consume the drop either way: we don't want the browser to navigate
+            // to a dropped non-media file.
+            if (!mediaFiles.length) return true
 
             uploadFiles(view, mediaFiles, options)
             return true
@@ -74,7 +84,7 @@ export const ClipboardAndDropHandler = Extension.create<ClipboardAndDropHandlerO
             for (const item of items) {
               if (
                 item.kind === 'file' &&
-                (item.type.includes('image') || item.type.includes('video'))
+                (item.type.includes('image') || item.type.includes('video') || item.type.includes('audio'))
               ) {
                 const file = item.getAsFile()
                 if (file) {

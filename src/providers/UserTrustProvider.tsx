@@ -13,6 +13,7 @@ type TUserTrustContext = {
   isUserTrusted: (pubkey: string) => boolean
   isSpammer: (pubkey: string) => Promise<boolean>
   meetsMinTrustScore: (pubkey: string, minScore: number) => Promise<boolean>
+  pickRecommendedPubkeys: (count: number, excludeSet: Set<string>) => string[]
 }
 
 const UserTrustContext = createContext<TUserTrustContext | undefined>(undefined)
@@ -25,7 +26,7 @@ export const useUserTrust = () => {
   return context
 }
 
-const wotSet = new Set<string>()
+const wotScoreMap = new Map<string, number>()
 
 export function UserTrustProvider({ children }: { children: React.ReactNode }) {
   const { pubkey: currentPubkey } = useNostr()
@@ -39,7 +40,9 @@ export function UserTrustProvider({ children }: { children: React.ReactNode }) {
 
     const initWoT = async () => {
       const followings = await client.fetchFollowings(currentPubkey, false)
-      followings.forEach((pubkey) => wotSet.add(pubkey))
+      followings.forEach((pubkey) => {
+        if (!wotScoreMap.has(pubkey)) wotScoreMap.set(pubkey, 0)
+      })
 
       const batchSize = 20
       for (let i = 0; i < followings.length; i += batchSize) {
@@ -48,7 +51,7 @@ export function UserTrustProvider({ children }: { children: React.ReactNode }) {
           batch.map(async (pubkey) => {
             const _followings = await client.fetchFollowings(pubkey, false)
             _followings.forEach((following) => {
-              wotSet.add(following)
+              wotScoreMap.set(following, (wotScoreMap.get(following) ?? 0) + 1)
             })
           })
         )
@@ -61,7 +64,7 @@ export function UserTrustProvider({ children }: { children: React.ReactNode }) {
   const isUserTrusted = useCallback(
     (pubkey: string) => {
       if (!currentPubkey || pubkey === currentPubkey) return true
-      return wotSet.has(pubkey)
+      return wotScoreMap.has(pubkey)
     },
     [currentPubkey]
   )
@@ -75,6 +78,24 @@ export function UserTrustProvider({ children }: { children: React.ReactNode }) {
     },
     [isUserTrusted]
   )
+
+  const pickRecommendedPubkeys = useCallback((count: number, excludeSet: Set<string>) => {
+    const candidates: { pubkey: string; score: number }[] = []
+    wotScoreMap.forEach((score, pubkey) => {
+      if (!excludeSet.has(pubkey)) {
+        candidates.push({ pubkey, score })
+      }
+    })
+    candidates.sort((a, b) => b.score - a.score)
+    const pool = candidates.slice(0, 50)
+    // Fisher-Yates shuffle, but only as many swaps as we need
+    const take = Math.min(count, pool.length)
+    for (let i = 0; i < take; i++) {
+      const j = i + Math.floor(Math.random() * (pool.length - i))
+      ;[pool[i], pool[j]] = [pool[j], pool[i]]
+    }
+    return pool.slice(0, take).map((c) => c.pubkey)
+  }, [])
 
   const getMinTrustScore = useCallback(
     (id: string) => {
@@ -104,7 +125,7 @@ export function UserTrustProvider({ children }: { children: React.ReactNode }) {
       if (pubkey === currentPubkey) return true
 
       // WoT users always have 100% trust score
-      if (wotSet.has(pubkey)) return true
+      if (wotScoreMap.has(pubkey)) return true
 
       // Get percentile from reputation system
       const percentile = await fayan.fetchUserPercentile(pubkey)
@@ -123,7 +144,8 @@ export function UserTrustProvider({ children }: { children: React.ReactNode }) {
         updateMinTrustScore,
         isUserTrusted,
         isSpammer,
-        meetsMinTrustScore
+        meetsMinTrustScore,
+        pickRecommendedPubkeys
       }}
     >
       {children}

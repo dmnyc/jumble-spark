@@ -1,6 +1,6 @@
 import { Skeleton } from '@/components/ui/skeleton'
+import { useBlossomUrl } from '@/hooks/useBlossomUrl'
 import { cn } from '@/lib/utils'
-import blossomService from '@/services/blossom.service'
 import { TImetaInfo } from '@/types'
 import { decode } from 'blurhash'
 import { ImageOff } from 'lucide-react'
@@ -26,50 +26,23 @@ export default function Image({
   hideIfError?: boolean
   errorPlaceholder?: React.ReactNode
 }) {
-  const [isLoading, setIsLoading] = useState(true)
+  const { url: imageUrl, error: hasError, handleError, markSuccess } = useBlossomUrl(url, pubkey)
+  const [isLoaded, setIsLoaded] = useState(false)
   const [displaySkeleton, setDisplaySkeleton] = useState(true)
-  const [hasError, setHasError] = useState(false)
-  const [imageUrl, setImageUrl] = useState<string>()
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
-    setIsLoading(true)
-    setHasError(false)
+    setIsLoaded(false)
     setDisplaySkeleton(true)
-
-    if (pubkey) {
-      blossomService.getValidUrl(url, pubkey).then((validUrl) => {
-        setImageUrl(validUrl)
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current)
-          timeoutRef.current = null
-        }
-      })
-      timeoutRef.current = setTimeout(() => {
-        setImageUrl(url)
-      }, 5000)
-    } else {
-      setImageUrl(url)
-    }
   }, [url])
 
   if (hideIfError && hasError) return null
 
-  const handleError = async () => {
-    const nextUrl = await blossomService.tryNextUrl(url)
-    if (nextUrl) {
-      setImageUrl(nextUrl)
-    } else {
-      setIsLoading(false)
-      setHasError(true)
-    }
-  }
+  const isLoading = !isLoaded && !hasError
 
   const handleLoad = () => {
-    setIsLoading(false)
-    setHasError(false)
+    setIsLoaded(true)
     setTimeout(() => setDisplaySkeleton(false), 600)
-    blossomService.markAsSuccess(url, imageUrl || url)
+    markSuccess()
   }
 
   return (
@@ -142,7 +115,7 @@ export default function Image({
         ) : (
           <div
             className={cn(
-              'flex h-full w-full flex-col items-center justify-center bg-muted object-cover',
+              'bg-muted flex h-full w-full flex-col items-center justify-center object-cover',
               className,
               classNames.errorPlaceholder
             )}

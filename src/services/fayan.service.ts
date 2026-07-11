@@ -1,4 +1,5 @@
 import { getProfileFromEvent } from '@/lib/event-metadata'
+import { proxyFetch } from '@/lib/proxy-fetch'
 import { userIdToPubkey } from '@/lib/pubkey'
 import { TProfile } from '@/types'
 import DataLoader from 'dataloader'
@@ -13,7 +14,7 @@ class FayanService {
   private userPercentileDataLoader = new DataLoader<string, number | null>(
     async (pubkeys) => {
       try {
-        const res = await fetch(`${SERVICE_URL}/users`, {
+        const res = await proxyFetch(`${SERVICE_URL}/users`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -23,7 +24,7 @@ class FayanService {
         if (!res.ok) {
           return new Array(pubkeys.length).fill(null)
         }
-        const data = await res.json()
+        const data = JSON.parse(res.body)
         return pubkeys.map((pubkey) => data[pubkey]?.percentile ?? 0)
       } catch {
         return new Array(pubkeys.length).fill(null)
@@ -66,11 +67,11 @@ class FayanService {
         url.searchParams.append('offset', offset.toString())
       }
 
-      const res = await fetch(url.toString())
+      const res = await proxyFetch(url.toString())
       if (!res.ok) {
         return []
       }
-      const data = (await res.json()) as { event: NostrEvent; percentile: number }[]
+      const data = JSON.parse(res.body) as { event: NostrEvent; percentile: number }[]
       const profiles: TProfile[] = []
       data.forEach(({ event, percentile }) => {
         const profile = getProfileFromEvent(event)

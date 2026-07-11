@@ -69,8 +69,6 @@ jumble/
 
 ### Environment Setup
 
-### Environment Setup
-
 ```bash
 # Install dependencies
 npm install
@@ -147,13 +145,17 @@ And some Providers are placed in `PageManager.tsx` because they need to use the 
 
 ### Internationalization (i18n)
 
-Jumble is a multi-language application. When you add new text content, please ensure to add translations for all supported languages as much as possible. Append new translations to the end of each translation file without modifying or removing existing keys.
+Jumble is a multi-language application. When you add new text content, please ensure to add translations for all supported languages as much as possible.
+
+**IMPORTANT: New translation keys must be appended to the end of each locale file (`src/i18n/locales/*.ts`). Never insert new keys in the middle of the file.**
+
+Do not modify or remove existing keys.
 
 At the trial stage, you can skip translation first. After the feature is completed and confirmed satisfactory, you can add translation content later.
 
 - Translation files located in `src/i18n/locales/`
 - Using `react-i18next` for internationalization
-- Supported languages: ar, de, en, es, fa, fr, hi, hu, it, ja, ko, pl, pt-BR, pt-PT, ru, th, zh, zh-TW
+- Supported languages: ar, de, en, es, fa, fr, hi, hu, it, ja, ko, pl, pt-BR, pt-PT, ru, th, tr, zh, zh-TW
 
 #### Adding New Language
 
@@ -161,6 +163,49 @@ At the trial stage, you can skip translation first. After the feature is complet
 2. According to `src/i18n/locales/en.ts`, add translation key-value pairs
 3. Update `src/i18n/index.ts` to include the new language resource
 4. Update `detectLanguage` function in `src/lib/utils.ts` to support detecting the new language
+5. If the new language is RTL (right-to-left, e.g. Arabic, Persian, Hebrew, Urdu), add its base code to the `RTL_LANGUAGES` array in `src/i18n/index.ts`
+
+### RTL (Right-to-Left) Layout Support
+
+Jumble supports RTL languages (currently Arabic `ar` and Persian `fa`). **All new UI must work in both LTR and RTL layouts.** The app sets `<html dir="rtl">` automatically when an RTL language is active (see `applyDocumentDirection` in `src/i18n/index.ts`), and wraps the tree in a Radix `DirectionProvider` in `src/App.tsx` so Radix primitives (ScrollArea, DropdownMenu, Dialog, Popover, Tooltip, Select, etc.) follow suit.
+
+#### Conventions
+
+**Always prefer logical Tailwind classes over physical ones.** Tailwind v4 supports these natively; they flip automatically when `dir="rtl"` is set.
+
+| Use (logical) | Not (physical) |
+| --- | --- |
+| `ms-*`, `me-*` | `ml-*`, `mr-*` |
+| `ps-*`, `pe-*` | `pl-*`, `pr-*` |
+| `start-*`, `end-*` | `left-*`, `right-*` |
+| `text-start`, `text-end` | `text-left`, `text-right` |
+| `border-s`, `border-e` | `border-l`, `border-r` |
+| `rounded-s-*`, `rounded-e-*` | `rounded-l-*`, `rounded-r-*` |
+| `rounded-ss-*`, `rounded-se-*`, `rounded-es-*`, `rounded-ee-*` | `rounded-tl-*`, `rounded-tr-*`, `rounded-bl-*`, `rounded-br-*` |
+
+**Exceptions — keep physical classes when anchoring to the screen edge, not to content flow.** Modal close buttons (top-right by global convention), notification badges on icon corners, dialog centering via `left-[50%]`, and carousel prev/next buttons anchored to physical positions should stay physical.
+
+#### What does NOT flip automatically
+
+- **CSS transforms** (`translate-x-*`, `rotate-*`): these are not direction-aware. Use the `rtl:` variant to compensate, e.g. `translate-x-full rtl:-translate-x-full`.
+- **Direction-sensitive icons** from `lucide-react` (`ChevronRight`, `ChevronLeft`, `ArrowLeft`, `ArrowRight`, `ChevronsLeft`, `ChevronsRight`, etc.) when used as navigation/drill-in/back indicators: add `className="rtl:-scale-x-100"` to flip horizontally. Skip the flip when the icon represents a physical spatial concept (e.g. carousel arrows tied to absolute `left-4`/`right-4` buttons).
+- **JS-driven directions** — props like Vaul's `direction="left"`, Embla's scroll direction, or any manually-positioned element using `offsetLeft`/`scrollLeft`. Read `i18n.dir()` via `useTranslation` and branch accordingly. Example: `<Drawer direction={i18n.dir() === 'rtl' ? 'right' : 'left'}>`.
+
+#### User-generated content (notes, bios, usernames, DM text)
+
+**Add `dir="auto"` to the outermost container of any user-written text.** This lets the browser's Unicode Bidirectional Algorithm pick the direction per content — an Arabic note renders RTL, an English note stays LTR, even inside an RTL app chrome. Mixed text within a single node is handled by UBA automatically.
+
+Current containers that already have `dir="auto"`: `Content`, `MarkdownContent` (inherited), `Username` (both variants), `TextWithEmojis`, `ProfileAbout`, `DmMessageList` bubble text, `ContentPreview/Content`, `ParentNotePreview`, `GroupMetadata`, `CommunityDefinition`. Follow the same pattern for any new component that renders freeform user text.
+
+**Do NOT** put `dir="auto"` on translated UI strings (t() output, button labels, timestamps, relay URLs, event IDs) — those follow chrome direction.
+
+#### When adding a new component, verify
+
+1. No new `ml-*/mr-*/pl-*/pr-*/left-*/right-*/text-left/right/border-l/r/rounded-l/r*` unless physically anchored.
+2. Any chevron/arrow used for navigation flow carries `rtl:-scale-x-100`.
+3. User-generated text containers carry `dir="auto"`.
+4. Any JS that reads `offsetLeft` or sets `translate-x-*` has been thought through for RTL.
+5. Smoke-test by switching the app to Arabic (Settings → Languages → العربية) and verifying the feature visually mirrors correctly.
 
 ## Nostr Protocol Integration
 
@@ -235,6 +280,123 @@ Properties:
 - `onChange`: `(value: string) => void` - Callback function when the selected tab changes.
 - `threshold`: `number` - Height threshold for hiding the tab bar on scroll down. Default is `800`. It should larger than the height of the area above the tab bar. Normally you don't need to change this value.
 - `options`: `React.ReactNode` - Additional options to display on the right side of the tab bar.
+
+### src/components/ClickableCard
+
+A behavioral wrapper for a container whose `onClick` navigates the user (e.g. note cards, reply cards, notification cards). It renders a `<div>` and forwards `HTMLAttributes<HTMLDivElement>`.
+
+It marks itself with `data-clickable-card` and filters the click before calling the provided `onClick`, so the handler only fires when the click is for *this* card. Specifically it skips:
+
+1. Portal-rendered descendants (overlays, menus rendered outside the DOM subtree).
+2. Interactive controls inside the card — `button`, `a`, `input`, `textarea`, `select`, `[role="button"]` (matched via `closest()`).
+3. Clicks that originate inside a *nested* `ClickableCard` (e.g. an embedded note inside a note card).
+
+**Why not just call `e.stopPropagation()` on inner controls?** React's `stopPropagation()` also calls `nativeEvent.stopPropagation()`, which prevents the click from bubbling to `document`. Radix Dialog/Drawer's touch-mode outside-click detection relies on that native bubble to close itself when the user taps outside. Stopping propagation breaks that detection. The filter-on-the-parent approach in `ClickableCard` sidesteps the issue entirely — clicks still bubble to `document`, we just ignore the ones that don't belong to us.
+
+**When to use it:**
+
+- Use `<ClickableCard>` when the clickable container holds anything that could bubble an unwanted click — interactive controls (`<button>`, `<a>`, `StuffStats`, `NoteOptions`, etc.) or other clickable cards (e.g. embedded notes). For these cases, do **not** hand-roll the filter logic, and do **not** rely on `e.stopPropagation()` on inner controls (it breaks Radix Dialog/Drawer touch-mode — see above).
+- A plain `<div onClick={...}>` (or `<Card onClick={...}>`) is fine when the container only holds purely-display content (text, avatars, icons) with no clickable descendants. If you later add an interactive child or nested card, swap it for `<ClickableCard>` at that time.
+- Inside a `ClickableCard`, a custom clickable element that is *not* a `button`/`a`/`input`/`textarea`/`select` must declare `role="button"` so the filter recognizes it.
+- When introducing a brand-new kind of "clickable container" pattern (rare), keep the `data-clickable-card` contract consistent — i.e. extend `ClickableCard` or follow the same marker. Do not invent a parallel mechanism.
+
+## Feature Documentation
+
+- [DM (Direct Messages)](docs/dm-feature.md) - End-to-end encrypted messaging based on NIP-17
+
+## Electron Mode
+
+Jumble ships as both a web app and an Electron desktop app from a single codebase. The Electron build is opt-in via the `ELECTRON=true` environment flag at build/dev time. The web build is the default and remains unchanged.
+
+### Why Electron
+
+The desktop build solves two problems the web build can't:
+
+1. **Chrome's per-origin WebSocket connection cap**. With many subscribed relays the browser stalls or drops connections. In Electron all relay WebSockets run in the **main process** (Node, no cap).
+2. **OS-level secret storage**. Private keys, encryption privkeys, and bunker client keys are written to a `safeStorage`-encrypted file in `userData/`, instead of plaintext `localStorage`.
+
+### Build & Run
+
+```bash
+npm run electron:dev      # vite dev + auto-launch electron
+npm run electron:build    # vite build + electron-builder → release/<version>/
+npm run electron:preview  # vite build + electron .  (no packaging)
+```
+
+Web scripts (`npm run dev`, `npm run build`) are untouched and never load any electron-only code.
+
+### Project Layout
+
+```
+electron/
+├── main/
+│   ├── index.ts          # main-process entry (BrowserWindow, app lifecycle)
+│   ├── relay-manager.ts  # owns SmartPool, pumps relay events to renderer
+│   ├── secrets-store.ts  # safeStorage-backed encrypted secrets file
+│   ├── proxy-fetch.ts    # generic HTTP proxy (CORS-bypass for renderer)
+│   └── ipc.ts            # ipcMain.handle registrations
+├── preload/index.ts      # contextBridge → window.electron
+├── shared/ipc-types.ts   # IPC channel names + payload types (used by main + renderer)
+└── tsconfig.json         # main-process TS config (Node target)
+```
+
+Renderer counterparts:
+
+- `src/lib/platform.ts` — `isElectron()`, `getElectronBridge()` helpers.
+- `src/lib/electron-pool.ts` — `ElectronPool` proxy that mimics `SmartPool`'s surface but ferries calls over IPC.
+- `src/services/local-storage.service.ts` — `hydrate()` async method called from `main.tsx` before React mount.
+- `src/services/web.service.ts` — branches to `bridge.proxy.fetch` in Electron mode.
+
+### Architectural Rules
+
+**Single source code**, mode-branched at the seams:
+
+- `src/lib/smart-pool.ts` is shared by web and main process. It accepts an `isAllowInsecure` getter via constructor options — do not import `local-storage.service` from it.
+- Any singleton that the renderer touches (e.g. `ClientService`) chooses its backing implementation in its constructor based on `isElectron() && getElectronBridge()`.
+- Signing (`ISigner`, NIP-07, nsec, bunker) **stays in the renderer** in Electron mode too. Browser extension support requires `window.nostr`, which only exists in the renderer.
+- Keep all renderer-facing storage APIs **synchronous**. The one async hook is `storage.hydrate()`, awaited once in `main.tsx` before mounting React. Do not introduce `async` getters.
+
+### IPC Contract (`electron/shared/ipc-types.ts`)
+
+The bridge exposed at `window.electron` has three namespaces:
+
+- `relay.*` — `ensure / publish / subscribe / closeSub / auth / close / setAllowInsecure / setTrustedInsecureRelayUrls`, plus event-stream listeners (`onSubEvent`, `onSubEose`, `onSubClose`, `onAuthRequest`) and `sendAuthResponse`. The renderer streams events back through `ipcRenderer.on`; the main process triggers AUTH signing via a request/response over IPC so the signer stays in the renderer.
+- `secrets.*` — `isAvailable / load / save`. Writes are atomic (tmp + rename) and serialized via a Promise chain.
+- `proxy.fetch(url, options)` — **generic CORS-bypass HTTP proxy**. Any future renderer code that needs to bypass CORS should call this rather than add a new channel. Returns `{ ok, status, statusText, url, headers, body }`. Default 15s timeout, 5 MB body cap, custom UA. Renderer parses the body itself (no domain logic in main).
+
+When adding a new IPC channel:
+1. Add the channel name to `IPC_CHANNELS` in `electron/shared/ipc-types.ts`.
+2. Add types to the same file.
+3. Register the handler in `electron/main/ipc.ts`.
+4. Expose it in `electron/preload/index.ts` via `contextBridge`.
+5. Consume it in renderer via `getElectronBridge()`.
+
+### Secrets Storage Model
+
+- Five secret categories: `nsec`, `ncryptsec`, `bunkerClientSecretKey`, `encryptionKeyPrivkey`, `clientKeyPrivkey`.
+- Internally always stored in per-pubkey maps on `LocalStorageService`.
+- Web mode: maps serialize back inline into the `accounts` JSON / dedicated localStorage keys (current behavior preserved).
+- Electron mode: maps persist via `bridge.secrets.save(...)` to `userData/secrets.enc` (encrypted by OS keychain). The `accounts` JSON in localStorage carries no secrets.
+- `getAccounts()`, `findAccount()`, `getCurrentAccount()` always re-attach secrets from the maps so callers like `account.bunkerClientSecretKey` keep working transparently.
+- If `safeStorage.isEncryptionAvailable()` is false (rare Linux without keyring), secrets are kept in memory only and a warning is logged. They will not silently degrade to plaintext at rest.
+
+### What Lives Where
+
+| Concern | Web mode | Electron mode |
+| --- | --- | --- |
+| Relay WebSockets | renderer (`SmartPool`) | main (`SmartPool` + `RelayManager`) |
+| Signing (`ISigner`) | renderer | renderer (unchanged) |
+| Secret storage | localStorage | `safeStorage` file in `userData/` |
+| Cross-origin HTTP fetch | direct or `VITE_PROXY_SERVER` | `bridge.proxy.fetch` |
+| IndexedDB caches | renderer | renderer (unchanged) |
+| PWA / service worker | enabled | disabled (vite-plugin-pwa skipped) |
+
+### When Modifying Electron Behavior
+
+- Don't add Node-only imports to anything under `src/`. Code in `src/` runs in the renderer (sandboxed Chromium); only `electron/main/**` runs in Node.
+- Don't add `import` paths in `electron/main/**` that touch `@/services/local-storage.service` or any other browser-API-dependent module. The shared module pattern (`src/lib/smart-pool.ts`) is fine because it has been deliberately stripped of browser deps.
+- When extending the proxy: keep the channel generic. Don't add domain-specific channels for one-off CORS needs — extend `proxy.fetch` options if needed.
+- Renderer code must remain functional in pure web mode. Always guard Electron paths with `isElectron() && getElectronBridge()`.
 
 ## Common Modification Scenarios
 

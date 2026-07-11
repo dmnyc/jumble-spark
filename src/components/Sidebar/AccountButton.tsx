@@ -8,10 +8,11 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { toWallet } from '@/lib/link'
+import { isPomegranateAccountByPointer } from '@/lib/pomegranate'
 import { cn } from '@/lib/utils'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
-import { LogIn, LogOut, Plus, Wallet } from 'lucide-react'
+import { Check, LogIn, LogOut, Plus, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import LoginDialog from '../LoginDialog'
@@ -46,12 +47,12 @@ function ProfileButton({ collapse }: { collapse: boolean }) {
         <Button
           variant="ghost"
           className={cn(
-            'clickable flex items-center justify-start gap-4 rounded-lg bg-transparent p-2 text-lg font-semibold text-foreground shadow-none hover:text-accent-foreground',
+            'clickable text-foreground hover:text-accent-foreground flex items-center justify-start gap-4 rounded-lg bg-transparent p-2 text-lg font-semibold shadow-none',
             collapse ? 'h-12 w-12' : 'h-auto w-full'
           )}
         >
-          <div className="flex w-0 flex-1 items-center gap-2">
-            <SimpleUserAvatar size="medium" userId={pubkey} />
+          <div className={cn('flex w-0 flex-1 items-center gap-2', collapse && 'justify-center')}>
+            <SimpleUserAvatar size="medium" userId={pubkey} ignorePolicy />
             {!collapse && (
               <SimpleUsername className="truncate text-lg font-semibold" userId={pubkey} />
             )}
@@ -65,38 +66,46 @@ function ProfileButton({ collapse }: { collapse: boolean }) {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel>{t('Switch account')}</DropdownMenuLabel>
-        {accounts.map((act) => (
-          <DropdownMenuItem
-            className={act.pubkey === pubkey ? 'cursor-default focus:bg-background' : ''}
-            key={`${act.pubkey}:${act.signerType}`}
-            onClick={() => {
-              if (act.pubkey !== pubkey) {
-                switchAccount(act)
-              }
-            }}
-          >
-            <div className="flex flex-1 items-center gap-2">
-              <SimpleUserAvatar userId={act.pubkey} />
-              <div className="w-0 flex-1">
-                <SimpleUsername
-                  userId={act.pubkey}
-                  className="truncate font-medium"
-                  skeletonClassName="h-3"
-                />
-                <SignerTypeBadge signerType={act.signerType} />
-              </div>
-            </div>
-            <div
+        {accounts.map((act, idx) => {
+          const isCurrent = act.pubkey === pubkey
+          return (
+            <DropdownMenuItem
+              key={`${act.pubkey}:${act.signerType}`}
               className={cn(
-                'size-3.5 rounded-full border border-muted-foreground',
-                act.pubkey === pubkey && 'size-4 border-4 border-primary'
+                'gap-2',
+                idx < accounts.length - 1 && 'mb-1',
+                isCurrent &&
+                  'bg-primary/10 ring-primary/40 focus:bg-primary/10 cursor-default ring-1 ring-inset'
               )}
-            />
-          </DropdownMenuItem>
-        ))}
+              onClick={() => {
+                if (!isCurrent) {
+                  switchAccount(act)
+                }
+              }}
+            >
+              <SimpleUserAvatar userId={act.pubkey} ignorePolicy />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <SimpleUsername
+                    userId={act.pubkey}
+                    className="truncate font-medium"
+                    skeletonClassName="h-3"
+                  />
+                  {isCurrent && (
+                    <Check className="text-primary size-3.5 shrink-0" aria-label={t('Current')} />
+                  )}
+                </div>
+                <SignerTypeBadge
+                  signerType={act.signerType}
+                  isPomegranate={isPomegranateAccountByPointer(act)}
+                />
+              </div>
+            </DropdownMenuItem>
+          )
+        })}
         <DropdownMenuItem
           onClick={() => setLoginDialogOpen(true)}
-          className="m-2 border border-dashed focus:border-muted-foreground focus:bg-background"
+          className="focus:border-muted-foreground focus:bg-background m-2 border border-dashed"
         >
           <div className="flex w-full items-center justify-center gap-2 py-2">
             <Plus />
@@ -111,7 +120,7 @@ function ProfileButton({ collapse }: { collapse: boolean }) {
           <span className="shrink-0">{t('Logout')}</span>
           <SimpleUsername
             userId={pubkey}
-            className="truncate rounded-md border border-muted-foreground px-1 text-xs text-muted-foreground"
+            className="border-muted-foreground text-muted-foreground truncate rounded-md border px-1 text-xs"
           />
         </DropdownMenuItem>
       </DropdownMenuContent>

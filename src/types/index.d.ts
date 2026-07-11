@@ -27,6 +27,7 @@ export type TProfile = {
   lud06?: string
   lud16?: string
   lightningAddress?: string
+  sp?: string
   created_at?: number
   emojis?: TEmoji[]
 }
@@ -115,12 +116,15 @@ export type TAccount = {
   bunker?: string
   bunkerClientSecretKey?: string
   npub?: string
+  // Central server URL when the account was created via "Login with Google"
+  // (pomegranate). Its presence marks the account as a pomegranate account.
+  pomegranateCentral?: string
 }
 
 export type TAccountPointer = Pick<TAccount, 'pubkey' | 'signerType'>
 
 export type TFeedType = 'following' | 'pinned' | 'relays' | 'relay'
-export type TFeedInfo = { feedType: TFeedType; id?: string } | null
+export type TFeedInfo = { feedType: TFeedType; id?: string; name?: string } | null
 
 export type TLanguage = 'en' | 'zh' | 'pl'
 
@@ -138,7 +142,23 @@ export type TPublishOptions = {
   minPow?: number
 }
 
-export type TNoteListMode = 'posts' | 'postsAndReplies' | 'you' | '24h'
+export type TPostTargetItem =
+  | { type: 'optimalRelays' }
+  | { type: 'relay'; url: string }
+  | { type: 'relaySet'; id: string; urls: string[] }
+
+export type TNoteListMode = 'posts' | 'postsAndReplies' | 'you' | '24h' | 'articles'
+
+export type TFeedTabBuiltin = 'posts' | 'postsAndReplies' | '24h' | 'articles'
+
+export type TFeedTabConfig = {
+  id: string
+  label: string
+  hidden?: boolean
+  kinds?: number[]
+  hideReplies?: boolean
+  builtin?: TFeedTabBuiltin
+}
 
 export type TNotificationType = 'all' | 'mentions' | 'reactions' | 'zaps'
 
@@ -147,7 +167,18 @@ export type TPageRef = { scrollToTop: (behavior?: ScrollBehavior) => void }
 export type TEmoji = {
   shortcode: string
   url: string
+  // Address pointer (kind:pubkey:d-tag) to the kind 30030 emoji set this emoji belongs to, if any
+  setAddress?: string
 }
+
+export type TEmojiPack = {
+  id: string
+  title?: string
+  author: string
+  emojis: TEmoji[]
+}
+
+export type TSkinTone = 0 | 1 | 2 | 3 | 4 | 5
 
 export type TTranslationAccount = {
   pubkey: string
@@ -222,3 +253,64 @@ export type TProfilePictureAutoLoadPolicy =
   (typeof PROFILE_PICTURE_AUTO_LOAD_POLICY)[keyof typeof PROFILE_PICTURE_AUTO_LOAD_POLICY]
 
 export type TNsfwDisplayPolicy = (typeof NSFW_DISPLAY_POLICY)[keyof typeof NSFW_DISPLAY_POLICY]
+
+export type TDmConversation = {
+  key: string
+  pubkey: string
+  lastMessageAt: number
+  lastMessageRumor?: Event
+  unreadCount: number
+  hasReplied: boolean
+  encryptionPubkey?: string
+  deleted?: boolean
+  deletedAt?: number
+}
+
+export type TDmMessage = {
+  id: string
+  participantsKey: string
+  senderPubkey: string
+  content: string
+  createdAt: number
+  originalEvent: Event
+  decryptedRumor: Event
+  replyTo?: {
+    id: string
+    content: string
+    senderPubkey: string
+    tags?: string[][]
+  }
+  // Sender-identity verification result captured at ingestion time.
+  // true      — seal.pubkey matched rumor.pubkey's current Kind 10044 'n' tag
+  // false     — mismatch, or Kind 10044 could not be retrieved
+  // undefined — message was ingested before this check existed, or imported from a JSONL dump
+  verified?: boolean
+  // Outgoing delivery state for messages we originated. The rumor is persisted up
+  // front (optimistic UI), then signed, gift-wrapped and published; this records
+  // where that pipeline is so a failed send can be retried — even across restarts.
+  // 'sending' — persisted, delivery in progress
+  // 'failed'  — delivery failed, awaiting resend
+  // undefined — delivered (or a received message), nothing pending
+  sendState?: 'sending' | 'failed'
+}
+
+export type TEncryptionKeypair = {
+  privkey: Uint8Array
+  pubkey: string
+}
+
+// Outcome of reconciling the local DM encryption key against the account's
+// currently announced one. 'adopted' = this browser already holds the announced
+// key (e.g. another tab rotated it) and it is now in use; 'needs_sync' = a
+// different device rotated the key, the stale local key was retired, and a resync
+// from another device is required.
+export type TEncryptionKeyReconcileResult = 'adopted' | 'needs_sync'
+
+export type TGifRecord = {
+  id: string
+  url: string
+  width: number
+  height: number
+  description: string
+  addedAt: number
+}

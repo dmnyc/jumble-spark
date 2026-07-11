@@ -1,4 +1,3 @@
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -6,6 +5,11 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
+import {
+  SettingsGroup,
+  SettingsPageContainer,
+  SettingsRow
+} from '@/components/ui/settings'
 import { LocalizedLanguageNames } from '@/i18n'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { useTranslationService } from '@/providers/TranslationServiceProvider'
@@ -27,46 +31,51 @@ const TranslationPage = forwardRef(({ index }: { index?: number }, ref) => {
 
   return (
     <SecondaryPageLayout ref={ref} index={index} title={t('Translation')}>
-      <div className="space-y-4 px-4 pt-3">
-        <div className="space-y-2">
-          <Label htmlFor="languages" className="text-base font-medium">
-            {t('Languages')}
-          </Label>
-          <Select defaultValue="en" value={language} onValueChange={handleLanguageChange}>
-            <SelectTrigger id="languages" className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(LocalizedLanguageNames).map(([key, value]) => (
-                <SelectItem key={key} value={key}>
-                  {value}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="translation-service-select" className="text-base font-medium">
-            {t('Service')}
-          </Label>
-          <Select
-            defaultValue={config.service}
-            value={config.service}
-            onValueChange={(newService) => {
-              updateConfig({ service: newService as 'jumble' | 'libre_translate' })
-            }}
-          >
-            <SelectTrigger id="translation-service-select" className="w-[180px]">
-              <SelectValue placeholder={t('Select Translation Service')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="jumble">Jumble</SelectItem>
-              <SelectItem value="libre_translate">LibreTranslate</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+      <SettingsPageContainer>
+        <SettingsGroup title={t('Translation')}>
+          <SettingsRow
+            htmlFor="languages"
+            title={t('Languages')}
+            control={
+              <Select defaultValue="en" value={language} onValueChange={handleLanguageChange}>
+                <SelectTrigger id="languages" className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(LocalizedLanguageNames).map(([key, value]) => (
+                    <SelectItem key={key} value={key}>
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            }
+          />
+          <SettingsRow
+            htmlFor="translation-service-select"
+            title={t('Service')}
+            control={
+              <Select
+                defaultValue={config.service}
+                value={config.service}
+                onValueChange={(newService) => {
+                  updateConfig({ service: newService as 'jumble' | 'libre_translate' })
+                }}
+              >
+                <SelectTrigger id="translation-service-select" className="w-44">
+                  <SelectValue placeholder={t('Select Translation Service')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="jumble">Jumble</SelectItem>
+                  <SelectItem value="libre_translate">LibreTranslate</SelectItem>
+                </SelectContent>
+              </Select>
+            }
+          />
+        </SettingsGroup>
+
         {config.service === 'jumble' ? <JumbleTranslate /> : <LibreTranslate />}
-      </div>
+      </SettingsPageContainer>
     </SecondaryPageLayout>
   )
 })

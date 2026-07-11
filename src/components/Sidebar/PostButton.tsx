@@ -21,7 +21,7 @@ export default function PostButton({ collapse }: { collapse: boolean }) {
           })
         }}
         variant="default"
-        className={cn('gap-2 bg-primary', !collapse && 'justify-center')}
+        className={cn('bg-primary gap-2', !collapse && 'justify-center')}
         collapse={collapse}
       >
         <PencilLine />

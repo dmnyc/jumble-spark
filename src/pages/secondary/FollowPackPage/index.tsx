@@ -73,9 +73,9 @@ const FollowPackPage = forwardRef(({ id, index }: { id?: string; index?: number 
             <button
               onClick={() => setTab('users')}
               className={cn(
-                'rounded-l-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                'rounded-s-lg px-3 py-1.5 text-sm font-medium transition-colors',
                 tab === 'users'
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? 'bg-background text-foreground shadow-xs'
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
@@ -84,9 +84,9 @@ const FollowPackPage = forwardRef(({ id, index }: { id?: string; index?: number 
             <button
               onClick={() => setTab('feed')}
               className={cn(
-                'rounded-r-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                'rounded-e-lg px-3 py-1.5 text-sm font-medium transition-colors',
                 tab === 'feed'
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? 'bg-background text-foreground shadow-xs'
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
@@ -98,7 +98,7 @@ const FollowPackPage = forwardRef(({ id, index }: { id?: string; index?: number 
         {/* Content */}
         {tab === 'users' && <ProfileList pubkeys={pubkeys} />}
         {tab === 'feed' && pubkeys.length > 0 && (
-          <Feed trustScoreFilterId={`follow-pack-${getEventKey(event)}`} pubkeys={pubkeys} />
+          <Feed feedId={`follow-pack-${getEventKey(event)}`} pubkeys={pubkeys} />
         )}
       </div>
     </SecondaryPageLayout>
@@ -107,7 +107,7 @@ const FollowPackPage = forwardRef(({ id, index }: { id?: string; index?: number 
 FollowPackPage.displayName = 'FollowPackPage'
 export default FollowPackPage
 
-function Feed({ trustScoreFilterId, pubkeys }: { trustScoreFilterId: string; pubkeys: string[] }) {
+function Feed({ feedId, pubkeys }: { feedId: string; pubkeys: string[] }) {
   const { pubkey: myPubkey } = useNostr()
   const [subRequests, setSubRequests] = useState<TFeedSubRequest[]>([])
 
@@ -115,5 +115,5 @@ function Feed({ trustScoreFilterId, pubkeys }: { trustScoreFilterId: string; pub
     client.generateSubRequestsForPubkeys(pubkeys, myPubkey).then(setSubRequests)
   }, [pubkeys, myPubkey])
 
-  return <NormalFeed trustScoreFilterId={trustScoreFilterId} subRequests={subRequests} />
+  return <NormalFeed feedId={feedId} subRequests={subRequests} />
 }

@@ -1,14 +1,15 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SettingsSection } from '@/components/ui/settings'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import transaction from '@/services/transaction.service'
 import { closeModal, launchPaymentModal } from '@getalby/bitcoin-connect-react'
 import { Loader } from 'lucide-react'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useJumbleTranslateAccount } from './JumbleTranslateAccountProvider'
-import { useTranslation } from 'react-i18next'
 
 export default function TopUp() {
   const { t } = useTranslation()
@@ -69,11 +70,11 @@ export default function TopUp() {
           setTopUpLoading(false)
 
           if (state === 'settled') {
-            setPaid({ preimage: '' }) // Preimage is not returned, but we can assume payment is successful
-            getAccount() // Refresh account balance
+            setPaid({ preimage: '' })
+            getAccount()
           } else {
             closeModal()
-            toast.error('The invoice has expired or the payment was not successful')
+            toast.error(t('The invoice has expired or the payment was not successful'))
           }
         } catch (err) {
           failedCount++
@@ -82,52 +83,50 @@ export default function TopUp() {
           clearInterval(checkPaymentInterval)
           setTopUpLoading(false)
           toast.error(
-            'Top up failed: ' +
-              (err instanceof Error ? err.message : 'An error occurred while topping up')
+            t('Top up failed') +
+              ': ' +
+              (err instanceof Error ? err.message : t('An error occurred while topping up'))
           )
         }
       }, 2000)
     } catch (err) {
       setTopUpLoading(false)
       toast.error(
-        'Top up failed: ' +
-          (err instanceof Error ? err.message : 'An error occurred while topping up')
+        t('Top up failed') +
+          ': ' +
+          (err instanceof Error ? err.message : t('An error occurred while topping up'))
       )
     }
   }
 
   return (
-    <div className="space-y-4">
-      <p className="font-medium">{t('Top up')}</p>
+    <SettingsSection title={t('Top up')}>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {presetAmounts.map(({ amount, text }) => (
+            <button
+              key={amount}
+              type="button"
+              onClick={() => handlePresetClick(amount)}
+              className={cn(
+                'flex flex-col items-center rounded-lg border bg-card px-3 py-3 transition-colors hover:bg-muted/50',
+                selectedAmount === amount && 'border-primary bg-primary/5'
+              )}
+            >
+              <span className="text-base font-semibold">
+                {text} {t('sats')}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {calculateCharacters(amount).toLocaleString()} {t('characters')}
+              </span>
+            </button>
+          ))}
+        </div>
 
-      {/* Preset amounts */}
-      <div className="grid grid-cols-2 gap-2">
-        {presetAmounts.map(({ amount, text }) => (
-          <Button
-            key={amount}
-            variant="outline"
-            onClick={() => handlePresetClick(amount)}
-            className={cn(
-              'flex h-auto flex-col py-3 hover:bg-primary/10',
-              selectedAmount === amount && 'border border-primary bg-primary/10'
-            )}
-          >
-            <span className="text-lg font-semibold">
-              {text} {t('sats')}
-            </span>
-            <span className="text-sm text-muted-foreground">
-              {calculateCharacters(amount).toLocaleString()} {t('characters')}
-            </span>
-          </Button>
-        ))}
-      </div>
-
-      {/* Custom amount input */}
-      <div className="space-y-2">
         <div className="flex items-center gap-2">
           <Input
             type="number"
-            placeholder="Custom amount"
+            placeholder={t('Custom amount')}
             value={topUpAmount}
             onChange={(e) => handleInputChange(e.target.value)}
             min={1000}
@@ -136,6 +135,7 @@ export default function TopUp() {
           />
           <span className="text-sm text-muted-foreground">{t('sats')}</span>
         </div>
+
         {selectedAmount && selectedAmount >= 1000 && (
           <p className="text-sm text-muted-foreground">
             {t('Will receive: {n} characters', {
@@ -143,22 +143,22 @@ export default function TopUp() {
             })}
           </p>
         )}
-      </div>
 
-      <Button
-        className="w-full"
-        disabled={topUpLoading || !selectedAmount || selectedAmount < 1000}
-        onClick={() => handleTopUp(selectedAmount)}
-      >
-        {topUpLoading && <Loader className="animate-spin" />}
-        {selectedAmount && selectedAmount >= 1000
-          ? t('Top up {n} sats', {
-              n: selectedAmount?.toLocaleString()
-            })
-          : t('Minimum top up is {n} sats', {
-              n: new Number(1000).toLocaleString()
-            })}
-      </Button>
-    </div>
+        <Button
+          className="w-full"
+          disabled={topUpLoading || !selectedAmount || selectedAmount < 1000}
+          onClick={() => handleTopUp(selectedAmount)}
+        >
+          {topUpLoading && <Loader className="animate-spin" />}
+          {selectedAmount && selectedAmount >= 1000
+            ? t('Top up {n} sats', {
+                n: selectedAmount?.toLocaleString()
+              })
+            : t('Minimum top up is {n} sats', {
+                n: new Number(1000).toLocaleString()
+              })}
+        </Button>
+      </div>
+    </SettingsSection>
   )
 }

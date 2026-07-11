@@ -1,18 +1,19 @@
 import { usePrimaryPage } from '@/PageManager'
-import { Search } from 'lucide-react'
+import { MagnifyingGlassIcon } from '@phosphor-icons/react'
 import SidebarItem from './SidebarItem'
 
 export default function SearchButton({ collapse }: { collapse: boolean }) {
   const { navigate, current, display } = usePrimaryPage()
+  const active = current === 'search' && display
 
   return (
     <SidebarItem
       title="Search"
       onClick={() => navigate('search')}
-      active={current === 'search' && display}
+      active={active}
       collapse={collapse}
     >
-      <Search />
+      <MagnifyingGlassIcon weight={active ? 'fill' : 'bold'} />
     </SidebarItem>
   )
 }

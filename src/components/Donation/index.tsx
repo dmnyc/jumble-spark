@@ -1,9 +1,9 @@
 import { Button } from '@/components/ui/button'
-import { JUMBLE_PUBKEY } from '@/constants'
 import { cn } from '@/lib/utils'
-import { useState } from 'react'
+import lightning from '@/services/lightning.service'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import ZapDialog from '../ZapDialog'
+import DonationDialog, { DONATION_PRESETS } from './DonationDialog'
 import PlatinumSponsors from './PlatinumSponsors'
 import RecentSupporters from './RecentSupporters'
 
@@ -11,42 +11,57 @@ export default function Donation({ className }: { className?: string }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [donationAmount, setDonationAmount] = useState<number | undefined>(undefined)
+  const [supportersRefreshKey, setSupportersRefreshKey] = useState(0)
+  const pendingRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (pendingRefreshRef.current) clearTimeout(pendingRefreshRef.current)
+    }
+  }, [])
+
+  const handleDonated = () => {
+    if (pendingRefreshRef.current) clearTimeout(pendingRefreshRef.current)
+    pendingRefreshRef.current = setTimeout(() => {
+      lightning.invalidateRecentSupportersCache()
+      setSupportersRefreshKey((k) => k + 1)
+    }, 6000)
+  }
 
   return (
-    <div className={cn('space-y-4 rounded-lg border p-4', className)}>
-      <div className="text-center font-semibold">{t('Enjoying Jumble?')}</div>
-      <div className="text-center text-muted-foreground">
-        {t('Your donation helps me maintain Jumble and make it better! 😊')}
-      </div>
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {[
-          { amount: 1000, text: '☕️ 1k' },
-          { amount: 10000, text: '🍜 10k' },
-          { amount: 100000, text: '🍣 100k' },
-          { amount: 1000000, text: '✈️ 1M' }
-        ].map(({ amount, text }) => {
-          return (
+    <div className={cn('space-y-8', className)}>
+      <section className="space-y-4">
+        <div className="space-y-1.5 text-center">
+          <div className="text-lg font-semibold">{t('Enjoying Jumble?')}</div>
+          <div className="text-muted-foreground text-sm">
+            {t('Your donation helps me maintain Jumble and make it better! 😊')}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {DONATION_PRESETS.map(({ amount, emoji, display }) => (
             <Button
               variant="secondary"
-              className=""
               key={amount}
               onClick={() => {
                 setDonationAmount(amount)
                 setOpen(true)
               }}
             >
-              {text}
+              <span>{emoji}</span>
+              <span className="tabular-nums">{display}</span>
             </Button>
-          )
-        })}
-      </div>
+          ))}
+        </div>
+      </section>
+
       <PlatinumSponsors />
-      <RecentSupporters />
-      <ZapDialog
+      <RecentSupporters refreshKey={supportersRefreshKey} />
+
+      <DonationDialog
         open={open}
         setOpen={setOpen}
-        pubkey={JUMBLE_PUBKEY}
         defaultAmount={donationAmount}
+        onDonated={handleDonated}
       />
     </div>
   )

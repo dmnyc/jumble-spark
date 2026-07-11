@@ -4,14 +4,22 @@ import { getEventKey, getKeyFromTag, getParentTag } from '@/lib/event'
 import { toNote } from '@/lib/link'
 import { generateBech32IdFromETag } from '@/lib/tag'
 import { cn } from '@/lib/utils'
+import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReplyNote from '../ReplyNote'
 
-export default function SubReplies({ parentKey }: { parentKey: string }) {
+export default function SubReplies({
+  parentKey,
+  opPubkey
+}: {
+  parentKey: string
+  opPubkey?: string
+}) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
+  const { autoLoadProfilePicture } = useContentPolicy()
   const [isExpanded, setIsExpanded] = useState(false)
   const { replies } = useFilteredAllReplies(parentKey)
   const [highlightReplyKey, setHighlightReplyKey] = useState<string | undefined>(undefined)
@@ -47,10 +55,16 @@ export default function SubReplies({ parentKey }: { parentKey: string }) {
             e.stopPropagation()
             setIsExpanded(!isExpanded)
           }}
-          className="clickable relative flex w-full items-center gap-1.5 py-2 pl-14 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className={cn(
+            'clickable text-muted-foreground hover:text-foreground relative flex w-full items-center gap-1.5 py-2 text-sm transition-colors',
+            autoLoadProfilePicture ? 'ps-14' : 'ps-5'
+          )}
         >
           <div
-            className={cn('absolute bottom-0 left-[34px] top-0 z-20 w-px text-border')}
+            className={cn(
+              'text-border absolute top-0 bottom-0 z-20 w-0.5',
+              autoLoadProfilePicture ? 'inset-s-8.25' : 'inset-s-2'
+            )}
             style={{
               background: isExpanded
                 ? 'currentColor'
@@ -88,14 +102,28 @@ export default function SubReplies({ parentKey }: { parentKey: string }) {
                 key={currentReplyKey}
                 className="relative flex scroll-mt-12"
               >
-                <div className="absolute left-[34px] top-0 z-20 h-8 w-4 rounded-bl-lg border-b border-l" />
+                <div
+                  className={cn(
+                    'absolute top-0 z-20 rounded-es-lg border-s-2 border-b-2',
+                    autoLoadProfilePicture ? 'h-7.75' : 'h-6',
+                    autoLoadProfilePicture ? 'inset-s-8.25 w-4' : 'inset-s-2 w-7'
+                  )}
+                />
                 {index < replies.length - 1 && (
-                  <div className="absolute bottom-0 left-[34px] top-0 z-20 border-l" />
+                  <div
+                    className={cn(
+                      'bg-border absolute bottom-0 z-20 w-0.5',
+                      autoLoadProfilePicture ? 'inset-s-8.25' : 'inset-s-2',
+                      'top-0'
+                    )}
+                  />
                 )}
                 <ReplyNote
-                  className="w-0 flex-1 pl-10"
+                  className={cn('w-0 flex-1', autoLoadProfilePicture ? 'ps-10' : 'ps-7')}
+                  hideThreadGuide={!autoLoadProfilePicture}
                   event={reply}
                   parentEventId={_parentKey !== parentKey ? _parentEventId : undefined}
+                  opPubkey={opPubkey}
                   onClickParent={() => {
                     if (!_parentKey) return
                     highlightReply(_parentKey, _parentEventId)

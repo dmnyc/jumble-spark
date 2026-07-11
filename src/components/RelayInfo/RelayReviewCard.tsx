@@ -29,7 +29,7 @@ export default function RelayReviewCard({
       onClick={() => push(toNote(event))}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex flex-1 items-center space-x-2">
+        <div className="flex flex-1 items-center gap-2">
           <SimpleUserAvatar userId={event.pubkey} size="medium" />
           <div className="w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -47,7 +47,7 @@ export default function RelayReviewCard({
           </div>
         </div>
         <div className="flex items-center">
-          <TranslateButton event={event} className="pr-0" />
+          <TranslateButton event={event} className="pe-0" />
         </div>
       </div>
       <Stars stars={stars} className="mt-2 gap-0.5 [&_svg]:size-3" />

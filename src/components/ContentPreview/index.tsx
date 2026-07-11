@@ -1,5 +1,5 @@
 import { ExtendedKind } from '@/constants'
-import { isMentioningMutedUsers } from '@/lib/event'
+import { getEventAuthorPubkey, isMentioningMutedUsers } from '@/lib/event'
 import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
@@ -16,7 +16,10 @@ import LongFormArticlePreview from './LongFormArticlePreview'
 import NormalContentPreview from './NormalContentPreview'
 import PictureNotePreview from './PictureNotePreview'
 import PollPreview from './PollPreview'
+import ReactionPreview from './ReactionPreview'
+import RepostPreview from './RepostPreview'
 import VideoNotePreview from './VideoNotePreview'
+import ZapPreview from './ZapPreview'
 
 export default function ContentPreview({
   event,
@@ -29,7 +32,7 @@ export default function ContentPreview({
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
   const isMuted = useMemo(
-    () => (event ? mutePubkeySet.has(event.pubkey) : false),
+    () => (event ? mutePubkeySet.has(getEventAuthorPubkey(event)) : false),
     [mutePubkeySet, event]
   )
   const isMentioningMuted = useMemo(
@@ -82,7 +85,12 @@ export default function ContentPreview({
     return <LongFormArticlePreview event={event} className={className} />
   }
 
-  if (event.kind === ExtendedKind.VIDEO || event.kind === ExtendedKind.SHORT_VIDEO) {
+  if (
+    event.kind === ExtendedKind.VIDEO ||
+    event.kind === ExtendedKind.SHORT_VIDEO ||
+    event.kind === ExtendedKind.ADDRESSABLE_NORMAL_VIDEO ||
+    event.kind === ExtendedKind.ADDRESSABLE_SHORT_VIDEO
+  ) {
     return <VideoNotePreview event={event} className={className} />
   }
 
@@ -110,10 +118,22 @@ export default function ContentPreview({
     return <FollowPackPreview event={event} className={className} />
   }
 
+  if (event.kind === kinds.Reaction || event.kind === ExtendedKind.EXTERNAL_CONTENT_REACTION) {
+    return <ReactionPreview event={event} className={className} />
+  }
+
+  if (event.kind === kinds.Repost || event.kind === kinds.GenericRepost) {
+    return <RepostPreview event={event} className={className} />
+  }
+
+  if (event.kind === kinds.Zap) {
+    return <ZapPreview event={event} className={className} />
+  }
+
   return (
     <div className={className}>
       [
-      {event.kind === 4
+      {event.kind === kinds.EncryptedDirectMessage
         ? t('Encrypted direct messages not supported')
         : t('Cannot handle event of kind k', { k: event.kind })}
       ]

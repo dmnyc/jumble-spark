@@ -1,6 +1,6 @@
 import { useSecondaryPage } from '@/PageManager'
 import { Button } from '@/components/ui/button'
-import { Drawer, DrawerContent, DrawerOverlay } from '@/components/ui/drawer'
+import { Drawer, DrawerContent } from '@/components/ui/drawer'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,12 +30,16 @@ export default function ExternalLink({
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const displayUrl = useMemo(() => truncateUrl(url), [url])
 
+  const openInNewTab = () => {
+    window.open(url, '_blank', 'noreferrer')
+  }
+
   const handleOpenLink = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (isSmallScreen) {
       setIsDrawerOpen(false)
     }
-    window.open(url, '_blank', 'noreferrer')
+    openInNewTab()
   }
 
   const handleViewDiscussions = (e: React.MouseEvent) => {
@@ -62,13 +66,34 @@ export default function ExternalLink({
     )
   }
 
+  // Middle-click or ctrl/cmd+left-click should open the link directly in a new tab
+  // instead of showing the dropdown/drawer.
+  const isNewTabClick = (e: { button: number; ctrlKey: boolean; metaKey: boolean }) =>
+    e.button === 1 || (e.button === 0 && (e.ctrlKey || e.metaKey))
+
   const trigger = (
     <span
       className={cn('cursor-pointer text-primary hover:underline', className)}
+      onMouseDown={(e) => {
+        // Prevent the autoscroll cursor on middle-click
+        if (e.button === 1) e.preventDefault()
+      }}
       onClick={(e) => {
         e.stopPropagation()
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault()
+          openInNewTab()
+          return
+        }
         if (isSmallScreen) {
           setIsDrawerOpen(true)
+        }
+      }}
+      onAuxClick={(e) => {
+        if (e.button === 1) {
+          e.preventDefault()
+          e.stopPropagation()
+          openInNewTab()
         }
       }}
       title={url}
@@ -82,13 +107,7 @@ export default function ExternalLink({
       <>
         {trigger}
         <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
-          <DrawerOverlay
-            onClick={(e) => {
-              e.stopPropagation()
-              setIsDrawerOpen(false)
-            }}
-          />
-          <DrawerContent hideOverlay>
+          <DrawerContent title={t('Open link')}>
             <div className="py-2">
               <Button
                 onClick={handleOpenLink}
@@ -115,7 +134,31 @@ export default function ExternalLink({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger>
+      <DropdownMenuTrigger
+        onPointerDown={(e) => {
+          if (isNewTabClick(e)) {
+            e.preventDefault()
+            e.stopPropagation()
+            openInNewTab()
+          }
+        }}
+        onMouseDown={(e) => {
+          // Prevent the autoscroll cursor on middle-click
+          if (e.button === 1) e.preventDefault()
+        }}
+        onClick={(e) => {
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            e.stopPropagation()
+          }
+        }}
+        onAuxClick={(e) => {
+          if (e.button === 1) {
+            e.preventDefault()
+            e.stopPropagation()
+          }
+        }}
+      >
         <span className={cn('cursor-pointer text-primary hover:underline', className)} title={url}>
           {displayUrl}
         </span>

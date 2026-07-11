@@ -1,11 +1,24 @@
-import { Label } from '@/components/ui/label'
-import { PRIMARY_COLORS, TPrimaryColor } from '@/constants'
+import { SettingsPageContainer, SettingsSection } from '@/components/ui/settings'
+import { PRIMARY_COLORS, PROFILE_PICTURE_AUTO_LOAD_POLICY, TPrimaryColor } from '@/constants'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { cn } from '@/lib/utils'
+import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useTheme } from '@/providers/ThemeProvider'
 import { useUserPreferences } from '@/providers/UserPreferencesProvider'
-import { Columns2, LayoutList, List, Monitor, Moon, PanelLeft, Sun, Wallet, X } from 'lucide-react'
+import { TProfilePictureAutoLoadPolicy } from '@/types'
+import {
+  Check,
+  Columns2,
+  LayoutList,
+  List,
+  Monitor,
+  Moon,
+  PanelLeft,
+  Sun,
+  Wallet,
+  X
+} from 'lucide-react'
 import { forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -35,6 +48,7 @@ const AppearanceSettingsPage = forwardRef(({ index }: { index?: number }, ref) =
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
   const { themeSetting, setThemeSetting, primaryColor, setPrimaryColor } = useTheme()
+  const { profilePictureAutoLoadPolicy, setProfilePictureAutoLoadPolicy } = useContentPolicy()
   const {
     enableSingleColumnLayout,
     updateEnableSingleColumnLayout,
@@ -46,12 +60,11 @@ const AppearanceSettingsPage = forwardRef(({ index }: { index?: number }, ref) =
 
   return (
     <SecondaryPageLayout ref={ref} index={index} title={t('Appearance')}>
-      <div className="my-3 space-y-4">
-        <div className="flex flex-col gap-2 px-4">
-          <Label className="text-base">{t('Theme')}</Label>
-          <div className="grid w-full grid-cols-2 gap-4 md:grid-cols-4">
+      <SettingsPageContainer>
+        <SettingsSection title={t('Theme')}>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {THEMES.map(({ key, label, icon }) => (
-              <OptionButton
+              <OptionTile
                 key={key}
                 isSelected={themeSetting === key}
                 icon={icon}
@@ -60,13 +73,27 @@ const AppearanceSettingsPage = forwardRef(({ index }: { index?: number }, ref) =
               />
             ))}
           </div>
-        </div>
+        </SettingsSection>
+
+        <SettingsSection title={t('Primary color')}>
+          <div className="grid grid-cols-4 gap-2">
+            {Object.entries(PRIMARY_COLORS).map(([key, config]) => (
+              <ColorTile
+                key={key}
+                isSelected={primaryColor === key}
+                color={`hsl(${config.light.primary})`}
+                label={t(config.name)}
+                onClick={() => setPrimaryColor(key as TPrimaryColor)}
+              />
+            ))}
+          </div>
+        </SettingsSection>
+
         {!isSmallScreen && (
-          <div className="flex flex-col gap-2 px-4">
-            <Label className="text-base">{t('Layout')}</Label>
-            <div className="grid w-full grid-cols-2 gap-4">
+          <SettingsSection title={t('Column layout')}>
+            <div className="grid grid-cols-2 gap-2">
               {LAYOUTS.map(({ key, label, icon }) => (
-                <OptionButton
+                <OptionTile
                   key={key.toString()}
                   isSelected={enableSingleColumnLayout === key}
                   icon={icon}
@@ -75,13 +102,13 @@ const AppearanceSettingsPage = forwardRef(({ index }: { index?: number }, ref) =
                 />
               ))}
             </div>
-          </div>
+          </SettingsSection>
         )}
-        <div className="flex flex-col gap-2 px-4">
-          <Label className="text-base">{t('Notification list style')}</Label>
-          <div className="grid w-full grid-cols-2 gap-4">
+
+        <SettingsSection title={t('Notification list style')}>
+          <div className="grid grid-cols-2 gap-2">
             {NOTIFICATION_STYLES.map(({ key, label, icon }) => (
-              <OptionButton
+              <OptionTile
                 key={key}
                 isSelected={notificationListStyle === key}
                 icon={icon}
@@ -90,13 +117,13 @@ const AppearanceSettingsPage = forwardRef(({ index }: { index?: number }, ref) =
               />
             ))}
           </div>
-        </div>
+        </SettingsSection>
+
         {!isSmallScreen && (
-          <div className="flex flex-col gap-2 px-4">
-            <Label className="text-base">{t('Wallet in sidebar')}</Label>
-            <div className="grid grid-cols-2 gap-4 w-full">
+          <SettingsSection title={t('Wallet in sidebar')}>
+            <div className="grid grid-cols-2 gap-2">
               {WALLET_SIDEBAR_OPTIONS.map(({ key, label, icon }) => (
-                <OptionButton
+                <OptionTile
                   key={key.toString()}
                   isSelected={showWalletInSidebar === key}
                   icon={icon}
@@ -105,37 +132,49 @@ const AppearanceSettingsPage = forwardRef(({ index }: { index?: number }, ref) =
                 />
               ))}
             </div>
-          </div>
+          </SettingsSection>
         )}
-        <div className="flex flex-col gap-2 px-4">
-          <Label className="text-base">{t('Primary color')}</Label>
-          <div className="grid w-full grid-cols-4 gap-4">
-            {Object.entries(PRIMARY_COLORS).map(([key, config]) => (
-              <OptionButton
-                key={key}
-                isSelected={primaryColor === key}
-                icon={
-                  <div
-                    className="size-8 rounded-full shadow-md"
-                    style={{
-                      backgroundColor: `hsl(${config.light.primary})`
-                    }}
-                  />
-                }
-                label={t(config.name)}
-                onClick={() => setPrimaryColor(key as TPrimaryColor)}
-              />
-            ))}
+
+        <SettingsSection title={t('Show avatars')}>
+          <div className="grid grid-cols-2 gap-2">
+            <AvatarPolicyTile
+              showAvatar
+              label={t('Show')}
+              isSelected={
+                profilePictureAutoLoadPolicy !== PROFILE_PICTURE_AUTO_LOAD_POLICY.NEVER
+              }
+              onClick={() =>
+                setProfilePictureAutoLoadPolicy(
+                  PROFILE_PICTURE_AUTO_LOAD_POLICY.ALWAYS as TProfilePictureAutoLoadPolicy
+                )
+              }
+            />
+            <AvatarPolicyTile
+              label={t('Hide')}
+              isSelected={
+                profilePictureAutoLoadPolicy === PROFILE_PICTURE_AUTO_LOAD_POLICY.NEVER
+              }
+              onClick={() =>
+                setProfilePictureAutoLoadPolicy(
+                  PROFILE_PICTURE_AUTO_LOAD_POLICY.NEVER as TProfilePictureAutoLoadPolicy
+                )
+              }
+            />
           </div>
-        </div>
-      </div>
+        </SettingsSection>
+      </SettingsPageContainer>
     </SecondaryPageLayout>
   )
 })
 AppearanceSettingsPage.displayName = 'AppearanceSettingsPage'
 export default AppearanceSettingsPage
 
-const OptionButton = ({
+const tileBase =
+  'group relative flex flex-col items-center gap-2 rounded-lg border bg-card p-3 transition-colors'
+const tileSelected = 'border-primary bg-primary/5'
+const tileIdle = 'border-border hover:bg-muted/50'
+
+const OptionTile = ({
   isSelected,
   onClick,
   icon,
@@ -149,13 +188,80 @@ const OptionButton = ({
   return (
     <button
       onClick={onClick}
-      className={cn(
-        'flex flex-col items-center gap-2 rounded-lg border-2 py-4 transition-all',
-        isSelected ? 'border-primary' : 'border-border hover:border-muted-foreground/40'
-      )}
+      className={cn(tileBase, isSelected ? tileSelected : tileIdle)}
     >
-      <div className="flex h-8 w-8 items-center justify-center">{icon}</div>
+      <div
+        className={cn(
+          'flex h-9 w-9 items-center justify-center transition-colors',
+          isSelected ? 'text-primary' : 'text-muted-foreground'
+        )}
+      >
+        {icon}
+      </div>
       <span className="text-xs font-medium">{label}</span>
+    </button>
+  )
+}
+
+const ColorTile = ({
+  isSelected,
+  color,
+  label,
+  onClick
+}: {
+  isSelected: boolean
+  color: string
+  label: string
+  onClick: () => void
+}) => {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(tileBase, isSelected ? tileSelected : tileIdle)}
+    >
+      <div
+        className="flex size-9 items-center justify-center rounded-full shadow-md"
+        style={{ backgroundColor: color }}
+      >
+        {isSelected && <Check className="size-5 text-primary-foreground" />}
+      </div>
+      <span className="text-xs font-medium">{label}</span>
+    </button>
+  )
+}
+
+const NoteSkeletonLine = ({ className }: { className?: string }) => (
+  <div className={cn('h-1.5 rounded-full bg-muted-foreground/20', className)} />
+)
+
+const AvatarPolicyTile = ({
+  showAvatar,
+  label,
+  isSelected,
+  onClick
+}: {
+  showAvatar?: boolean
+  label?: string
+  isSelected: boolean
+  onClick: () => void
+}) => {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(tileBase, 'gap-3', isSelected ? tileSelected : tileIdle)}
+    >
+      <div className="flex w-full items-center gap-1.5">
+        {showAvatar && <div className="size-5 shrink-0 rounded-full bg-muted-foreground/20" />}
+        <div className="flex flex-1 flex-col gap-1">
+          <NoteSkeletonLine className="w-8" />
+          <NoteSkeletonLine className="w-5" />
+        </div>
+      </div>
+      <div className="flex w-full flex-col gap-1">
+        <NoteSkeletonLine className="w-full" />
+        <NoteSkeletonLine className="w-2/3" />
+      </div>
+      {label && <span className="text-xs font-medium">{label}</span>}
     </button>
   )
 }

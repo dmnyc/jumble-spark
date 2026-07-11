@@ -1,6 +1,13 @@
 import AboutInfoDialog from '@/components/AboutInfoDialog'
 import Donation from '@/components/Donation'
+import DownloadDialog from '@/components/DownloadDialog'
 import {
+  SettingsGroup,
+  SettingsPageContainer,
+  SettingsRow
+} from '@/components/ui/settings'
+import {
+  toAccountSettings,
   toAppearanceSettings,
   toEmojiPackSettings,
   toGeneralSettings,
@@ -10,167 +17,146 @@ import {
   toTranslation,
   toWallet
 } from '@/lib/link'
-import { cn } from '@/lib/utils'
+import { isElectron } from '@/lib/platform'
+import { isPomegranateAccount } from '@/lib/pomegranate'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
+import { useScreenSize } from '@/providers/ScreenSizeProvider'
+import storage from '@/services/local-storage.service'
 import {
-  Check,
-  ChevronRight,
   Cog,
-  Copy,
+  ImageUp,
   Info,
   KeyRound,
   Languages,
+  MonitorDown,
   Palette,
-  PencilLine,
   Server,
   Settings2,
   Smile,
   Wallet
 } from 'lucide-react'
-import { forwardRef, HTMLProps, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export default function Settings() {
   const { t } = useTranslation()
-  const { pubkey, nsec, ncryptsec } = useNostr()
+  const { pubkey, nsec, ncryptsec, account } = useNostr()
   const { push } = useSecondaryPage()
-  const [copiedNsec, setCopiedNsec] = useState(false)
-  const [copiedNcryptsec, setCopiedNcryptsec] = useState(false)
+  const { isSmallScreen } = useScreenSize()
+  const hasPrivateKey = !!nsec || !!ncryptsec
+  const fullAccount = account ? storage.findAccount(account) : undefined
+  const isPomegranate = !!fullAccount && isPomegranateAccount(fullAccount)
+  const showDownloadEntry = !isElectron() && !isSmallScreen
+  const [downloadOpen, setDownloadOpen] = useState(false)
 
   return (
-    <div>
-      <SettingItem className="clickable" onClick={() => push(toGeneralSettings())}>
-        <div className="flex items-center gap-4">
-          <Settings2 />
-          <div>{t('General')}</div>
-        </div>
-        <ChevronRight />
-      </SettingItem>
-      <SettingItem className="clickable" onClick={() => push(toAppearanceSettings())}>
-        <div className="flex items-center gap-4">
-          <Palette />
-          <div>{t('Appearance')}</div>
-        </div>
-        <ChevronRight />
-      </SettingItem>
-      <SettingItem className="clickable" onClick={() => push(toRelaySettings())}>
-        <div className="flex items-center gap-4">
-          <Server />
-          <div>{t('Relays')}</div>
-        </div>
-        <ChevronRight />
-      </SettingItem>
-      {!!pubkey && (
-        <SettingItem className="clickable" onClick={() => push(toTranslation())}>
-          <div className="flex items-center gap-4">
-            <Languages />
-            <div>{t('Translation')}</div>
-          </div>
-          <ChevronRight />
-        </SettingItem>
+    <SettingsPageContainer>
+      <SettingsGroup title={t('Preferences')}>
+        <SettingsRow
+          icon={<Settings2 />}
+          title={t('General')}
+          chevron
+          onClick={() => push(toGeneralSettings())}
+        />
+        <SettingsRow
+          icon={<Palette />}
+          title={t('Appearance')}
+          chevron
+          onClick={() => push(toAppearanceSettings())}
+        />
+        {!!pubkey && (
+          <SettingsRow
+            icon={<Languages />}
+            title={t('Translation')}
+            chevron
+            onClick={() => push(toTranslation())}
+          />
+        )}
+        {!!pubkey && (
+          <SettingsRow
+            icon={<Smile />}
+            title={t('Emoji Packs')}
+            chevron
+            onClick={() => push(toEmojiPackSettings())}
+          />
+        )}
+      </SettingsGroup>
+
+      {(!!pubkey || hasPrivateKey) && (
+        <SettingsGroup title={t('Account')}>
+          {!!pubkey && (
+            <SettingsRow
+              icon={<Wallet />}
+              title={t('Wallet')}
+              chevron
+              onClick={() => push(toWallet())}
+            />
+          )}
+          {(hasPrivateKey || isPomegranate) && (
+            <SettingsRow
+              icon={<KeyRound />}
+              title={t('Account')}
+              chevron
+              onClick={() => push(toAccountSettings())}
+            />
+          )}
+        </SettingsGroup>
       )}
-      {!!pubkey && (
-        <SettingItem className="clickable" onClick={() => push(toWallet())}>
-          <div className="flex items-center gap-4">
-            <Wallet />
-            <div>{t('Wallet')}</div>
-          </div>
-          <ChevronRight />
-        </SettingItem>
+
+      <SettingsGroup title={t('Network & system')}>
+        <SettingsRow
+          icon={<Server />}
+          title={t('Relays')}
+          chevron
+          onClick={() => push(toRelaySettings())}
+        />
+        {!!pubkey && (
+          <SettingsRow
+            icon={<ImageUp />}
+            title={t('Media servers')}
+            chevron
+            onClick={() => push(toPostSettings())}
+          />
+        )}
+        <SettingsRow
+          icon={<Cog />}
+          title={t('System')}
+          chevron
+          onClick={() => push(toSystemSettings())}
+        />
+      </SettingsGroup>
+
+      {showDownloadEntry && (
+        <SettingsGroup>
+          <SettingsRow
+            icon={<MonitorDown />}
+            title={t('Download Jumble Desktop')}
+            chevron
+            onClick={() => setDownloadOpen(true)}
+          />
+        </SettingsGroup>
       )}
-      {!!pubkey && (
-        <SettingItem className="clickable" onClick={() => push(toPostSettings())}>
-          <div className="flex items-center gap-4">
-            <PencilLine />
-            <div>{t('Post settings')}</div>
-          </div>
-          <ChevronRight />
-        </SettingItem>
-      )}
-      {!!pubkey && (
-        <SettingItem className="clickable" onClick={() => push(toEmojiPackSettings())}>
-          <div className="flex items-center gap-4">
-            <Smile />
-            <div>{t('Emoji Packs')}</div>
-          </div>
-          <ChevronRight />
-        </SettingItem>
-      )}
-      {!!nsec && (
-        <SettingItem
-          className="clickable"
-          onClick={() => {
-            navigator.clipboard.writeText(nsec)
-            setCopiedNsec(true)
-            setTimeout(() => setCopiedNsec(false), 2000)
-          }}
-        >
-          <div className="flex items-center gap-4">
-            <KeyRound />
-            <div>{t('Copy private key')} (nsec)</div>
-          </div>
-          {copiedNsec ? <Check /> : <Copy />}
-        </SettingItem>
-      )}
-      {!!ncryptsec && (
-        <SettingItem
-          className="clickable"
-          onClick={() => {
-            navigator.clipboard.writeText(ncryptsec)
-            setCopiedNcryptsec(true)
-            setTimeout(() => setCopiedNcryptsec(false), 2000)
-          }}
-        >
-          <div className="flex items-center gap-4">
-            <KeyRound />
-            <div>{t('Copy private key')} (ncryptsec)</div>
-          </div>
-          {copiedNcryptsec ? <Check /> : <Copy />}
-        </SettingItem>
-      )}
-      <SettingItem className="clickable" onClick={() => push(toSystemSettings())}>
-        <div className="flex items-center gap-4">
-          <Cog />
-          <div>{t('System')}</div>
-        </div>
-        <ChevronRight />
-      </SettingItem>
-      <AboutInfoDialog>
-        <SettingItem className="clickable">
-          <div className="flex items-center gap-4">
-            <Info />
-            <div>{t('About')}</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="text-muted-foreground">
-              v{import.meta.env.APP_VERSION} ({import.meta.env.GIT_COMMIT})
-            </div>
-            <ChevronRight />
-          </div>
-        </SettingItem>
-      </AboutInfoDialog>
-      <div className="p-4">
+
+      <SettingsGroup>
+        <AboutInfoDialog>
+          <SettingsRow
+            icon={<Info />}
+            title={t('About')}
+            trailing={`v${import.meta.env.APP_VERSION} (${import.meta.env.GIT_COMMIT})`}
+            chevron
+            clickable
+          />
+        </AboutInfoDialog>
+      </SettingsGroup>
+
+      <div className="pt-6">
         <Donation />
       </div>
-    </div>
+
+      {showDownloadEntry && (
+        <DownloadDialog open={downloadOpen} onOpenChange={setDownloadOpen} />
+      )}
+    </SettingsPageContainer>
   )
 }
-
-const SettingItem = forwardRef<HTMLDivElement, HTMLProps<HTMLDivElement>>(
-  ({ children, className, ...props }, ref) => {
-    return (
-      <div
-        className={cn(
-          'flex h-[52px] select-none items-center justify-between rounded-lg px-4 py-2 [&_svg]:size-4 [&_svg]:shrink-0',
-          className
-        )}
-        {...props}
-        ref={ref}
-      >
-        {children}
-      </div>
-    )
-  }
-)
-SettingItem.displayName = 'SettingItem'

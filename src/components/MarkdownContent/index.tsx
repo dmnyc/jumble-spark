@@ -1,0 +1,149 @@
+import { SecondaryPageLink } from '@/PageManager'
+import { X_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
+import { toNote, toProfile } from '@/lib/link'
+import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
+import { Event } from 'nostr-tools'
+import { useMemo } from 'react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { EmbeddedHashtag, EmbeddedLNInvoice } from '../Embedded'
+import Emoji from '../Emoji'
+import ExternalLink from '../ExternalLink'
+import ImageWithLightbox from '../ImageWithLightbox'
+import NostrNode from '../NoteContent/LongFormArticle/NostrNode'
+import { remarkNostr } from '../NoteContent/LongFormArticle/remarkNostr'
+import { Components as BaseComponents } from '../NoteContent/LongFormArticle/types'
+import XEmbeddedPost from '../XEmbeddedPost'
+import YoutubeEmbeddedPlayer from '../YoutubeEmbeddedPlayer'
+import { remarkInlineContent } from './remarkInlineContent'
+
+type InlineComponent = React.ComponentType<{ value: string }>
+
+interface Components extends BaseComponents {
+  hashtag: InlineComponent
+  emoji: InlineComponent
+  invoice: InlineComponent
+}
+
+// A nostr: URL that references a note (note1/nevent1/naddr1) renders as a
+// block-level card. When such a URL sits on a line right after a list item,
+// markdown treats it as the item's lazy continuation and the card inherits
+// the list's padding. Pad these lines with blank lines so they become
+// standalone paragraphs outside the list. npub1/nprofile1 mentions render
+// inline, so we deliberately leave those untouched to preserve soft breaks.
+const STANDALONE_NOSTR_NOTE_LINE_REGEX = /^[ \t]*nostr:(?:note1|nevent1|naddr1)[a-z0-9]+[ \t]*$/gim
+
+function ensureNostrEmbedsAreStandalone(content: string): string {
+  return content.replace(STANDALONE_NOSTR_NOTE_LINE_REGEX, '\n$&\n')
+}
+
+export default function MarkdownContent({ content, event }: { content: string; event?: Event }) {
+  const emojiInfos = useMemo(() => getEmojiInfosFromEmojiTags(event?.tags), [event?.tags])
+  const processedContent = useMemo(() => ensureNostrEmbedsAreStandalone(content), [content])
+
+  const components = useMemo(
+    () =>
+      ({
+        nostr: ({ rawText, bech32Id }) => <NostrNode rawText={rawText} bech32Id={bech32Id} />,
+        hashtag: ({ value }) => <EmbeddedHashtag hashtag={value} />,
+        emoji: ({ value }) => {
+          const shortcode = value.slice(1, -1)
+          const emojiInfo = emojiInfos.find((e) => e.shortcode === shortcode)
+          if (!emojiInfo) return value
+          return <Emoji classNames={{ img: 'mb-1' }} emoji={emojiInfo} clickable />
+        },
+        invoice: ({ value }) => <EmbeddedLNInvoice invoice={value} className="mt-2" />,
+        a: ({ href, children }) => {
+          if (!href) return <span>{children}</span>
+          if (href.startsWith('note1') || href.startsWith('nevent1') || href.startsWith('naddr1')) {
+            return (
+              <SecondaryPageLink to={toNote(href)} className="text-primary hover:underline">
+                {children}
+              </SecondaryPageLink>
+            )
+          }
+          if (href.startsWith('npub1') || href.startsWith('nprofile1')) {
+            return (
+              <SecondaryPageLink to={toProfile(href)} className="text-primary hover:underline">
+                {children}
+              </SecondaryPageLink>
+            )
+          }
+          if (YOUTUBE_URL_REGEX.test(href)) {
+            return <YoutubeEmbeddedPlayer url={href} className="mt-2" />
+          }
+          if (X_URL_REGEX.test(href)) {
+            return <XEmbeddedPost url={href} className="mt-2" />
+          }
+          return <ExternalLink url={href} justOpenLink />
+        },
+        h1: ({ children }) => <p className="font-bold">{children}</p>,
+        h2: ({ children }) => <p className="font-bold">{children}</p>,
+        h3: ({ children }) => <p className="font-bold">{children}</p>,
+        h4: ({ children }) => <p className="font-bold">{children}</p>,
+        h5: ({ children }) => <p className="font-bold">{children}</p>,
+        h6: ({ children }) => <p className="font-bold">{children}</p>,
+        p: ({ children }) => <p>{children}</p>,
+        img: ({ src }) => (
+          <ImageWithLightbox
+            image={{ url: src || '', pubkey: event?.pubkey }}
+            className="max-h-[80vh] object-contain sm:max-h-[50vh]"
+            classNames={{ wrapper: 'w-fit max-w-full mt-2' }}
+          />
+        ),
+        pre: ({ children }) => (
+          <pre className="bg-muted overflow-x-auto rounded-md p-3 text-sm">{children}</pre>
+        ),
+        code: ({ children, className }) => {
+          if (className) {
+            return <code className="wrap-break-word whitespace-pre-wrap">{children}</code>
+          }
+          return <code className="bg-muted rounded px-1 py-0.5 text-sm">{children}</code>
+        },
+        blockquote: ({ children }) => (
+          <blockquote className="border-muted-foreground/30 text-muted-foreground border-s-2 ps-3">
+            {children}
+          </blockquote>
+        ),
+        ul: ({ children }) => <ul className="list-disc ps-8">{children}</ul>,
+        ol: ({ children, start }) => (
+          <ol className="list-decimal ps-8" start={start}>
+            {children}
+          </ol>
+        ),
+        li: ({ children }) => <li>{children}</li>,
+        table: ({ children }) => (
+          <div className="overflow-x-auto">
+            <table className="border-collapse text-sm">{children}</table>
+          </div>
+        ),
+        th: ({ children }) => (
+          <th className="border-border bg-muted border px-3 py-1.5 text-start font-semibold whitespace-nowrap">
+            {children}
+          </th>
+        ),
+        td: ({ children }) => (
+          <td className="border-border border px-3 py-1.5 whitespace-nowrap">{children}</td>
+        ),
+        hr: () => <hr className="border-border" />
+      }) as Components,
+    [event?.pubkey, emojiInfos]
+  )
+
+  return (
+    <div className="space-y-3 whitespace-normal">
+      <Markdown
+        remarkPlugins={[remarkGfm, remarkNostr, remarkInlineContent]}
+        urlTransform={(url) => {
+          if (url.startsWith('nostr:')) {
+            return url.slice(6)
+          }
+          return url
+        }}
+        components={components}
+      >
+        {processedContent}
+      </Markdown>
+    </div>
+  )
+}

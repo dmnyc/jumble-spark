@@ -17,8 +17,11 @@ import {
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
 import { formatPubkey, pubkeyToNpub } from '@/lib/pubkey'
 import { getDefaultRelayUrls } from '@/lib/relay'
+import { isSameAccount } from '@/lib/account'
 import client from '@/services/client.service'
 import customEmojiService from '@/services/custom-emoji.service'
+import dmService from '@/services/dm.service'
+import encryptionKeyService from '@/services/encryption-key.service'
 import indexedDb from '@/services/indexed-db.service'
 import storage from '@/services/local-storage.service'
 import stuffStatsService from '@/services/stuff-stats.service'
@@ -27,6 +30,7 @@ import {
   TAccount,
   TAccountPointer,
   TDraftEvent,
+  TEncryptionKeypair,
   TProfile,
   TPublishOptions,
   TRelayList
@@ -65,10 +69,22 @@ type TNostrContext = {
   nsec: string | null
   ncryptsec: string | null
   switchAccount: (account: TAccountPointer | null) => Promise<void>
+  /**
+   * Build a signer for the given account WITHOUT changing the active account.
+   * Used to publish "as" another account temporarily. Returns null if the
+   * account can't sign (e.g. npub read-only) or its identity can't be verified.
+   */
+  getSignerForAccount: (account: TAccountPointer) => Promise<ISigner | null>
+  /**
+   * The active account's private key when it signs locally (nsec/ncryptsec),
+   * already decrypted in memory; null for remote/read-only signers. Used by the
+   * "Bind Google account" flow to register the existing key's shards.
+   */
+  getActivePrivkey: () => Uint8Array | null
   nsecLogin: (nsec: string, password?: string, needSetup?: boolean) => Promise<string>
   ncryptsecLogin: (ncryptsec: string) => Promise<string>
   nip07Login: () => Promise<string>
-  bunkerLogin: (bunker: string) => Promise<string>
+  bunkerLogin: (bunker: string, pomegranateCentral?: string) => Promise<string>
   nostrConnectionLogin: (clientSecretKey: Uint8Array, connectionString: string) => Promise<string>
   npubLogin(npub: string): Promise<string>
   removeAccount: (account: TAccountPointer) => void
@@ -83,6 +99,10 @@ type TNostrContext = {
   nip04Decrypt: (pubkey: string, cipherText: string) => Promise<string>
   nip44Encrypt: (pubkey: string, plainText: string) => Promise<string>
   nip44Decrypt: (pubkey: string, cipherText: string) => Promise<string>
+  signer: ISigner | null
+  hasEncryptionKey: () => boolean
+  getEncryptionKeypair: () => TEncryptionKeypair | null
+  ensureEncryptionKey: () => Promise<TEncryptionKeypair>
   startLogin: () => void
   checkLogin: <T>(cb?: () => T) => Promise<T | void>
   updateRelayListEvent: (relayListEvent: Event) => Promise<void>
@@ -168,6 +188,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
+    const controller = new AbortController()
     const init = async () => {
       setRelayList(null)
       setProfile(null)
@@ -182,8 +203,6 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       if (!account) {
         return
       }
-
-      const controller = new AbortController()
       const storedNsec = storage.getAccountNsec(account.pubkey)
       if (storedNsec) {
         setNsec(storedNsec)
@@ -220,6 +239,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         indexedDb.getReplaceableEvent(account.pubkey, kinds.Pinlist),
         indexedDb.getReplaceableEvent(account.pubkey, ExtendedKind.PINNED_USERS)
       ])
+      if (controller.signal.aborted) return
       if (storedRelayListEvent) {
         setRelayList(getRelayListFromEvent(storedRelayListEvent, storage.getFilterOutOnionRelays()))
       }
@@ -260,6 +280,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         client.updateRelayListCache(relayListEvent)
         await indexedDb.putReplaceableEvent(relayListEvent)
       }
+      if (controller.signal.aborted) return
       setRelayList(relayList)
 
       const events = await client.fetchEvents(relayList.write.concat(defaultRelays).slice(0, 4), [
@@ -283,6 +304,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
           '#d': [ApplicationDataKey.NOTIFICATIONS_SEEN_AT]
         }
       ])
+      if (controller.signal.aborted) return
       const sortedEvents = events.sort((a, b) => b.created_at - a.created_at)
       const profileEvent = sortedEvents.find((e) => e.kind === kinds.Metadata)
       const followListEvent = sortedEvents.find((e) => e.kind === kinds.Contacts)
@@ -368,13 +390,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       storage.setLastReadNotificationTime(account.pubkey, notificationsSeenAt)
 
       client.initUserIndexFromFollowings(account.pubkey, controller.signal)
-      return controller
     }
-    const promise = init()
+    init()
     return () => {
-      promise.then((controller) => {
-        controller?.abort()
-      })
+      controller.abort()
     }
   }, [account])
 
@@ -399,6 +418,26 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       stuffStatsService.updateStuffStatsByEvents(events)
     }
     initInteractions()
+  }, [account])
+
+  useEffect(() => {
+    if (!account) return
+
+    const initDm = async () => {
+      const encryptionKeypair = encryptionKeyService.getEncryptionKeypair(account.pubkey)
+      if (!encryptionKeypair) return
+
+      try {
+        await dmService.init(account.pubkey, encryptionKeypair)
+      } catch (error) {
+        console.error('Failed to initialize DM service:', error)
+      }
+    }
+    initDm()
+
+    return () => {
+      dmService.destroy()
+    }
   }, [account])
 
   useEffect(() => {
@@ -476,6 +515,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const getActivePrivkey = () => {
+    return signer instanceof NsecSigner ? signer.getPrivkey() : null
+  }
+
   const switchAccount = async (act: TAccountPointer | null) => {
     if (!act) {
       storage.switchAccount(null)
@@ -542,7 +585,9 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const bunkerLogin = async (bunker: string) => {
+  // `pomegranateCentral` is set for accounts created via "Login with Google";
+  // persisting it marks the account as a pomegranate account.
+  const bunkerLogin = async (bunker: string, pomegranateCentral?: string) => {
     const bunkerSigner = new BunkerSigner()
     const pubkey = await bunkerSigner.login(bunker)
     if (!pubkey) {
@@ -554,7 +599,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       pubkey,
       signerType: 'bunker',
       bunker: bunkerUrl.toString(),
-      bunkerClientSecretKey: bunkerSigner.getClientSecretKey()
+      bunkerClientSecretKey: bunkerSigner.getClientSecretKey(),
+      ...(pomegranateCentral ? { pomegranateCentral } : {})
     })
   }
 
@@ -610,16 +656,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     } else if (account.signerType === 'bunker') {
       if (account.bunker && account.bunkerClientSecretKey) {
         const bunkerSigner = new BunkerSigner(account.bunkerClientSecretKey)
-        const pubkey = await bunkerSigner.login(account.bunker, false)
-        if (!pubkey) {
-          storage.removeAccount(account)
-          return null
-        }
-        if (pubkey !== account.pubkey) {
-          storage.removeAccount(account)
-          account = { ...account, pubkey }
-          storage.addAccount(account)
-        }
+        await bunkerSigner.login(account.bunker, false)
         return login(bunkerSigner, account)
       }
     } else if (account.signerType === 'npub' && account.npub) {
@@ -638,6 +675,64 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
     }
     storage.removeAccount(account)
     return null
+  }
+
+  // Construct a signer instance for an account without touching global state or
+  // storage (no migrations, no account removal). npub accounts are read-only and
+  // return null.
+  const buildSignerForAccount = async (account: TAccount): Promise<ISigner | null> => {
+    if (account.signerType === 'nsec' || account.signerType === 'browser-nsec') {
+      if (account.nsec) {
+        const nsecSigner = new NsecSigner()
+        nsecSigner.login(account.nsec)
+        return nsecSigner
+      }
+    } else if (account.signerType === 'ncryptsec') {
+      if (account.ncryptsec) {
+        const password = await requestPassword()
+        const privkey = nip49.decrypt(account.ncryptsec, password)
+        const nsecSigner = new NsecSigner()
+        nsecSigner.login(privkey)
+        return nsecSigner
+      }
+    } else if (account.signerType === 'nip-07') {
+      const nip07Signer = new Nip07Signer()
+      await nip07Signer.init()
+      return nip07Signer
+    } else if (account.signerType === 'bunker') {
+      if (account.bunker && account.bunkerClientSecretKey) {
+        const bunkerSigner = new BunkerSigner(account.bunkerClientSecretKey)
+        await bunkerSigner.login(account.bunker, false)
+        return bunkerSigner
+      }
+    }
+    return null
+  }
+
+  const getSignerForAccount = async (act: TAccountPointer): Promise<ISigner | null> => {
+    // Reuse the active signer when it already matches the requested account.
+    if (signer && isSameAccount(account, act)) {
+      return signer
+    }
+    const storedAccount = storage.findAccount(act)
+    if (!storedAccount) {
+      return null
+    }
+    try {
+      const newSigner = await buildSignerForAccount(storedAccount)
+      if (!newSigner) {
+        return null
+      }
+      // Guard against the signer resolving to a different identity (e.g. a NIP-07
+      // extension currently set to another account) — never sign with the wrong key.
+      const signerPubkey = await newSigner.getPublicKey()
+      if (signerPubkey !== act.pubkey) {
+        return null
+      }
+      return newSigner
+    } catch {
+      return null
+    }
   }
 
   const setupNewUser = async (signer: ISigner) => {
@@ -660,6 +755,12 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       throw new Error('sign event failed')
     }
     return event as VerifiedEvent
+  }
+
+  const publishSignedEvent = async (event: Event, options: TPublishOptions = {}) => {
+    const relays = await client.determineTargetRelays(event, options)
+    await client.publishEvent(relays, event)
+    return event
   }
 
   const publish = async (
@@ -692,10 +793,7 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    const relays = await client.determineTargetRelays(event, options)
-
-    await client.publishEvent(relays, event)
-    return event
+    return publishSignedEvent(event, options)
   }
 
   const attemptDelete = async (targetEvent: Event) => {
@@ -747,6 +845,23 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
 
   const nip44Decrypt = async (pubkey: string, cipherText: string) => {
     return signer?.nip44Decrypt(pubkey, cipherText) ?? ''
+  }
+
+  const hasEncryptionKey = () => {
+    if (!account) return false
+    return encryptionKeyService.hasEncryptionKey(account.pubkey)
+  }
+
+  const getEncryptionKeypair = (): TEncryptionKeypair | null => {
+    if (!account) return null
+    return encryptionKeyService.getEncryptionKeypair(account.pubkey)
+  }
+
+  const ensureEncryptionKey = async (): Promise<TEncryptionKeypair> => {
+    if (!account || !signer) {
+      throw new Error('Not logged in')
+    }
+    return encryptionKeyService.initializeEncryption(signer, account.pubkey)
   }
 
   const checkLogin = async <T,>(cb?: () => T): Promise<T | void> => {
@@ -826,20 +941,21 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
 
     const now = dayjs().unix()
     storage.setLastReadNotificationTime(account.pubkey, now)
-    setTimeout(() => {
-      setNotificationsSeenAt(now)
-    }, 5_000)
+    setNotificationsSeenAt(now)
 
     // Prevent too frequent requests for signing seen notifications events
     const lastPublishedSeenNotificationsAtEventAt =
       lastPublishedSeenNotificationsAtEventAtMap.get(account.pubkey) ?? -1
     if (
       !skipPublish &&
+      !storage.getDisableNotificationSync() &&
       (lastPublishedSeenNotificationsAtEventAt < 0 ||
         now - lastPublishedSeenNotificationsAtEventAt > 10 * 60) // 10 minutes
     ) {
-      await publish(createSeenNotificationsAtDraftEvent())
       lastPublishedSeenNotificationsAtEventAtMap.set(account.pubkey, now)
+      await publish(createSeenNotificationsAtDraftEvent()).catch(() => {
+        // ignore
+      })
     }
   }
 
@@ -864,6 +980,8 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         nsec,
         ncryptsec,
         switchAccount,
+        getSignerForAccount,
+        getActivePrivkey,
         nsecLogin,
         ncryptsecLogin,
         nip07Login,
@@ -878,6 +996,10 @@ export function NostrProvider({ children }: { children: React.ReactNode }) {
         nip04Decrypt,
         nip44Encrypt,
         nip44Decrypt,
+        signer,
+        hasEncryptionKey,
+        getEncryptionKeypair,
+        ensureEncryptionKey,
         startLogin: () => setOpenLoginDialog(true),
         checkLogin,
         signEvent,

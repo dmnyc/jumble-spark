@@ -1,6 +1,6 @@
 import { Button, ButtonProps } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
-import { Drawer, DrawerContent, DrawerOverlay, DrawerTrigger } from '@/components/ui/drawer'
+import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer'
 import { Separator } from '@/components/ui/separator'
 import { ExtendedKind } from '@/constants'
 import { getReplaceableEventIdentifier, getNoteBech32Id } from '@/lib/event'
@@ -65,6 +65,10 @@ const clients: Record<string, { name: string; getUrl: (id: string) => string }> 
     name: 'Pareto',
     getUrl: (id: string) => `https://pareto.space/a/${id}`
   },
+  shosho: {
+    name: 'Shosho',
+    getUrl: (id: string) => `https://shosho.live/live/${id}`
+  },
   njump: {
     name: 'Njump',
     getUrl: (id: string) => `https://njump.me/${id}`
@@ -107,7 +111,7 @@ export default function ClientSelect({
       case kinds.DraftLong:
         return ['yakihonne', 'coracle', 'habla', 'lumilumi', 'pareto', 'njump']
       case kinds.LiveEvent:
-        return ['zapStream', 'nostrudel', 'njump']
+        return ['zapStream', 'shosho', 'nostrudel', 'njump']
       case kinds.Date:
       case kinds.Time:
         return ['coracle', 'njump']
@@ -170,13 +174,7 @@ export default function ClientSelect({
       <div onClick={(e) => e.stopPropagation()}>
         <Drawer open={open} onOpenChange={setOpen}>
           <DrawerTrigger asChild>{trigger}</DrawerTrigger>
-          <DrawerOverlay
-            onClick={(e) => {
-              e.stopPropagation()
-              setOpen(false)
-            }}
-          />
-          <DrawerContent hideOverlay>{content}</DrawerContent>
+          <DrawerContent title={t('Open in another client')}>{content}</DrawerContent>
         </Drawer>
       </div>
     )

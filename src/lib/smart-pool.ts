@@ -1,22 +1,79 @@
-import { SimplePool } from 'nostr-tools'
-import { AbstractRelay } from 'nostr-tools/abstract-relay'
+import { AbstractSimplePool } from 'nostr-tools/abstract-pool'
+import {
+  AbstractRelay,
+  type AbstractRelayConstructorOptions
+} from 'nostr-tools/abstract-relay'
+import { IRelay, IRelayPool } from '../types/relay-pool'
+import { initializeNostrVerifier, verifyEvent } from './nostr-verifier'
+import { isInsecureUrl, normalizeUrl } from './url'
 
 const DEFAULT_CONNECTION_TIMEOUT = 10 * 1000 // 10 seconds
 const CLEANUP_THRESHOLD = 15 // number of relays to trigger cleanup
 const CLEANUP_INTERVAL = 30 * 1000 // 30 seconds
 const IDLE_TIMEOUT = 10 * 1000 // 10 seconds
 
-export class SmartPool extends SimplePool {
-  private relayIdleTracker = new Map<string, number>()
+export type SmartPoolOptions = {
+  allowInsecure?: boolean
+  websocketImplementation?: AbstractRelayConstructorOptions['websocketImplementation']
+}
 
-  constructor() {
-    super({ enablePing: true, enableReconnect: true })
+export class SmartPool extends AbstractSimplePool implements IRelayPool {
+  private relayIdleTracker = new Map<string, number>()
+  private allowInsecure: boolean
+  // Insecure (ws://) relays the user explicitly opted into — their own
+  // read/write relays, relay sets, defaults, or a relay they are actively
+  // browsing. Insecure relays coming from other people's data are NOT here, so
+  // they get rejected below. Stored as normalized URLs.
+  private trustedInsecureRelays = new Set<string>()
+
+  constructor(options: SmartPoolOptions = {}) {
+    super({
+      verifyEvent,
+      websocketImplementation: options.websocketImplementation,
+      enablePing: true,
+      enableReconnect: true,
+      maxWaitForConnection: 3_000
+    })
+
+    this.allowInsecure = options.allowInsecure ?? false
+
+    // Verification falls back to pure JS until this finishes, and keeps using
+    // that fallback if WASM is unavailable in the current runtime.
+    void initializeNostrVerifier()
 
     // Periodically clean up idle relays
     setInterval(() => this.cleanIdleRelays(), CLEANUP_INTERVAL)
   }
 
+  setAllowInsecure(allow: boolean) {
+    this.allowInsecure = allow
+  }
+
+  setTrustedInsecureRelayUrls(urls: string[]) {
+    this.trustedInsecureRelays = new Set(urls.map((url) => normalizeUrl(url)))
+  }
+
+  getSeenRelays(eventId: string): IRelay[] {
+    return Array.from(this.seenOn.get(eventId)?.values() ?? [])
+  }
+
+  trackEventSeen(eventId: string, relay: IRelay) {
+    let set = this.seenOn.get(eventId)
+    if (!set) {
+      set = new Set()
+      this.seenOn.set(eventId, set)
+    }
+    set.add(relay as AbstractRelay)
+  }
+
   ensureRelay(url: string): Promise<AbstractRelay> {
+    if (
+      !this.allowInsecure &&
+      isInsecureUrl(url) &&
+      !this.trustedInsecureRelays.has(normalizeUrl(url))
+    ) {
+      return Promise.reject(new Error(`Insecure relay connection blocked: ${url}`))
+    }
     // If relay is new and we have many relays, trigger cleanup
     if (!this.relayIdleTracker.has(url) && this.relayIdleTracker.size > CLEANUP_THRESHOLD) {
       this.cleanIdleRelays()

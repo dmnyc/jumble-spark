@@ -1,6 +1,6 @@
-import mediaUpload, { UPLOAD_ABORTED_ERROR_MSG } from '@/services/media-upload.service'
+import { showUploadErrorToast } from '@/lib/upload-error-toast'
+import mediaUpload from '@/services/media-upload.service'
 import { useRef } from 'react'
-import { toast } from 'sonner'
 
 export default function Uploader({
   children,
@@ -12,7 +12,7 @@ export default function Uploader({
   accept = 'image/*'
 }: {
   children: React.ReactNode
-  onUploadSuccess: ({ url, tags }: { url: string; tags: string[][] }) => void
+  onUploadSuccess: ({ url, tags }: { url: string; tags: string[][] }, file: File) => void
   onUploadStart?: (file: File, cancel: () => void) => void
   onUploadEnd?: (file: File) => void
   onProgress?: (file: File, progress: number) => void
@@ -39,14 +39,11 @@ export default function Uploader({
           onProgress: (p) => onProgress?.(file, p),
           signal: abortController?.signal
         })
-        onUploadSuccess(result)
+        onUploadSuccess(result, file)
         onUploadEnd?.(file)
       } catch (error) {
         console.error('Error uploading file', error)
-        const message = (error as Error).message
-        if (message !== UPLOAD_ABORTED_ERROR_MSG) {
-          toast.error(`Failed to upload file: ${message}`)
-        }
+        showUploadErrorToast(error)
         if (fileInputRef.current) {
           fileInputRef.current.value = ''
         }

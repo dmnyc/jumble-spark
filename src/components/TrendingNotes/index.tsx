@@ -1,28 +1,16 @@
-import { SPECIAL_TRUST_SCORE_FILTER_ID, TRENDING_NOTES_RELAY_URLS } from '@/constants'
-import { simplifyUrl } from '@/lib/url'
-import { useTranslation } from 'react-i18next'
-import NormalFeed from '../NormalFeed'
-
-const RESOURCE_DESCRIPTION = TRENDING_NOTES_RELAY_URLS.map((url) => simplifyUrl(url)).join(', ')
+import { ALLOWED_FILTER_KINDS, TRENDING_NOTES_RELAY_URLS } from '@/constants'
+import NoteList from '../NoteList'
+import RecommendedFollows from '../RecommendedFollows'
 
 export default function TrendingNotes() {
-  const { t } = useTranslation()
-
   return (
-    <div>
-      <div className="top-12 z-30 flex h-12 flex-col justify-center border-b bg-background px-4 text-lg font-bold">
-        <div className="flex items-center gap-2">
-          {t('Trending Notes')}
-          <span className="text-sm font-normal text-muted-foreground">
-            ({RESOURCE_DESCRIPTION})
-          </span>
-        </div>
-      </div>
-      <NormalFeed
-        trustScoreFilterId={SPECIAL_TRUST_SCORE_FILTER_ID.TRENDING}
+    <>
+      <RecommendedFollows />
+      <NoteList
+        showKinds={ALLOWED_FILTER_KINDS}
         subRequests={[{ urls: TRENDING_NOTES_RELAY_URLS, filter: {} }]}
         showRelayCloseReason
       />
-    </div>
+    </>
   )
 }

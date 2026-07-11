@@ -11,8 +11,11 @@ import {
   parseContent
 } from '@/lib/content-parser'
 import { getImetaInfosFromEvent } from '@/lib/event'
+import { containsMarkdown } from '@/lib/markdown'
 import { getEmojiInfosFromEmojiTags, getImetaInfoFromImetaTag } from '@/lib/tag'
+import { EMOJI_REGEX } from '@/constants'
 import { cn } from '@/lib/utils'
+import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import mediaUpload from '@/services/media-upload.service'
 import { TImetaInfo } from '@/types'
 import { Event } from 'nostr-tools'
@@ -26,8 +29,10 @@ import {
 } from '../Embedded'
 import Emoji from '../Emoji'
 import ExternalLink from '../ExternalLink'
+import HiddenMediaBar from '../HiddenMediaBar'
 import HighlightButton from '../HighlightButton'
 import ImageGallery from '../ImageGallery'
+import MarkdownContent from '../MarkdownContent'
 import MediaPlayer from '../MediaPlayer'
 import PostEditor from '../PostEditor'
 import WebPreview from '../WebPreview'
@@ -50,77 +55,162 @@ export default function Content({
   const contentRef = useRef<HTMLDivElement>(null)
   const [showHighlightEditor, setShowHighlightEditor] = useState(false)
   const [selectedText, setSelectedText] = useState('')
+  const [mediaRevealed, setMediaRevealed] = useState(false)
+  const { autoLoadMedia } = useContentPolicy()
   const translatedEvent = useTranslatedEvent(event?.id)
-  const { nodes, allImages, lastNormalUrl, emojiInfos } = useMemo(() => {
-    const _content = translatedEvent?.content ?? event?.content ?? content
-    if (!_content) return {}
+  const resolvedContent = translatedEvent?.content ?? event?.content ?? content
+  const isMarkdown = useMemo(
+    () => (resolvedContent ? containsMarkdown(resolvedContent) : false),
+    [resolvedContent]
+  )
+  const { nodes, allImages, lastNormalUrl, emojiInfos, hiddenMediaCount, imetaInfos } =
+    useMemo(() => {
+      if (!resolvedContent || isMarkdown) return {}
+      const _content = resolvedContent
 
-    const nodes = parseContent(_content, [
-      EmbeddedEventParser,
-      EmbeddedMentionParser,
-      EmbeddedLegacyMentionParser,
-      EmbeddedUrlParser,
-      EmbeddedLNInvoiceParser,
-      EmbeddedWebsocketUrlParser,
-      EmbeddedHashtagParser,
-      EmbeddedEmojiParser
-    ])
+      const nodes = parseContent(_content, [
+        EmbeddedEventParser,
+        EmbeddedMentionParser,
+        EmbeddedLegacyMentionParser,
+        EmbeddedUrlParser,
+        EmbeddedLNInvoiceParser,
+        EmbeddedWebsocketUrlParser,
+        EmbeddedHashtagParser,
+        EmbeddedEmojiParser
+      ])
 
-    const imetaInfos = event ? getImetaInfosFromEvent(event) : []
-    const allImages = nodes
-      .map((node) => {
-        if (node.type === 'image') {
-          const imageInfo = imetaInfos.find((image) => image.url === node.data)
-          if (imageInfo) {
-            return imageInfo
+      const imetaInfos = event ? getImetaInfosFromEvent(event) : []
+      const allImages = nodes
+        .map((node) => {
+          if (node.type === 'image') {
+            const imageInfo = imetaInfos.find((image) => image.url === node.data)
+            if (imageInfo) {
+              return imageInfo
+            }
+            const tag = mediaUpload.getImetaTagByUrl(node.data)
+            return tag
+              ? getImetaInfoFromImetaTag(tag, event?.pubkey)
+              : { url: node.data, pubkey: event?.pubkey }
           }
-          const tag = mediaUpload.getImetaTagByUrl(node.data)
-          return tag
-            ? getImetaInfoFromImetaTag(tag, event?.pubkey)
-            : { url: node.data, pubkey: event?.pubkey }
+          if (node.type === 'images') {
+            const urls = Array.isArray(node.data) ? node.data : [node.data]
+            return urls.map((url) => {
+              const imageInfo = imetaInfos.find((image) => image.url === url)
+              return imageInfo ?? { url, pubkey: event?.pubkey }
+            })
+          }
+          return null
+        })
+        .filter(Boolean)
+        .flat() as TImetaInfo[]
+
+      const emojiInfos = getEmojiInfosFromEmojiTags(event?.tags)
+
+      const lastNormalUrlNode = nodes.findLast((node) => node.type === 'url')
+      const lastNormalUrl =
+        typeof lastNormalUrlNode?.data === 'string' ? lastNormalUrlNode.data : undefined
+
+      let hiddenMediaCount = 0
+      for (const node of nodes) {
+        if (
+          node.type === 'image' ||
+          node.type === 'media' ||
+          node.type === 'youtube' ||
+          node.type === 'x-post'
+        ) {
+          hiddenMediaCount += 1
+        } else if (node.type === 'images') {
+          hiddenMediaCount += Array.isArray(node.data) ? node.data.length : 1
         }
-        if (node.type === 'images') {
-          const urls = Array.isArray(node.data) ? node.data : [node.data]
-          return urls.map((url) => {
-            const imageInfo = imetaInfos.find((image) => image.url === url)
-            return imageInfo ?? { url, pubkey: event?.pubkey }
-          })
+      }
+
+      return { nodes, allImages, emojiInfos, lastNormalUrl, hiddenMediaCount, imetaInfos }
+    }, [event, resolvedContent, isMarkdown])
+
+  const isEmojiOnly = useMemo(() => {
+    if (!nodes || nodes.length === 0) return false
+    const nonWhitespace = nodes.filter((node) => !(node.type === 'text' && /^\s*$/.test(node.data)))
+    let emojiCount = 0
+    for (const node of nonWhitespace) {
+      if (node.type === 'emoji') {
+        emojiCount++
+      } else if (node.type === 'text') {
+        const matches = node.data.match(new RegExp(EMOJI_REGEX.source, 'gu'))
+        if (!matches || node.data.replace(new RegExp(EMOJI_REGEX.source, 'gu'), '').trim() !== '') {
+          return false
         }
-        return null
-      })
-      .filter(Boolean)
-      .flat() as TImetaInfo[]
-
-    const emojiInfos = getEmojiInfosFromEmojiTags(event?.tags)
-
-    const lastNormalUrlNode = nodes.findLast((node) => node.type === 'url')
-    const lastNormalUrl =
-      typeof lastNormalUrlNode?.data === 'string' ? lastNormalUrlNode.data : undefined
-
-    return { nodes, allImages, emojiInfos, lastNormalUrl }
-  }, [event, translatedEvent, content])
-
-  if (!nodes || nodes.length === 0) {
-    return null
-  }
+        emojiCount += matches.length
+      } else {
+        return false
+      }
+    }
+    return emojiCount > 0 && emojiCount <= 3
+  }, [nodes])
 
   const handleHighlight = (text: string) => {
     setSelectedText(text)
     setShowHighlightEditor(true)
   }
 
+  if (!resolvedContent) {
+    return null
+  }
+
+  if (isMarkdown) {
+    return (
+      <>
+        <div ref={contentRef} dir="auto" className={cn('text-wrap wrap-break-word', className)}>
+          <MarkdownContent content={resolvedContent} event={event} />
+        </div>
+        {enableHighlight && (
+          <HighlightButton onHighlight={handleHighlight} containerRef={contentRef} />
+        )}
+        {enableHighlight && (
+          <PostEditor
+            highlightedText={selectedText}
+            parentStuff={event}
+            open={showHighlightEditor}
+            setOpen={setShowHighlightEditor}
+          />
+        )}
+      </>
+    )
+  }
+
+  if (!nodes || nodes.length === 0) {
+    return null
+  }
+
+  const effectiveMustLoad = !!mustLoadMedia || mediaRevealed
+  const mediaHidden = !effectiveMustLoad && !autoLoadMedia
   let imageIndex = 0
   return (
     <>
-      <div ref={contentRef} className={cn('whitespace-pre-wrap text-wrap break-words', className)}>
+      <div
+        ref={contentRef}
+        dir="auto"
+        className={cn(
+          'text-wrap wrap-break-word whitespace-pre-wrap',
+          isEmojiOnly && 'flex items-end gap-1',
+          className
+        )}
+      >
         {nodes.map((node, index) => {
           if (node.type === 'text') {
+            if (isEmojiOnly) {
+              return (
+                <span key={index} className="text-7xl leading-none">
+                  {node.data}
+                </span>
+              )
+            }
             return node.data
           }
           if (node.type === 'image' || node.type === 'images') {
             const start = imageIndex
             const end = imageIndex + (Array.isArray(node.data) ? node.data.length : 1)
             imageIndex = end
+            if (mediaHidden) return null
             return (
               <ImageGallery
                 className="mt-2"
@@ -128,13 +218,22 @@ export default function Content({
                 images={allImages}
                 start={start}
                 end={end}
-                mustLoad={mustLoadMedia}
+                mustLoad={effectiveMustLoad}
               />
             )
           }
           if (node.type === 'media') {
+            if (mediaHidden) return null
+            const mediaInfo = imetaInfos?.find((info) => info.url === node.data)
             return (
-              <MediaPlayer className="mt-2" key={index} src={node.data} mustLoad={mustLoadMedia} />
+              <MediaPlayer
+                className="mt-2"
+                key={index}
+                src={node.data}
+                pubkey={mediaInfo?.pubkey ?? event?.pubkey}
+                mustLoad={effectiveMustLoad}
+                dim={mediaInfo?.dim}
+              />
             )
           }
           if (node.type === 'url') {
@@ -163,30 +262,42 @@ export default function Content({
             const shortcode = node.data.split(':')[1]
             const emoji = emojiInfos.find((e) => e.shortcode === shortcode)
             if (!emoji) return node.data
-            return <Emoji classNames={{ img: 'mb-1' }} emoji={emoji} key={index} />
+            return (
+              <Emoji
+                classNames={{ img: isEmojiOnly ? 'size-20' : 'mb-1' }}
+                emoji={emoji}
+                clickable
+                key={index}
+              />
+            )
           }
           if (node.type === 'youtube') {
+            if (mediaHidden) return null
             return (
               <YoutubeEmbeddedPlayer
                 key={index}
                 url={node.data}
                 className="mt-2"
-                mustLoad={mustLoadMedia}
+                mustLoad={effectiveMustLoad}
               />
             )
           }
           if (node.type === 'x-post') {
+            if (mediaHidden) return null
             return (
               <XEmbeddedPost
                 key={index}
                 url={node.data}
                 className="mt-2"
-                mustLoad={mustLoadMedia}
+                mustLoad={effectiveMustLoad}
               />
             )
           }
           return null
         })}
+        {mediaHidden && hiddenMediaCount > 0 && (
+          <HiddenMediaBar count={hiddenMediaCount} onClick={() => setMediaRevealed(true)} />
+        )}
         {lastNormalUrl && <WebPreview className="mt-2" url={lastNormalUrl} />}
       </div>
       {enableHighlight && (

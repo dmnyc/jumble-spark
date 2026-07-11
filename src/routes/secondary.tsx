@@ -1,6 +1,9 @@
+import AccountSettingsPage from '@/pages/secondary/AccountSettingsPage'
 import AppearanceSettingsPage from '@/pages/secondary/AppearanceSettingsPage'
 import BookmarkPage from '@/pages/secondary/BookmarkPage'
+import DmConversationPage from '@/pages/secondary/DmConversationPage'
 import EmojiPackSettingsPage from '@/pages/secondary/EmojiPackSettingsPage'
+import EmojiSetEditorPage from '@/pages/secondary/EmojiSetEditorPage'
 import ExternalContentPage from '@/pages/secondary/ExternalContentPage'
 import FollowingListPage from '@/pages/secondary/FollowingListPage'
 import FollowPackPage from '@/pages/secondary/FollowPackPage'
@@ -20,6 +23,7 @@ import RizfulPage from '@/pages/secondary/RizfulPage'
 import SearchPage from '@/pages/secondary/SearchPage'
 import SettingsPage from '@/pages/secondary/SettingsPage'
 import SparkWalletPage from '@/pages/secondary/SparkWalletPage'
+import StandaloneEmojiEditorPage from '@/pages/secondary/StandaloneEmojiEditorPage'
 import SystemSettingsPage from '@/pages/secondary/SystemSettingsPage'
 import TranslationPage from '@/pages/secondary/TranslationPage'
 import UserAggregationDetailPage from '@/pages/secondary/UserAggregationDetailPage'
@@ -28,7 +32,11 @@ import { match } from 'path-to-regexp'
 import { isValidElement } from 'react'
 
 // Right column routes
-const SECONDARY_ROUTE_CONFIGS = [
+const SECONDARY_ROUTE_CONFIGS: {
+  path: string
+  element: React.ReactElement | null
+  hideBottomBar?: boolean
+}[] = [
   { path: '/notes', element: <NoteListPage /> },
   { path: '/notes/:id', element: <NotePage /> },
   { path: '/users', element: <ProfileListPage /> },
@@ -47,18 +55,26 @@ const SECONDARY_ROUTE_CONFIGS = [
   { path: '/settings/appearance', element: <AppearanceSettingsPage /> },
   { path: '/settings/translation', element: <TranslationPage /> },
   { path: '/settings/emoji-packs', element: <EmojiPackSettingsPage /> },
+  { path: '/emoji-set-editor', element: <EmojiSetEditorPage /> },
+  { path: '/emoji-set-editor/:id', element: <EmojiSetEditorPage /> },
+  { path: '/standalone-emoji-editor', element: <StandaloneEmojiEditorPage /> },
   { path: '/settings/system', element: <SystemSettingsPage /> },
+  { path: '/settings/account', element: <AccountSettingsPage /> },
   { path: '/profile-editor', element: <ProfileEditorPage /> },
   { path: '/mutes', element: <MuteListPage /> },
   { path: '/rizful', element: <RizfulPage /> },
   { path: '/spark', element: <SparkWalletPage /> },
   { path: '/bookmarks', element: <BookmarkPage /> },
   { path: '/follow-packs/:id', element: <FollowPackPage /> },
-  { path: '/user-aggregation/:feedId/:npub', element: <UserAggregationDetailPage /> }
+  { path: '/user-aggregation/:feedId/:npub', element: <UserAggregationDetailPage /> },
+  { path: '/dms/:pubkey', element: <DmConversationPage />, hideBottomBar: true }
 ]
 
-export const SECONDARY_ROUTES = SECONDARY_ROUTE_CONFIGS.map(({ path, element }) => ({
-  path,
-  element: isValidElement(element) ? element : null,
-  matcher: match(path)
-}))
+export const SECONDARY_ROUTES = SECONDARY_ROUTE_CONFIGS.map(
+  ({ path, element, hideBottomBar }) => ({
+    path,
+    element: isValidElement(element) ? element : null,
+    matcher: match(path),
+    hideBottomBar: hideBottomBar ?? false
+  })
+)

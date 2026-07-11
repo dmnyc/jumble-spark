@@ -25,6 +25,8 @@ export default function StuffStats({
   className?: string
   classNames?: {
     buttonBar?: string
+    topList?: string
+    topListContent?: string
   }
   fetchIfNotExisting?: boolean
   displayTopZapsAndLikes?: boolean
@@ -45,8 +47,16 @@ export default function StuffStats({
       <div className={cn('select-none', className)}>
         {displayTopZapsAndLikes && (
           <>
-            <TopZaps stuff={stuff} />
-            <Likes stuff={stuff} />
+            <TopZaps
+              stuff={stuff}
+              scrollAreaClassName={classNames?.topList}
+              contentClassName={classNames?.topListContent}
+            />
+            <Likes
+              stuff={stuff}
+              scrollAreaClassName={classNames?.topList}
+              contentClassName={classNames?.topListContent}
+            />
           </>
         )}
         <div
@@ -55,13 +65,11 @@ export default function StuffStats({
             loading ? 'animate-pulse' : '',
             classNames?.buttonBar
           )}
-          onClick={(e) => e.stopPropagation()}
         >
           <ReplyButton stuff={stuff} />
           <RepostButton stuff={stuff} />
           <LikeButton stuff={stuff} />
           <ZapButton stuff={stuff} />
-          <BookmarkButton stuff={stuff} />
           <SeenOnButton stuff={stuff} />
         </div>
       </div>
@@ -72,21 +80,26 @@ export default function StuffStats({
     <div className={cn('select-none', className)}>
       {displayTopZapsAndLikes && (
         <>
-          <TopZaps stuff={stuff} />
-          <Likes stuff={stuff} />
+          <TopZaps
+            stuff={stuff}
+            scrollAreaClassName={classNames?.topList}
+            contentClassName={classNames?.topListContent}
+          />
+          <Likes
+            stuff={stuff}
+            scrollAreaClassName={classNames?.topList}
+            contentClassName={classNames?.topListContent}
+          />
         </>
       )}
       <div className="flex h-5 justify-between [&_svg]:size-4">
-        <div
-          className={cn('flex items-center', loading ? 'animate-pulse' : '')}
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className={cn('flex items-center', loading ? 'animate-pulse' : '')}>
           <ReplyButton stuff={stuff} />
           <RepostButton stuff={stuff} />
           <LikeButton stuff={stuff} />
           <ZapButton stuff={stuff} />
         </div>
-        <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center">
           <BookmarkButton stuff={stuff} />
           <SeenOnButton stuff={stuff} />
         </div>

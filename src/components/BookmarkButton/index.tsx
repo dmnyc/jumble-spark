@@ -50,9 +50,9 @@ export default function BookmarkButton({ stuff }: { stuff: Event | string }) {
 
   return (
     <button
-      className={`flex items-center gap-1 ${
-        isBookmarked ? 'text-rose-400' : 'text-muted-foreground'
-      } h-full px-3 enabled:hover:text-rose-400 disabled:cursor-default disabled:text-muted-foreground/40`}
+      className={`flex cursor-pointer items-center gap-1 ${
+        isBookmarked ? 'text-orange-400' : 'text-muted-foreground'
+      } disabled:text-muted-foreground/40 h-full px-3 enabled:hover:text-orange-400 disabled:cursor-default`}
       onClick={isBookmarked ? handleRemoveBookmark : handleBookmark}
       disabled={!event || updating}
       title={isBookmarked ? t('Remove bookmark') : t('Bookmark')}
@@ -60,7 +60,7 @@ export default function BookmarkButton({ stuff }: { stuff: Event | string }) {
       {updating ? (
         <Loader className="animate-spin" />
       ) : (
-        <BookmarkIcon className={isBookmarked ? 'fill-rose-400' : ''} />
+        <BookmarkIcon className={isBookmarked ? 'fill-orange-400' : ''} />
       )}
     </button>
   )

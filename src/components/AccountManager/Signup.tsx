@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { downloadTextFile } from '@/lib/download'
 import { useNostr } from '@/providers/NostrProvider'
 import { Check, Copy, Download, RefreshCcw } from 'lucide-react'
 import { generateSecretKey } from 'nostr-tools'
@@ -29,15 +30,7 @@ export default function Signup({
   const [copied, setCopied] = useState(false)
 
   const handleDownload = () => {
-    const blob = new Blob([nsec], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'nostr-private-key.txt'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    downloadTextFile('nostr-private-key.txt', nsec)
   }
 
   const handleSignup = async () => {
@@ -129,7 +122,7 @@ export default function Signup({
           </Button>
         </div>
 
-        <div className="ml-2 flex items-center gap-2">
+        <div className="ms-2 flex items-center gap-2">
           <Checkbox
             id="acknowledge-checkbox"
             checked={checkedSaveKey}

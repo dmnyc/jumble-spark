@@ -17,7 +17,7 @@ export default function PubkeyCopy({ pubkey }: { pubkey: string }) {
 
   return (
     <div
-      className="clickable flex w-fit items-center gap-2 rounded-full bg-muted px-2 text-sm text-muted-foreground"
+      className="clickable bg-muted text-muted-foreground flex w-fit items-center gap-2 rounded-full px-2 text-sm"
       onClick={() => copyNpub()}
     >
       <div>{formatNpub(npub, 24)}</div>

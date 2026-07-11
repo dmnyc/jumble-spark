@@ -5,9 +5,10 @@ import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { toSearch } from '@/lib/link'
 import { parseNakReqCommand } from '@/lib/nak-parser'
 import { useSecondaryPage } from '@/PageManager'
+import storage from '@/services/local-storage.service'
 import { TSearchParams } from '@/types'
 import { ChevronLeft } from 'lucide-react'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 const SearchPage = forwardRef(({ index }: { index?: number }, ref) => {
   const { push, pop } = useSecondaryPage()
@@ -55,6 +56,11 @@ const SearchPage = forwardRef(({ index }: { index?: number }, ref) => {
     }
   }
 
+  const addSearchHistory = useCallback((text: string) => {
+    const trimmed = text.trim()
+    if (trimmed) storage.addSearchHistory(trimmed)
+  }, [])
+
   return (
     <SecondaryPageLayout
       ref={ref}
@@ -62,9 +68,15 @@ const SearchPage = forwardRef(({ index }: { index?: number }, ref) => {
       titlebar={
         <div className="flex h-full items-center gap-1">
           <Button variant="ghost" size="titlebar-icon" onClick={() => pop()}>
-            <ChevronLeft />
+            <ChevronLeft className="rtl:-scale-x-100" />
           </Button>
-          <SearchBar ref={searchBarRef} input={input} setInput={setInput} onSearch={onSearch} />
+          <SearchBar
+            ref={searchBarRef}
+            input={input}
+            setInput={setInput}
+            onSearch={onSearch}
+            onSaveHistory={addSearchHistory}
+          />
         </div>
       }
       displayScrollToTopButton

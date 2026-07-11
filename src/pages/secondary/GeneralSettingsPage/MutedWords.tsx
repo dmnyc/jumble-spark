@@ -1,11 +1,10 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { SettingsRow } from '@/components/ui/settings'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { Plus, X } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import SettingItem from './SettingItem'
 
 export default function MutedWords() {
   const { t } = useTranslation()
@@ -32,9 +31,8 @@ export default function MutedWords() {
   }
 
   return (
-    <SettingItem className="flex-col items-start gap-2">
-      <Label className="text-base font-normal">{t('Muted words')}</Label>
-      <div className="w-full space-y-2">
+    <SettingsRow layout="stacked" title={t('Muted words')}>
+      <div className="space-y-2">
         <div className="flex gap-2">
           <Input
             placeholder={t('Add muted word')}
@@ -73,6 +71,6 @@ export default function MutedWords() {
           </div>
         )}
       </div>
-    </SettingItem>
+    </SettingsRow>
   )
 }

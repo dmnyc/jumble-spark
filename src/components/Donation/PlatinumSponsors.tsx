@@ -6,11 +6,13 @@ export default function PlatinumSponsors() {
   const { t } = useTranslation()
 
   return (
-    <div className="space-y-2">
-      <div className="text-center font-semibold">{t('Platinum Sponsors')}</div>
+    <section className="space-y-3">
+      <div className="text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {t('Platinum Sponsors')}
+      </div>
       <div className="flex flex-col items-center gap-2">
         <div
-          className="flex cursor-pointer items-center gap-4"
+          className="flex cursor-pointer items-center gap-4 transition-opacity hover:opacity-80"
           onClick={() => window.open('https://opensats.org/', '_blank')}
         >
           <Image
@@ -22,6 +24,6 @@ export default function PlatinumSponsors() {
           <div className="text-2xl font-semibold">OpenSats</div>
         </div>
       </div>
-    </div>
+    </section>
   )
 }

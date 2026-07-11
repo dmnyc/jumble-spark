@@ -1,4 +1,5 @@
 import { kinds } from 'nostr-tools'
+import { TFeedTabConfig, TRelaySet } from './types'
 
 export const JUMBLE_API_BASE_URL = 'https://api.jumble.social'
 
@@ -15,7 +16,6 @@ export const StorageKey = {
   ACCOUNTS: 'accounts',
   CURRENT_ACCOUNT: 'currentAccount',
   ADD_CLIENT_TAG: 'addClientTag',
-  NOTE_LIST_MODE: 'noteListMode',
   NOTIFICATION_TYPE: 'notificationType',
   DEFAULT_ZAP_SATS: 'defaultZapSats',
   DEFAULT_ZAP_COMMENT: 'defaultZapComment',
@@ -23,11 +23,14 @@ export const StorageKey = {
   LAST_READ_NOTIFICATION_TIME_MAP: 'lastReadNotificationTimeMap',
   ACCOUNT_FEED_INFO_MAP: 'accountFeedInfoMap',
   AUTOPLAY: 'autoplay',
+  VIDEO_LOOP: 'videoLoop',
   TRANSLATION_SERVICE_CONFIG_MAP: 'translationServiceConfigMap',
   MEDIA_UPLOAD_SERVICE_CONFIG_MAP: 'mediaUploadServiceConfigMap',
   DISMISSED_TOO_MANY_RELAYS_ALERT: 'dismissedTooManyRelaysAlert',
   SHOW_KINDS: 'showKinds',
   SHOW_KINDS_VERSION: 'showKindsVersion',
+  SHOW_KINDS_MAP: 'showKindsMap',
+  FEED_TABS: 'feedTabs',
   HIDE_CONTENT_MENTIONING_MUTED_USERS: 'hideContentMentioningMutedUsers',
   NOTIFICATION_LIST_STYLE: 'notificationListStyle',
   MEDIA_AUTO_LOAD_POLICY: 'mediaAutoLoadPolicy',
@@ -40,6 +43,9 @@ export const StorageKey = {
   ENABLE_SINGLE_COLUMN_LAYOUT: 'enableSingleColumnLayout',
   FAVICON_URL_TEMPLATE: 'faviconUrlTemplate',
   FILTER_OUT_ONION_RELAYS: 'filterOutOnionRelays',
+  ALLOW_INSECURE_CONNECTION: 'allowInsecureConnection',
+  BLOSSOM_CACHE_SERVER_URL: 'blossomCacheServerUrl',
+  BLOSSOM_CACHE_SERVER_ENABLED: 'blossomCacheServerEnabled',
   QUICK_REACTION: 'quickReaction',
   QUICK_REACTION_EMOJI: 'quickReactionEmoji',
   NSFW_DISPLAY_POLICY: 'nsfwDisplayPolicy',
@@ -47,7 +53,19 @@ export const StorageKey = {
   MUTED_WORDS: 'mutedWords',
   MIN_TRUST_SCORE: 'minTrustScore',
   MIN_TRUST_SCORE_MAP: 'minTrustScoreMap',
+  SEARCH_RELAY_URLS: 'searchRelayUrls',
+  SEARCH_HISTORY: 'searchHistory',
   HIDE_INDIRECT_NOTIFICATIONS: 'hideIndirectNotifications',
+  ENCRYPTION_KEY_PRIVKEY_MAP: 'encryptionKeyPrivkeyMap',
+  RETIRED_ENCRYPTION_KEY_PRIVKEY_MAP: 'retiredEncryptionKeyPrivkeyMap',
+  CLIENT_KEY_PRIVKEY_MAP: 'clientKeyPrivkeyMap',
+  LAST_READ_DM_TIME_MAP: 'lastReadDmTimeMap',
+  DM_LAST_SYNCED_AT_MAP: 'dmLastSyncedAtMap',
+  DM_BACKWARD_CURSOR_MAP: 'dmBackwardCursorMap',
+  PROCESSED_SYNC_REQUEST_IDS: 'processedSyncRequestIds',
+  DISABLE_NOTIFICATION_SYNC: 'disableNotificationSync',
+  DISMISSED_DESKTOP_APP_TIP: 'dismissedDesktopAppTip',
+  NOTE_LIST_MODE: 'noteListMode', // deprecated
   ENABLE_LIVE_FEED: 'enableLiveFeed', // deprecated
   HIDE_UNTRUSTED_NOTES: 'hideUntrustedNotes', // deprecated
   HIDE_UNTRUSTED_INTERACTIONS: 'hideUntrustedInteractions', // deprecated
@@ -78,7 +96,7 @@ export const BIG_RELAY_URLS = [
 
 export const SEARCHABLE_RELAY_URLS = [
   'wss://search.nos.today/',
-  'wss://relay.ditto.pub/',
+  'wss://search.nostrarchives.com/',
   'wss://relay.nostr.band/'
 ]
 
@@ -88,16 +106,24 @@ export const GROUP_METADATA_EVENT_KIND = 39000
 
 export const ExtendedKind = {
   EXTERNAL_CONTENT_REACTION: 17,
+  SEAL: 13,
+  RUMOR_CHAT: 14,
+  RUMOR_FILE: 15,
   PICTURE: 20,
   VIDEO: 21,
   SHORT_VIDEO: 22,
+  GIFT_WRAP: 1059,
   POLL: 1068,
   POLL_RESPONSE: 1018,
   COMMENT: 1111,
   VOICE: 1222,
   VOICE_COMMENT: 1244,
+  CLIENT_KEY_ANNOUNCEMENT: 4454,
+  KEY_TRANSFER: 4455,
   PINNED_USERS: 10010,
   FAVORITE_RELAYS: 10012,
+  ENCRYPTION_KEY_ANNOUNCEMENT: 10044,
+  DM_RELAYS: 10050,
   BLOSSOM_SERVER_LIST: 10063,
   FOLLOW_PACK: 39089,
   RELAY_REVIEW: 31987,
@@ -127,7 +153,22 @@ export const SUPPORTED_KINDS = [
   ...ALLOWED_FILTER_KINDS,
   ExtendedKind.RELAY_REVIEW,
   kinds.Emojisets,
-  ExtendedKind.FOLLOW_PACK
+  ExtendedKind.FOLLOW_PACK,
+  kinds.Reaction,
+  kinds.Zap,
+  ExtendedKind.EXTERNAL_CONTENT_REACTION
+]
+
+export const DEFAULT_FEED_TABS: TFeedTabConfig[] = [
+  { id: 'posts', builtin: 'posts', label: 'Notes', hideReplies: true },
+  { id: 'postsAndReplies', builtin: 'postsAndReplies', label: 'Replies' },
+  { id: '24h', builtin: '24h', label: '24h Pulse' },
+  {
+    id: 'articles',
+    builtin: 'articles',
+    label: 'Articles',
+    kinds: [kinds.LongFormArticle]
+  }
 ]
 
 export const URL_REGEX =
@@ -143,9 +184,9 @@ export const LN_INVOICE_REGEX = /(ln(?:bc|tb|bcrt))([0-9]+[munp]?)?1([02-9ac-hj-
 export const EMOJI_REGEX =
   /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA70}-\u{1FAFF}]|[\u{1F004}]|[\u{1F0CF}]|[\u{1F18E}]|[\u{3030}]|[\u{2B50}]|[\u{2B55}]|[\u{2934}-\u{2935}]|[\u{2B05}-\u{2B07}]|[\u{2B1B}-\u{2B1C}]|[\u{3297}]|[\u{3299}]|[\u{303D}]|[\u{00A9}]|[\u{00AE}]|[\u{2122}]|[\u{23E9}-\u{23EF}]|[\u{23F0}]|[\u{23F3}]|[\u{FE00}-\u{FE0F}]|[\u{200D}]/gu
 export const YOUTUBE_URL_REGEX =
-  /https?:\/\/(?:(?:www|m)\.)?(?:youtube\.com\/(?:watch\?[^#\s]*|embed\/[\w-]+|shorts\/[\w-]+|live\/[\w-]+)|youtu\.be\/[\w-]+)(?:\?[^#\s]*)?(?:#[^\s]*)?/gi
+  /https?:\/\/(?:(?:www|m)\.)?(?:youtube\.com\/(?:watch\?[^#\s]*|embed\/[\w-]+|shorts\/[\w-]+|live\/[\w-]+)|youtu\.be\/[\w-]+)(?:\?[^#\s]*)?(?:#[^\s]*)?/i
 export const X_URL_REGEX =
-  /https?:\/\/(?:www\.)?(twitter\.com|x\.com)\/(?:#!\/)?(\w+)\/status(?:es)?\/(\d+)(?:[?#].*)?/gi
+  /https?:\/\/(?:www\.)?(twitter\.com|x\.com)\/(?:#!\/)?(\w+)\/status(?:es)?\/(\d+)(?:[?#].*)?/i
 
 export const JUMBLE_PUBKEY = 'f4eb8e62add1340b9cadcd9861e669b2e907cea534e0f7f3ac974c11c758a51a'
 export const CODY_PUBKEY = '8125b911ed0e94dbe3008a0be48cfe5cd0c0b05923cfff917ae7e87da8400883'
@@ -161,12 +202,33 @@ export const NIP_96_SERVICE = [
 export const DEFAULT_NIP_96_SERVICE = 'https://nostr.build'
 
 export const DEFAULT_NOSTRCONNECT_RELAY = [
-  'wss://relay.nsec.app/',
   'wss://bucket.coracle.social/',
+  'wss://relay.primal.net/',
+  'wss://relay.damus.io/'
+]
+
+export const DEFAULT_DM_RELAYS = [
+  'wss://nip17.com/',
+  'wss://relay.damus.io/',
+  'wss://nos.lol/',
   'wss://relay.primal.net/'
 ]
 
+export const DM_TIME_RANDOMIZATION_SECONDS = 2 * 24 * 60 * 60 // 2 days in seconds
+
+// When the encryption key is rotated, the old key is kept around so messages
+// still encrypted to it (by contacts who haven't learned the new key yet) can
+// be decrypted. Old keys are pruned once they exceed this age or this count.
+export const ENCRYPTION_KEY_RETENTION_MS = 90 * 24 * 60 * 60 * 1000 // 90 days
+export const MAX_RETIRED_ENCRYPTION_KEYS = 10
+
+// Key-sync request ids are only remembered long enough to avoid duplicate
+// prompts while relays replay recent sync-request events.
+export const PROCESSED_SYNC_REQUEST_ID_RETENTION_MS = 10 * 60 * 1000
+
 export const DEFAULT_FAVICON_URL_TEMPLATE = 'https://{hostname}/favicon.ico'
+
+export const DEFAULT_BLOSSOM_CACHE_SERVER_URL = 'http://127.0.0.1:24242'
 
 export const POLL_TYPE = {
   MULTIPLE_CHOICE: 'multiplechoice',
@@ -186,7 +248,6 @@ export const MEDIA_AUTO_LOAD_POLICY = {
 
 export const PROFILE_PICTURE_AUTO_LOAD_POLICY = {
   ALWAYS: 'always',
-  WIFI_ONLY: 'wifi-only',
   NEVER: 'never'
 } as const
 
@@ -483,5 +544,28 @@ export const SPECIAL_TRUST_SCORE_FILTER_ID = {
   SEARCH: 'search',
   HASHTAG: 'hashtag',
   NAK: 'nak',
-  TRENDING: 'trending'
+  TRENDING: 'trending',
+  DM: 'dm'
 }
+
+export const SPECIAL_FEED_ID = {
+  ...SPECIAL_TRUST_SCORE_FILTER_ID,
+  FOLLOWING: 'following',
+  PINNED: 'pinned'
+}
+
+export const COMMUNITY_RELAY_SETS = import.meta.env.VITE_COMMUNITY_RELAY_SETS as TRelaySet[]
+export const COMMUNITY_RELAYS = import.meta.env.VITE_COMMUNITY_RELAYS as string[]
+
+export const IS_COMMUNITY_MODE = COMMUNITY_RELAY_SETS.length > 0 || COMMUNITY_RELAYS.length > 0
+
+// Pomegranate (threshold-key-shard NIP-46 remote signer) — "Login with Google".
+export const POMEGRANATE_ENABLED = true
+export const POMEGRANATE_CENTRAL_URL = 'https://auth.njump.me/'
+export const POMEGRANATE_OPERATOR_URLS = [
+  'https://po.jumble.social/',
+  'https://po.coracle.social/',
+  'https://po.njump.me/',
+  'https://po.f7z.io/',
+  'https://po.nostrver.se/'
+]
