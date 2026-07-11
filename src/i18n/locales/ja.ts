@@ -1138,6 +1138,7 @@ export default {
     'Indirect notifications hidden': '間接通知を非表示中',
     'Indirect notifications shown': '間接通知を表示中',
     Resend: '再送信',
-    'Original poster': '元の投稿者'
+    'Original poster': '元の投稿者',
+    'Show less': ''
   }
 }

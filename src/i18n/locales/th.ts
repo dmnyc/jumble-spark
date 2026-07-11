@@ -1120,6 +1120,7 @@ export default {
     'Indirect notifications hidden': 'ซ่อนการแจ้งเตือนทางอ้อมแล้ว',
     'Indirect notifications shown': 'แสดงการแจ้งเตือนทางอ้อม',
     Resend: 'ส่งอีกครั้ง',
-    'Original poster': 'ผู้โพสต์ต้นฉบับ'
+    'Original poster': 'ผู้โพสต์ต้นฉบับ',
+    'Show less': ''
   }
 }

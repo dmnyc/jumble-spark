@@ -1096,6 +1096,7 @@ export default {
     'Indirect notifications hidden': '已隱藏間接通知',
     'Indirect notifications shown': '已顯示間接通知',
     Resend: '重新發送',
-    'Original poster': '原始發文者'
+    'Original poster': '原始發文者',
+    'Show less': ''
   }
 }

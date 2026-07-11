@@ -1123,6 +1123,7 @@ export default {
     'Indirect notifications hidden': 'الإشعارات غير المباشرة مخفية',
     'Indirect notifications shown': 'الإشعارات غير المباشرة ظاهرة',
     Resend: 'إعادة الإرسال',
-    'Original poster': 'الناشر الأصلي'
+    'Original poster': 'الناشر الأصلي',
+    'Show less': ''
   }
 }

@@ -1129,6 +1129,7 @@ export default {
     'Indirect notifications hidden': 'Indirect notifications hidden',
     'Indirect notifications shown': 'Indirect notifications shown',
     Resend: 'Resend',
-    'Original poster': 'Original poster'
+    'Original poster': 'Original poster',
+    'Show less': 'Show less'
   }
 }

@@ -1144,6 +1144,7 @@ export default {
     'Indirect notifications hidden': 'Косвенные уведомления скрыты',
     'Indirect notifications shown': 'Косвенные уведомления показаны',
     Resend: 'Отправить снова',
-    'Original poster': 'Автор исходной публикации'
+    'Original poster': 'Автор исходной публикации',
+    'Show less': ''
   }
 }
