@@ -1138,6 +1138,7 @@ export default {
     'Indirect notifications hidden': 'اعلان‌های غیرمستقیم پنهان شدند',
     'Indirect notifications shown': 'اعلان‌های غیرمستقیم نمایش داده می‌شوند',
     Resend: 'ارسال مجدد',
-    'Original poster': 'نویسنده اصلی'
+    'Original poster': 'نویسنده اصلی',
+    'Show less': ''
   }
 }

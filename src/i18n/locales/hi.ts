@@ -1137,6 +1137,7 @@ export default {
     'Indirect notifications hidden': 'अप्रत्यक्ष सूचनाएं छिपी हैं',
     'Indirect notifications shown': 'अप्रत्यक्ष सूचनाएं दिख रही हैं',
     Resend: 'फिर से भेजें',
-    'Original poster': 'मूल पोस्टर'
+    'Original poster': 'मूल पोस्टर',
+    'Show less': ''
   }
 }

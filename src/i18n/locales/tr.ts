@@ -1141,6 +1141,7 @@ export default {
     'Indirect notifications hidden': 'Dolaylı bildirimler gizlendi',
     'Indirect notifications shown': 'Dolaylı bildirimler gösteriliyor',
     Resend: 'Yeniden gönder',
-    'Original poster': 'Orijinal gönderi sahibi'
+    'Original poster': 'Orijinal gönderi sahibi',
+    'Show less': ''
   }
 }

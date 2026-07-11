@@ -1145,6 +1145,7 @@ export default {
     'Indirect notifications hidden': 'Notifiche indirette nascoste',
     'Indirect notifications shown': 'Notifiche indirette visibili',
     Resend: 'Reinvia',
-    'Original poster': 'Autore originale'
+    'Original poster': 'Autore originale',
+    'Show less': ''
   }
 }

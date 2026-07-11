@@ -1148,6 +1148,7 @@ export default {
     'Indirect notifications hidden': 'Powiadomienia pośrednie ukryte',
     'Indirect notifications shown': 'Powiadomienia pośrednie widoczne',
     Resend: 'Wyślij ponownie',
-    'Original poster': 'Autor oryginalnego wpisu'
+    'Original poster': 'Autor oryginalnego wpisu',
+    'Show less': ''
   }
 }

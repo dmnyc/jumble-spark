@@ -1141,6 +1141,7 @@ export default {
     'Indirect notifications hidden': 'Közvetett értesítések elrejtve',
     'Indirect notifications shown': 'Közvetett értesítések megjelenítve',
     Resend: 'Újraküldés',
-    'Original poster': 'Eredeti szerző'
+    'Original poster': 'Eredeti szerző',
+    'Show less': ''
   }
 }

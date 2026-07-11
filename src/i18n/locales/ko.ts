@@ -1124,6 +1124,7 @@ export default {
     'Indirect notifications hidden': '간접 알림 숨김',
     'Indirect notifications shown': '간접 알림 표시',
     Resend: '다시 보내기',
-    'Original poster': '원 작성자'
+    'Original poster': '원 작성자',
+    'Show less': ''
   }
 }

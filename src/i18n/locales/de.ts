@@ -1156,6 +1156,7 @@ export default {
     'Indirect notifications hidden': 'Indirekte Benachrichtigungen ausgeblendet',
     'Indirect notifications shown': 'Indirekte Benachrichtigungen angezeigt',
     Resend: 'Erneut senden',
-    'Original poster': 'Ursprünglicher Autor'
+    'Original poster': 'Ursprünglicher Autor',
+    'Show less': ''
   }
 }
