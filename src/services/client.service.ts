@@ -8,6 +8,7 @@ import {
   isReplaceableEvent
 } from '@/lib/event'
 import { getProfileFromEvent, getRelayListFromEvent } from '@/lib/event-metadata'
+import { GuardedWebSocket } from '@/lib/guarded-websocket'
 import { isElectron } from '@/lib/platform'
 import { formatPubkey, isValidPubkey, pubkeyToNpub, userIdToPubkey } from '@/lib/pubkey'
 import { filterOutBigRelays, getDefaultRelayUrls, getSearchRelayUrls } from '@/lib/relay'
@@ -130,7 +131,11 @@ class ClientService extends EventTarget {
         this.signer ? (evt) => this.signer!.signEvent(evt) : undefined
       )
     } else {
-      this.pool = new SmartPool()
+      // GuardedWebSocket closes the socket nostr-tools abandons on a failed connect
+      // (see lib/guarded-websocket.ts). Without it the browser's per-renderer socket
+      // budget drains as the outbox model fans out, and eventually nothing in the
+      // browser can connect, including other tabs.
+      this.pool = new SmartPool({ websocketImplementation: GuardedWebSocket })
     }
     this.pool.setAllowInsecure(storage.getAllowInsecureConnection())
     this.pool.trackRelays = true
@@ -255,7 +260,7 @@ class ClientService extends EventTarget {
       let resolved = false
       // Consider the publish a success once a third of the relays accept the
       // event, but cap the requirement so a large relay set doesn't demand many
-      // acceptances — a handful of accepting relays is enough to propagate it.
+      // acceptances, a handful of accepting relays is enough to propagate it.
       const successThreshold = Math.min(uniqueRelayUrls.length / 3, MAX_PUBLISH_SUCCESS_THRESHOLD)
       const errors: { url: string; error: any }[] = []
 
