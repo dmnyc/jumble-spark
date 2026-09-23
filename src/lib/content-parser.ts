@@ -67,8 +67,12 @@ function createBareReferenceParser(
     let lastIndex = 0
 
     for (const match of content.matchAll(regex)) {
-      const start = match.index!
+      let start = match.index!
       const end = start + match[0].length
+      // Some clients write a mention as `@npub1…`. The mention already renders
+      // its own `@`, so fold that one into the reference rather than leaving it
+      // behind as text.
+      if (type === 'mention' && content[start - 1] === '@') start--
       const before = start === 0 ? '' : content[start - 1]
       const after = content.slice(end)
 
