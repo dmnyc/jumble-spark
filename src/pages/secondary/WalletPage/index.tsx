@@ -92,7 +92,7 @@ const WalletPage = forwardRef(({ index }: { index?: number }, ref) => {
         ) : (
           <SettingsGroup title={t('Connect wallet')}>
             <SettingsRow
-              icon={<img src="/spark-logo.svg" alt="Spark" className="size-5" />}
+              icon={<SparkLogo />}
               title={
                 sparkConnecting
                   ? t('Setting up Spark...')
@@ -126,3 +126,12 @@ const WalletPage = forwardRef(({ index }: { index?: number }, ref) => {
 })
 WalletPage.displayName = 'WalletPage'
 export default WalletPage
+
+// Inline so it inherits the row's icon color like the lucide icons (an <img> can't)
+function SparkLogo() {
+  return (
+    <svg viewBox="0 0 52 49" fill="currentColor" aria-hidden="true">
+      <path d="M30.968.273l-.494 18.251 17.358-5.994 3.205 9.905-17.625 5.17 11.172 14.64-8.63 5.891-10.33-14.95-10.488 14.97-8.471-6.12 11.206-14.48-17.59-5.284 3.266-9.884 17.322 6.105-.377-18.24 10.476.02z" />
+    </svg>
+  )
+}

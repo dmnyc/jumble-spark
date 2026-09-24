@@ -1,20 +1,33 @@
 import initBreezSDK, {
   BreezSdk,
+  ClaimDepositOutcome,
   Config,
   connect,
   ConnectRequest,
   defaultConfig,
+  DepositInfo,
   EventListener,
+  FetchClaimDepositQuoteResponse,
   GetInfoResponse,
   LightningAddressInfo,
   ListPaymentsResponse,
   Network,
+  OnchainConfirmationSpeed,
   Payment,
+  PrepareSendPaymentResponse,
   ReceivePaymentResponse,
+  RecommendedFees,
   SdkEvent,
   Seed,
   SendPaymentResponse
 } from '@breeztech/breez-sdk-spark/web'
+import { getStableTokenBalance, USDB_LABEL, USDB_TOKEN_IDENTIFIER } from '@/lib/spark-payment'
+
+export type TDrainPreparation = {
+  prepareResponse: PrepareSendPaymentResponse
+  /** USDB below the conversion minimum, which stays in the wallet */
+  leftoverUsdb: bigint
+}
 
 /**
  * SparkService - Wrapper for Breez Spark SDK
@@ -102,6 +115,11 @@ class SparkService {
       this.config = defaultConfig(network)
       this.config.apiKey = apiKey
       this.config.privateEnabledDefault = true
+      // Offer USDB as the stable balance token. It starts deactivated; the user
+      // opts in from the wallet page via the stable balance user setting.
+      this.config.stableBalanceConfig = {
+        tokens: [{ label: USDB_LABEL, tokenIdentifier: USDB_TOKEN_IDENTIFIER }]
+      }
       console.log('[SparkService] Config created:', {
         network: this.config.network,
         syncIntervalSecs: this.config.syncIntervalSecs,
@@ -408,7 +426,7 @@ class SparkService {
         console.log('[SparkService] Using regular payment flow')
 
         const prepareResponse = await this.sdk.prepareSendPayment({
-          paymentRequest,
+          paymentRequest: { type: 'input', input: paymentRequest },
           amount: amountSats !== undefined ? BigInt(amountSats) : undefined
         })
 
@@ -442,6 +460,215 @@ class SparkService {
       return response.payments
     } catch (error) {
       console.error('[SparkService] Failed to list payments:', error)
+      throw error
+    }
+  }
+
+  /**
+   * The wallet's Bitcoin deposit address. It stays the same unless a new one is
+   * requested, and every address handed out keeps being watched for deposits.
+   */
+  async getBitcoinAddress(newAddress = false): Promise<string> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    try {
+      const response = await this.sdk.receivePayment({
+        paymentMethod: { type: 'bitcoinAddress', newAddress }
+      })
+      return response.paymentRequest
+    } catch (error) {
+      console.error('[SparkService] Failed to get Bitcoin address:', error)
+      throw error
+    }
+  }
+
+  /** Prepare an on-chain send. The response carries slow/medium/fast fee quotes. */
+  async prepareOnchainSend(
+    address: string,
+    amountSats: number
+  ): Promise<PrepareSendPaymentResponse> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    try {
+      return await this.sdk.prepareSendPayment({
+        paymentRequest: { type: 'input', input: address },
+        amount: BigInt(amountSats)
+      })
+    } catch (error) {
+      console.error('[SparkService] Failed to prepare on-chain send:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Prepare sending the entire balance to a Bitcoin address. USDB is converted
+   * to Bitcoin and combined with the sats balance, and fees come out of the
+   * total. USDB below the conversion minimum can't be converted and stays.
+   */
+  async prepareDrainWallet(address: string): Promise<TDrainPreparation> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    try {
+      const info = await this.sdk.getInfo({ ensureSynced: true })
+      const usdbBalance = BigInt(getStableTokenBalance(info.tokenBalances)?.balance ?? 0)
+      const paymentRequest = { type: 'input', input: address } as const
+      const conversionType = {
+        type: 'toBitcoin',
+        fromTokenIdentifier: USDB_TOKEN_IDENTIFIER
+      } as const
+
+      if (usdbBalance > 0n) {
+        const { minFromAmount } = await this.sdk.fetchConversionLimits({
+          conversionType,
+          tokenIdentifier: USDB_TOKEN_IDENTIFIER
+        })
+        if (!minFromAmount || usdbBalance >= minFromAmount) {
+          const prepareResponse = await this.sdk.prepareSendPayment({
+            paymentRequest,
+            amount: usdbBalance,
+            tokenIdentifier: USDB_TOKEN_IDENTIFIER,
+            conversionOptions: { conversionType },
+            feePolicy: 'feesIncluded'
+          })
+          return { prepareResponse, leftoverUsdb: 0n }
+        }
+      }
+
+      if (!info.balanceSats) {
+        throw new Error(
+          usdbBalance > 0n
+            ? 'The USD balance is below the minimum that can be converted to Bitcoin'
+            : 'The wallet is empty'
+        )
+      }
+      const prepareResponse = await this.sdk.prepareSendPayment({
+        paymentRequest,
+        amount: BigInt(info.balanceSats),
+        feePolicy: 'feesIncluded'
+      })
+      return { prepareResponse, leftoverUsdb: usdbBalance }
+    } catch (error) {
+      console.error('[SparkService] Failed to prepare wallet drain:', error)
+      throw error
+    }
+  }
+
+  /** Send a prepared on-chain payment at the chosen confirmation speed */
+  async sendOnchain(
+    prepareResponse: PrepareSendPaymentResponse,
+    confirmationSpeed: OnchainConfirmationSpeed
+  ): Promise<Payment> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    try {
+      const response = await this.sdk.sendPayment({
+        prepareResponse,
+        options: { type: 'bitcoinAddress', confirmationSpeed }
+      })
+      console.log('[SparkService] On-chain payment sent:', response.payment.id)
+      return response.payment
+    } catch (error) {
+      console.error('[SparkService] On-chain send failed:', error)
+      throw error
+    }
+  }
+
+  /**
+   * On-chain deposits the SDK is tracking: unconfirmed, awaiting a claim,
+   * failed to claim, or claimed but not yet settled.
+   */
+  async listUnclaimedDeposits(): Promise<DepositInfo[]> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    const response = await this.sdk.listUnclaimedDeposits({})
+    return response.deposits
+  }
+
+  /** Price claiming a deposit, so the user can approve the fee first */
+  async fetchClaimDepositQuote(
+    txid: string,
+    vout: number
+  ): Promise<FetchClaimDepositQuoteResponse> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    return this.sdk.fetchClaimDepositQuote({ txid, vout })
+  }
+
+  /** Claim a deposit, paying at most maxFeeSats */
+  async claimDeposit(txid: string, vout: number, maxFeeSats: number): Promise<ClaimDepositOutcome> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    try {
+      const response = await this.sdk.claimDeposit({
+        txid,
+        vout,
+        maxFee: { type: 'fixed', amount: maxFeeSats }
+      })
+      console.log('[SparkService] Deposit claim outcome:', response.outcome.type)
+      return response.outcome
+    } catch (error) {
+      console.error('[SparkService] Failed to claim deposit:', error)
+      throw error
+    }
+  }
+
+  /** Send a deposit that can't be claimed out to a Bitcoin address instead */
+  async refundDeposit(
+    txid: string,
+    vout: number,
+    destinationAddress: string,
+    satPerVbyte: number
+  ): Promise<string> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    try {
+      const response = await this.sdk.refundDeposit({
+        txid,
+        vout,
+        destinationAddress,
+        fee: { type: 'rate', satPerVbyte }
+      })
+      console.log('[SparkService] Deposit refund broadcast:', response.txId)
+      return response.txId
+    } catch (error) {
+      console.error('[SparkService] Failed to refund deposit:', error)
+      throw error
+    }
+  }
+
+  /** Current Bitcoin network fee rates, in sat/vB */
+  async recommendedFees(): Promise<RecommendedFees> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    return this.sdk.recommendedFees()
+  }
+
+  /**
+   * Whether the USDB stable balance is active. While it is, the SDK converts
+   * excess sats to USDB and converts back when a Bitcoin payment needs it.
+   */
+  async isStableBalanceActive(): Promise<boolean> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    const settings = await this.sdk.getUserSettings()
+    return settings.stableBalanceActiveLabel === USDB_LABEL
+  }
+
+  /**
+   * Turn the USDB stable balance on or off. Enabling converts the excess sats
+   * balance to USDB; disabling converts the remaining USDB back to Bitcoin.
+   */
+  async setStableBalanceEnabled(enabled: boolean): Promise<void> {
+    if (!this.sdk) throw new Error('SDK not connected')
+
+    try {
+      await this.sdk.updateUserSettings({
+        stableBalanceActiveLabel: enabled ? { type: 'set', label: USDB_LABEL } : { type: 'unset' }
+      })
+      console.log('[SparkService] Stable balance', enabled ? 'enabled' : 'disabled')
+      await this.sdk.syncWallet({})
+    } catch (error) {
+      console.error('[SparkService] Failed to update stable balance:', error)
       throw error
     }
   }

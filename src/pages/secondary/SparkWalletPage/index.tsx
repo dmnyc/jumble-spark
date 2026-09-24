@@ -12,6 +12,9 @@ import sparkStorage from '@/services/spark-storage.service'
 import sparkProfileSync from '@/services/spark-profile-sync.service'
 import sparkBackup from '@/services/spark-backup.service'
 import CodepenLightning from '@/components/animations/CodepenLightning'
+import SparkDrainWallet from '@/components/SparkDrainWallet'
+import SparkOnchainReceive from '@/components/SparkOnchainReceive'
+import SparkOnchainSend from '@/components/SparkOnchainSend'
 import SparkPaymentsList from '@/components/SparkPaymentsList'
 import DefaultZapAmountInput from '@/pages/secondary/WalletPage/DefaultZapAmountInput'
 import DefaultZapCommentInput from '@/pages/secondary/WalletPage/DefaultZapCommentInput'
@@ -43,6 +46,13 @@ import { useCurrencyPreferences } from '@/providers/CurrencyPreferencesProvider'
 import { useCurrencyConversion } from '@/hooks/useCurrencyConversion'
 import { currencySymbols, formatFiatAmount, popularCurrencies } from '@/lib/currency'
 import {
+  depositNeedsAction,
+  formatStableBalance,
+  getStableTokenBalance,
+  normalizeBitcoinAddress
+} from '@/lib/spark-payment'
+import { cn } from '@/lib/utils'
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -57,7 +67,8 @@ import {
  * Core functionality:
  * - Wallet management and connection
  * - Balance display and monitoring
- * - Send and receive Lightning payments
+ * - Send and receive Lightning and on-chain payments
+ * - Drain the whole balance (Bitcoin + USDB) to an on-chain address
  * - Lightning address registration
  * - Invoice generation
  * - Encrypted backup and recovery
@@ -77,8 +88,12 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
   const {
     connected,
     balance: providerBalance,
+    balanceLoading,
     lightningAddress: providerLightningAddress,
     lightningAddressLoading,
+    stableBalance,
+    setStableBalanceEnabled,
+    unclaimedDeposits,
     refreshWalletState
   } = useSparkWallet()
 
@@ -88,6 +103,10 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
     providerBalance || 0,
     displayCurrency
   )
+  // USDB leads the balance once the stable balance is on, or while any is held
+  const hasStableBalance = stableBalance.balance > 0n
+  const showStableBalanceAsPrimary = stableBalance.active || hasStableBalance
+  const depositsNeedingAction = unclaimedDeposits.filter(depositNeedsAction).length
 
   const [apiKey] = useState(import.meta.env.VITE_BREEZ_SPARK_API_KEY || '')
   const [mnemonic, setMnemonic] = useState('')
@@ -98,6 +117,8 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
   const [invoice, setInvoice] = useState('')
   const [paymentRequest, setPaymentRequest] = useState('')
   const [paymentAmount, setPaymentAmount] = useState<number>(0)
+  // A pasted Bitcoin address (or bitcoin: URI) switches the send form to on-chain
+  const onchainAddress = normalizeBitcoinAddress(paymentRequest)
   const [loading, setLoading] = useState(false)
   const [hasSavedWallet, setHasSavedWallet] = useState(false)
   const [topUpAmount, setTopUpAmount] = useState<number>(1000)
@@ -106,6 +127,9 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
   const [showLightning, setShowLightning] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [activeTab, setActiveTab] = useState<'payments' | 'topup'>('payments')
+  const [stableBalanceConfirmation, setStableBalanceConfirmation] = useState(false)
+  const [receiveMethod, setReceiveMethod] = useState<'lightning' | 'onchain'>('lightning')
+  const [isUpdatingStableBalance, setIsUpdatingStableBalance] = useState(false)
   const [payments, setPayments] = useState<any[]>([])
   const [loadingPayments, setLoadingPayments] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -733,12 +757,41 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
       await sparkService.syncWallet()
       await refreshWalletState() // Refresh provider state
       const info = await sparkService.getInfo(false)
-      toast.success(`Balance synced: ${info.balanceSats} sats`)
+      const usdb = getStableTokenBalance(info.tokenBalances)
+      toast.success(
+        usdb && BigInt(usdb.balance) > 0n
+          ? `Balance synced: $${formatStableBalance(BigInt(usdb.balance), usdb.tokenMetadata.decimals)} ${usdb.tokenMetadata.ticker}`
+          : `Balance synced: ${info.balanceSats} sats`
+      )
     } catch (error) {
       toast.error(`Failed to refresh: ${(error as Error).message}`)
     } finally {
       setLoading(false)
     }
+  }
+
+  const updateStableBalance = async (enabled: boolean) => {
+    setIsUpdatingStableBalance(true)
+    try {
+      await setStableBalanceEnabled(enabled)
+      setStableBalanceConfirmation(false)
+      toast.success(enabled ? 'USD balance enabled' : 'Switched back to Bitcoin')
+    } catch (error) {
+      toast.error(`Failed to update USD balance: ${(error as Error).message}`)
+    } finally {
+      setIsUpdatingStableBalance(false)
+    }
+  }
+
+  const handleOnchainSent = () => {
+    setPaymentRequest('')
+    refreshWalletState()
+    loadPayments(true)
+  }
+
+  const handleDrained = () => {
+    refreshWalletState()
+    loadPayments(true)
   }
 
   const handleGenerateInvoice = async (amount: number) => {
@@ -1517,47 +1570,54 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
               <div className="flex items-center justify-between">
                 <Label className="text-sm">Balance</Label>
                 <div className="flex items-center gap-1">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-auto px-2 py-1 text-xs">
-                        {displayCurrency} <ChevronDown className="ml-1 size-3" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="max-h-[400px] w-48 overflow-y-auto">
-                      <DropdownMenuLabel>Currency</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
+                  {!showStableBalanceAsPrimary && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-auto px-2 py-1 text-xs">
+                          {displayCurrency} <ChevronDown className="ml-1 size-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        className="max-h-[400px] w-48 overflow-y-auto"
+                      >
+                        <DropdownMenuLabel>Currency</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
 
-                      {popularCurrencies.map((currency) => (
-                        <DropdownMenuItem
-                          key={currency}
-                          onClick={() => setDisplayCurrency(currency)}
-                          className={displayCurrency === currency ? 'bg-accent' : ''}
-                        >
-                          <span className="mr-2 font-mono">{currencySymbols[currency].symbol}</span>
-                          {currency}
-                        </DropdownMenuItem>
-                      ))}
-
-                      <DropdownMenuSeparator />
-                      <DropdownMenuLabel>Other Currencies</DropdownMenuLabel>
-
-                      {Object.keys(currencySymbols)
-                        .filter((c) => !popularCurrencies.includes(c))
-                        .sort()
-                        .map((currency) => (
+                        {popularCurrencies.map((currency) => (
                           <DropdownMenuItem
                             key={currency}
                             onClick={() => setDisplayCurrency(currency)}
                             className={displayCurrency === currency ? 'bg-accent' : ''}
                           >
-                            <span className="mr-2 font-mono text-xs">
+                            <span className="mr-2 font-mono">
                               {currencySymbols[currency].symbol}
                             </span>
                             {currency}
                           </DropdownMenuItem>
                         ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel>Other Currencies</DropdownMenuLabel>
+
+                        {Object.keys(currencySymbols)
+                          .filter((c) => !popularCurrencies.includes(c))
+                          .sort()
+                          .map((currency) => (
+                            <DropdownMenuItem
+                              key={currency}
+                              onClick={() => setDisplayCurrency(currency)}
+                              className={displayCurrency === currency ? 'bg-accent' : ''}
+                            >
+                              <span className="mr-2 font-mono text-xs">
+                                {currencySymbols[currency].symbol}
+                              </span>
+                              {currency}
+                            </DropdownMenuItem>
+                          ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1570,9 +1630,21 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <p className="text-3xl font-bold">
+                <p className={cn('text-3xl font-bold', balanceLoading && 'animate-pulse')}>
                   {isBalanceHidden ? (
                     '••••••'
+                  ) : balanceLoading && !providerBalance && !hasStableBalance ? (
+                    'Loading'
+                  ) : showStableBalanceAsPrimary ? (
+                    <>
+                      ${formatStableBalance(stableBalance.balance, stableBalance.decimals)}{' '}
+                      {stableBalance.label}
+                      {!!providerBalance && (
+                        <span className="ml-2 text-sm text-muted-foreground">
+                          + {providerBalance.toLocaleString()} sats
+                        </span>
+                      )}
+                    </>
                   ) : providerBalance !== null ? (
                     displayCurrency === 'SATS' ? (
                       `${providerBalance.toLocaleString()} sats`
@@ -1731,6 +1803,119 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
               )}
             </div>
 
+            {/* USD balance (USDB stable balance) */}
+            <div className="rounded-lg border p-3">
+              {stableBalance.active ? (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">Stable balance active</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        Your main balance is shown in {stableBalance.label}.
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => updateStableBalance(false)}
+                      disabled={isUpdatingStableBalance}
+                      className="h-auto shrink-0 px-2 py-1 text-xs"
+                    >
+                      {isUpdatingStableBalance ? 'Updating...' : 'Use Bitcoin'}
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Bitcoin payments automatically convert from your USD balance when needed.
+                  </p>
+                </>
+              ) : hasStableBalance ? (
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">USD balance detected</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      Your USDB funds are available. Resume USD mode to use this balance for
+                      payments.
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => updateStableBalance(true)}
+                    disabled={isUpdatingStableBalance}
+                    className="h-auto shrink-0 px-2 py-1 text-xs"
+                  >
+                    {isUpdatingStableBalance ? 'Updating...' : 'Resume USD'}
+                  </Button>
+                </div>
+              ) : stableBalanceConfirmation ? (
+                <>
+                  <div className="text-sm font-semibold">Enable USD balance?</div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Your Bitcoin balance and eligible incoming Bitcoin convert to USDB. Turning
+                    this off converts remaining USDB back to Bitcoin. Conversion rates and fees
+                    apply.
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setStableBalanceConfirmation(false)}
+                      className="flex-1"
+                    >
+                      Not now
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => updateStableBalance(true)}
+                      disabled={isUpdatingStableBalance}
+                      className="flex-1"
+                    >
+                      {isUpdatingStableBalance && <Loader2 className="animate-spin" />}
+                      {isUpdatingStableBalance ? 'Enabling...' : 'Enable USD'}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">USD balance</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      Protect future wallet value from Bitcoin price movement.
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setStableBalanceConfirmation(true)}
+                    className="h-auto shrink-0 px-2 py-1 text-xs"
+                  >
+                    Enable
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* On-chain deposits waiting on the user */}
+            {depositsNeedingAction > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('topup')
+                  setReceiveMethod('onchain')
+                }}
+                className="flex w-full items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-left text-xs text-amber-700 dark:text-amber-400"
+              >
+                <AlertTriangle className="size-4 shrink-0" />
+                <span className="flex-1">
+                  {depositsNeedingAction === 1
+                    ? 'An on-chain deposit needs'
+                    : `${depositsNeedingAction} on-chain deposits need`}{' '}
+                  your approval to be claimed.
+                </span>
+                <span className="font-medium">Review</span>
+              </button>
+            )}
+
             {/* Tabbed Interface */}
             <Tabs
               value={activeTab}
@@ -1751,7 +1936,7 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
                   </Label>
                   <Input
                     id="paymentRequest"
-                    placeholder="Paste invoice or Lightning address"
+                    placeholder="Paste invoice, Lightning or Bitcoin address"
                     value={paymentRequest}
                     onChange={(e) => setPaymentRequest(e.target.value)}
                   />
@@ -1773,14 +1958,25 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
                     </div>
                   )}
 
-                  <Button
-                    onClick={handleSendPayment}
-                    disabled={loading || !paymentRequest}
-                    className="w-full"
-                  >
-                    {loading && <Loader2 className="animate-spin" />}
-                    Send Payment
-                  </Button>
+                  {stableBalance.active && (
+                    <p className="rounded-md bg-muted p-2 text-xs text-muted-foreground">
+                      This payment may convert USDB to Bitcoin. The final rate and conversion fee
+                      are determined by Spark before settlement.
+                    </p>
+                  )}
+
+                  {onchainAddress ? (
+                    <SparkOnchainSend address={onchainAddress} onSent={handleOnchainSent} />
+                  ) : (
+                    <Button
+                      onClick={handleSendPayment}
+                      disabled={loading || !paymentRequest}
+                      className="w-full"
+                    >
+                      {loading && <Loader2 className="animate-spin" />}
+                      Send Payment
+                    </Button>
+                  )}
                 </div>
 
                 {/* Payment History */}
@@ -1834,8 +2030,23 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
 
               {/* Top-Up Tab */}
               <TabsContent value="topup" className="mt-4 space-y-4">
-                {/* Wallet Top-Up Section */}
-                <div className="space-y-4">
+                {/* Receive method */}
+                <div className="grid grid-cols-2 gap-2">
+                  {(['lightning', 'onchain'] as const).map((method) => (
+                    <Button
+                      key={method}
+                      size="sm"
+                      variant={receiveMethod === method ? 'default' : 'outline'}
+                      onClick={() => setReceiveMethod(method)}
+                    >
+                      {method === 'lightning' ? 'Lightning' : 'On-chain'}
+                    </Button>
+                  ))}
+                </div>
+                {receiveMethod === 'onchain' && <SparkOnchainReceive />}
+
+                {/* Wallet Top-Up Section (kept mounted so an invoice survives switching) */}
+                <div className={cn('space-y-4', receiveMethod === 'onchain' && 'hidden')}>
                   {!showTopUpDialog && (
                     <>
                       <div className="flex items-center justify-between">
@@ -2232,6 +2443,8 @@ const SparkWalletPage = forwardRef(({ index }: { index?: number }, ref) => {
                       </a>
                     </div>
                   </div>
+
+                  <SparkDrainWallet onDrained={handleDrained} />
 
                   {/* Backup & Remove Wallet */}
                   <div className="space-y-2 border-t pt-2">
