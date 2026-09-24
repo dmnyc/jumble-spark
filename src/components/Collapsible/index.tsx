@@ -51,7 +51,15 @@ export default function Collapsible({
 
   return (
     <div
-      className={cn('relative overflow-hidden text-start', className)}
+      className={cn(
+        'relative text-start',
+        // When always expanded, no collapsing happens, so there is nothing to
+        // clip. Keeping overflow-hidden would cut off children that
+        // intentionally bleed into the card padding (e.g. full-width
+        // dividers in FavoriteRelays).
+        alwaysExpand ? 'overflow-visible' : 'overflow-hidden',
+        className
+      )}
       ref={containerRef}
       {...props}
       style={{
@@ -75,8 +83,7 @@ export default function Collapsible({
       {shouldCollapse && expanded && showLessButton && (
         <div className="mt-2 flex justify-center">
           <Button
-            variant="ghost"
-            size="sm"
+            variant="secondary"
             onClick={(e) => {
               e.stopPropagation()
               setExpanded(false)

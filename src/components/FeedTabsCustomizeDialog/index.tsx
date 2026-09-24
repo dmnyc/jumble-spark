@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { DEFAULT_FEED_TABS } from '@/constants'
+import { prefersTouchInteraction } from '@/lib/device'
 import { randomString } from '@/lib/random'
 import { cn } from '@/lib/utils'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -58,6 +59,7 @@ export default function FeedTabsCustomizeDialog({
   const { isSmallScreen } = useScreenSize()
   const { feedTabs, updateFeedTabs } = useUserPreferences()
   const [editor, setEditor] = useState<TEditorState>(null)
+  const prefersTouch = useMemo(() => prefersTouchInteraction(), [])
 
   useEffect(() => {
     if (!open) {
@@ -131,7 +133,7 @@ export default function FeedTabsCustomizeDialog({
       initial={editingTab}
       onSave={handleSaveEditor}
       onCancel={() => setEditor(null)}
-      autoFocusLabel={!isSmallScreen}
+      autoFocusLabel={!prefersTouch}
     />
   ) : (
     <div className="space-y-4">
@@ -254,6 +256,7 @@ function TabRow({
       )}
     >
       <div
+        data-drawer-swipe-lock
         className="cursor-grab touch-none rounded-md p-2 hover:bg-muted active:cursor-grabbing"
         {...attributes}
         {...listeners}

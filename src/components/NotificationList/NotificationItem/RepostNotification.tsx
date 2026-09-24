@@ -10,10 +10,12 @@ import Notification from './Notification'
 
 export function RepostNotification({
   notification,
-  isNew = false
+  isNew = false,
+  onVisibilityChange
 }: {
   notification: Event
   isNew?: boolean
+  onVisibilityChange?: (isVisible: boolean) => void
 }) {
   const { t } = useTranslation()
   const { pubkey } = useNostr()
@@ -43,6 +45,7 @@ export function RepostNotification({
       targetEvent={event}
       description={t('reposted your note')}
       isNew={isNew}
+      onVisibilityChange={onVisibilityChange}
     />
   )
 }

@@ -1,4 +1,5 @@
 import { CODY_PUBKEY, JUMBLE_PUBKEY } from '@/constants'
+import { BoundedMap } from '@/lib/bounded-map'
 import { getEventAuthorPubkey } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
 import { getDefaultRelayUrls } from '@/lib/relay'
@@ -36,7 +37,10 @@ class LightningService {
       )
       return results.map((res) => (res.status === 'fulfilled' ? res.value : null))
     },
-    { maxBatchSize: 1 }
+    {
+      maxBatchSize: 1,
+      cacheMap: new BoundedMap<string, Promise<string | null>>({ maxSize: 1_000 })
+    }
   )
 
   // Lazy load sparkService only when needed to avoid blocking app initialization

@@ -3,6 +3,7 @@
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" },
+    { "path": "./tsconfig.electron-node.json" },
     { "path": "./electron" }
   ],
   "compilerOptions": {

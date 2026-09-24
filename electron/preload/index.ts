@@ -5,6 +5,8 @@ import {
   TAuthRequestPayload,
   TAuthResponsePayload,
   TElectronBridge,
+  TLocalStorageSnapshot,
+  TPomegranateAuthPurpose,
   TProxyFetchOptions,
   TSecretsBundle,
   TSubClosePayload,
@@ -15,7 +17,9 @@ import {
 
 const bridge: TElectronBridge = {
   relay: {
-    ensure: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.ensure, url),
+    checkRelays: () => ipcRenderer.invoke(IPC_CHANNELS.checkRelays),
+    setNetworkOnline: (online: boolean) =>
+      ipcRenderer.invoke(IPC_CHANNELS.setNetworkOnline, online),
     publish: (url: string, event: NEvent, timeoutMs: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.publish, url, event, timeoutMs),
     subscribe: (subId: string, url: string, filters: Filter[]) =>
@@ -54,6 +58,18 @@ const bridge: TElectronBridge = {
     load: () => ipcRenderer.invoke(IPC_CHANNELS.secretsLoad),
     save: (bundle: TSecretsBundle) => ipcRenderer.invoke(IPC_CHANNELS.secretsSave, bundle)
   },
+  localStorage: {
+    load: () => ipcRenderer.invoke(IPC_CHANNELS.localStorageLoad),
+    save: (snapshot: TLocalStorageSnapshot) =>
+      ipcRenderer.invoke(IPC_CHANNELS.localStorageSave, snapshot)
+  },
+  security: {
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.securityGetStatus),
+    setupPassword: (password: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.securitySetupPassword, password),
+    unlock: (password: string) => ipcRenderer.invoke(IPC_CHANNELS.securityUnlock, password),
+    reset: () => ipcRenderer.invoke(IPC_CHANNELS.securityReset)
+  },
   update: {
     check: () => ipcRenderer.invoke(IPC_CHANNELS.updateCheck),
     download: () => ipcRenderer.invoke(IPC_CHANNELS.updateDownload),
@@ -72,6 +88,12 @@ const bridge: TElectronBridge = {
   },
   media: {
     getShimOrigin: () => ipcRenderer.invoke(IPC_CHANNELS.mediaGetShimOrigin)
+  },
+  pomegranate: {
+    authenticate: (url: string, purpose: TPomegranateAuthPurpose) =>
+      ipcRenderer.invoke(IPC_CHANNELS.pomegranateAuthenticate, url, purpose),
+    recover: (centralLoginUrl: string, expectedPubkey: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.pomegranateRecover, centralLoginUrl, expectedPubkey)
   }
 }
 

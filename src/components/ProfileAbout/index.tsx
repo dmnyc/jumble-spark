@@ -41,9 +41,9 @@ export default function ProfileAbout({
 
     const nodes = parseContent(translatedAbout ?? about, [
       EmbeddedMentionParser,
-      EmbeddedLegacyMentionParser,
       EmbeddedWebsocketUrlParser,
       EmbeddedUrlParser,
+      EmbeddedLegacyMentionParser,
       EmbeddedHashtagParser,
       EmbeddedEmojiParser
     ])
@@ -66,9 +66,6 @@ export default function ProfileAbout({
       }
       if (node.type === 'mention') {
         return <EmbeddedMention key={index} userId={node.data.split(':')[1]} />
-      }
-      if (node.type === 'legacy-mention') {
-        return <EmbeddedMention key={index} userId={node.data} />
       }
       if (node.type === 'emoji') {
         const shortcode = node.data.split(':')[1]

@@ -9,7 +9,9 @@ export default function Uploader({
   onUploadEnd,
   onProgress,
   className,
-  accept = 'image/*'
+  accept = 'image/*',
+  multiple = true,
+  validateFile
 }: {
   children: React.ReactNode
   onUploadSuccess: ({ url, tags }: { url: string; tags: string[][] }, file: File) => void
@@ -18,21 +20,32 @@ export default function Uploader({
   onProgress?: (file: File, progress: number) => void
   className?: string
   accept?: string
+  multiple?: boolean
+  validateFile?: (file: File) => string | undefined
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files) return
 
+    const files = Array.from(event.target.files)
+    const validFiles = files.filter((file) => {
+      const validationError = validateFile?.(file)
+      if (!validationError) return true
+
+      showUploadErrorToast(new Error(validationError))
+      return false
+    })
+
     const abortControllerMap = new Map<File, AbortController>()
 
-    for (const file of event.target.files) {
+    for (const file of validFiles) {
       const abortController = new AbortController()
       abortControllerMap.set(file, abortController)
       onUploadStart?.(file, () => abortController.abort())
     }
 
-    for (const file of event.target.files) {
+    for (const file of validFiles) {
       try {
         const abortController = abortControllerMap.get(file)
         const result = await mediaUpload.upload(file, {
@@ -68,7 +81,7 @@ export default function Uploader({
         style={{ display: 'none' }}
         onChange={handleFileChange}
         accept={accept}
-        multiple
+        multiple={multiple}
       />
     </div>
   )

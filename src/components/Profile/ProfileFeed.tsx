@@ -3,9 +3,9 @@ import KindFilter from '@/components/KindFilter'
 import NoteList, { TNoteListRef } from '@/components/NoteList'
 import Tabs from '@/components/Tabs'
 import { MAX_PINNED_NOTES } from '@/constants'
+import { prefersTouchInteraction } from '@/lib/device'
 import { getDefaultRelayUrls, getSearchRelayUrls } from '@/lib/relay'
 import { generateBech32IdFromETag } from '@/lib/tag'
-import { isTouchDevice } from '@/lib/utils'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserPreferences } from '@/providers/UserPreferencesProvider'
@@ -48,7 +48,7 @@ export default function ProfileFeed({ pubkey, search = '' }: { pubkey: string; s
   const [subRequests, setSubRequests] = useState<TFeedSubRequest[]>([])
   const [pinnedEventIds, setPinnedEventIds] = useState<string[]>([])
   const [customizeOpen, setCustomizeOpen] = useState(false)
-  const supportTouch = useMemo(() => isTouchDevice(), [])
+  const prefersTouch = useMemo(() => prefersTouchInteraction(), [])
   const noteListRef = useRef<TNoteListRef>(null)
 
   const isYouMode = selectedTab?.id === 'you'
@@ -167,7 +167,7 @@ export default function ProfileFeed({ pubkey, search = '' }: { pubkey: string; s
         onCustomize={() => setCustomizeOpen(true)}
         options={
           <>
-            {!supportTouch && <RefreshButton onClick={() => noteListRef.current?.refresh()} />}
+            {!prefersTouch && <RefreshButton onClick={() => noteListRef.current?.refresh()} />}
             {!tabHasFixedKinds && (
               <KindFilter
                 feedId={feedId}

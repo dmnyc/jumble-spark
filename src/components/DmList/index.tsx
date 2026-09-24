@@ -25,9 +25,9 @@ import {
 import UserAvatar, { SimpleUserAvatar } from '@/components/UserAvatar'
 import Username, { SimpleUsername } from '@/components/Username'
 import { ExtendedKind, SPECIAL_TRUST_SCORE_FILTER_ID } from '@/constants'
+import { canHover, prefersTouchInteraction } from '@/lib/device'
 import { toDmConversation } from '@/lib/link'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
-import { isTouchDevice } from '@/lib/utils'
 import { useSecondaryPage } from '@/PageManager'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
@@ -54,7 +54,7 @@ export default function DmList() {
   const [trustFilterOpen, setTrustFilterOpen] = useState(false)
   const [trustedPubkeys, setTrustedPubkeys] = useState<Set<string> | null>(null)
   const trustScoreThreshold = getMinTrustScore(SPECIAL_TRUST_SCORE_FILTER_ID.DM)
-  const supportTouch = useMemo(() => isTouchDevice(), [])
+  const prefersTouch = useMemo(() => prefersTouchInteraction(), [])
   const [isPullable, setIsPullable] = useState(true)
   const [isReloading, setIsReloading] = useState(() => dmService.getIsLoading())
 
@@ -181,9 +181,9 @@ export default function DmList() {
         value={activeTab}
         onTabChange={(tab) => setActiveTab(tab as TDmTab)}
         options={
-          !supportTouch || activeTab === 'requests' ? (
+          !prefersTouch || activeTab === 'requests' ? (
             <>
-              {!supportTouch && <RefreshButton onClick={refresh} loading={isReloading} />}
+              {!prefersTouch && <RefreshButton onClick={refresh} loading={isReloading} />}
               {activeTab === 'requests' && (
                 <TrustScoreFilter
                   filterId={SPECIAL_TRUST_SCORE_FILTER_ID.DM}
@@ -288,9 +288,9 @@ function ConversationItem({
   onDelete: () => void
   onSwipeStateChange?: (pullable: boolean) => void
 }) {
-  const { isSmallScreen } = useScreenSize()
+  const prefersTouch = useMemo(() => prefersTouchInteraction(), [])
 
-  if (isSmallScreen) {
+  if (prefersTouch) {
     return (
       <SwipeableConversationItem
         conversation={conversation}
@@ -485,7 +485,7 @@ function SwipeableConversationItem({
 
 function ConversationItemContent({ conversation }: { conversation: TDmConversation }) {
   const { t } = useTranslation()
-  const supportTouch = useMemo(() => isTouchDevice(), [])
+  const supportsHover = useMemo(() => canHover(), [])
 
   const { displayContent, emojis, isFile } = useMemo(() => {
     const rumor = conversation.lastMessageRumor
@@ -509,21 +509,21 @@ function ConversationItemContent({ conversation }: { conversation: TDmConversati
 
   return (
     <>
-      {supportTouch ? (
-        <SimpleUserAvatar userId={conversation.pubkey} />
-      ) : (
+      {supportsHover ? (
         <UserAvatar userId={conversation.pubkey} size="normal" />
+      ) : (
+        <SimpleUserAvatar userId={conversation.pubkey} />
       )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          {supportTouch ? (
-            <SimpleUsername
+          {supportsHover ? (
+            <Username
               userId={conversation.pubkey}
               className="truncate font-medium"
               skeletonClassName="h-4"
             />
           ) : (
-            <Username
+            <SimpleUsername
               userId={conversation.pubkey}
               className="truncate font-medium"
               skeletonClassName="h-4"

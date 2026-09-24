@@ -2,6 +2,7 @@ import { useSecondaryPage } from '@/PageManager'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SPECIAL_TRUST_SCORE_FILTER_ID } from '@/constants'
+import { useFetchEvents } from '@/hooks/useFetchEvent'
 import { useThread } from '@/hooks/useThread'
 import { getEventKey, isMentioningMutedUsers } from '@/lib/event'
 import { toNote } from '@/lib/link'
@@ -22,6 +23,7 @@ import Nip05 from '../Nip05'
 import NoteOptions from '../NoteOptions'
 import OpBadge from '../OpBadge'
 import ParentNotePreview from '../ParentNotePreview'
+import PowBadge from '../PowBadge'
 import StuffStats from '../StuffStats'
 import TranslateButton from '../TranslateButton'
 import TrustScoreBadge from '../TrustScoreBadge'
@@ -52,7 +54,12 @@ export default function ReplyNote({
   const { getMinTrustScore, meetsMinTrustScore } = useUserTrust()
   const { hideContentMentioningMutedUsers, autoLoadProfilePicture } = useContentPolicy()
   const eventKey = useMemo(() => getEventKey(event), [event])
-  const replies = useThread(eventKey)
+  const replyIds = useThread(eventKey)
+  const { eventsById: replyEventsById } = useFetchEvents(replyIds)
+  const replies = useMemo(
+    () => replyIds.flatMap((id) => (replyEventsById.get(id) ? [replyEventsById.get(id)!] : [])),
+    [replyIds, replyEventsById]
+  )
   const [showMuted, setShowMuted] = useState(false)
   const [hasReplies, setHasReplies] = useState(false)
 
@@ -146,6 +153,7 @@ export default function ReplyNote({
                     className="shrink-0"
                     short={isSmallScreen}
                   />
+                  <PowBadge event={event} className="shrink-0" />
                 </div>
               </div>
               <div className="flex shrink-0 items-center">

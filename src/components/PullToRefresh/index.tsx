@@ -1,4 +1,5 @@
-import { cn, isTouchDevice } from '@/lib/utils'
+import { prefersTouchInteraction } from '@/lib/device'
+import { cn } from '@/lib/utils'
 import { RefreshCcw } from 'lucide-react'
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -21,7 +22,7 @@ export default function PullToRefresh({
   isPullable?: boolean
   children: ReactNode
 }) {
-  const supportTouch = useMemo(() => isTouchDevice(), [])
+  const prefersTouch = useMemo(() => prefersTouchInteraction(), [])
   const containerRef = useRef<HTMLDivElement>(null)
 
   const [offset, setOffsetState] = useState(0)
@@ -53,7 +54,7 @@ export default function PullToRefresh({
   }
 
   useEffect(() => {
-    if (!supportTouch) return
+    if (!prefersTouch) return
     const node = containerRef.current
     if (!node) return
 
@@ -161,9 +162,9 @@ export default function PullToRefresh({
       node.removeEventListener('touchend', handleTouchEnd)
       node.removeEventListener('touchcancel', handleTouchEnd)
     }
-  }, [supportTouch])
+  }, [prefersTouch])
 
-  if (!supportTouch) {
+  if (!prefersTouch) {
     return <>{children}</>
   }
 

@@ -1145,6 +1145,51 @@ export default {
     'Indirect notifications shown': 'Косвенные уведомления показаны',
     Resend: 'Отправить снова',
     'Original poster': 'Автор исходной публикации',
-    'Show less': ''
+    Anonymous: 'Анонимно',
+    'Anonymous reply hint':
+      'Используется новая одноразовая идентичность Nostr. Ваш аккаунт не появится в событии, но ретрансляторы и наблюдатели сети всё ещё могут связать вашу активность.',
+    'One-time identity': 'Одноразовая идентичность',
+    'Try loading more': 'Попробовать загрузить ещё',
+    'Show less': 'Показать меньше',
+    'Remember this difficulty': 'Запомнить эту сложность',
+    'Unlock Jumble': 'Разблокировать Jumble',
+    'No system keychain available': 'Системное хранилище ключей недоступно',
+    'Password storage explanation':
+      'На этом устройстве нет системного хранилища ключей, поэтому Jumble шифрует ваши локальные данные (сеансы входа, закрытые ключи) паролем. Он будет запрашиваться при каждом запуске приложения.',
+    'Create password': 'Создать пароль',
+    'Confirm password': 'Подтвердите пароль',
+    Unlock: 'Разблокировать',
+    'Incorrect password': 'Неверный пароль',
+    'Password must be at least 4 characters': 'Пароль должен содержать не менее 4 символов',
+    'Forgot password?': 'Забыли пароль?',
+    'Reset encrypted data': 'Сбросить зашифрованные данные',
+    'Reset encrypted data warning':
+      'Если вы забыли пароль, можно сбросить зашифрованные данные. Это навсегда удалит все сохранённые сеансы входа и закрытые ключи на этом устройстве. Действие необратимо.',
+    'Copy link': 'Копировать ссылку',
+    'Link previews': 'Предпросмотр ссылок',
+    'Show previews for links in notes': 'Показывать предпросмотр ссылок в заметках',
+    'Avatar image must be {{size}} MB or smaller':
+      'Размер изображения аватара не должен превышать {{size}} МБ',
+    'Quoted message not loaded yet': 'Цитируемое сообщение ещё не загружено',
+    Video: 'Видео',
+    Audio: 'Аудио',
+    'Group message from': 'Сообщение из группы',
+    'Short note': 'Короткая заметка',
+    'Long-form article': 'Длинная статья',
+    'Share a thought or a moment': 'Поделитесь мыслью или моментом',
+    'Give your ideas more room': 'Дайте своим идеям больше места',
+    Publish: 'Опубликовать',
+    'For a smoother, more reliable DM experience, try PsstPsst, a dedicated Nostr messenger.':
+      'Для более удобных и надёжных личных сообщений попробуйте PsstPsst — специализированный мессенджер для Nostr.',
+    'Try PsstPsst': 'Попробовать PsstPsst',
+    Public: 'Публично',
+    Private: 'Приватно',
+    'Public muted words can be seen by anyone.': 'Публично скрытые слова видны всем.',
+    'Private muted word': 'Приватно скрытое слово',
+    'Public muted word': 'Публично скрытое слово',
+    'Remove muted word': 'Удалить скрытое слово',
+    'Failed to update muted word': 'Не удалось обновить скрытое слово',
+    '(Visible to everyone)': '(видно всем)',
+    'Local muted words have not synced yet.': 'Локально скрытые слова ещё не синхронизированы.'
   }
 }

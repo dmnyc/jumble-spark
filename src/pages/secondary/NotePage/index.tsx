@@ -17,6 +17,8 @@ import TranslateButton from '@/components/TranslateButton'
 import TrustScoreBadge from '@/components/TrustScoreBadge'
 import UserAvatar, { UserAvatarSkeleton } from '@/components/UserAvatar'
 import Username from '@/components/Username'
+import WebPreview from '@/components/WebPreview'
+import { parseYoutubeUrl } from '@/components/YoutubeEmbeddedPlayer'
 import { Card } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -87,25 +89,28 @@ const NotePage = forwardRef<TPageRef, { id?: string; index?: number }>(({ id, in
   const { isFetching: isFetchingParentEvent, event: parentEvent } = useFetchEvent(parentEventId)
   const [expanded, setExpanded] = useState(false)
   const currentKey = useMemo(() => (event ? getEventKey(event) : ''), [event])
-  const rootKey = useMemo(() => (rootEvent ? getEventKey(rootEvent) : ''), [rootEvent])
   const opPubkey = useMemo(
     () =>
       (rootEvent ? getEventAuthorPubkey(rootEvent) : undefined) ??
       (!rootEventId && !rootITag && event ? getEventAuthorPubkey(event) : undefined),
     [rootEvent, rootEventId, rootITag, event]
   )
-  const ancestorChain = useAncestorChain(currentKey, rootKey)
+  // Use the tag-derived keys (known before the events load) so the chain can be
+  // built — and subscribed to — before rootEvent/parentEvent are fetched.
+  const ancestorChain = useAncestorChain(currentKey, rootTagKey ?? '')
   const canExpand = !!parentEventId
   const fullChain = useMemo(() => {
     const chain = Array.from(new Set(ancestorChain))
-    if (rootEvent && !chain.includes(rootEvent.id)) {
-      chain.unshift(rootEvent.id)
+    // Only keys that resolve to actual events can render as ChainItem — an
+    // external root (e.g. a URL) is displayed by ExternalRoot above instead.
+    if (rootEventId && rootTagKey && !chain.includes(rootTagKey)) {
+      chain.unshift(rootTagKey)
     }
-    if (parentEvent && !chain.includes(parentEvent.id)) {
-      chain.push(parentEvent.id)
+    if (parentEventId && parentTagKey && !chain.includes(parentTagKey)) {
+      chain.push(parentTagKey)
     }
     return chain
-  }, [rootEvent, parentEvent, ancestorChain])
+  }, [rootEventId, rootTagKey, parentEventId, parentTagKey, ancestorChain])
   const layoutRef = useRef<TPageRef>(null)
 
   useImperativeHandle(
@@ -216,7 +221,7 @@ const NotePage = forwardRef<TPageRef, { id?: string; index?: number }>(({ id, in
               </div>
             )}
         {canExpand && <ExpandThreadButton expanded={expanded} onToggle={handleToggleExpand} />}
-        <div className={cn('relative px-4 pt-3', canExpand && 'pt-1')}>
+        <div className={cn('relative px-4', canExpand || rootITag ? 'pt-1' : 'pt-3')}>
           {reposters && <RepostDescription reposters={reposters} />}
           <Note
             key={`note-${event.id}`}
@@ -247,9 +252,23 @@ export default NotePage
 function ExternalRoot({ value }: { value: string }) {
   const { push } = useSecondaryPage()
   const { autoLoadProfilePicture } = useContentPolicy()
+  // A YouTube thumbnail comes straight from the video id, so it still shows
+  // when og:image isn't reachable.
+  const fallbackImage = useMemo(() => {
+    const { videoId } = parseYoutubeUrl(value)
+    return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : undefined
+  }, [value])
 
   return (
     <div>
+      {/* Show what the thread is replying to. Always the compact link card,
+          never an inline player or gallery — those grow tall enough (a vertical
+          video especially) to push the note itself off screen. The full embed
+          lives on the external content page. Renders nothing when media
+          auto-load is off, leaving the link below as the fallback. */}
+      {/^https?:\/\//i.test(value) && (
+        <WebPreview className="mb-2" url={value} fallbackImage={fallbackImage} />
+      )}
       <Card
         className="clickable text-muted-foreground hover:text-foreground flex items-center gap-1 px-1.5 py-1 text-sm"
         onClick={() => push(toExternalContent(value))}
@@ -257,7 +276,7 @@ function ExternalRoot({ value }: { value: string }) {
         <div className="truncate">{value}</div>
       </Card>
       {autoLoadProfilePicture ? (
-        <div className="bg-border ms-5 h-2 w-px" />
+        <div className="bg-border ms-4.75 h-3 w-0.5" />
       ) : (
         <div className="h-2" />
       )}
@@ -355,7 +374,7 @@ function ChainItem({
     return <ChainItemSkeleton isFirst={isFirst} />
   }
   if (!event) {
-    return null
+    return <ChainItemNotFound eventId={eventId} isFirst={isFirst} />
   }
 
   return (
@@ -406,6 +425,33 @@ function ChainItem({
           <NoteContent className="mt-2" event={event} />
           <StuffStats className="mt-2" stuff={event} />
         </div>
+      </div>
+    </ClickableCard>
+  )
+}
+
+function ChainItemNotFound({ eventId, isFirst }: { eventId: string; isFirst: boolean }) {
+  const { t } = useTranslation()
+  const { push } = useSecondaryPage()
+  const { autoLoadProfilePicture } = useContentPolicy()
+
+  return (
+    <ClickableCard
+      className={cn(
+        'clickable hover:bg-accent/30 relative px-4 py-3 transition-colors duration-200',
+        !autoLoadProfilePicture && 'border-b'
+      )}
+      onClick={() => push(toNote(eventId))}
+    >
+      {autoLoadProfilePicture && !isFirst && (
+        <div className="bg-border absolute inset-s-8.75 top-0 z-0 h-2 w-0.5" />
+      )}
+      {autoLoadProfilePicture && (
+        <div className="bg-border absolute inset-s-8.75 top-14.5 bottom-0 z-0 w-0.5" />
+      )}
+      <div className="flex items-center gap-2">
+        {autoLoadProfilePicture && <div className="bg-muted h-10 w-10 shrink-0 rounded-full" />}
+        <div className="text-muted-foreground text-sm">{`[${t('Note not found')}]`}</div>
       </div>
     </ClickableCard>
   )

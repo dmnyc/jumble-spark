@@ -13,10 +13,13 @@ const DropdownMenu = ({
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
   const isControlled = controlledOpen !== undefined
   const open = isControlled ? controlledOpen : uncontrolledOpen
-  const backdropRef = React.useRef<HTMLDivElement>(null)
+  const pointerDownStartedOnBackdropRef = React.useRef(false)
 
   const handleOpenChange = React.useCallback(
     (newOpen: boolean) => {
+      if (newOpen) {
+        pointerDownStartedOnBackdropRef.current = false
+      }
       if (!isControlled) {
         setUncontrolledOpen(newOpen)
       }
@@ -44,8 +47,20 @@ const DropdownMenu = ({
       {open &&
         createPortal(
           <div
-            ref={backdropRef}
             className="pointer-events-auto fixed inset-0 z-50"
+            onPointerDownCapture={() => {
+              pointerDownStartedOnBackdropRef.current = true
+            }}
+            onClickCapture={(e) => {
+              // On touch devices the pointerdown that opens the menu can be
+              // followed by a synthesized click retargeted to this newly
+              // mounted backdrop. Only dismiss when the press itself also
+              // started on the backdrop.
+              if (!pointerDownStartedOnBackdropRef.current) {
+                e.preventDefault()
+                e.stopPropagation()
+              }
+            }}
             onClick={(e) => {
               e.stopPropagation()
               handleOpenChange(false)

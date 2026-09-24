@@ -1,5 +1,7 @@
 import { getElectronBridge, isElectron } from '@/lib/platform'
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import type { TUpdateState } from '../../electron/shared/ipc-types'
 
 const APP_VERSION = (import.meta.env.APP_VERSION as string | undefined) ?? ''
@@ -22,7 +24,9 @@ type TUpdaterContext = {
 const UpdaterContext = createContext<TUpdaterContext | undefined>(undefined)
 
 export function UpdaterProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation()
   const [state, setState] = useState<TUpdateState>(DEFAULT_STATE)
+  const previousStatusRef = useRef(state.status)
 
   useEffect(() => {
     if (!isElectron()) return
@@ -41,6 +45,16 @@ export function UpdaterProvider({ children }: { children: React.ReactNode }) {
       off()
     }
   }, [])
+
+  useEffect(() => {
+    const previousStatus = previousStatusRef.current
+    previousStatusRef.current = state.status
+    if (state.status !== 'download-error' || previousStatus === 'download-error') return
+
+    toast.error(t('Try again later or check your connection'), {
+      description: state.error
+    })
+  }, [state.status, state.error, t])
 
   const check = useCallback(async () => {
     const bridge = getElectronBridge()

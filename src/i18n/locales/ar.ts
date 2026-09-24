@@ -1124,6 +1124,51 @@ export default {
     'Indirect notifications shown': 'الإشعارات غير المباشرة ظاهرة',
     Resend: 'إعادة الإرسال',
     'Original poster': 'الناشر الأصلي',
-    'Show less': ''
+    Anonymous: 'مجهول',
+    'Anonymous reply hint':
+      'يستخدم هوية Nostr جديدة لمرة واحدة. لن يظهر حسابك في الحدث، لكن قد تظل المرحّلات ومراقبو الشبكة قادرين على ربط نشاطك.',
+    'One-time identity': 'هوية لمرة واحدة',
+    'Try loading more': 'محاولة تحميل المزيد',
+    'Show less': 'عرض أقل',
+    'Remember this difficulty': 'تذكّر مستوى الصعوبة هذا',
+    'Unlock Jumble': 'فتح قفل Jumble',
+    'No system keychain available': 'لا توجد سلسلة مفاتيح نظام متاحة',
+    'Password storage explanation':
+      'هذا الجهاز لا يحتوي على سلسلة مفاتيح نظام، لذا يقوم Jumble بتشفير بياناتك المحلية (جلسات تسجيل الدخول، المفاتيح الخاصة) بكلمة مرور بدلاً من ذلك. سيُطلب منك إدخالها في كل مرة يبدأ فيها التطبيق.',
+    'Create password': 'إنشاء كلمة مرور',
+    'Confirm password': 'تأكيد كلمة المرور',
+    Unlock: 'فتح القفل',
+    'Incorrect password': 'كلمة المرور غير صحيحة',
+    'Password must be at least 4 characters': 'يجب أن تتكون كلمة المرور من 4 أحرف على الأقل',
+    'Forgot password?': 'هل نسيت كلمة المرور؟',
+    'Reset encrypted data': 'إعادة تعيين البيانات المشفرة',
+    'Reset encrypted data warning':
+      'إذا نسيت كلمة المرور، يمكنك إعادة تعيين البيانات المشفرة. سيؤدي هذا إلى حذف جميع جلسات تسجيل الدخول والمفاتيح الخاصة المخزنة على هذا الجهاز نهائيًا. لا يمكن التراجع عن هذا الإجراء.',
+    'Copy link': 'نسخ الرابط',
+    'Link previews': 'معاينات الروابط',
+    'Show previews for links in notes': 'عرض معاينات الروابط في الملاحظات',
+    'Avatar image must be {{size}} MB or smaller':
+      'يجب ألا يتجاوز حجم صورة الملف الشخصي {{size}} ميغابايت',
+    'Quoted message not loaded yet': 'لم يتم تحميل الرسالة المقتبسة بعد',
+    Video: 'فيديو',
+    Audio: 'صوت',
+    'Group message from': 'رسالة جماعية من',
+    'Short note': 'ملاحظة قصيرة',
+    'Long-form article': 'مقال طويل',
+    'Share a thought or a moment': 'شارك فكرة أو لحظة',
+    'Give your ideas more room': 'امنح أفكارك مساحة أكبر',
+    Publish: 'نشر',
+    'For a smoother, more reliable DM experience, try PsstPsst, a dedicated Nostr messenger.':
+      'للحصول على تجربة رسائل خاصة أكثر سلاسة وموثوقية، جرّب PsstPsst، تطبيق مراسلة مخصصًا لـ Nostr.',
+    'Try PsstPsst': 'جرّب PsstPsst',
+    Public: 'عام',
+    Private: 'خاص',
+    'Public muted words can be seen by anyone.': 'يمكن لأي شخص رؤية الكلمات المكتومة العامة.',
+    'Private muted word': 'كلمة مكتومة خاصة',
+    'Public muted word': 'كلمة مكتومة عامة',
+    'Remove muted word': 'إزالة الكلمة المكتومة',
+    'Failed to update muted word': 'فشل تحديث الكلمة المكتومة',
+    '(Visible to everyone)': '(مرئي للجميع)',
+    'Local muted words have not synced yet.': 'لم تتم مزامنة الكلمات المكتومة المحلية بعد.'
   }
 }

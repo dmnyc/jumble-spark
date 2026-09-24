@@ -10,7 +10,7 @@ export default function ZapPreview({ event, className }: { event: Event; classNa
   const info = getZapInfoFromEvent(event)
 
   return (
-    <div className={cn('flex items-center gap-1 truncate', className)}>
+    <div className={cn('flex! items-center gap-1 truncate', className)}>
       <Zap size={14} className="shrink-0 fill-yellow-400 text-yellow-400" />
       <span className="shrink-0 text-yellow-500">
         {info?.amount ? `${formatAmount(info.amount)} ${t('sats')}` : t('Zap')}

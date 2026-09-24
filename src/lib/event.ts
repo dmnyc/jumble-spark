@@ -13,6 +13,15 @@ import {
 } from './tag'
 import { randomString } from './random'
 
+export {
+  compareFeedEvents,
+  getEventFeedTimestamp,
+  getSafeFeedItemCount,
+  partitionIncomingFeedEvents,
+  sortRevisionOrderedFeedEventsDesc,
+  sortRevisionOrderedFeedItemsDesc
+} from './event-feed'
+
 const EVENT_EMBEDDED_NOTES_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_EMBEDDED_PUBKEYS_CACHE = new LRUCache<string, string[]>({ max: 10000 })
 const EVENT_IS_REPLY_NOTE_CACHE = new LRUCache<string, boolean>({ max: 10000 })

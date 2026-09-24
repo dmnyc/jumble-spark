@@ -1,6 +1,7 @@
 import { isElectron } from '@/lib/platform'
 import { createContext, useContext, useEffect, useState } from 'react'
 
+/** Responsive layout breakpoints only; do not use these as OS or input-mode checks. */
 type TScreenSizeContext = {
   isSmallScreen: boolean
   isLargeScreen: boolean

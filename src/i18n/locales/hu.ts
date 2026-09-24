@@ -1142,6 +1142,51 @@ export default {
     'Indirect notifications shown': 'Közvetett értesítések megjelenítve',
     Resend: 'Újraküldés',
     'Original poster': 'Eredeti szerző',
-    'Show less': ''
+    Anonymous: 'Névtelen',
+    'Anonymous reply hint':
+      'Egy új, egyszer használatos Nostr-identitást használ. A fiókod nem jelenik meg az eseményben, de a relék és a hálózati megfigyelők továbbra is összekapcsolhatják a tevékenységeidet.',
+    'One-time identity': 'Egyszer használatos identitás',
+    'Try loading more': 'Próbálj többet betölteni',
+    'Show less': 'Kevesebb',
+    'Remember this difficulty': 'Jegyezze meg ezt a nehézséget',
+    'Unlock Jumble': 'Jumble feloldása',
+    'No system keychain available': 'Nem érhető el rendszerkulcstartó',
+    'Password storage explanation':
+      'Ez az eszköz nem rendelkezik rendszerkulcstartóval, ezért a Jumble jelszóval titkosítja a helyi adatait (bejelentkezési munkamenetek, privát kulcsok). Az alkalmazás minden indításakor meg kell adnia.',
+    'Create password': 'Jelszó létrehozása',
+    'Confirm password': 'Jelszó megerősítése',
+    Unlock: 'Feloldás',
+    'Incorrect password': 'Hibás jelszó',
+    'Password must be at least 4 characters': 'A jelszónak legalább 4 karakterből kell állnia',
+    'Forgot password?': 'Elfelejtette a jelszavát?',
+    'Reset encrypted data': 'Titkosított adatok visszaállítása',
+    'Reset encrypted data warning':
+      'Ha elfelejtette a jelszót, visszaállíthatja a titkosított adatokat. Ez véglegesen törli az eszközön tárolt összes bejelentkezési munkamenetet és privát kulcsot. A művelet nem vonható vissza.',
+    'Copy link': 'Hivatkozás másolása',
+    'Link previews': 'Hivatkozás-előnézetek',
+    'Show previews for links in notes': 'Hivatkozások előnézetének megjelenítése a jegyzetekben',
+    'Avatar image must be {{size}} MB or smaller':
+      'Az avatárkép legfeljebb {{size}} MB méretű lehet',
+    'Quoted message not loaded yet': 'Az idézett üzenet még nem töltődött be',
+    Video: 'Videó',
+    Audio: 'Hang',
+    'Group message from': 'Csoportüzenet innen',
+    'Short note': 'Rövid jegyzet',
+    'Long-form article': 'Hosszú cikk',
+    'Share a thought or a moment': 'Ossz meg egy gondolatot vagy pillanatot',
+    'Give your ideas more room': 'Adj több teret az ötleteidnek',
+    Publish: 'Közzététel',
+    'For a smoother, more reliable DM experience, try PsstPsst, a dedicated Nostr messenger.':
+      'A gördülékenyebb és megbízhatóbb privát üzenetküldéshez próbáld ki a PsstPsstet, a Nostr dedikált üzenetküldőjét.',
+    'Try PsstPsst': 'PsstPsst kipróbálása',
+    Public: 'Nyilvános',
+    Private: 'Privát',
+    'Public muted words can be seen by anyone.': 'A nyilvános némított szavakat bárki láthatja.',
+    'Private muted word': 'Privát némított szó',
+    'Public muted word': 'Nyilvános némított szó',
+    'Remove muted word': 'Némított szó eltávolítása',
+    'Failed to update muted word': 'Nem sikerült frissíteni a némított szót',
+    '(Visible to everyone)': '(mindenki láthatja)',
+    'Local muted words have not synced yet.': 'A helyi némított szavak még nem szinkronizálódtak.'
   }
 }

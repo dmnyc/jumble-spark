@@ -1,8 +1,9 @@
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFetchProfile } from '@/hooks'
+import { canHover } from '@/lib/device'
 import { toProfile } from '@/lib/link'
-import { cn, isTouchDevice } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { SecondaryPageLink } from '@/PageManager'
 import ProfileCard from '../ProfileCard'
 import TextWithEmojis from '../TextWithEmojis'
@@ -22,7 +23,7 @@ export default function Username({
   withoutSkeleton?: boolean
 }) {
   const { profile, isFetching } = useFetchProfile(userId)
-  const supportTouch = useMemo(() => isTouchDevice(), [])
+  const supportsHover = useMemo(() => canHover(), [])
   if (!profile && isFetching && !withoutSkeleton) {
     return (
       <div className="py-1">
@@ -45,7 +46,7 @@ export default function Username({
     </div>
   )
 
-  if (supportTouch) {
+  if (!supportsHover) {
     return trigger
   }
 

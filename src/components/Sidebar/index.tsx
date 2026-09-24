@@ -1,5 +1,6 @@
 import Icon from '@/assets/Icon'
 import Logo from '@/assets/Logo'
+import { SidebarSignerApprovalIndicator } from '@/components/SignerApprovalIndicator'
 import { IS_COMMUNITY_MODE } from '@/constants'
 import { cn } from '@/lib/utils'
 import { usePrimaryPage } from '@/PageManager'
@@ -35,7 +36,7 @@ export default function PrimaryPageSidebar() {
   return (
     <div
       className={cn(
-        'relative flex h-full shrink-0 flex-col justify-between pb-2 pt-3',
+        'relative flex h-full shrink-0 flex-col justify-between pt-3 pb-2',
         sidebarCollapse ? 'w-16 px-2' : 'w-52 px-4'
       )}
     >
@@ -68,6 +69,7 @@ export default function PrimaryPageSidebar() {
         <PostButton collapse={sidebarCollapse} />
       </div>
       <div className="flex flex-col gap-4">
+        <SidebarSignerApprovalIndicator collapsed={sidebarCollapse} />
         <UpdateButton collapse={sidebarCollapse} />
         <DesktopAppTip collapse={sidebarCollapse} />
         <LayoutSwitcher collapse={sidebarCollapse} />
@@ -76,7 +78,7 @@ export default function PrimaryPageSidebar() {
       </div>
       <button
         className={cn(
-          'absolute flex h-6 w-5 flex-col items-center justify-center rounded-s-md p-0 text-muted-foreground transition-colors hover:bg-background hover:text-foreground hover:shadow-md [&_svg]:size-4',
+          'text-muted-foreground hover:bg-background hover:text-foreground absolute flex h-6 w-5 flex-col items-center justify-center rounded-s-md p-0 transition-colors hover:shadow-md [&_svg]:size-4',
           themeSetting === 'pure-black' || enableSingleColumnLayout
             ? 'end-0 top-3'
             : '-end-0.5 top-5'

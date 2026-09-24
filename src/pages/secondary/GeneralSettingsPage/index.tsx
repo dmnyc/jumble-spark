@@ -38,8 +38,14 @@ const GeneralSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
     mediaAutoLoadPolicy,
     setMediaAutoLoadPolicy
   } = useContentPolicy()
-  const { quickReaction, updateQuickReaction, quickReactionEmoji, updateQuickReactionEmoji } =
-    useUserPreferences()
+  const {
+    quickReaction,
+    updateQuickReaction,
+    quickReactionEmoji,
+    updateQuickReactionEmoji,
+    showLinkPreviews,
+    updateShowLinkPreviews
+  } = useUserPreferences()
   const [disableNotificationSync, setDisableNotificationSync] = useState(
     localStorage.getDisableNotificationSync()
   )
@@ -98,6 +104,18 @@ const GeneralSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
                   <SelectItem value={MEDIA_AUTO_LOAD_POLICY.NEVER}>{t('Never')}</SelectItem>
                 </SelectContent>
               </Select>
+            }
+          />
+          <SettingsRow
+            htmlFor="show-link-previews"
+            title={t('Link previews')}
+            description={t('Show previews for links in notes')}
+            control={
+              <Switch
+                id="show-link-previews"
+                checked={showLinkPreviews}
+                onCheckedChange={updateShowLinkPreviews}
+              />
             }
           />
           <SettingsRow

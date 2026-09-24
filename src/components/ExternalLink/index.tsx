@@ -8,20 +8,23 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { toExternalContent } from '@/lib/link'
-import { truncateUrl } from '@/lib/url'
+import { getSafeExternalUrl, truncateUrl } from '@/lib/url'
 import { cn } from '@/lib/utils'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
-import { ExternalLink as ExternalLinkIcon, MessageSquare } from 'lucide-react'
+import { Copy, ExternalLink as ExternalLinkIcon, MessageSquare } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 export default function ExternalLink({
   url,
   className,
+  children,
   justOpenLink
 }: {
   url: string
   className?: string
+  children?: React.ReactNode
   justOpenLink?: boolean
 }) {
   const { t } = useTranslation()
@@ -29,9 +32,10 @@ export default function ExternalLink({
   const { push } = useSecondaryPage()
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const displayUrl = useMemo(() => truncateUrl(url), [url])
+  const safeUrl = useMemo(() => getSafeExternalUrl(url), [url])
 
   const openInNewTab = () => {
-    window.open(url, '_blank', 'noreferrer')
+    if (safeUrl) window.open(safeUrl, '_blank', 'noreferrer')
   }
 
   const handleOpenLink = (e: React.MouseEvent) => {
@@ -52,16 +56,29 @@ export default function ExternalLink({
     push(toExternalContent(url))
   }
 
+  const handleCopyLink = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(url)
+    toast.success(t('Copied to Clipboard'))
+    if (isSmallScreen) {
+      setIsDrawerOpen(false)
+    }
+  }
+
+  if (!safeUrl) {
+    return <span className={cn('wrap-anywhere', className)}>{children ?? displayUrl}</span>
+  }
+
   if (justOpenLink) {
     return (
       <a
-        href={url}
+        href={safeUrl}
         target="_blank"
-        rel="noreferrer"
-        className={cn('cursor-pointer text-primary hover:underline', className)}
+        rel="noreferrer noopener"
+        className={cn('text-primary cursor-pointer wrap-anywhere hover:underline', className)}
         onClick={(e) => e.stopPropagation()}
       >
-        {displayUrl}
+        {children ?? displayUrl}
       </a>
     )
   }
@@ -73,7 +90,7 @@ export default function ExternalLink({
 
   const trigger = (
     <span
-      className={cn('cursor-pointer text-primary hover:underline', className)}
+      className={cn('text-primary cursor-pointer wrap-anywhere hover:underline', className)}
       onMouseDown={(e) => {
         // Prevent the autoscroll cursor on middle-click
         if (e.button === 1) e.preventDefault()
@@ -98,7 +115,7 @@ export default function ExternalLink({
       }}
       title={url}
     >
-      {displayUrl}
+      {children ?? displayUrl}
     </span>
   )
 
@@ -118,6 +135,14 @@ export default function ExternalLink({
                 {t('Open link')}
               </Button>
               <Button
+                onClick={handleCopyLink}
+                className="w-full justify-start gap-4 p-6 text-lg [&_svg]:size-5"
+                variant="ghost"
+              >
+                <Copy />
+                {t('Copy link')}
+              </Button>
+              <Button
                 onClick={handleViewDiscussions}
                 className="w-full justify-start gap-4 p-6 text-lg [&_svg]:size-5"
                 variant="ghost"
@@ -135,6 +160,7 @@ export default function ExternalLink({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        asChild
         onPointerDown={(e) => {
           if (isNewTabClick(e)) {
             e.preventDefault()
@@ -159,14 +185,23 @@ export default function ExternalLink({
           }
         }}
       >
-        <span className={cn('cursor-pointer text-primary hover:underline', className)} title={url}>
-          {displayUrl}
+        <span
+          role="button"
+          tabIndex={0}
+          className={cn('text-primary cursor-pointer wrap-anywhere hover:underline', className)}
+          title={url}
+        >
+          {children ?? displayUrl}
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
         <DropdownMenuItem onClick={handleOpenLink}>
           <ExternalLinkIcon />
           {t('Open link')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleCopyLink}>
+          <Copy />
+          {t('Copy link')}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={handleViewDiscussions}>
           <MessageSquare />

@@ -6,9 +6,11 @@ import {
   isProtectedEvent,
   isReplaceableEvent
 } from '@/lib/event'
-import { toJumbleNote } from '@/lib/link'
+import { toArticleEditor, toJumbleNote } from '@/lib/link'
 import { pubkeyToNpub } from '@/lib/pubkey'
+import { toastPromise } from '@/lib/toast'
 import { simplifyUrl } from '@/lib/url'
+import { useSecondaryPage } from '@/PageManager'
 import { useBookmarks } from '@/providers/BookmarksProvider'
 import { useCurrentRelays } from '@/providers/CurrentRelaysProvider'
 import { useFavoriteRelays } from '@/providers/FavoriteRelaysProvider'
@@ -24,6 +26,7 @@ import {
   Code,
   Copy,
   Link,
+  Pencil,
   Pin,
   PinOff,
   SatelliteDish,
@@ -33,7 +36,6 @@ import {
 import { Event, kinds } from 'nostr-tools'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 import RelayIcon from '../RelayIcon'
 
 export interface SubMenuAction {
@@ -70,6 +72,7 @@ export function useMenuActions({
   isSmallScreen
 }: UseMenuActionsProps) {
   const { t } = useTranslation()
+  const { push } = useSecondaryPage()
   const { pubkey, attemptDelete, bookmarkListEvent, checkLogin } = useNostr()
   const { relayUrls: currentBrowsingRelayUrls } = useCurrentRelays()
   const { relaySets, favoriteRelays } = useFavoriteRelays()
@@ -102,7 +105,7 @@ export function useMenuActions({
               await client.publishEvent(relays, event)
             }
           }
-          toast.promise(promise, {
+          toastPromise(promise, {
             loading: t('Republishing...'),
             success: () => {
               return t(
@@ -128,7 +131,7 @@ export function useMenuActions({
             onClick: async () => {
               closeDrawer()
               const promise = client.publishEvent(set.relayUrls, event)
-              toast.promise(promise, {
+              toastPromise(promise, {
                 loading: t('Republishing...'),
                 success: () => {
                   return t('Successfully republish to relay set: {{name}}', { name: set.name })
@@ -158,7 +161,7 @@ export function useMenuActions({
           onClick: async () => {
             closeDrawer()
             const promise = client.publishEvent([relay], event)
-            toast.promise(promise, {
+            toastPromise(promise, {
               loading: t('Republishing...'),
               success: () => {
                 return t('Successfully republish to relay: {{url}}', { url: simplifyUrl(relay) })
@@ -318,6 +321,18 @@ export function useMenuActions({
     }
 
     if (pubkey && event.pubkey === pubkey) {
+      if (event.kind === kinds.LongFormArticle) {
+        actions[0].separator = true
+        actions.unshift({
+          icon: Pencil,
+          label: t('Edit'),
+          onClick: () => {
+            closeDrawer()
+            client.addEventToCache(event)
+            push(toArticleEditor(event))
+          }
+        })
+      }
       actions.push({
         icon: Trash2,
         label: t('Try deleting this note'),
@@ -333,6 +348,7 @@ export function useMenuActions({
     return actions
   }, [
     t,
+    push,
     event,
     authorPubkey,
     pubkey,

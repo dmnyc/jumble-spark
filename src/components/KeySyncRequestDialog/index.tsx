@@ -33,11 +33,17 @@ export default function KeySyncRequestHandler() {
   useEffect(() => {
     if (!pubkey) return
 
-    const unsub = dmService.onSyncRequest((event) => {
+    const unsubRequest = dmService.onSyncRequest((event) => {
       setPendingEvent(event)
     })
+    const unsubProcessed = dmService.onSyncRequestProcessed((eventId) => {
+      setPendingEvent((event) => (event?.id === eventId ? null : event))
+    })
 
-    return unsub
+    return () => {
+      unsubRequest()
+      unsubProcessed()
+    }
   }, [pubkey])
 
   const handleSendKey = async () => {

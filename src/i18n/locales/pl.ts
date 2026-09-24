@@ -1149,6 +1149,53 @@ export default {
     'Indirect notifications shown': 'Powiadomienia pośrednie widoczne',
     Resend: 'Wyślij ponownie',
     'Original poster': 'Autor oryginalnego wpisu',
-    'Show less': ''
+    Anonymous: 'Anonimowo',
+    'Anonymous reply hint':
+      'Używa nowej, jednorazowej tożsamości Nostr. Twoje konto nie pojawi się w zdarzeniu, ale przekaźniki i obserwatorzy sieci nadal mogą powiązać Twoją aktywność.',
+    'One-time identity': 'Jednorazowa tożsamość',
+    'Try loading more': 'Spróbuj wczytać więcej',
+    'Show less': 'Pokaż mniej',
+    'Remember this difficulty': 'Zapamiętaj ten poziom trudności',
+    'Unlock Jumble': 'Odblokuj Jumble',
+    'No system keychain available': 'Systemowy pęk kluczy jest niedostępny',
+    'Password storage explanation':
+      'To urządzenie nie ma systemowego pęku kluczy, więc Jumble szyfruje twoje dane lokalne (sesje logowania, klucze prywatne) hasłem. Będzie ono wymagane przy każdym uruchomieniu aplikacji.',
+    'Create password': 'Utwórz hasło',
+    'Confirm password': 'Potwierdź hasło',
+    Unlock: 'Odblokuj',
+    'Incorrect password': 'Nieprawidłowe hasło',
+    'Password must be at least 4 characters': 'Hasło musi mieć co najmniej 4 znaki',
+    'Forgot password?': 'Nie pamiętasz hasła?',
+    'Reset encrypted data': 'Zresetuj zaszyfrowane dane',
+    'Reset encrypted data warning':
+      'Jeśli nie pamiętasz hasła, możesz zresetować zaszyfrowane dane. Spowoduje to trwałe usunięcie wszystkich zapisanych sesji logowania i kluczy prywatnych na tym urządzeniu. Tej operacji nie można cofnąć.',
+    'Copy link': 'Kopiuj link',
+    'Link previews': 'Podglądy linków',
+    'Show previews for links in notes': 'Pokazuj podglądy linków w notatkach',
+    'Avatar image must be {{size}} MB or smaller':
+      'Obraz awatara nie może być większy niż {{size}} MB',
+    'Quoted message not loaded yet': 'Cytowana wiadomość nie została jeszcze wczytana',
+    Video: 'Wideo',
+    Audio: 'Audio',
+    'Group message from': 'Wiadomość z grupy',
+    'Short note': 'Krótka notatka',
+    'Long-form article': 'Długi artykuł',
+    'Share a thought or a moment': 'Podziel się myślą lub chwilą',
+    'Give your ideas more room': 'Daj swoim pomysłom więcej miejsca',
+    Publish: 'Opublikuj',
+    'For a smoother, more reliable DM experience, try PsstPsst, a dedicated Nostr messenger.':
+      'Aby korzystać z płynniejszych i bardziej niezawodnych wiadomości prywatnych, wypróbuj PsstPsst — komunikator stworzony dla Nostr.',
+    'Try PsstPsst': 'Wypróbuj PsstPsst',
+    Public: 'Publiczne',
+    Private: 'Prywatne',
+    'Public muted words can be seen by anyone.':
+      'Publiczne wyciszone słowa są widoczne dla wszystkich.',
+    'Private muted word': 'Prywatne wyciszone słowo',
+    'Public muted word': 'Publiczne wyciszone słowo',
+    'Remove muted word': 'Usuń wyciszone słowo',
+    'Failed to update muted word': 'Nie udało się zaktualizować wyciszonego słowa',
+    '(Visible to everyone)': '(widoczne dla wszystkich)',
+    'Local muted words have not synced yet.':
+      'Lokalne wyciszone słowa nie zostały jeszcze zsynchronizowane.'
   }
 }

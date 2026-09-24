@@ -12,10 +12,12 @@ import Notification from './Notification'
 
 export function ReactionNotification({
   notification,
-  isNew = false
+  isNew = false,
+  onVisibilityChange
 }: {
   notification: Event
   isNew?: boolean
+  onVisibilityChange?: (isVisible: boolean) => void
 }) {
   const { t } = useTranslation()
   const { pubkey } = useNostr()
@@ -72,6 +74,7 @@ export function ReactionNotification({
       targetEvent={event}
       description={t('reacted to your note')}
       isNew={isNew}
+      onVisibilityChange={onVisibilityChange}
     />
   )
 }

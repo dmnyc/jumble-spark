@@ -1,6 +1,7 @@
 import {
   EmbeddedEmojiParser,
   EmbeddedEventParser,
+  EmbeddedLegacyEventParser,
   EmbeddedLegacyMentionParser,
   EmbeddedMentionParser,
   EmbeddedUrlParser,
@@ -27,8 +28,9 @@ export default function Content({
     return parseContent(content, [
       EmbeddedEventParser,
       EmbeddedMentionParser,
-      EmbeddedLegacyMentionParser,
       EmbeddedUrlParser,
+      EmbeddedLegacyEventParser,
+      EmbeddedLegacyMentionParser,
       EmbeddedEmojiParser
     ])
   }, [content])
@@ -47,9 +49,6 @@ export default function Content({
         }
         if (node.type === 'mention') {
           return <EmbeddedMentionText key={index} userId={node.data.split(':')[1]} />
-        }
-        if (node.type === 'legacy-mention') {
-          return <EmbeddedMentionText key={index} userId={node.data} />
         }
         if (node.type === 'emoji') {
           const shortcode = node.data.split(':')[1]

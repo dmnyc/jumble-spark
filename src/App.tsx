@@ -3,6 +3,7 @@ import './index.css'
 
 import EmojiDetailDialog from '@/components/EmojiDetailDialog'
 import KeySyncRequestHandler from '@/components/KeySyncRequestDialog'
+import { MobileSignerApprovalIndicator } from '@/components/SignerApprovalIndicator'
 import { Toaster } from '@/components/ui/sonner'
 import { BookmarksProvider } from '@/providers/BookmarksProvider'
 import { DraftBoxProvider } from '@/providers/DraftBoxProvider'
@@ -65,6 +66,7 @@ export default function App(): JSX.Element {
                                                     <PageManager />
                                                     <KeySyncRequestHandler />
                                                     <EmojiDetailDialog />
+                                                    <MobileSignerApprovalIndicator />
                                                     <Toaster />
                                                   </KindFilterProvider>
                                                 </MediaUploadServiceProvider>

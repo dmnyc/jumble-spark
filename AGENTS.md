@@ -116,7 +116,7 @@ Service files located in `src/services/` encapsulate business logic:
 - `note-stats.service.ts` - Note statistics storage and retrieval (likes, zaps, reposts)
 - `poll-results.service.ts` - Poll results storage and retrieval
 - `post-editor-cache.service.ts` - Caching post editor content to prevent data loss
-- `web.push.service.ts` - Web metadata fetching for link previews
+- `web.service.ts` - Web metadata fetching for link previews (via the link preview metadata service, see `LINK_PREVIEW_SERVER` in `src/constants.ts`, overridable with `VITE_LINK_PREVIEW_SERVER`)
 
 ### Providers Architecture
 
@@ -231,6 +231,7 @@ I mean kinds that are supported to be displayed in the feed.
 - Kind 9802: Highlight
 - Kind 30023: Long-Form Article
 - Kind 31987: Relay Review
+- Kind 10012: Favorite Relays
 - Kind 34550: Community Definition
 - Kind 30311: Live Event
 - Kind 39000: Group Metadata
@@ -358,10 +359,12 @@ Renderer counterparts:
 
 ### IPC Contract (`electron/shared/ipc-types.ts`)
 
-The bridge exposed at `window.electron` has three namespaces:
+The bridge exposed at `window.electron` has these namespaces:
 
 - `relay.*` — `ensure / publish / subscribe / closeSub / auth / close / setAllowInsecure / setTrustedInsecureRelayUrls`, plus event-stream listeners (`onSubEvent`, `onSubEose`, `onSubClose`, `onAuthRequest`) and `sendAuthResponse`. The renderer streams events back through `ipcRenderer.on`; the main process triggers AUTH signing via a request/response over IPC so the signer stays in the renderer.
 - `secrets.*` — `isAvailable / load / save`. Writes are atomic (tmp + rename) and serialized via a Promise chain.
+- `localStorage.*` — `load / save`. Main-process encrypted mirror of the renderer's localStorage (`userData/renderer-state.enc`), used to recover state when Chromium's own storage is lost. The renderer restores it in `main.tsx` (via `restoreElectronLocalStorage`) before any app module is evaluated, and hooks `Storage.prototype` to back it up on every mutation.
+- `security.*` — `getStatus / setupPassword / unlock / reset`. Reports and controls which encryption layer backs the on-disk stores (see "Secrets Storage Model").
 - `proxy.fetch(url, options)` — **generic CORS-bypass HTTP proxy**. Any future renderer code that needs to bypass CORS should call this rather than add a new channel. Returns `{ ok, status, statusText, url, headers, body }`. Default 15s timeout, 5 MB body cap, custom UA. Renderer parses the body itself (no domain logic in main).
 
 When adding a new IPC channel:
@@ -378,7 +381,10 @@ When adding a new IPC channel:
 - Web mode: maps serialize back inline into the `accounts` JSON / dedicated localStorage keys (current behavior preserved).
 - Electron mode: maps persist via `bridge.secrets.save(...)` to `userData/secrets.enc` (encrypted by OS keychain). The `accounts` JSON in localStorage carries no secrets.
 - `getAccounts()`, `findAccount()`, `getCurrentAccount()` always re-attach secrets from the maps so callers like `account.bunkerClientSecretKey` keep working transparently.
-- If `safeStorage.isEncryptionAvailable()` is false (rare Linux without keyring), secrets are kept in memory only and a warning is logged. They will not silently degrade to plaintext at rest.
+- Both encrypted stores (`secrets.enc` and `renderer-state.enc`) go through the `StoreCrypto` interface (`electron/main/store-crypto.ts`). The backend is chosen once at startup in `electron/main/index.ts`:
+  - `SafeStorageCrypto` (OS keychain via `safeStorage`) when available — the default on macOS/Windows/most Linux desktops.
+  - `PasswordCrypto` (`electron/main/password-crypto.ts`, scrypt + AES-256-GCM, no `electron` import so it stays unit-testable) when safeStorage is unavailable (e.g. Linux without a keyring) or a password already exists on the machine. Password-encrypted files carry a `JUMBLE-PW1` magic prefix; KDF params live in `userData/password-kdf.json`.
+- With the password backend the renderer gates boot on an unlock screen (`src/lib/electron-unlock.tsx`, driven from `main.tsx` before `restoreElectronLocalStorage`), then reloads. First run without a keychain asks the user to create a password; "Forgot password" wipes the encrypted stores and starts fresh. Secrets never degrade to plaintext at rest.
 
 ### What Lives Where
 
@@ -386,8 +392,8 @@ When adding a new IPC channel:
 | --- | --- | --- |
 | Relay WebSockets | renderer (`SmartPool`) | main (`SmartPool` + `RelayManager`) |
 | Signing (`ISigner`) | renderer | renderer (unchanged) |
-| Secret storage | localStorage | `safeStorage` file in `userData/` |
-| Cross-origin HTTP fetch | direct or `VITE_PROXY_SERVER` | `bridge.proxy.fetch` |
+| Secret storage | localStorage | encrypted file in `userData/` (OS keychain, or password-derived key when no keychain) |
+| Cross-origin HTTP fetch | direct | `bridge.proxy.fetch` |
 | IndexedDB caches | renderer | renderer (unchanged) |
 | PWA / service worker | enabled | disabled (vite-plugin-pwa skipped) |
 

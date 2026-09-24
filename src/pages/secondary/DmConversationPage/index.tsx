@@ -1,7 +1,6 @@
 import DmInput from '@/components/DmInput'
 import DmMessageList from '@/components/DmMessageList'
 import UserAvatar from '@/components/UserAvatar'
-import { ExtendedKind } from '@/constants'
 import { useFetchProfile } from '@/hooks'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { usePrimaryPage, useSecondaryPage } from '@/PageManager'
@@ -27,9 +26,6 @@ const DmConversationPage = forwardRef(
     >('loading')
     const [replyTo, setReplyTo] = useState<{
       id: string
-      content: string
-      senderPubkey: string
-      tags?: string[][]
     } | null>(null)
     const [scrollToMessageRequest, setScrollToMessageRequest] = useState<{
       id: string
@@ -66,15 +62,7 @@ const DmConversationPage = forwardRef(
     }, [accountPubkey])
 
     const handleReply = useCallback((message: TDmMessage) => {
-      const isFile = message.decryptedRumor?.kind === ExtendedKind.RUMOR_FILE
-      setReplyTo({
-        id: message.id,
-        content: isFile
-          ? dmService.getFilePreviewContent(message.decryptedRumor?.tags)
-          : message.content,
-        senderPubkey: message.senderPubkey,
-        tags: message.decryptedRumor?.tags
-      })
+      setReplyTo({ id: message.id })
     }, [])
 
     const handleCancelReply = useCallback(() => {

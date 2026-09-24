@@ -1142,6 +1142,52 @@ export default {
     'Indirect notifications shown': 'Dolaylı bildirimler gösteriliyor',
     Resend: 'Yeniden gönder',
     'Original poster': 'Orijinal gönderi sahibi',
-    'Show less': ''
+    Anonymous: 'Anonim',
+    'Anonymous reply hint':
+      'Yeni ve tek kullanımlık bir Nostr kimliği kullanır. Hesabınız etkinlikte görünmez, ancak röleler ve ağ gözlemcileri etkinliğinizi yine de ilişkilendirebilir.',
+    'One-time identity': 'Tek kullanımlık kimlik',
+    'Try loading more': 'Daha fazlasını yüklemeyi dene',
+    'Show less': 'Daha az göster',
+    'Remember this difficulty': 'Bu zorluk seviyesini hatırla',
+    'Unlock Jumble': "Jumble'ın kilidini aç",
+    'No system keychain available': 'Kullanılabilir sistem anahtarlığı yok',
+    'Password storage explanation':
+      'Bu cihazda sistem anahtarlığı yok, bu nedenle Jumble yerel verilerinizi (oturumlar, özel anahtarlar) bir parola ile şifreler. Uygulama her başlatıldığında parola istenir.',
+    'Create password': 'Parola oluştur',
+    'Confirm password': 'Parolayı onayla',
+    Unlock: 'Kilidi aç',
+    'Incorrect password': 'Yanlış parola',
+    'Password must be at least 4 characters': 'Parola en az 4 karakter olmalıdır',
+    'Forgot password?': 'Parolanızı mı unuttunuz?',
+    'Reset encrypted data': 'Şifrelenmiş verileri sıfırla',
+    'Reset encrypted data warning':
+      'Parolayı unuttuysanız şifrelenmiş verileri sıfırlayabilirsiniz. Bu, cihazda saklanan tüm oturumları ve özel anahtarları kalıcı olarak siler. Bu işlem geri alınamaz.',
+    'Copy link': 'Bağlantıyı kopyala',
+    'Link previews': 'Bağlantı önizlemeleri',
+    'Show previews for links in notes': 'Notlardaki bağlantıların önizlemelerini göster',
+    'Avatar image must be {{size}} MB or smaller': 'Avatar görseli en fazla {{size}} MB olmalıdır',
+    'Quoted message not loaded yet': 'Alıntılanan mesaj henüz yüklenmedi',
+    Video: 'Video',
+    Audio: 'Ses',
+    'Group message from': 'Grup mesajı kaynağı',
+    'Short note': 'Kısa not',
+    'Long-form article': 'Uzun makale',
+    'Share a thought or a moment': 'Bir düşünce veya an paylaş',
+    'Give your ideas more room': 'Fikirlerine daha fazla alan aç',
+    Publish: 'Yayınla',
+    'For a smoother, more reliable DM experience, try PsstPsst, a dedicated Nostr messenger.':
+      'Daha akıcı ve güvenilir bir DM deneyimi için Nostr’a özel mesajlaşma uygulaması PsstPsst’i deneyin.',
+    'Try PsstPsst': 'PsstPsst’i dene',
+    Public: 'Herkese açık',
+    Private: 'Özel',
+    'Public muted words can be seen by anyone.':
+      'Herkese açık sessize alınan kelimeleri herkes görebilir.',
+    'Private muted word': 'Özel sessize alınan kelime',
+    'Public muted word': 'Herkese açık sessize alınan kelime',
+    'Remove muted word': 'Sessize alınan kelimeyi kaldır',
+    'Failed to update muted word': 'Sessize alınan kelime güncellenemedi',
+    '(Visible to everyone)': '(herkes görebilir)',
+    'Local muted words have not synced yet.':
+      'Yerel olarak sessize alınan kelimeler henüz eşitlenmedi.'
   }
 }

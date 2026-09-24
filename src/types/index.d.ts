@@ -140,6 +140,7 @@ export type TPublishOptions = {
   specifiedRelayUrls?: string[]
   additionalRelayUrls?: string[]
   minPow?: number
+  skipAuthorRelayLookup?: boolean
 }
 
 export type TPostTargetItem =
@@ -161,6 +162,23 @@ export type TFeedTabConfig = {
 }
 
 export type TNotificationType = 'all' | 'mentions' | 'reactions' | 'zaps'
+export type TNotificationFilter =
+  | 'mentions'
+  | 'replies'
+  | 'likes'
+  | 'quotes'
+  | 'reposts'
+  | 'zaps'
+  | 'highlights'
+  | 'pollResponses'
+
+export type TNotificationTabConfig = {
+  id: string
+  label: string
+  filters: TNotificationFilter[]
+  hidden?: boolean
+  builtin?: TNotificationType
+}
 
 export type TPageRef = { scrollToTop: (behavior?: ScrollBehavior) => void }
 
@@ -276,9 +294,6 @@ export type TDmMessage = {
   decryptedRumor: Event
   replyTo?: {
     id: string
-    content: string
-    senderPubkey: string
-    tags?: string[][]
   }
   // Sender-identity verification result captured at ingestion time.
   // true      — seal.pubkey matched rumor.pubkey's current Kind 10044 'n' tag

@@ -1139,6 +1139,51 @@ export default {
     'Indirect notifications shown': 'اعلان‌های غیرمستقیم نمایش داده می‌شوند',
     Resend: 'ارسال مجدد',
     'Original poster': 'نویسنده اصلی',
-    'Show less': ''
+    Anonymous: 'ناشناس',
+    'Anonymous reply hint':
+      'از یک هویت جدید و یک‌بارمصرف Nostr استفاده می‌کند. حساب شما در رویداد نمایش داده نمی‌شود، اما رله‌ها و ناظران شبکه ممکن است همچنان فعالیت شما را مرتبط کنند.',
+    'One-time identity': 'هویت یک‌بارمصرف',
+    'Try loading more': 'تلاش برای بارگذاری بیشتر',
+    'Show less': 'نمایش کمتر',
+    'Remember this difficulty': 'این سطح دشواری را به خاطر بسپار',
+    'Unlock Jumble': 'باز کردن قفل Jumble',
+    'No system keychain available': 'حلقه‌کلید سیستم در دسترس نیست',
+    'Password storage explanation':
+      'این دستگاه حلقه‌کلید سیستم ندارد، بنابراین Jumble داده‌های محلی شما (نشست‌های ورود، کلیدهای خصوصی) را با گذرواژه رمزنگاری می‌کند. هر بار که برنامه شروع می‌شود از شما خواسته می‌شود.',
+    'Create password': 'ایجاد گذرواژه',
+    'Confirm password': 'تأیید گذرواژه',
+    Unlock: 'باز کردن قفل',
+    'Incorrect password': 'گذرواژه نادرست است',
+    'Password must be at least 4 characters': 'گذرواژه باید حداقل ۴ کاراکتر باشد',
+    'Forgot password?': 'گذرواژه را فراموش کرده‌اید؟',
+    'Reset encrypted data': 'بازنشانی داده‌های رمزنگاری‌شده',
+    'Reset encrypted data warning':
+      'اگر گذرواژه را فراموش کرده‌اید، می‌توانید داده‌های رمزنگاری‌شده را بازنشانی کنید. این کار همه نشست‌های ورود و کلیدهای خصوصی ذخیره‌شده روی این دستگاه را برای همیشه حذف می‌کند و قابل بازگشت نیست.',
+    'Copy link': 'کپی لینک',
+    'Link previews': 'پیش‌نمایش لینک‌ها',
+    'Show previews for links in notes': 'نمایش پیش‌نمایش لینک‌ها در یادداشت‌ها',
+    'Avatar image must be {{size}} MB or smaller':
+      'حجم تصویر نمایه باید {{size}} مگابایت یا کمتر باشد',
+    'Quoted message not loaded yet': 'پیام نقل‌شده هنوز بارگیری نشده است',
+    Video: 'ویدیو',
+    Audio: 'صدا',
+    'Group message from': 'پیام گروهی از',
+    'Short note': 'یادداشت کوتاه',
+    'Long-form article': 'مقالهٔ بلند',
+    'Share a thought or a moment': 'یک فکر یا لحظه را به اشتراک بگذارید',
+    'Give your ideas more room': 'به ایده‌هایتان فضای بیشتری بدهید',
+    Publish: 'انتشار',
+    'For a smoother, more reliable DM experience, try PsstPsst, a dedicated Nostr messenger.':
+      'برای تجربه‌ای روان‌تر و پایدارتر در پیام‌های خصوصی، PsstPsst، پیام‌رسان اختصاصی Nostr را امتحان کنید.',
+    'Try PsstPsst': 'امتحان PsstPsst',
+    Public: 'عمومی',
+    Private: 'خصوصی',
+    'Public muted words can be seen by anyone.': 'همه می‌توانند واژه‌های بی‌صدای عمومی را ببینند.',
+    'Private muted word': 'واژهٔ بی‌صدای خصوصی',
+    'Public muted word': 'واژهٔ بی‌صدای عمومی',
+    'Remove muted word': 'حذف واژهٔ بی‌صدا',
+    'Failed to update muted word': 'به‌روزرسانی واژهٔ بی‌صدا ناموفق بود',
+    '(Visible to everyone)': '(قابل مشاهده برای همه)',
+    'Local muted words have not synced yet.': 'واژه‌های بی‌صدای محلی هنوز همگام‌سازی نشده‌اند.'
   }
 }

@@ -1,7 +1,7 @@
 import DownloadDialog from '@/components/DownloadDialog'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { isElectron } from '@/lib/platform'
+import { shouldOfferDesktopAppDownload } from '@/lib/device'
 import { cn } from '@/lib/utils'
 import storage from '@/services/local-storage.service'
 import { Lightbulb, Monitor, X } from 'lucide-react'
@@ -14,7 +14,7 @@ export default function DesktopAppTip({ collapse }: { collapse: boolean }) {
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
 
-  if (dismissed || isElectron()) return null
+  if (dismissed || !shouldOfferDesktopAppDownload()) return null
 
   const handleDismiss = () => {
     storage.setDismissedDesktopAppTip(true)

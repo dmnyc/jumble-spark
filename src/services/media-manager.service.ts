@@ -1,15 +1,20 @@
 import { YouTubePlayer } from '@/types/youtube'
+import { YOUTUBE_PLAYER_STATE } from '@/lib/youtube'
 import { atom, getDefaultStore } from 'jotai'
 
 export const hasBackgroundAudioAtom = atom(false)
 const store = getDefaultStore()
 
 type Media = HTMLMediaElement | YouTubePlayer
+type PendingPlayRequest = { media: Media }
+type PendingAutoPlayRequest = { media: Media; canPlay: () => boolean }
 
-class MediaManagerService extends EventTarget {
+export class MediaManagerService extends EventTarget {
   static instance: MediaManagerService
 
   private currentMedia: Media | null = null
+  private pendingPlayRequest: PendingPlayRequest | null = null
+  private pendingAutoPlayRequest: PendingAutoPlayRequest | null = null
 
   constructor() {
     super()
@@ -29,13 +34,36 @@ class MediaManagerService extends EventTarget {
     if (isPipElement(media)) {
       return
     }
-    if (this.currentMedia === media) {
-      this.currentMedia = null
-    }
+    this.registerPaused(media)
     _pause(media)
   }
 
-  autoPlay(media: Media) {
+  registerPlaying(media: Media | null) {
+    if (!media) {
+      return
+    }
+    this.activate(media)
+  }
+
+  registerPaused(media: Media | null) {
+    if (!media) {
+      return
+    }
+    const releasedCurrentMedia = this.currentMedia === media
+    if (releasedCurrentMedia) {
+      this.currentMedia = null
+    }
+    if (this.pendingPlayRequest?.media === media) {
+      this.pendingPlayRequest = null
+    }
+    this.cancelAutoPlay(media)
+    if (releasedCurrentMedia) {
+      this.playPendingAutoPlayRequest()
+    }
+  }
+
+  autoPlay(media: Media, canPlay: () => boolean = () => true) {
+    this.releaseDetachedCurrentMedia()
     if (
       document.pictureInPictureElement &&
       isMediaPlaying(document.pictureInPictureElement as HTMLMediaElement)
@@ -49,28 +77,88 @@ class MediaManagerService extends EventTarget {
     ) {
       return
     }
+    if (
+      this.currentMedia &&
+      this.currentMedia !== media &&
+      (this.pendingPlayRequest?.media === this.currentMedia || isMediaPlaying(this.currentMedia))
+    ) {
+      this.pendingAutoPlayRequest = { media, canPlay }
+      return
+    }
+    this.pendingAutoPlayRequest = null
     this.play(media)
+  }
+
+  cancelAutoPlay(media: Media) {
+    if (this.pendingAutoPlayRequest?.media === media) {
+      this.pendingAutoPlayRequest = null
+    }
   }
 
   play(media: Media | null) {
     if (!media) {
       return
     }
+    this.cancelAutoPlay(media)
+    this.activate(media)
+    if (isMediaPlaying(media) || this.pendingPlayRequest?.media === media) {
+      return
+    }
+
+    const request = { media }
+    this.pendingPlayRequest = request
+    _play(media)
+      .then(() => {
+        if (this.pendingPlayRequest === request) {
+          this.pendingPlayRequest = null
+        }
+      })
+      .catch((error) => {
+        if (this.pendingPlayRequest === request) {
+          this.pendingPlayRequest = null
+          if (this.currentMedia === media) {
+            this.currentMedia = null
+            this.playPendingAutoPlayRequest()
+          }
+        }
+        if (!isAbortError(error)) {
+          console.error('Error playing media:', error)
+        }
+      })
+  }
+
+  private activate(media: Media) {
     if (document.pictureInPictureElement && document.pictureInPictureElement !== media) {
       ;(document.pictureInPictureElement as HTMLMediaElement).pause()
     }
     if (this.currentMedia && this.currentMedia !== media) {
       _pause(this.currentMedia)
+      if (this.pendingPlayRequest?.media === this.currentMedia) {
+        this.pendingPlayRequest = null
+      }
     }
     this.currentMedia = media
-    if (isMediaPlaying(media)) {
+  }
+
+  private releaseDetachedCurrentMedia() {
+    const media = this.currentMedia
+    if (!media || !isDetachedMedia(media)) {
       return
     }
+    this.currentMedia = null
+    if (this.pendingPlayRequest?.media === media) {
+      this.pendingPlayRequest = null
+    }
+    this.cancelAutoPlay(media)
+  }
 
-    _play(this.currentMedia).catch((error) => {
-      console.error('Error playing media:', error)
-      this.currentMedia = null
-    })
+  private playPendingAutoPlayRequest() {
+    const request = this.pendingAutoPlayRequest
+    this.pendingAutoPlayRequest = null
+    if (!request || !request.canPlay()) {
+      return
+    }
+    this.autoPlay(request.media, request.canPlay)
   }
 
   playAudioBackground(src: string, time: number = 0, pubkey?: string) {
@@ -93,9 +181,20 @@ function isYouTubePlayer(media: Media): media is YouTubePlayer {
 
 function isMediaPlaying(media: Media) {
   if (isYouTubePlayer(media)) {
-    return media.getPlayerState() === window.YT.PlayerState.PLAYING
+    const state = media.getPlayerState()
+    return state === YOUTUBE_PLAYER_STATE.PLAYING || state === YOUTUBE_PLAYER_STATE.BUFFERING
   }
-  return media.currentTime > 0 && !media.paused && !media.ended && media.readyState >= 2
+  return !media.paused && !media.ended
+}
+
+function isDetachedMedia(media: Media) {
+  return !isYouTubePlayer(media) && media.isConnected === false
+}
+
+function isAbortError(error: unknown) {
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  )
 }
 
 function isPipElement(media: Media) {

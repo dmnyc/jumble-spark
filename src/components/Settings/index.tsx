@@ -17,11 +17,10 @@ import {
   toTranslation,
   toWallet
 } from '@/lib/link'
-import { isElectron } from '@/lib/platform'
+import { shouldOfferDesktopAppDownload } from '@/lib/device'
 import { isPomegranateAccount } from '@/lib/pomegranate'
 import { useSecondaryPage } from '@/PageManager'
 import { useNostr } from '@/providers/NostrProvider'
-import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import storage from '@/services/local-storage.service'
 import {
   Cog,
@@ -43,11 +42,10 @@ export default function Settings() {
   const { t } = useTranslation()
   const { pubkey, nsec, ncryptsec, account } = useNostr()
   const { push } = useSecondaryPage()
-  const { isSmallScreen } = useScreenSize()
   const hasPrivateKey = !!nsec || !!ncryptsec
   const fullAccount = account ? storage.findAccount(account) : undefined
   const isPomegranate = !!fullAccount && isPomegranateAccount(fullAccount)
-  const showDownloadEntry = !isElectron() && !isSmallScreen
+  const showDownloadEntry = shouldOfferDesktopAppDownload()
   const [downloadOpen, setDownloadOpen] = useState(false)
 
   return (

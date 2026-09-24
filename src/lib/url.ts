@@ -7,6 +7,24 @@ export function isWebsocketUrl(url: string): boolean {
   }
 }
 
+/**
+ * Returns a normalized URL only when it is safe to open as a web link.
+ *
+ * Keep this deliberately narrower than the set of schemes a browser can
+ * navigate to. User-controlled Nostr content must never be able to create a
+ * `javascript:`/`data:` link; non-web schemes should use dedicated UI where
+ * their semantics can be validated separately.
+ */
+export function getSafeExternalUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
 export function isInsecureUrl(url: string): boolean {
   // Consider .onion URLs as secure (accessed over Tor, no mixed-content concern)
   if (isOnionUrl(url)) {
@@ -200,6 +218,7 @@ export const truncateUrl = (url: string, maxLength: number = 40) => {
     const urlObj = new URL(url)
     let domain = urlObj.hostname
     let path = urlObj.pathname
+    const hasHiddenSuffix = Boolean(urlObj.search || urlObj.hash)
 
     if (domain.startsWith('www.')) {
       domain = domain.slice(4)
@@ -210,7 +229,7 @@ export const truncateUrl = (url: string, maxLength: number = 40) => {
     }
 
     if (!path || path === '/') {
-      return domain
+      return domain + (hasHiddenSuffix ? '...' : '')
     }
 
     if (path.endsWith('/')) {
@@ -219,11 +238,11 @@ export const truncateUrl = (url: string, maxLength: number = 40) => {
 
     const u = domain + path
 
-    if (u.length > maxLength) {
+    if (u.length + (hasHiddenSuffix ? 3 : 0) > maxLength) {
       return domain + path.slice(0, maxLength - domain.length - 3) + '...'
     }
 
-    return u
+    return u + (hasHiddenSuffix ? '...' : '')
   } catch {
     // invalid URL
     let truncated = url
