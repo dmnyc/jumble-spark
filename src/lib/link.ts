@@ -75,6 +75,7 @@ export const toGeneralSettings = () => '/settings/general'
 export const toAppearanceSettings = () => '/settings/appearance'
 export const toTranslation = () => '/settings/translation'
 export const toEmojiPackSettings = () => '/settings/emoji-packs'
+export const toDataRecoverySettings = () => '/settings/data-recovery'
 export const toEmojiSetEditor = (eventOrId?: Event | string) => {
   if (!eventOrId) return '/emoji-set-editor'
   if (typeof eventOrId === 'string') return `/emoji-set-editor/${eventOrId}`

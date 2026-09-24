@@ -1,0 +1,356 @@
+import { describe, expect, it, vi } from 'vitest'
+import { bytesToHex } from '@noble/hashes/utils'
+import { generateSecretKey, getPublicKey, nip44, type Event } from 'nostr-tools'
+
+// Mock the client service before importing the module under test: the real
+// one initializes local storage (window) at module load, and the relay
+// source is injected in every test below anyway.
+vi.mock('@/services/client.service', () => ({
+  default: {
+    determineRelaysByFilter: vi.fn().mockResolvedValue(['wss://a', 'wss://b']),
+    fetchEvents: vi.fn().mockResolvedValue([])
+  }
+}))
+vi.mock('@/lib/relay', () => ({
+  getDefaultRelayUrls: () => ['wss://default']
+}))
+
+import { getLazarusKindProfile, LAZARUS_REGISTRY } from './registry'
+import {
+  applyLazarusPrivateTags,
+  buildLazarusRecoveryDraft,
+  computeLazarusDelta,
+  getLazarusItemRange,
+  rankLazarusCandidates,
+  scanLazarusKind,
+  type LazarusRelaySource
+} from './recovery'
+
+const MUTE_TAG_TYPES = ['p', 'word', 't', 'e']
+
+let counter = 0
+function makeEvent(overrides: Partial<Event> = {}): Event {
+  counter += 1
+  return {
+    id: `test-event-${counter}`.padEnd(64, '0'),
+    pubkey: 'test-pubkey',
+    created_at: 1700000000 + counter,
+    kind: 3,
+    tags: [],
+    content: '',
+    sig: 'test-sig',
+    ...overrides
+  } as Event
+}
+
+function followListEvent(
+  count: number,
+  createdAt: number,
+  content = ''
+): Event {
+  return {
+    ...makeEvent({ created_at: createdAt, kind: 3 }),
+    tags: Array.from({ length: count }, (_, i) => ['p', `pk${i}`]),
+    content
+  }
+}
+
+function muteListEvent(count: number, createdAt: number): Event {
+  return {
+    ...makeEvent({ created_at: createdAt, kind: 10000 }),
+    tags: Array.from({ length: count }, (_, i) => [
+      MUTE_TAG_TYPES[i % MUTE_TAG_TYPES.length],
+      `item${i}`
+    ]),
+    content: ''
+  }
+}
+
+const selfKey = generateSecretKey()
+const selfConversationKey = nip44.getConversationKey(selfKey, getPublicKey(selfKey))
+
+function privateTags(count: number): string[][] {
+  return Array.from({ length: count }, () => ['p', bytesToHex(generateSecretKey())])
+}
+
+/** A mute list whose items are all private: no tags, NIP-44 content encrypted to self */
+function privateMuteListEvent(tags: string[][], createdAt: number): Event {
+  return {
+    ...makeEvent({ created_at: createdAt, kind: 10000 }),
+    tags: [],
+    content: nip44.encrypt(JSON.stringify(tags), selfConversationKey)
+  }
+}
+
+describe('registry', () => {
+  it('pins tier 1 kinds required for conformance', () => {
+    expect(LAZARUS_REGISTRY[3].tier).toBe(1)
+    expect(LAZARUS_REGISTRY[10000].tier).toBe(1)
+  })
+
+  it('flags kind 10044 as meaningful-empty with no ranking', () => {
+    const profile = getLazarusKindProfile(10044)
+    expect(profile?.meaningfulEmpty).toBe(true)
+    expect(profile?.ranking).toBe('intent')
+  })
+
+  it('never returns profiles for unregistered kinds', () => {
+    expect(getLazarusKindProfile(30078)).toBeUndefined()
+    expect(getLazarusKindProfile(1)).toBeUndefined()
+  })
+})
+
+describe('rankLazarusCandidates', () => {
+  it('ranks count kinds by item count, not recency', () => {
+    const olderBigger = followListEvent(120, 1000)
+    const newerSmaller = followListEvent(2, 2000)
+    const result = rankLazarusCandidates(
+      LAZARUS_REGISTRY[3],
+      [
+        { event: newerSmaller, relayUrl: 'wss://a' },
+        { event: olderBigger, relayUrl: 'wss://b' }
+      ]
+    )
+    expect(result.candidates[0].event.id).toBe(olderBigger.id)
+    // current is still the newest version the scan saw
+    expect(result.current?.event.id).toBe(newerSmaller.id)
+    expect(result.recommended?.event.id).toBe(olderBigger.id)
+    expect(result.recommended?.isRecommended).toBe(true)
+  })
+
+  it('never recommends empty candidates even when they are newest', () => {
+    const tombstone = followListEvent(0, 3000)
+    const healthy = followListEvent(50, 1000)
+    const result = rankLazarusCandidates(LAZARUS_REGISTRY[3], [
+      { event: tombstone, relayUrl: 'wss://a' },
+      { event: healthy, relayUrl: 'wss://b' }
+    ])
+    expect(result.current?.event.id).toBe(tombstone.id)
+    expect(result.recommended?.event.id).toBe(healthy.id)
+  })
+
+  it('recommends nothing when current is already the best', () => {
+    const biggest = followListEvent(80, 3000)
+    const smaller = followListEvent(10, 1000)
+    const result = rankLazarusCandidates(LAZARUS_REGISTRY[3], [
+      { event: biggest, relayUrl: 'wss://a' },
+      { event: smaller, relayUrl: 'wss://b' }
+    ])
+    expect(result.recommended).toBeUndefined()
+  })
+
+  it('recommends nothing for meaningful-empty kinds and requires intent', () => {
+    const keys = {
+      ...makeEvent({ kind: 10044, created_at: 1000 }),
+      tags: [['p', 'encryption-pubkey-1']]
+    } as Event
+    const emptied = { ...makeEvent({ kind: 10044, created_at: 2000 }), tags: [] } as Event
+    const result = rankLazarusCandidates(LAZARUS_REGISTRY[10044], [
+      { event: emptied, relayUrl: 'wss://a' },
+      { event: keys, relayUrl: 'wss://b' }
+    ])
+    expect(result.requiresIntentConfirmation).toBe(true)
+    expect(result.recommended).toBeUndefined()
+    // still offered, in recency order, not labeled damage
+    expect(result.candidates).toHaveLength(2)
+    expect(result.candidates[0].event.id).toBe(emptied.id)
+  })
+
+  it('dedupes by event id and accumulates found-on relays', () => {
+    const shared = followListEvent(5, 1000)
+    const result = rankLazarusCandidates(LAZARUS_REGISTRY[3], [
+      { event: shared, relayUrl: 'wss://a' },
+      { event: shared, relayUrl: 'wss://b' },
+      { event: shared, relayUrl: 'wss://a' }
+    ])
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0].foundOn).toEqual(['wss://a', 'wss://b'])
+  })
+
+  it('counts mute lists across all NIP-51 tag types', () => {
+    const mutes = muteListEvent(8, 1000)
+    const result = rankLazarusCandidates(LAZARUS_REGISTRY[10000], [
+      { event: mutes, relayUrl: 'wss://a' }
+    ])
+    expect(result.candidates[0].itemCount.count).toBe(8)
+  })
+
+  it('marks encrypted-content candidates as partially counted', () => {
+    const encrypted = nip44.encrypt(JSON.stringify(privateTags(2)), selfConversationKey)
+    const withPrivate = followListEvent(3, 1000, encrypted)
+    const result = rankLazarusCandidates(LAZARUS_REGISTRY[3], [
+      { event: withPrivate, relayUrl: 'wss://a' }
+    ])
+    expect(result.candidates[0].itemCount.partial).toBe(true)
+  })
+
+  it('does not treat legacy relay JSON in a follow list as private items', () => {
+    const withRelays = followListEvent(3, 1000, '{"wss://relay": {"read": true}}')
+    const result = rankLazarusCandidates(LAZARUS_REGISTRY[3], [
+      { event: withRelays, relayUrl: 'wss://a' }
+    ])
+    expect(result.candidates[0].itemCount).toEqual({ count: 3, partial: false })
+  })
+})
+
+describe('computeLazarusDelta', () => {
+  it('computes additions, removals, and direction', () => {
+    const current = {
+      ...makeEvent({ kind: 3 }),
+      tags: [['p', 'a'], ['p', 'b']]
+    } as Event
+    const chosen = {
+      ...makeEvent({ kind: 3 }),
+      tags: [['p', 'b'], ['p', 'c']]
+    } as Event
+    const delta = computeLazarusDelta(chosen, current)
+    expect(delta.addedCount).toBe(1)
+    expect(delta.removedCount).toBe(1)
+    expect(delta.grows).toBe(true)
+    expect(delta.shrinks).toBe(false)
+  })
+
+  it('flags a shrink for separate confirmation', () => {
+    const current = {
+      ...makeEvent({ kind: 3 }),
+      tags: [['p', 'a'], ['p', 'b'], ['p', 'c']]
+    } as Event
+    const chosen = { ...makeEvent({ kind: 3 }), tags: [['p', 'a']] } as Event
+    const delta = computeLazarusDelta(chosen, current)
+    expect(delta.shrinks).toBe(true)
+  })
+})
+
+describe('buildLazarusRecoveryDraft', () => {
+  it('copies the candidate verbatim with a fresh timestamp', () => {
+    const chosen = followListEvent(4, 999, '{"wss://relay": {"read": true}}')
+    const draft = buildLazarusRecoveryDraft(chosen, 1234567890)
+    expect(draft.kind).toBe(3)
+    expect(draft.created_at).toBe(1234567890)
+    expect(draft.content).toBe(chosen.content)
+    expect(draft.tags).toEqual(chosen.tags)
+    expect(draft.tags).not.toBe(chosen.tags)
+  })
+})
+
+describe('scanLazarusKind', () => {
+  it('reports relays that answered separately from relays queried', async () => {
+    const healthy = followListEvent(30, 1000)
+    const source: LazarusRelaySource = {
+      fetchVersions: async () => ({
+        tagged: [
+          { event: healthy, relayUrl: 'wss://alive' },
+          { event: healthy, relayUrl: 'wss://mirror' }
+        ],
+        queriedRelays: ['wss://alive', 'wss://mirror', 'wss://dead'],
+        respondingRelays: ['wss://alive', 'wss://mirror']
+      })
+    }
+    const result = await scanLazarusKind(3, 'test-pubkey', source)
+    expect(result.queriedRelays).toHaveLength(3)
+    expect(result.respondingRelays).toHaveLength(2)
+    expect(result.candidates[0].foundOn).toEqual(['wss://alive', 'wss://mirror'])
+  })
+
+  it('rejects kinds outside the registry', async () => {
+    await expect(scanLazarusKind(1, 'test-pubkey', {
+      fetchVersions: async () => ({ tagged: [], queriedRelays: [], respondingRelays: [] })
+    })).rejects.toThrow(/not in the Lazarus registry/)
+  })
+})
+
+describe('private items', () => {
+  const muteProfile = LAZARUS_REGISTRY[10000]
+
+  it('sizes private-only mute lists instead of reading them as empty', () => {
+    const full = privateMuteListEvent(privateTags(593), 1000)
+    const range = getLazarusItemRange(
+      rankLazarusCandidates(muteProfile, [{ event: full, relayUrl: 'wss://a' }]).candidates[0]
+        .itemCount
+    )
+    expect(range.min).toBeLessThanOrEqual(593)
+    expect(range.max).toBeGreaterThanOrEqual(593)
+    expect(range.min).toBeGreaterThan(0)
+  })
+
+  it('recommends the full version when a client emptied the private list', () => {
+    const full = privateMuteListEvent(privateTags(593), 1000)
+    const emptied = privateMuteListEvent(privateTags(1), 2000)
+    const result = rankLazarusCandidates(muteProfile, [
+      { event: emptied, relayUrl: 'wss://a' },
+      { event: full, relayUrl: 'wss://b' }
+    ])
+    expect(result.current?.event.id).toBe(emptied.id)
+    expect(result.candidates[0].event.id).toBe(full.id)
+    expect(result.recommended?.event.id).toBe(full.id)
+  })
+
+  it('recommends nothing when the current private list is already the full one', () => {
+    const emptied = privateMuteListEvent(privateTags(1), 1000)
+    const full = privateMuteListEvent(privateTags(593), 2000)
+    const result = rankLazarusCandidates(muteProfile, [
+      { event: emptied, relayUrl: 'wss://a' },
+      { event: full, relayUrl: 'wss://b' }
+    ])
+    expect(result.current?.event.id).toBe(full.id)
+    expect(result.recommended).toBeUndefined()
+  })
+
+  it('recommends nothing while the current size is unknown', () => {
+    // Looks like NIP-44 but isn't a valid payload size, so it can't be sized
+    const unsizable = { ...makeEvent({ created_at: 2000, kind: 10000 }), content: 'A'.repeat(133) }
+    const full = privateMuteListEvent(privateTags(593), 1000)
+    const result = rankLazarusCandidates(muteProfile, [
+      { event: unsizable, relayUrl: 'wss://a' },
+      { event: full, relayUrl: 'wss://b' }
+    ])
+    expect(result.recommended).toBeUndefined()
+  })
+
+  it('uses exact counts once private items are decrypted', () => {
+    const olderTags = privateTags(40)
+    const newerTags = privateTags(2)
+    const older = privateMuteListEvent(olderTags, 1000)
+    const newer = privateMuteListEvent(newerTags, 2000)
+    const scan = rankLazarusCandidates(muteProfile, [
+      { event: newer, relayUrl: 'wss://a' },
+      { event: older, relayUrl: 'wss://b' }
+    ])
+    const decrypted = applyLazarusPrivateTags(
+      muteProfile,
+      scan,
+      new Map([
+        [older.id, olderTags],
+        [newer.id, newerTags]
+      ])
+    )
+    const olderCandidate = decrypted.candidates.find((c) => c.event.id === older.id)!
+    expect(olderCandidate.itemCount).toEqual({ count: 0, partial: false, privateCount: 40 })
+    expect(decrypted.recommended?.event.id).toBe(older.id)
+    expect(decrypted.candidates[0].foundOn).toEqual(['wss://b'])
+  })
+
+  it('diffs private items together with public tags', () => {
+    const [a, b, c] = privateTags(3)
+    const current = { ...privateMuteListEvent([a, b], 2000), tags: [c] }
+    const chosen = privateMuteListEvent([a, c], 1000)
+    const delta = computeLazarusDelta(
+      chosen,
+      current,
+      new Map([
+        [current.id, [a, b]],
+        [chosen.id, [a, c]]
+      ])
+    )
+    // c moved from public to private, so only b is a change
+    expect(delta.removed).toEqual([b])
+    expect(delta.addedCount).toBe(0)
+    expect(delta.privateUnknown).toBe(false)
+  })
+
+  it('flags a delta whose private items were not decrypted', () => {
+    const current = privateMuteListEvent(privateTags(3), 2000)
+    const chosen = privateMuteListEvent(privateTags(5), 1000)
+    expect(computeLazarusDelta(chosen, current).privateUnknown).toBe(true)
+  })
+})
