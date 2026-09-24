@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowLeftRight, ChevronDown, ChevronLeft, Loader2, RefreshCw } from 'lucide-react'
 import { Payment } from '@breeztech/breez-sdk-spark/web'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -8,6 +8,12 @@ import sparkSentZapService from '@/services/spark-sent-zap.service'
 import { SimpleUserAvatar } from '@/components/UserAvatar'
 import { SimpleUsername } from '@/components/Username'
 import { FormattedTimestamp } from '@/components/FormattedTimestamp'
+import {
+  describeSparkPaymentConversions,
+  extractSparkPaymentAsset,
+  extractSparkPaymentConversionFrom,
+  formatTokenAmount
+} from '@/lib/spark-payment'
 
 interface SparkPaymentsListProps {
   payments: Payment[]
@@ -18,6 +24,11 @@ interface SparkPaymentsListProps {
 
 const SentIcon = () => <img src="/sent_icon.svg" alt="Sent" className="size-7 shrink-0" />
 const ReceivedIcon = () => <img src="/received_icon.svg" alt="Received" className="size-7 shrink-0" />
+const ConversionIcon = () => (
+  <ArrowLeftRight
+    className="size-7 shrink-0 rounded-full bg-sky-500/15 p-1.5 text-sky-600 dark:text-sky-400"
+  />
+)
 
 export default function SparkPaymentsList({ payments, loading, onRefreshPayment, isBalanceHidden = false }: SparkPaymentsListProps) {
   const [expandedPayments, setExpandedPayments] = useState<Set<string>>(new Set())
@@ -108,15 +119,32 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
     return diffMinutes > 10 // More than 10 minutes is unusual
   }
 
-  const formatAmount = (amount: bigint | undefined, fees: bigint | undefined, paymentType: string) => {
+  const formatAmount = (payment: Payment) => {
     if (isBalanceHidden) {
       return <span className="text-muted-foreground">••••</span>
     }
 
-    const amountSats = amount ? Number(amount) : 0
-    const feeSats = fees ? Number(fees) : 0
-    const prefix = paymentType === 'send' ? '-' : '+'
-    const color = paymentType === 'send' ? 'text-red-600' : 'text-green-600'
+    // Conversions move value between Bitcoin and a token, so they get no sign
+    const isConversion = !!extractSparkPaymentConversionFrom(payment)
+    const prefix = isConversion ? '' : payment.paymentType === 'send' ? '-' : '+'
+    const color = isConversion
+      ? 'text-sky-600 dark:text-sky-400'
+      : payment.paymentType === 'send'
+      ? 'text-red-600'
+      : 'text-green-600'
+
+    // Token payments are shown in the token's own units; their fees aren't sats
+    const asset = extractSparkPaymentAsset(payment)
+    if (asset) {
+      return (
+        <span className={color}>
+          {prefix}{formatTokenAmount(asset)}
+        </span>
+      )
+    }
+
+    const amountSats = payment.amount ? Number(payment.amount) : 0
+    const feeSats = payment.fees ? Number(payment.fees) : 0
 
     return (
       <span className={color}>
@@ -146,6 +174,18 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
               : null
         const lnAddress =
           payment.details?.type === 'lightning' ? payment.details.lnurlPayInfo?.lnAddress : undefined
+        const conversionFrom = extractSparkPaymentConversionFrom(payment)
+        const conversions = describeSparkPaymentConversions(payment)
+        const onchainTxId =
+          payment.details?.type === 'withdraw' || payment.details?.type === 'deposit'
+            ? payment.details.txId
+            : undefined
+        const onchainLabel =
+          payment.details?.type === 'withdraw'
+            ? 'On-chain payment'
+            : payment.details?.type === 'deposit'
+            ? 'On-chain deposit'
+            : undefined
 
         return (
           <div
@@ -160,13 +200,15 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 {zapInfo ? (
                   <SimpleUserAvatar userId={zapInfo.pubkey} size="small" className="shrink-0" />
+                ) : conversionFrom ? (
+                  <ConversionIcon />
                 ) : payment.paymentType === 'send' ? (
                   <SentIcon />
                 ) : (
                   <ReceivedIcon />
                 )}
                 <div className="flex min-w-0 flex-col">
-                  {formatAmount(payment.amount, payment.fees, payment.paymentType)}
+                  {formatAmount(payment)}
                   {zapInfo ? (
                     <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
                       <SimpleUsername
@@ -182,6 +224,12 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
                     </div>
                   ) : lnAddress ? (
                     <p className="mt-0.5 truncate text-xs text-muted-foreground">{lnAddress}</p>
+                  ) : conversionFrom ? (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      Converted from {conversionFrom}
+                    </p>
+                  ) : onchainLabel ? (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{onchainLabel}</p>
                   ) : (
                     payment.details &&
                     'description' in payment.details &&
@@ -265,6 +313,31 @@ export default function SparkPaymentsList({ payments, loading, onRefreshPayment,
                     <span className="text-muted-foreground font-medium">Method:</span>
                     <span className="text-xs">{payment.method}</span>
                   </div>
+
+                  {/* On-chain transaction */}
+                  {onchainTxId && (
+                    <div className="flex items-center justify-between gap-2 min-h-6">
+                      <span className="text-muted-foreground font-medium">Transaction:</span>
+                      <a
+                        href={`https://mempool.space/tx/${onchainTxId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="max-w-[200px] truncate font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
+                      >
+                        {onchainTxId}
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Conversion legs, e.g. sats → USDB */}
+                  {!isBalanceHidden &&
+                    conversions.map((conversion, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2 min-h-6">
+                        <span className="text-muted-foreground font-medium">Conversion:</span>
+                        <span className="text-xs">{conversion}</span>
+                      </div>
+                    ))}
 
                   {/* Lightning Details */}
                   {payment.details && payment.details.type === 'lightning' && (() => {
