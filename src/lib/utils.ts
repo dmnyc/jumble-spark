@@ -79,13 +79,6 @@ export function isTorBrowser() {
   return /torbrowser/i.test(ua)
 }
 
-export function isTouchDevice() {
-  // treat all large screen devices as non-touch devices
-  if (window.innerWidth > 768) return false
-  if (typeof window === 'undefined' || !window.navigator) return false
-  return 'ontouchstart' in window || navigator.maxTouchPoints > 0
-}
-
 export function isInViewport(el: HTMLElement) {
   const rect = el.getBoundingClientRect()
   return (

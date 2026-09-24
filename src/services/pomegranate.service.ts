@@ -1,4 +1,5 @@
 import { POMEGRANATE_OPERATOR_URLS } from '@/constants'
+import { getElectronBridge } from '@/lib/platform'
 import { isValidPubkey } from '@/lib/pubkey'
 import {
   aggregateSecretKeyShards,
@@ -107,7 +108,7 @@ class PomegranateService {
     onStatus: (status: TPomegranateLoginStatus) => void
   ): Promise<{ token: TGoogleToken; hasAccount: boolean }> {
     const central = this.massageURL(centralUrl)
-    const token = await this.authenticateWithGoogle(central)
+    const token = await this.authenticateWithGoogle(central, 'login')
     onStatus('checking')
     const account = await this.getAccount(central, token)
     return { token, hasAccount: !!account }
@@ -150,7 +151,7 @@ class PomegranateService {
     centralUrl: string
   ): Promise<{ token: TGoogleToken; existing: TPomegranateAccount | null }> {
     const central = this.massageURL(centralUrl)
-    const token = await this.authenticateWithGoogle(central)
+    const token = await this.authenticateWithGoogle(central, 'bind')
     const existing = await this.getAccount(central, token)
     return { token, existing }
   }
@@ -205,7 +206,7 @@ class PomegranateService {
     expectedPubkey: string
   ): Promise<{ token: TGoogleToken; account: TPomegranateAccount }> {
     const centralURL = this.massageURL(central)
-    const token = await this.authenticateWithGoogle(centralURL)
+    const token = await this.authenticateWithGoogle(centralURL, 'recovery')
     const account = await this.getAccount(centralURL, token)
     if (!account) {
       throw new Error('No pomegranate account found for this Google login')
@@ -214,6 +215,33 @@ class PomegranateService {
       throw new PomegranatePubkeyMismatchError()
     }
     return { token, account }
+  }
+
+  /**
+   * Electron-only recovery flow. The system browser coordinates central and
+   * user-selected operator authorization in one page, while this renderer reconstructs and
+   * validates the complete private key. Returns null in web mode.
+   */
+  async recoverNsecInElectron(central: string, expectedPubkey: string): Promise<string | null> {
+    const bridge = getElectronBridge()
+    if (!bridge) return null
+
+    const centralURL = this.massageURL(central)
+    try {
+      const { shards } = await bridge.pomegranate.recover(
+        `${centralURL}/login/google`,
+        expectedPubkey
+      )
+      return this.aggregateNsec(shards, expectedPubkey)
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.includes('This Google account is linked to a different Nostr account')
+      ) {
+        throw new PomegranatePubkeyMismatchError()
+      }
+      throw err
+    }
   }
 
   /**
@@ -228,7 +256,7 @@ class PomegranateService {
    */
   async disconnectAccount(central: string, expectedPubkey: string): Promise<void> {
     const centralURL = this.massageURL(central)
-    const token = await this.authenticateWithGoogle(centralURL)
+    const token = await this.authenticateWithGoogle(centralURL, 'disconnect')
     const account = await this.getAccount(centralURL, token)
     if (!account || account.pubkey !== expectedPubkey) {
       throw new PomegranatePubkeyMismatchError()
@@ -243,10 +271,13 @@ class PomegranateService {
    */
   async recoverShard(operator: TPomegranateOperator): Promise<string> {
     const operatorURL = this.massageURL(operator.url)
-    const popup = this.openPopup(`${operatorURL}/po/recover/google`, 'PomegranateRecover')
-    const shard = await this.awaitPopupMessage<string>(popup, operatorURL, (data) =>
-      typeof data === 'string' ? data : undefined
-    )
+    const authUrl = `${operatorURL}/po/recover/google`
+    const bridge = getElectronBridge()
+    const shard = bridge
+      ? await bridge.pomegranate.authenticate(authUrl, 'recovery')
+      : await this.authenticateInPopup(authUrl, 'PomegranateRecover', operatorURL, (data) =>
+          typeof data === 'string' ? data : undefined
+        )
     if (!shard.startsWith(operator.pubshard)) {
       throw new Error('Recovered shard does not match the operator')
     }
@@ -269,18 +300,24 @@ class PomegranateService {
   // --- internal -------------------------------------------------------------
 
   /** Opens the Google sign-in popup at the central server and resolves a token. */
-  private async authenticateWithGoogle(central: string): Promise<TGoogleToken> {
-    const popup = this.openPopup(`${central}/login/google`, 'PomegranateLogin')
-    const raw = await this.awaitPopupMessage<string>(popup, central, (data) => {
-      if (
-        data &&
-        typeof data === 'object' &&
-        typeof (data as { token?: unknown }).token === 'string'
-      ) {
-        return (data as { token: string }).token
-      }
-      return undefined
-    })
+  private async authenticateWithGoogle(
+    central: string,
+    purpose: 'login' | 'bind' | 'disconnect' | 'recovery'
+  ): Promise<TGoogleToken> {
+    const authUrl = `${central}/login/google`
+    const bridge = getElectronBridge()
+    const raw = bridge
+      ? await bridge.pomegranate.authenticate(authUrl, purpose)
+      : await this.authenticateInPopup(authUrl, 'PomegranateLogin', central, (data) => {
+          if (
+            data &&
+            typeof data === 'object' &&
+            typeof (data as { token?: unknown }).token === 'string'
+          ) {
+            return (data as { token: string }).token
+          }
+          return undefined
+        })
     return this.decodeGoogleToken(raw)
   }
 
@@ -539,6 +576,16 @@ class PomegranateService {
       throw new PomegranatePopupBlockedError()
     }
     return popup
+  }
+
+  private async authenticateInPopup<T>(
+    url: string,
+    name: string,
+    expectedOrigin: string,
+    extract: (data: unknown) => T | undefined
+  ): Promise<T> {
+    const popup = this.openPopup(url, name)
+    return this.awaitPopupMessage(popup, expectedOrigin, extract)
   }
 
   /**

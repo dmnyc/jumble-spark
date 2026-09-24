@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Download, Github, Info } from 'lucide-react'
+import { Download, Github } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 type LogoComponent = (props: { className?: string }) => JSX.Element
@@ -20,7 +20,6 @@ interface DownloadOption {
   format: string
   filename: string
   Icon: LogoComponent
-  noteKey?: string
 }
 
 const OPTIONS: DownloadOption[] = [
@@ -52,15 +51,13 @@ const OPTIONS: DownloadOption[] = [
     label: 'Linux x64',
     format: 'Debian / Ubuntu (.deb) · amd64',
     filename: 'Jumble-linux-amd64.deb',
-    Icon: LinuxLogo,
-    noteKey: 'No auto-updates — manual re-download required'
+    Icon: LinuxLogo
   },
   {
     label: 'Linux arm64',
     format: 'Debian / Ubuntu (.deb) · arm64',
     filename: 'Jumble-linux-arm64.deb',
-    Icon: LinuxLogo,
-    noteKey: 'No auto-updates — manual re-download required'
+    Icon: LinuxLogo
   }
 ]
 
@@ -108,8 +105,7 @@ export default function DownloadDialog({
 }
 
 function DownloadRow({ option }: { option: DownloadOption }) {
-  const { t } = useTranslation()
-  const { Icon, label, format, filename, noteKey } = option
+  const { Icon, label, format, filename } = option
   return (
     <a
       href={buildHref(filename)}
@@ -121,12 +117,6 @@ function DownloadRow({ option }: { option: DownloadOption }) {
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-semibold">{label}</div>
         <div className="text-muted-foreground truncate text-xs">{format}</div>
-        {noteKey && (
-          <div className="mt-0.5 flex items-center gap-1 text-[11px] text-yellow-600 dark:text-yellow-500">
-            <Info className="size-3 shrink-0" />
-            <span className="truncate">{t(noteKey)}</span>
-          </div>
-        )}
       </div>
       <Download className="text-muted-foreground size-4 shrink-0 opacity-60 transition-opacity group-hover:opacity-100" />
     </a>

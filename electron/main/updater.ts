@@ -20,6 +20,7 @@ export class Updater {
   private timer: NodeJS.Timeout | null = null
   private firstCheckTimer: NodeJS.Timeout | null = null
   private autoUpdateEnabled: boolean
+  private downloadInProgress = false
 
   constructor(private readonly enabled: boolean) {
     this.autoUpdateEnabled = this.loadSettings().autoUpdateEnabled
@@ -40,17 +41,20 @@ export class Updater {
       this.update({ status: 'checking', error: undefined })
     })
     autoUpdater.on('update-available', (info: UpdateInfo) => {
+      this.downloadInProgress = this.autoUpdateEnabled
       this.update({
-        status: 'available',
+        status: this.autoUpdateEnabled ? 'downloading' : 'available',
         newVersion: info.version,
-        releaseNotes:
-          typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined
+        progressPercent: this.autoUpdateEnabled ? 0 : undefined,
+        error: undefined,
+        releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined
       })
     })
     autoUpdater.on('update-not-available', () => {
       this.update({ status: 'not-available' })
     })
     autoUpdater.on('download-progress', (p) => {
+      this.downloadInProgress = true
       this.update({
         status: 'downloading',
         progressPercent: Math.round(p.percent),
@@ -58,6 +62,7 @@ export class Updater {
       })
     })
     autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
+      this.downloadInProgress = false
       this.update({
         status: 'downloaded',
         newVersion: info.version,
@@ -66,7 +71,7 @@ export class Updater {
       this.notifyDownloaded(info.version)
     })
     autoUpdater.on('error', (err) => {
-      this.update({ status: 'error', error: err?.message ?? String(err) })
+      this.updateError(err)
     })
   }
 
@@ -93,6 +98,7 @@ export class Updater {
 
   async check(): Promise<TUpdateState> {
     if (!this.enabled) return this.state
+    if (this.downloadInProgress) return this.state
     try {
       await autoUpdater.checkForUpdates()
     } catch (err) {
@@ -106,13 +112,12 @@ export class Updater {
 
   async download(): Promise<void> {
     if (!this.enabled) return
+    this.downloadInProgress = true
+    this.update({ status: 'downloading', progressPercent: 0, error: undefined })
     try {
       await autoUpdater.downloadUpdate()
     } catch (err) {
-      this.update({
-        status: 'error',
-        error: err instanceof Error ? err.message : String(err)
-      })
+      this.updateError(err)
     }
   }
 
@@ -153,6 +158,15 @@ export class Updater {
     if (this.window && !this.window.isDestroyed()) {
       this.window.webContents.send(IPC_CHANNELS.updateState, this.state)
     }
+  }
+
+  private updateError(err: unknown) {
+    const isDownloadError = this.downloadInProgress || this.state.status === 'download-error'
+    this.downloadInProgress = false
+    this.update({
+      status: isDownloadError ? 'download-error' : 'error',
+      error: err instanceof Error ? err.message : String(err)
+    })
   }
 
   private notifyDownloaded(version: string) {

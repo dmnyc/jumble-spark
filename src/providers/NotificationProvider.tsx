@@ -1,19 +1,13 @@
 import { useDmUnread } from '@/hooks/useDmUnread'
 import { useNotificationFilter } from '@/hooks/useNotificationFilter'
+import { getNotificationFilterType } from '@/lib/notification'
 import { usePrimaryPage } from '@/PageManager'
 import notificationService from '@/services/notification.service'
 import storage from '@/services/local-storage.service'
 import { NostrEvent } from 'nostr-tools'
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useNostr } from './NostrProvider'
+import { useUserPreferences } from './UserPreferencesProvider'
 
 type TNotificationContext = {
   hasNewNotification: boolean
@@ -36,7 +30,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const { current } = usePrimaryPage()
   const active = useMemo(() => current === 'notifications', [current])
   const { pubkey, notificationsSeenAt, updateNotificationsSeenAt } = useNostr()
+  const { notificationTabs } = useUserPreferences()
   const filterFn = useNotificationFilter()
+  const unreadNotificationFilter = useMemo(() => {
+    const firstVisibleTab = notificationTabs.find((tab) => !tab.hidden)
+    return new Set(firstVisibleTab?.filters ?? [])
+  }, [notificationTabs])
   const [readNotificationIdSet, setReadNotificationIdSet] = useState<Set<string>>(new Set())
   const [filteredNewNotifications, setFilteredNewNotifications] = useState<NostrEvent[]>([])
   const { unreadCount: dmUnreadCount } = useDmUnread()
@@ -93,6 +92,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           if (!(await filterFn(notification))) {
             return
           }
+          const notificationType = getNotificationFilterType(notification, pubkey)
+          if (notificationType === null || !unreadNotificationFilter.has(notificationType)) {
+            return
+          }
           filtered.push(notification)
         })
       )
@@ -107,7 +110,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       cancelled = true
       unsub()
     }
-  }, [active, notificationsSeenAt, pubkey, filterFn])
+  }, [active, notificationsSeenAt, pubkey, filterFn, unreadNotificationFilter])
 
   useEffect(() => {
     const totalBadgeCount = filteredNewNotifications.length + dmUnreadCount

@@ -17,6 +17,10 @@ import { forwardRef, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+const PROFILE_IMAGE_ACCEPT = 'image/*,image/gif,.gif'
+const MAX_AVATAR_FILE_SIZE_MB = 10
+const MAX_AVATAR_FILE_SIZE = MAX_AVATAR_FILE_SIZE_MB * 1024 * 1024
+
 const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
   const { t } = useTranslation()
   const { pop } = useSecondaryPage()
@@ -153,6 +157,8 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
           onUploadStart={() => setUploadingBanner(true)}
           onUploadEnd={() => setUploadingBanner(false)}
           className="relative w-full cursor-pointer"
+          accept={PROFILE_IMAGE_ACCEPT}
+          multiple={false}
         >
           <ProfileBanner banner={banner} pubkey={account.pubkey} />
           <div className="bg-muted/30 absolute top-0 flex h-full w-full flex-col items-center justify-center">
@@ -164,6 +170,15 @@ const ProfileEditorPage = forwardRef(({ index }: { index?: number }, ref) => {
           onUploadStart={() => setUploadingAvatar(true)}
           onUploadEnd={() => setUploadingAvatar(false)}
           className="border-background absolute bottom-0 left-4 h-24 w-24 translate-y-1/2 cursor-pointer rounded-full border-4"
+          accept={PROFILE_IMAGE_ACCEPT}
+          multiple={false}
+          validateFile={(file) =>
+            file.size > MAX_AVATAR_FILE_SIZE
+              ? t('Avatar image must be {{size}} MB or smaller', {
+                  size: MAX_AVATAR_FILE_SIZE_MB
+                })
+              : undefined
+          }
         >
           <Avatar className="h-full w-full">
             <AvatarImage src={avatar} className="object-cover object-center" />

@@ -15,6 +15,7 @@ export function useSearchProfiles(search: string, limit: number) {
     const fetchProfiles = async () => {
       if (!search) {
         setProfiles([])
+        setIsFetching(false)
         return
       }
 

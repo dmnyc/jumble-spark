@@ -1,6 +1,6 @@
 import { useSecondaryPage } from '@/PageManager'
 import { ExtendedKind } from '@/constants'
-import { getEventAuthorPubkey, getParentStuff } from '@/lib/event'
+import { getEventAuthorPubkey, getEventFeedTimestamp, getParentStuff } from '@/lib/event'
 import { toExternalContent, toNote } from '@/lib/link'
 import { generateBech32IdFromATag, generateBech32IdFromETag, tagNameEquals } from '@/lib/tag'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
@@ -15,6 +15,7 @@ import NoteContent from '../NoteContent'
 import NoteOptions from '../NoteOptions'
 import OpBadge from '../OpBadge'
 import ParentNotePreview from '../ParentNotePreview'
+import PowBadge from '../PowBadge'
 import ProtectedBadge from '../ProtectedBadge'
 import TranslateButton from '../TranslateButton'
 import TrustScoreBadge from '../TrustScoreBadge'
@@ -56,23 +57,16 @@ export default function Note({
     const eTag = event.tags.findLast(tagNameEquals('e'))
     return eTag ? generateBech32IdFromETag(eTag) : undefined
   }, [event])
-  const displayTimestamp = useMemo(() => {
-    if (event.kind === kinds.LongFormArticle) {
-      const publishedAt = event.tags.find(tagNameEquals('published_at'))?.[1]
-      const parsed = publishedAt ? parseInt(publishedAt, 10) : NaN
-      if (Number.isFinite(parsed)) return parsed
-    }
-    return event.created_at
-  }, [event])
+  const displayTimestamp = useMemo(() => getEventFeedTimestamp(event), [event])
 
   return (
     <div className={className}>
       {!hideHeader && (
         <div className="flex items-start justify-between gap-2">
-          <div className="flex flex-1 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <UserAvatar userId={displayPubkey} size={size === 'small' ? 'medium' : 'normal'} />
             <div className="w-0 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <Username
                   userId={displayPubkey}
                   className={`flex truncate font-semibold ${size === 'small' ? 'text-sm' : ''}`}
@@ -91,10 +85,11 @@ export default function Note({
                   className="shrink-0"
                   short={isSmallScreen}
                 />
+                <PowBadge event={event} className="shrink-0" />
               </div>
             </div>
           </div>
-          <div className="flex items-center">
+          <div className="flex shrink-0 items-center">
             <TranslateButton
               event={event}
               showFull={showFull}
@@ -132,7 +127,7 @@ export default function Note({
           }}
         />
       )}
-      <NoteContent event={event} originalNoteId={originalNoteId} showFull={showFull} />
+      <NoteContent event={event} originalNoteId={originalNoteId} showFull={showFull} size={size} />
     </div>
   )
 }

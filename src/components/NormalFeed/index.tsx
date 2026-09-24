@@ -4,7 +4,7 @@ import Tabs from '@/components/Tabs'
 import TrustScoreFilter from '@/components/TrustScoreFilter'
 import UserAggregationList, { TUserAggregationListRef } from '@/components/UserAggregationList'
 import { SPECIAL_FEED_ID } from '@/constants'
-import { isTouchDevice } from '@/lib/utils'
+import { prefersTouchInteraction } from '@/lib/device'
 import { useKindFilter } from '@/providers/KindFilterProvider'
 import { useUserPreferences } from '@/providers/UserPreferencesProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
@@ -52,7 +52,7 @@ export default function NormalFeed({
     }
   }, [selectedTab, selectedTabId])
 
-  const supportTouch = useMemo(() => isTouchDevice(), [])
+  const prefersTouch = useMemo(() => prefersTouchInteraction(), [])
   const noteListRef = useRef<TNoteListRef>(null)
   const userAggregationListRef = useRef<TUserAggregationListRef>(null)
   const topRef = useRef<HTMLDivElement>(null)
@@ -99,7 +99,7 @@ export default function NormalFeed({
         onCustomize={() => setCustomizeOpen(true)}
         options={
           <>
-            {!supportTouch && (
+            {!prefersTouch && (
               <RefreshButton
                 onClick={() => {
                   if (onRefresh) {

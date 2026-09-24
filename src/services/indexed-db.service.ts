@@ -677,13 +677,46 @@ class IndexedDbService {
 
       request.onsuccess = () => {
         transaction.commit()
-        resolve(request.result?.value as { event: Event; relays: string[] })
+        resolve(request.result as { event: Event; relays: string[] } | undefined)
       }
 
       request.onerror = (event) => {
         transaction.commit()
         reject(event)
       }
+    })
+  }
+
+  async getEventsByIds(ids: string[]): Promise<{ event: Event; relays: string[] }[]> {
+    await this.initPromise
+    if (ids.length === 0) return []
+
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject('database not initialized')
+        return
+      }
+
+      const transaction = this.db.transaction(StoreNames.EVENTS, 'readonly')
+      const store = transaction.objectStore(StoreNames.EVENTS)
+      const results: ({ event: Event; relays: string[] } | undefined)[] = new Array(ids.length)
+      let completed = 0
+
+      ids.forEach((id, index) => {
+        const request = store.get(id)
+        request.onsuccess = () => {
+          results[index] = request.result as { event: Event; relays: string[] } | undefined
+          completed++
+          if (completed === ids.length) {
+            transaction.commit()
+            resolve(results.filter((item): item is NonNullable<typeof item> => item !== undefined))
+          }
+        }
+        request.onerror = (event) => {
+          transaction.commit()
+          reject(event)
+        }
+      })
     })
   }
 
@@ -796,7 +829,12 @@ class IndexedDbService {
       const transaction = this.db.transaction(StoreNames.DM_MESSAGES, 'readwrite')
       const store = transaction.objectStore(StoreNames.DM_MESSAGES)
 
-      const putRequest = store.put(message)
+      // Drop legacy preview snapshots whenever a message is saved. Only the
+      // reference is persisted; the preview reads the original message live.
+      const putRequest = store.put({
+        ...message,
+        ...(message.replyTo ? { replyTo: { id: message.replyTo.id } } : {})
+      })
       putRequest.onsuccess = () => {
         transaction.commit()
         resolve()

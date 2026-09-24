@@ -1,9 +1,10 @@
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFetchProfile } from '@/hooks'
+import { canHover } from '@/lib/device'
 import { toProfile } from '@/lib/link'
 import { generateImageByPubkey } from '@/lib/pubkey'
-import { cn, isTouchDevice } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { SecondaryPageLink } from '@/PageManager'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMemo } from 'react'
@@ -30,7 +31,7 @@ export default function UserAvatar({
   className?: string
   size?: 'large' | 'big' | 'semiBig' | 'normal' | 'medium' | 'small' | 'xSmall' | 'tiny'
 }) {
-  const supportTouch = useMemo(() => isTouchDevice(), [])
+  const supportsHover = useMemo(() => canHover(), [])
   const { autoLoadProfilePicture } = useContentPolicy()
 
   if (!autoLoadProfilePicture) {
@@ -43,7 +44,7 @@ export default function UserAvatar({
     </SecondaryPageLink>
   )
 
-  if (supportTouch) {
+  if (!supportsHover) {
     return trigger
   }
 

@@ -12,7 +12,8 @@ import { compareEvents } from '@/lib/event'
 import { getStarsFromRelayReviewEvent } from '@/lib/event-metadata'
 import { toRelayReviews } from '@/lib/link'
 import { getDefaultRelayUrls } from '@/lib/relay'
-import { cn, isTouchDevice } from '@/lib/utils'
+import { canHover } from '@/lib/device'
+import { cn } from '@/lib/utils'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import { useUserPreferences } from '@/providers/UserPreferencesProvider'
@@ -164,7 +165,7 @@ function ReviewCarousel({
 }) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
-  const showPreviousAndNext = useMemo(() => !isTouchDevice(), [])
+  const showPreviousAndNext = useMemo(() => canHover(), [])
 
   return (
     <Carousel

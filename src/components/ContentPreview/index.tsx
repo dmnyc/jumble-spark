@@ -3,11 +3,13 @@ import { getEventAuthorPubkey, isMentioningMutedUsers } from '@/lib/event'
 import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import { useMuteList } from '@/providers/MuteListProvider'
+import { useNostr } from '@/providers/NostrProvider'
 import { Event, kinds } from 'nostr-tools'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import CommunityDefinitionPreview from './CommunityDefinitionPreview'
 import EmojiPackPreview from './EmojiPackPreview'
+import FavoriteRelaysPreview from './FavoriteRelaysPreview'
 import FollowPackPreview from './FollowPackPreview'
 import GroupMetadataPreview from './GroupMetadataPreview'
 import HighlightPreview from './HighlightPreview'
@@ -29,6 +31,7 @@ export default function ContentPreview({
   className?: string
 }) {
   const { t } = useTranslation()
+  const { pubkey } = useNostr()
   const { mutePubkeySet } = useMuteList()
   const { hideContentMentioningMutedUsers } = useContentPolicy()
   const isMuted = useMemo(
@@ -37,10 +40,10 @@ export default function ContentPreview({
   )
   const isMentioningMuted = useMemo(
     () =>
-      hideContentMentioningMutedUsers && event
+      hideContentMentioningMutedUsers && event && getEventAuthorPubkey(event) !== pubkey
         ? isMentioningMutedUsers(event, mutePubkeySet)
         : false,
-    [event, mutePubkeySet]
+    [event, hideContentMentioningMutedUsers, mutePubkeySet, pubkey]
   )
 
   if (!event) {
@@ -64,6 +67,7 @@ export default function ContentPreview({
   if (
     [
       kinds.ShortTextNote,
+      ExtendedKind.GROUP_MESSAGE,
       ExtendedKind.COMMENT,
       ExtendedKind.VOICE,
       ExtendedKind.VOICE_COMMENT,
@@ -116,6 +120,10 @@ export default function ContentPreview({
 
   if (event.kind === ExtendedKind.FOLLOW_PACK) {
     return <FollowPackPreview event={event} className={className} />
+  }
+
+  if (event.kind === ExtendedKind.FAVORITE_RELAYS) {
+    return <FavoriteRelaysPreview event={event} className={className} />
   }
 
   if (event.kind === kinds.Reaction || event.kind === ExtendedKind.EXTERNAL_CONTENT_REACTION) {

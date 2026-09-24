@@ -9,7 +9,9 @@ import AudioPlayer from '../AudioPlayer'
 import Content from '../Content'
 import CommunityDefinition from './CommunityDefinition'
 import EmojiPack from './EmojiPack'
+import FavoriteRelays from './FavoriteRelays'
 import FollowPack from './FollowPack'
+import GroupMessage from './GroupMessage'
 import GroupMetadata from './GroupMetadata'
 import Highlight from './Highlight'
 import LiveEvent from './LiveEvent'
@@ -29,12 +31,14 @@ export default function NoteContent({
   className = '',
   event,
   originalNoteId,
-  showFull = false
+  showFull = false,
+  size = 'normal'
 }: {
   className?: string
   event: Event
   originalNoteId?: string
   showFull?: boolean
+  size?: 'normal' | 'small'
 }) {
   const { nsfwDisplayPolicy } = useContentPolicy()
   const [showNsfw, setShowNsfw] = useState(false)
@@ -45,14 +49,7 @@ export default function NoteContent({
     [event, nsfwDisplayPolicy]
   )
 
-  if (
-    ![
-      ...SUPPORTED_KINDS,
-      kinds.CommunityDefinition,
-      kinds.LiveEvent,
-      ExtendedKind.GROUP_METADATA
-    ].includes(event.kind)
-  ) {
+  if (!SUPPORTED_KINDS.includes(event.kind)) {
     return <UnknownNote className={cn('mt-2', className)} event={event} />
   }
 
@@ -78,6 +75,16 @@ export default function NoteContent({
 
   if (event.kind === kinds.LiveEvent) {
     return <LiveEvent className={cn('mt-2', className)} event={event} />
+  }
+
+  if (event.kind === ExtendedKind.GROUP_MESSAGE) {
+    return (
+      <GroupMessage
+        className={cn('mt-2', className)}
+        event={event}
+        originalNoteId={originalNoteId}
+      />
+    )
   }
 
   if (event.kind === ExtendedKind.GROUP_METADATA) {
@@ -132,6 +139,16 @@ export default function NoteContent({
 
   if (event.kind === ExtendedKind.FOLLOW_PACK) {
     return <FollowPack className={cn('mt-2', className)} event={event} />
+  }
+
+  if (event.kind === ExtendedKind.FAVORITE_RELAYS) {
+    return (
+      <FavoriteRelays
+        className={cn('mt-2', className)}
+        event={event}
+        embedded={size === 'small'}
+      />
+    )
   }
 
   if (event.kind === kinds.Reaction) {

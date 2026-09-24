@@ -16,10 +16,12 @@ import Notification from './Notification'
 
 export function MentionNotification({
   notification,
-  isNew = false
+  isNew = false,
+  onVisibilityChange
 }: {
   notification: Event
   isNew?: boolean
+  onVisibilityChange?: (isVisible: boolean) => void
 }) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
@@ -115,6 +117,7 @@ export function MentionNotification({
       }
       isNew={isNew}
       showStats
+      onVisibilityChange={onVisibilityChange}
     />
   )
 }

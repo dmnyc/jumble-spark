@@ -17,11 +17,13 @@ import { useTranslation } from 'react-i18next'
 export default function ProfileOptions({
   pubkey,
   variant = 'secondary',
-  size = 'icon'
+  size = 'icon',
+  triggerStyle = 'default'
 }: {
   pubkey: string
   variant?: 'secondary' | 'ghost'
   size?: 'icon' | 'titlebar-icon'
+  triggerStyle?: 'default' | 'note-options'
 }) {
   const { t } = useTranslation()
   const { isSmallScreen } = useScreenSize()
@@ -32,20 +34,28 @@ export default function ProfileOptions({
 
   if (pubkey === accountPubkey) return null
 
-  const trigger = (
-    <Button
-      variant={variant}
-      size={size}
-      className={variant === 'secondary' ? 'rounded-full' : undefined}
-      onClick={() => {
-        if (isSmallScreen) {
-          setIsDrawerOpen(true)
-        }
-      }}
-    >
-      <Ellipsis />
-    </Button>
-  )
+  const trigger =
+    triggerStyle === 'note-options' ? (
+      <button
+        className="text-muted-foreground hover:text-foreground flex h-full cursor-pointer items-center ps-2"
+        onClick={() => setIsDrawerOpen(true)}
+      >
+        <Ellipsis className="size-5" />
+      </button>
+    ) : (
+      <Button
+        variant={variant}
+        size={size}
+        className={variant === 'secondary' ? 'rounded-full' : undefined}
+        onClick={() => {
+          if (isSmallScreen) {
+            setIsDrawerOpen(true)
+          }
+        }}
+      >
+        <Ellipsis />
+      </Button>
+    )
 
   if (isSmallScreen) {
     return (

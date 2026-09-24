@@ -4,7 +4,6 @@ import PomegranateExportDialog from '@/components/PomegranateExportDialog'
 import { SettingsGroup, SettingsPageContainer, SettingsRow } from '@/components/ui/settings'
 import { POMEGRANATE_ENABLED } from '@/constants'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
-import { isElectron } from '@/lib/platform'
 import { isPomegranateAccount } from '@/lib/pomegranate'
 import { useNostr } from '@/providers/NostrProvider'
 import storage from '@/services/local-storage.service'
@@ -31,8 +30,7 @@ const AccountSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
   const pomegranate = fullAccount ? isPomegranateAccount(fullAccount) : false
   // A local-key account (nsec or ncryptsec) can be linked to Google. Pomegranate
   // (bunker) accounts are already managed by the central server.
-  const canBindGoogle =
-    POMEGRANATE_ENABLED && !isElectron() && !!account && (!!nsec || !!ncryptsec) && !pomegranate
+  const canBindGoogle = POMEGRANATE_ENABLED && !!account && (!!nsec || !!ncryptsec) && !pomegranate
 
   const openBindDialog = () => {
     if (!account) return

@@ -1,9 +1,17 @@
 import { kinds } from 'nostr-tools'
-import { TFeedTabConfig, TRelaySet } from './types'
+import {
+  TFeedTabConfig,
+  type TNotificationFilter,
+  TNotificationTabConfig,
+  TRelaySet
+} from './types'
 
 export const JUMBLE_API_BASE_URL = 'https://api.jumble.social'
 
+export const JUMBLE_BLOSSOM_SERVER = 'https://blossom.jumble.social/'
+
 export const RECOMMENDED_BLOSSOM_SERVERS = [
+  JUMBLE_BLOSSOM_SERVER,
   'https://blossom.band/',
   'https://blossom.primal.net/',
   'https://nostr.media/'
@@ -16,7 +24,10 @@ export const StorageKey = {
   ACCOUNTS: 'accounts',
   CURRENT_ACCOUNT: 'currentAccount',
   ADD_CLIENT_TAG: 'addClientTag',
+  DEFAULT_MIN_POW: 'defaultMinPow',
   NOTIFICATION_TYPE: 'notificationType',
+  NOTIFICATION_TABS: 'notificationTabs',
+  NOTIFICATION_TABS_VERSION: 'notificationTabsVersion',
   DEFAULT_ZAP_SATS: 'defaultZapSats',
   DEFAULT_ZAP_COMMENT: 'defaultZapComment',
   QUICK_ZAP: 'quickZap',
@@ -34,6 +45,7 @@ export const StorageKey = {
   HIDE_CONTENT_MENTIONING_MUTED_USERS: 'hideContentMentioningMutedUsers',
   NOTIFICATION_LIST_STYLE: 'notificationListStyle',
   MEDIA_AUTO_LOAD_POLICY: 'mediaAutoLoadPolicy',
+  SHOW_LINK_PREVIEWS: 'showLinkPreviews',
   PROFILE_PICTURE_AUTO_LOAD_POLICY: 'profilePictureAutoLoadPolicy',
   SHOWN_CREATE_WALLET_GUIDE_TOAST_PUBKEYS: 'shownCreateWalletGuideToastPubkeys',
   SPARK_WALLET_ENABLED: 'sparkWalletEnabled',
@@ -51,6 +63,8 @@ export const StorageKey = {
   NSFW_DISPLAY_POLICY: 'nsfwDisplayPolicy',
   DEFAULT_RELAY_URLS: 'defaultRelayUrls',
   MUTED_WORDS: 'mutedWords',
+  // Recheck accounts marked by the earlier migration, which could finish with no local words loaded.
+  MUTED_WORDS_MIGRATED_PUBKEYS: 'mutedWordsMigratedPubkeysV2',
   MIN_TRUST_SCORE: 'minTrustScore',
   MIN_TRUST_SCORE_MAP: 'minTrustScoreMap',
   SEARCH_RELAY_URLS: 'searchRelayUrls',
@@ -64,7 +78,9 @@ export const StorageKey = {
   DM_BACKWARD_CURSOR_MAP: 'dmBackwardCursorMap',
   PROCESSED_SYNC_REQUEST_IDS: 'processedSyncRequestIds',
   DISABLE_NOTIFICATION_SYNC: 'disableNotificationSync',
+  LONG_FORM_DRAFT_MAP: 'longFormDraftMap',
   DISMISSED_DESKTOP_APP_TIP: 'dismissedDesktopAppTip',
+  DISMISSED_PSSTPSST_PROMOTION: 'dismissedPsstPsstPromotion',
   NOTE_LIST_MODE: 'noteListMode', // deprecated
   ENABLE_LIVE_FEED: 'enableLiveFeed', // deprecated
   HIDE_UNTRUSTED_NOTES: 'hideUntrustedNotes', // deprecated
@@ -83,28 +99,53 @@ export const StorageKey = {
   FEED_TYPE: 'feedType' // deprecated
 }
 
+export const DEFAULT_NOTIFICATION_FILTERS: TNotificationFilter[] = [
+  'mentions',
+  'replies',
+  'likes',
+  'quotes',
+  'reposts',
+  'zaps',
+  'highlights',
+  'pollResponses'
+]
+
+export const DEFAULT_NOTIFICATION_TABS: TNotificationTabConfig[] = [
+  { id: 'all', builtin: 'all', label: 'All', filters: DEFAULT_NOTIFICATION_FILTERS },
+  {
+    id: 'mentions',
+    builtin: 'mentions',
+    label: 'Mentions',
+    filters: ['mentions', 'replies', 'quotes', 'highlights']
+  },
+  {
+    id: 'reactions',
+    builtin: 'reactions',
+    label: 'Reactions',
+    filters: ['likes', 'reposts', 'pollResponses']
+  },
+  { id: 'zaps', builtin: 'zaps', label: 'Zaps', filters: ['zaps'] }
+]
+
 export const ApplicationDataKey = {
   NOTIFICATIONS_SEEN_AT: 'seen_notifications_at'
 }
 
 export const BIG_RELAY_URLS = [
-  'wss://relay.damus.io/',
   'wss://nos.lol/',
   'wss://relay.primal.net/',
-  'wss://offchain.pub/'
+  'wss://offchain.pub/',
+  'wss://relay.ditto.pub/'
 ]
 
-export const SEARCHABLE_RELAY_URLS = [
-  'wss://search.nos.today/',
-  'wss://search.nostrarchives.com/',
-  'wss://relay.nostr.band/'
-]
+export const SEARCHABLE_RELAY_URLS = ['wss://search.nos.today/', 'wss://search.nostrarchives.com/']
 
 export const TRENDING_NOTES_RELAY_URLS = ['wss://trending.relays.land/']
 
 export const GROUP_METADATA_EVENT_KIND = 39000
 
 export const ExtendedKind = {
+  GROUP_MESSAGE: 9,
   EXTERNAL_CONTENT_REACTION: 17,
   SEAL: 13,
   RUMOR_CHAT: 14,
@@ -151,12 +192,17 @@ export const ALLOWED_FILTER_KINDS = [
 
 export const SUPPORTED_KINDS = [
   ...ALLOWED_FILTER_KINDS,
+  ExtendedKind.GROUP_MESSAGE,
   ExtendedKind.RELAY_REVIEW,
+  ExtendedKind.FAVORITE_RELAYS,
   kinds.Emojisets,
   ExtendedKind.FOLLOW_PACK,
   kinds.Reaction,
   kinds.Zap,
-  ExtendedKind.EXTERNAL_CONTENT_REACTION
+  ExtendedKind.EXTERNAL_CONTENT_REACTION,
+  kinds.CommunityDefinition,
+  kinds.LiveEvent,
+  ExtendedKind.GROUP_METADATA
 ]
 
 export const DEFAULT_FEED_TABS: TFeedTabConfig[] = [
@@ -204,14 +250,14 @@ export const DEFAULT_NIP_96_SERVICE = 'https://nostr.build'
 export const DEFAULT_NOSTRCONNECT_RELAY = [
   'wss://bucket.coracle.social/',
   'wss://relay.primal.net/',
-  'wss://relay.damus.io/'
+  'wss://relay.ditto.pub/'
 ]
 
 export const DEFAULT_DM_RELAYS = [
   'wss://nip17.com/',
-  'wss://relay.damus.io/',
   'wss://nos.lol/',
-  'wss://relay.primal.net/'
+  'wss://relay.primal.net/',
+  'wss://offchain.pub/'
 ]
 
 export const DM_TIME_RANDOMIZATION_SECONDS = 2 * 24 * 60 * 60 // 2 days in seconds
@@ -559,6 +605,10 @@ export const COMMUNITY_RELAYS = import.meta.env.VITE_COMMUNITY_RELAYS as string[
 
 export const IS_COMMUNITY_MODE = COMMUNITY_RELAY_SETS.length > 0 || COMMUNITY_RELAYS.length > 0
 
+// Link preview metadata service. Override via VITE_LINK_PREVIEW_SERVER.
+export const LINK_PREVIEW_SERVER =
+  (import.meta.env.VITE_LINK_PREVIEW_SERVER as string | undefined) ?? 'https://scout.jumble.social'
+
 // Pomegranate (threshold-key-shard NIP-46 remote signer) — "Login with Google".
 export const POMEGRANATE_ENABLED = true
 export const POMEGRANATE_CENTRAL_URL = 'https://auth.njump.me/'
@@ -567,5 +617,6 @@ export const POMEGRANATE_OPERATOR_URLS = [
   'https://po.coracle.social/',
   'https://po.njump.me/',
   'https://po.f7z.io/',
-  'https://po.nostrver.se/'
+  'https://po.yakihonne.com/',
+  'https://po.oslim.dev/'
 ]

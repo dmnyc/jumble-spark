@@ -70,7 +70,7 @@ function applyDocumentDirection(lang: string | undefined) {
   if (lang) root.lang = lang
 }
 
-i18n
+export const i18nReady = i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({

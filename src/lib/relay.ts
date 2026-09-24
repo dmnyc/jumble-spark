@@ -1,12 +1,37 @@
 import storage from '@/services/local-storage.service'
 import { TRelayInfo } from '@/types'
 
+const RELAY_DISCONNECT_REASONS = new Set([
+  'closed by caller',
+  'relay connection errored',
+  'relay connection failed',
+  'relay connection timed out',
+  'relay connection closed',
+  'pingpong timed out',
+  'relay connection closed by us'
+])
+
 export function getDefaultRelayUrls() {
   return storage.getDefaultRelayUrls()
 }
 
 export function getSearchRelayUrls() {
   return storage.getSearchRelayUrls()
+}
+
+export function mergeRelayUrls(...relayGroups: [string[], ...string[][]]): string[]
+export function mergeRelayUrls(limit: number, ...relayGroups: string[][]): string[]
+export function mergeRelayUrls(
+  limitOrRelayGroup: number | string[],
+  ...remainingRelayGroups: string[][]
+) {
+  const limit = typeof limitOrRelayGroup === 'number' ? limitOrRelayGroup : undefined
+  const relayGroups =
+    typeof limitOrRelayGroup === 'number'
+      ? remainingRelayGroups
+      : [limitOrRelayGroup, ...remainingRelayGroups]
+  const merged = Array.from(new Set(relayGroups.flat()))
+  return limit === undefined ? merged : merged.slice(0, limit)
 }
 
 export function checkAlgoRelay(relayInfo: TRelayInfo | undefined) {
@@ -19,6 +44,10 @@ export function checkSearchRelay(relayInfo: TRelayInfo | undefined) {
 
 export function checkNip43Support(relayInfo: TRelayInfo | undefined) {
   return relayInfo?.supported_nips?.includes(43) && !!relayInfo.pubkey
+}
+
+export function isRelayDisconnectReason(reason: string) {
+  return RELAY_DISCONNECT_REASONS.has(reason)
 }
 
 export function filterOutBigRelays(relayUrls: string[]) {

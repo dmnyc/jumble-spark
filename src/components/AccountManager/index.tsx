@@ -1,8 +1,6 @@
 import { Separator } from '@/components/ui/separator'
 import { POMEGRANATE_ENABLED } from '@/constants'
-import { cn } from '@/lib/utils'
-import { isElectron } from '@/lib/platform'
-import { isDevEnv } from '@/lib/utils'
+import { cn, isDevEnv } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { ChevronRight, Eye, KeyRound, Puzzle, Server } from 'lucide-react'
 import { useState } from 'react'
@@ -17,7 +15,7 @@ import Signup from './Signup'
 
 type TAccountManagerPage = 'nsec' | 'bunker' | 'npub' | 'signup' | 'google' | null
 
-const SHOW_GOOGLE_LOGIN = POMEGRANATE_ENABLED && !isElectron()
+const SHOW_GOOGLE_LOGIN = POMEGRANATE_ENABLED
 
 export default function AccountManager({ close }: { close?: () => void }) {
   const [page, setPage] = useState<TAccountManagerPage>(null)

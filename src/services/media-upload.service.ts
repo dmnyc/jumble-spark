@@ -1,5 +1,7 @@
 import { RECOMMENDED_BLOSSOM_SERVERS } from '@/constants'
+import { BoundedMap } from '@/lib/bounded-map'
 import { createBlossomServerListDraftEvent } from '@/lib/draft-event'
+import { getMediaMeta } from '@/lib/media-meta'
 import { stripImageMetadata } from '@/lib/strip-image-metadata'
 import { simplifyUrl } from '@/lib/url'
 import { TDraftEvent, TMediaUploadServiceConfig } from '@/types'
@@ -11,6 +13,7 @@ import storage from './local-storage.service'
 type UploadOptions = {
   onProgress?: (progressPercent: number) => void
   signal?: AbortSignal
+  fallbackBlossomServer?: string
 }
 
 export const UPLOAD_ABORTED_ERROR_MSG = 'Upload aborted'
@@ -39,8 +42,8 @@ class MediaUploadService {
   static instance: MediaUploadService
 
   private serviceConfig: TMediaUploadServiceConfig = storage.getMediaUploadServiceConfig()
-  private nip96ServiceUploadUrlMap = new Map<string, string | undefined>()
-  private imetaTagMap = new Map<string, string[]>()
+  private nip96ServiceUploadUrlMap = new BoundedMap<string, string | undefined>({ maxSize: 50 })
+  private imetaTagMap = new BoundedMap<string, string[]>({ maxSize: 500 })
   private creatingBlossomServerList = false
 
   constructor() {
@@ -58,20 +61,62 @@ class MediaUploadService {
     // Strip sensitive metadata (EXIF/GPS, ...) from the file before upload.
     const safeFile = await stripImageMetadata(file)
 
-    let result: { url: string; tags: string[][] }
+    let result: { url: string; tags: string[][]; sha256?: string }
     if (this.serviceConfig.type === 'nip96') {
-      result = await this.uploadByNip96(this.serviceConfig.service, safeFile, options)
+      try {
+        result = await this.uploadByNip96(this.serviceConfig.service, safeFile, options)
+      } catch (error) {
+        const fallbackServer = options?.fallbackBlossomServer
+        if (
+          !fallbackServer ||
+          options?.signal?.aborted ||
+          (error instanceof Error && error.message === UPLOAD_ABORTED_ERROR_MSG)
+        ) {
+          throw error
+        }
+        result = await this.uploadByBlossom(safeFile, options, [fallbackServer])
+      }
     } else {
       result = await this.uploadByBlossom(safeFile, options)
     }
 
-    if (result.tags.length > 0) {
-      this.imetaTagMap.set(result.url, ['imeta', ...result.tags.map(([n, v]) => `${n} ${v}`)])
-    }
-    return result
+    const tags = await this.completeImetaTags(result.url, result.tags, safeFile, result.sha256)
+    this.imetaTagMap.set(result.url, ['imeta', ...tags.map(([n, v]) => `${n} ${v}`)])
+    return { url: result.url, tags }
   }
 
-  private async uploadByBlossom(file: File, options?: UploadOptions) {
+  /**
+   * Fill in imeta fields the media server didn't report. `url`, `m`, `size` and
+   * `x` are known locally for free; `dim` and `thumbhash` require decoding the
+   * file, so they are only computed when the server omitted them. Fields the
+   * server did report are always kept as-is.
+   */
+  private async completeImetaTags(
+    url: string,
+    serverTags: string[][],
+    file: File,
+    sha256?: string
+  ): Promise<string[][]> {
+    const tags = serverTags.filter((tag) => tag.length >= 2)
+    const has = (name: string) => tags.some(([n]) => n === name)
+
+    if (!has('url')) tags.push(['url', url])
+    if (!has('m') && file.type) tags.push(['m', file.type])
+    if (!has('size')) tags.push(['size', String(file.size)])
+    if (!has('x')) {
+      tags.push(['x', sha256 ?? (await BlossomClient.getFileSha256(file))])
+    }
+
+    if (!has('dim') || !has('thumbhash')) {
+      const { dim, thumbHash } = await getMediaMeta(file)
+      if (dim && !has('dim')) tags.push(['dim', dim])
+      if (thumbHash && !has('thumbhash')) tags.push(['thumbhash', thumbHash])
+    }
+
+    return tags
+  }
+
+  private async uploadByBlossom(file: File, options?: UploadOptions, serverOverride?: string[]) {
     const pubkey = client.pubkey
     const signer = async (draft: TDraftEvent) => {
       if (!client.signer) {
@@ -111,31 +156,71 @@ class MediaUploadService {
     }
     startPseudoProgress()
 
-    let servers = await client.fetchBlossomServerList(pubkey)
-    if (servers.length === 0) {
+    let servers = serverOverride ?? (await client.fetchBlossomServerList(pubkey))
+    if (!serverOverride && servers.length === 0) {
       // The user has no Blossom server list yet. Use the default servers for this
       // upload right away, and asynchronously create a server list for the user in
       // the background so it's persisted for next time.
       servers = RECOMMENDED_BLOSSOM_SERVERS
       this.ensureBlossomServerList(pubkey)
     }
-    const [mainServer, ...mirrorServers] = servers
-
+    const fallbackServer = options?.fallbackBlossomServer
+    // Keep the fallback separate from the user's configured servers. It should
+    // only receive the file when every configured server rejects the upload;
+    // adding it to `servers` would also make it a mirror target after an earlier
+    // configured server succeeds.
+    const uploadServers =
+      fallbackServer && !servers.includes(fallbackServer) ? [...servers, fallbackServer] : servers
     const auth = await BlossomClient.createUploadAuth(signer, file, {
       message: 'Uploading media file'
     })
 
-    // first upload blob to main server
-    let blob: BlobDescriptor
+    // Try each server in preference order until one accepts the upload. A failed
+    // preferred server should not prevent the remaining configured servers from
+    // being used. Cancellation is different: it stops the whole upload rather
+    // than moving on to another server.
+    let blob: BlobDescriptor | undefined
+    let uploadedServer: string | undefined
+    const failedServers = new Set<string>()
+    let lastError: unknown
     try {
-      blob = await this.uploadBlobToBlossomServer(mainServer, file, auth, options?.signal)
+      for (const server of uploadServers) {
+        if (options?.signal?.aborted) {
+          throw new Error(UPLOAD_ABORTED_ERROR_MSG)
+        }
+
+        try {
+          blob = await this.uploadBlobToBlossomServer(server, file, auth, options?.signal)
+          uploadedServer = server
+          break
+        } catch (error) {
+          if (
+            options?.signal?.aborted ||
+            (error instanceof Error && error.message === UPLOAD_ABORTED_ERROR_MSG)
+          ) {
+            throw new Error(UPLOAD_ABORTED_ERROR_MSG)
+          }
+          failedServers.add(server)
+          lastError = error
+        }
+      }
+
+      if (!blob) {
+        throw lastError instanceof Error ? lastError : new Error('All Blossom servers failed')
+      }
     } finally {
-      // Always clear the pseudo-progress timer, even if the upload failed.
+      // Always clear the pseudo-progress timer, even if every upload failed.
       stopPseudoProgress()
     }
-    // Main upload finished
+    // Primary upload finished
     options?.onProgress?.(80)
 
+    // Mirror only to user-chosen servers that were not already attempted. An
+    // extra fallback must never become a mirror target, and retrying a server
+    // that just rejected the primary upload is unlikely to help.
+    const mirrorServers = servers.filter(
+      (server) => server !== uploadedServer && !failedServers.has(server)
+    )
     if (mirrorServers.length > 0) {
       await Promise.allSettled(
         mirrorServers.map((server) => BlossomClient.mirrorBlob(server, blob, { auth }))
@@ -149,7 +234,7 @@ class MediaUploadService {
     }
 
     options?.onProgress?.(100)
-    return { url: blob.url, tags }
+    return { url: blob.url, tags, sha256: blob.sha256 }
   }
 
   /**

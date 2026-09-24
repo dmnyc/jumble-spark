@@ -1,4 +1,11 @@
 import { DM_TIME_RANDOMIZATION_SECONDS, ExtendedKind } from '@/constants'
+import { BoundedMap } from '@/lib/bounded-map'
+import {
+  getDmMessageCreatedAt,
+  nextDmRumorTimestamp,
+  withDmMessageOrderTag
+} from '@/lib/dm-message-order'
+import type { TDmRumorTimestamp } from '@/lib/dm-message-order'
 import { isValidPubkey } from '@/lib/pubkey'
 import { tagNameEquals } from '@/lib/tag'
 import {
@@ -33,32 +40,29 @@ class DmService {
   private encryptionKeyConfirmedCurrent = false
   // A sync request that arrived before freshness was confirmed; surfaced once it is.
   private pendingSyncRequestEvent: Event | null = null
+  // Client pubkeys identify individual sync rounds. Remembering both sides lets
+  // a key transfer received before its request suppress the later prompt too.
+  private syncRequestsByClientPubkey = new BoundedMap<string, Event>({ maxSize: 100 })
+  private respondedSyncRequestClientPubkeys = new BoundedMap<string, true>({ maxSize: 100 })
   private relaySubscription: { close: () => void } | null = null
   private messageListeners = new Set<(message: TDmMessage) => void>()
   private reactionListeners = new Set<(reaction: TDmMessage) => void>()
   private dataChangedListeners = new Set<() => void>()
   private loadingListeners = new Set<(loading: boolean) => void>()
-  private sendingStatuses = new Map<string, 'sending' | 'sent' | 'failed'>()
+  private sendingStatuses = new BoundedMap<string, 'sending' | 'sent' | 'failed'>({
+    maxSize: 1_000
+  })
   private sendingStatusListeners = new Set<() => void>()
-  private pendingPublishData = new Map<
+  private pendingPublishData = new BoundedMap<
     string,
     { recipientGiftWraps: Event[]; selfGiftWraps: Event[]; recipientDmRelays: string[] }
-  >()
+  >({ maxSize: 100 })
   private syncRequestListeners = new Set<(event: Event) => void>()
+  private syncRequestProcessedListeners = new Set<(eventId: string) => void>()
   private encryptionKeyChangedListeners = new Set<
     (result: TEncryptionKeyReconcileResult) => void
   >()
   private activeConversationKey: string | null = null
-  // Global monotonic clock for outgoing rumor `created_at`. Nostr timestamps
-  // have one-second granularity, so several messages sent within the same second
-  // would otherwise share a `created_at` and fall back to an id-based tiebreak
-  // (ascending rumor id), which does not match send order. Forcing `created_at`
-  // to strictly increase across all outgoing messages keeps the persisted order
-  // (and any client that sorts by `created_at`) in send order. A global clock is
-  // enough: ordering only matters within a conversation, and cross-conversation
-  // timestamp drift during a burst is at most a few seconds and harmless.
-  private lastSentCreatedAt = 0
-
   private constructor() {}
 
   static getInstance(): DmService {
@@ -162,9 +166,13 @@ class DmService {
     this.dataChangedListeners.clear()
     this.loadingListeners.clear()
     this.sendingStatuses.clear()
+    this.pendingPublishData.clear()
     this.sendingStatusListeners.clear()
     this.syncRequestListeners.clear()
+    this.syncRequestProcessedListeners.clear()
     this.encryptionKeyChangedListeners.clear()
+    this.syncRequestsByClientPubkey.clear()
+    this.respondedSyncRequestClientPubkeys.clear()
     this.activeConversationKey = null
     this.currentAccountPubkey = null
   }
@@ -399,6 +407,19 @@ class DmService {
     }
   }
 
+  onSyncRequestProcessed(listener: (eventId: string) => void): () => void {
+    this.syncRequestProcessedListeners.add(listener)
+    return () => {
+      this.syncRequestProcessedListeners.delete(listener)
+    }
+  }
+
+  private emitSyncRequestProcessed(eventId: string): void {
+    for (const listener of this.syncRequestProcessedListeners) {
+      listener(eventId)
+    }
+  }
+
   onEncryptionKeyChanged(
     listener: (result: TEncryptionKeyReconcileResult) => void
   ): () => void {
@@ -464,6 +485,16 @@ class DmService {
 
   markSyncRequestProcessed(eventId: string): void {
     storage.addProcessedSyncRequestId(eventId)
+    if (this.pendingSyncRequestEvent?.id === eventId) {
+      this.pendingSyncRequestEvent = null
+    }
+    for (const [clientPubkey, event] of this.syncRequestsByClientPubkey) {
+      if (event.id === eventId) {
+        this.syncRequestsByClientPubkey.delete(clientPubkey)
+        break
+      }
+    }
+    this.emitSyncRequestProcessed(eventId)
   }
 
   async importMessages(accountPubkey: string, rumors: Event[]): Promise<number> {
@@ -485,10 +516,10 @@ class DmService {
         participantsKey,
         senderPubkey: rumor.pubkey,
         content: rumor.content,
-        createdAt: rumor.created_at,
+        createdAt: getDmMessageCreatedAt(rumor),
         originalEvent: rumor,
         decryptedRumor: rumor,
-        ...(replyToId ? { replyTo: { id: replyToId, content: '', senderPubkey: '' } } : {})
+        ...(replyToId ? { replyTo: { id: replyToId } } : {})
       }
 
       await this.saveMessage(message)
@@ -749,7 +780,6 @@ class DmService {
         verified
       )
       if (message) {
-        await this.resolveReplyTo(message)
         await this.saveMessage(message)
         messages.push(message)
 
@@ -777,23 +807,17 @@ class DmService {
     await this.rebuildConversationsFromMessages(accountPubkey, messages, encryptionPubkeyMap)
   }
 
-  // Allocates the next `created_at` for an outgoing rumor in a conversation,
-  // guaranteeing it is strictly greater than the previous one we sent there.
-  // This is a synchronous read-modify-write, so calling it at the top of each
-  // send method (before any `await`) serializes ordering by call order without
-  // an explicit async queue. Concurrent sends within the same second therefore
-  // get consecutive timestamps in the order they were invoked.
-  private allocateRumorCreatedAt(): number {
-    const createdAt = Math.max(dayjs().unix(), this.lastSentCreatedAt + 1)
-    this.lastSentCreatedAt = createdAt
-    return createdAt
+  // Called synchronously before any await so concurrent sends are stamped in
+  // invocation order without an async queue.
+  private allocateRumorTimestamp(): TDmRumorTimestamp {
+    return nextDmRumorTimestamp()
   }
 
   async sendMessage(
     accountPubkey: string,
     recipientPubkey: string,
     content: string,
-    replyTo?: { id: string; content: string; senderPubkey: string },
+    replyTo?: { id: string },
     additionalTags?: string[][]
   ): Promise<TDmMessage> {
     // The reply relay hint is omitted: the rumor (and thus its id) is built before
@@ -858,19 +882,19 @@ class DmService {
     content: string,
     extraTags: string[][],
     kind?: number,
-    replyTo?: { id: string; content: string; senderPubkey: string }
+    replyTo?: { id: string }
   ): Promise<TDmMessage> {
     // Allocate the rumor timestamp synchronously, before any await, so rapid
-    // consecutive sends keep their order (see allocateRumorCreatedAt).
-    const createdAt = this.allocateRumorCreatedAt()
+    // consecutive sends keep their order (see allocateRumorTimestamp).
+    const timestamp = this.allocateRumorTimestamp()
     const participantsKey = this.getParticipantsKey(accountPubkey, recipientPubkey)
 
     const rumor = nip17GiftWrapService.buildRumor(
       content,
       accountPubkey,
       recipientPubkey,
-      createdAt,
-      extraTags,
+      timestamp.createdAt,
+      withDmMessageOrderTag(extraTags, timestamp.millisecond),
       kind
     )
 
@@ -879,13 +903,13 @@ class DmService {
       participantsKey,
       senderPubkey: accountPubkey,
       content: rumor.content,
-      createdAt: rumor.created_at,
+      createdAt: getDmMessageCreatedAt(rumor),
       // Placeholder until the real gift wrap is built/echoed back; originalEvent is
       // not used for DM rendering (mirrors importMessages, which stores the rumor).
       originalEvent: rumor as unknown as Event,
       decryptedRumor: rumor as unknown as Event,
       sendState: 'sending',
-      ...(replyTo ? { replyTo } : {})
+      ...(replyTo ? { replyTo: { id: replyTo.id } } : {})
     }
 
     await this.saveMessage(message)
@@ -908,8 +932,8 @@ class DmService {
     emojiTag?: string[]
   ): Promise<TDmMessage | null> {
     // Allocate the rumor timestamp synchronously, before any await, so rapid
-    // consecutive sends keep their order (see allocateRumorCreatedAt).
-    const createdAt = this.allocateRumorCreatedAt()
+    // consecutive sends keep their order (see allocateRumorTimestamp).
+    const timestamp = this.allocateRumorTimestamp()
     const participantsKey = this.getParticipantsKey(accountPubkey, recipientPubkey)
 
     const keypair =
@@ -935,6 +959,7 @@ class DmService {
     if (emojiTag) {
       extraTags.push(emojiTag)
     }
+    const orderedTags = withDmMessageOrderTag(extraTags, timestamp.millisecond)
 
     const { rumor, recipientGiftWraps, selfGiftWraps } =
       await nip17GiftWrapService.createDualGiftWraps(
@@ -944,8 +969,8 @@ class DmService {
         keypair.privkey,
         recipientPubkey,
         recipientEncryptionPubkey,
-        createdAt,
-        extraTags,
+        timestamp.createdAt,
+        orderedTags,
         kinds.Reaction
       )
 
@@ -954,7 +979,7 @@ class DmService {
       participantsKey,
       senderPubkey: accountPubkey,
       content: rumor.content,
-      createdAt: rumor.created_at,
+      createdAt: getDmMessageCreatedAt(rumor),
       originalEvent: selfGiftWraps[0],
       decryptedRumor: rumor as unknown as Event
     }
@@ -1005,6 +1030,15 @@ class DmService {
         authors: [accountPubkey],
         since: fiveMinutesAgo,
         limit: 1
+      },
+      // A key transfer from another device resolves the matching client-key
+      // request. Include recent history as well as live events so relay delivery
+      // order cannot produce a stale confirmation prompt after a response.
+      {
+        kinds: [ExtendedKind.KEY_TRANSFER],
+        authors: [accountPubkey],
+        since: fiveMinutesAgo,
+        limit: 100
       }
     ]
 
@@ -1016,6 +1050,13 @@ class DmService {
           if (event.kind === ExtendedKind.CLIENT_KEY_ANNOUNCEMENT) {
             const clientPubkey = encryptionKeyService.getClientPubkeyFromEvent(event)
             if (!clientPubkey || storage.hasProcessedSyncRequestId(event.id)) return
+            this.syncRequestsByClientPubkey.set(clientPubkey, event)
+            if (this.respondedSyncRequestClientPubkeys.has(clientPubkey)) {
+              // Another device already transferred a key for this exact client
+              // pubkey. Record the request as handled without asking again.
+              this.markSyncRequestProcessed(event.id)
+              return
+            }
             // Only offer to share our key once it's confirmed to be the current
             // one; a stale device must resync itself, not act as the provider. If
             // freshness isn't verified yet, stash the request and surface it once
@@ -1025,6 +1066,20 @@ class DmService {
               return
             }
             this.emitSyncRequest(event)
+            return
+          }
+
+          if (event.kind === ExtendedKind.KEY_TRANSFER) {
+            const clientPubkey = encryptionKeyService.getTransferRecipientClientPubkeyFromEvent(event)
+            if (!clientPubkey) return
+
+            this.respondedSyncRequestClientPubkeys.set(clientPubkey, true)
+            const request = this.syncRequestsByClientPubkey.get(clientPubkey)
+            if (request) {
+              // The dialog may already be open on this device. Marking the
+              // request processed emits a dismissal notification for the UI.
+              this.markSyncRequestProcessed(request.id)
+            }
             return
           }
 
@@ -1058,9 +1113,6 @@ class DmService {
           )
           if (message) {
             const isReaction = unwrapped.rumor.kind === kinds.Reaction
-            if (!isReaction) {
-              await this.resolveReplyTo(message)
-            }
             await this.saveMessage(message)
 
             if (isReaction) {
@@ -1330,11 +1382,11 @@ class DmService {
       participantsKey,
       senderPubkey: effectiveSenderPubkey,
       content: rumor.content,
-      createdAt: rumor.created_at,
+      createdAt: getDmMessageCreatedAt(rumor),
       originalEvent: giftWrap,
       decryptedRumor: rumor as unknown as Event,
       verified,
-      ...(replyToId ? { replyTo: { id: replyToId, content: '', senderPubkey: '' } } : {})
+      ...(replyToId ? { replyTo: { id: replyToId } } : {})
     }
   }
 
@@ -1346,23 +1398,34 @@ class DmService {
     return '[File]'
   }
 
-  async resolveReplyTo(message: TDmMessage): Promise<TDmMessage> {
-    if (!message.replyTo || (message.replyTo.content && message.replyTo.senderPubkey)) {
-      return message
-    }
-    const replyMsg = await indexedDb.getDmMessageById(message.replyTo.id)
-    if (replyMsg) {
-      const isFile = replyMsg.decryptedRumor?.kind === ExtendedKind.RUMOR_FILE
-      message.replyTo = {
-        id: replyMsg.id,
-        content: isFile
-          ? this.getFilePreviewContent(replyMsg.decryptedRumor?.tags)
-          : replyMsg.content,
-        senderPubkey: replyMsg.senderPubkey,
-        tags: replyMsg.decryptedRumor?.tags
+  watchReplyTo(
+    id: string,
+    participantsKey: string,
+    listener: (message: TDmMessage | null) => void
+  ): () => void {
+    let disposed = false
+    let request = 0
+    const refresh = async () => {
+      const currentRequest = ++request
+      try {
+        const message = await indexedDb.getDmMessageById(id)
+        if (!disposed && currentRequest === request) {
+          listener(message?.participantsKey === participantsKey ? message : null)
+        }
+      } catch (error) {
+        if (!disposed && currentRequest === request) {
+          console.error('Failed to load DM reply preview:', error)
+          listener(null)
+        }
       }
     }
-    return message
+    // Subscribe before querying so a message arriving during the lookup is not missed.
+    const unsubscribe = this.onDataChanged(refresh)
+    void refresh()
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
   }
 
   private async saveMessage(message: TDmMessage): Promise<void> {

@@ -12,10 +12,13 @@ const Popover = ({
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
   const isControlled = controlledOpen !== undefined
   const open = isControlled ? controlledOpen : uncontrolledOpen
-  const backdropRef = React.useRef<HTMLDivElement>(null)
+  const pointerDownStartedOnBackdropRef = React.useRef(false)
 
   const handleOpenChange = React.useCallback(
     (newOpen: boolean) => {
+      if (newOpen) {
+        pointerDownStartedOnBackdropRef.current = false
+      }
       if (!isControlled) {
         setUncontrolledOpen(newOpen)
       }
@@ -29,8 +32,18 @@ const Popover = ({
       {createPortal(
         open ? (
           <div
-            ref={backdropRef}
             className="pointer-events-auto fixed inset-0 z-40"
+            onPointerDownCapture={() => {
+              pointerDownStartedOnBackdropRef.current = true
+            }}
+            onClickCapture={(e) => {
+              // Ignore the trailing synthesized click from the touch that
+              // opened the popover; a real outside tap starts on the backdrop.
+              if (!pointerDownStartedOnBackdropRef.current) {
+                e.preventDefault()
+                e.stopPropagation()
+              }
+            }}
             onClick={(e) => {
               e.stopPropagation()
               handleOpenChange(false)
@@ -53,7 +66,7 @@ const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
 >(({ className, align = 'center', sideOffset = 4, ...props }, ref) => (
-  <PopoverPrimitive.Portal>
+  <PopoverPrimitive.Portal forceMount={props.forceMount}>
     <PopoverPrimitive.Content
       ref={ref}
       align={align}

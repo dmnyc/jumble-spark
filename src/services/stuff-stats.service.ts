@@ -1,13 +1,15 @@
 import { ExtendedKind } from '@/constants'
+import { BoundedMap } from '@/lib/bounded-map'
 import {
   getEventKey,
   getEventAuthorPubkey,
   getNoteBech32Id,
   getReplaceableCoordinateFromEvent,
+  isProtectedEvent,
   isReplaceableEvent
 } from '@/lib/event'
 import { getZapInfoFromEvent } from '@/lib/event-metadata'
-import { getDefaultRelayUrls } from '@/lib/relay'
+import { getDefaultRelayUrls, mergeRelayUrls } from '@/lib/relay'
 import { getEmojiInfosFromEmojiTags, tagNameEquals } from '@/lib/tag'
 import client from '@/services/client.service'
 import lightning from '@/services/lightning.service'
@@ -40,7 +42,7 @@ export type TStuffStats = {
 
 class StuffStatsService {
   static instance: StuffStatsService
-  private stuffStatsMap: Map<string, Partial<TStuffStats>> = new Map()
+  private stuffStatsMap = new BoundedMap<string, Partial<TStuffStats>>({ maxSize: 2_000 })
   private stuffStatsSubscribers = new Map<string, Set<() => void>>()
 
   constructor() {
@@ -172,9 +174,12 @@ class StuffStatsService {
       })
     }
 
-    const relays = relayList
-      ? relayList.read.concat(getDefaultRelayUrls()).slice(0, 5)
-      : getDefaultRelayUrls()
+    const seenOnRelayUrls = event ? client.getSeenEventRelayUrls(event.id) : []
+    const baseRelays = mergeRelayUrls(5, relayList?.read ?? [], getDefaultRelayUrls())
+    const relays =
+      event && isProtectedEvent(event)
+        ? mergeRelayUrls(baseRelays, seenOnRelayUrls)
+        : mergeRelayUrls(5, baseRelays, seenOnRelayUrls)
 
     const events: Event[] = []
     await client.fetchEvents(relays, filters, {

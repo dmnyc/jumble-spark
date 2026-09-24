@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DEFAULT_NOSTRCONNECT_RELAY } from '@/constants'
+import { getNostrConnectClientMetadata } from '@/lib/nostr-connect'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import { Check, Copy, Loader, ScanQrCode } from 'lucide-react'
@@ -54,8 +55,7 @@ export default function NostrConnectLogin({
       clientPubkey: getPublicKey(newPrivKey),
       relays: DEFAULT_NOSTRCONNECT_RELAY,
       secret: Math.random().toString(36).substring(7),
-      name: document.location.host,
-      url: document.location.origin
+      ...getNostrConnectClientMetadata()
     }
     const newConnectionString = createNostrConnectURI(newMeta)
     return {

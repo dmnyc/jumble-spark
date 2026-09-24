@@ -15,6 +15,9 @@ finish-args:
   - --socket=wayland
   - --socket=pulseaudio
   - --share=network
+  # Allow Chromium safeStorage to reach the Secret Service (gnome-keyring /
+  # kwallet) so encrypted secrets persist across restarts.
+  - --talk-name=org.freedesktop.secrets
   - --env=ELECTRON_TRASH=gio
   - --env=XCURSOR_PATH=/run/host/user-share/icons:/run/host/share/icons
 build-options:

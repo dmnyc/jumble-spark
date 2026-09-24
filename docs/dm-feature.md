@@ -17,17 +17,17 @@ The code in this feature is largely self-contained inside `src/services/dm.servi
 
 All DM-related kinds are defined in `src/constants.ts` (`ExtendedKind`). Emoji reactions and seal/gift wrap come from `nostr-tools`' `kinds` export.
 
-| Kind  | Constant                             | Source          | Purpose                                                           |
-| ----- | ------------------------------------ | --------------- | ----------------------------------------------------------------- |
-| 7     | `kinds.Reaction`                     | nostr-tools     | Emoji reaction to a DM message, wrapped the same way as chat     |
-| 13    | `kinds.Seal` / `ExtendedKind.SEAL`   | nostr-tools     | NIP-59 seal (encrypted rumor, signed by sender's identity key)    |
-| 14    | `ExtendedKind.RUMOR_CHAT`            | extended        | Plaintext chat rumor (NIP-17 `kinds.PrivateDirectMessage`)        |
-| 15    | `ExtendedKind.RUMOR_FILE`            | extended        | Encrypted file attachment rumor                                    |
-| 1059  | `kinds.GiftWrap` / `GIFT_WRAP`       | nostr-tools     | NIP-59 outer gift wrap (random-key signed)                        |
-| 4454  | `ExtendedKind.CLIENT_KEY_ANNOUNCEMENT` | extended      | Per-device client keypair announcement (for multi-device sync)    |
-| 4455  | `ExtendedKind.KEY_TRANSFER`          | extended        | Encrypted encryption-privkey transfer between devices             |
-| 10044 | `ExtendedKind.ENCRYPTION_KEY_ANNOUNCEMENT` | extended  | Publishes the user's DM encryption public key (`n` tag)           |
-| 10050 | `ExtendedKind.DM_RELAYS`             | extended        | User's DM relay list (NIP-17)                                     |
+| Kind  | Constant                                   | Source      | Purpose                                                        |
+| ----- | ------------------------------------------ | ----------- | -------------------------------------------------------------- |
+| 7     | `kinds.Reaction`                           | nostr-tools | Emoji reaction to a DM message, wrapped the same way as chat   |
+| 13    | `kinds.Seal` / `ExtendedKind.SEAL`         | nostr-tools | NIP-59 seal (encrypted rumor, signed by sender's identity key) |
+| 14    | `ExtendedKind.RUMOR_CHAT`                  | extended    | Plaintext chat rumor (NIP-17 `kinds.PrivateDirectMessage`)     |
+| 15    | `ExtendedKind.RUMOR_FILE`                  | extended    | Encrypted file attachment rumor                                |
+| 1059  | `kinds.GiftWrap` / `GIFT_WRAP`             | nostr-tools | NIP-59 outer gift wrap (random-key signed)                     |
+| 4454  | `ExtendedKind.CLIENT_KEY_ANNOUNCEMENT`     | extended    | Per-device client keypair announcement (for multi-device sync) |
+| 4455  | `ExtendedKind.KEY_TRANSFER`                | extended    | Encrypted encryption-privkey transfer between devices          |
+| 10044 | `ExtendedKind.ENCRYPTION_KEY_ANNOUNCEMENT` | extended    | Publishes the user's DM encryption public key (`n` tag)        |
+| 10050 | `ExtendedKind.DM_RELAYS`                   | extended    | User's DM relay list (NIP-17)                                  |
 
 ## Architecture
 
@@ -41,7 +41,7 @@ Rumor (kind 14 chat / 15 file / 7 reaction, unsigned) — plaintext
 
 The seal is **signed by the sender's identity key** (so `seal.pubkey === rumor.pubkey`, which is what authenticates the sender), but its NIP-44 payload is still encrypted with the **dedicated encryption keypair** (`senderEncryptionPriv ↔ recipientEncryptionPub`). Because the seal is identity-signed, `seal.pubkey` is no longer the encryption pubkey, so the sender's encryption pubkey is carried in an **`n` tag** on the seal — this lets the recipient derive the conversation key locally without a Kind 10044 lookup, and the identity signature over that tag makes the binding self-authenticating. The encryption privkey is still only ever used for NIP-44 encrypt/decrypt, never for signing.
 
-> **Legacy format & dual-send migration**: older clients signed the seal with the *encryption* key (so `seal.pubkey` was the encryption pubkey and there was no `n` tag). `unwrapGiftWrap` detects this by the absence of the `n` tag and falls back to reading `seal.pubkey`, so historical gift wraps re-synced from relays still decrypt. During the migration window, each send **dual-publishes** both formats: `createDualGiftWraps` wraps the *same* rumor as an identity-signed gift wrap (index 0) and a legacy encryption-key-signed gift wrap (index 1), for both the recipient and the sender's own devices. New clients read the identity-signed copy, clients still on the old code read the legacy copy. Because both copies share the same `rumor.id`, the receiver dedupes by id (`dmMessages` keyPath `id` + UI id-set filter) and only ever stores/shows one message. Once legacy clients are gone, drop `createLegacySeal` and send only index 0.
+> **Legacy format & dual-send migration**: older clients signed the seal with the _encryption_ key (so `seal.pubkey` was the encryption pubkey and there was no `n` tag). `unwrapGiftWrap` detects this by the absence of the `n` tag and falls back to reading `seal.pubkey`, so historical gift wraps re-synced from relays still decrypt. During the migration window, each send **dual-publishes** both formats: `createDualGiftWraps` wraps the _same_ rumor as an identity-signed gift wrap (index 0) and a legacy encryption-key-signed gift wrap (index 1), for both the recipient and the sender's own devices. New clients read the identity-signed copy, clients still on the old code read the legacy copy. Because both copies share the same `rumor.id`, the receiver dedupes by id (`dmMessages` keyPath `id` + UI id-set filter) and only ever stores/shows one message. Once legacy clients are gone, drop `createLegacySeal` and send only index 0.
 
 Two layers of NIP-44 encryption with two independent keypairs (the ephemeral random key in the gift wrap and the sender's encryption key in the seal payload) is what gives NIP-17 its metadata privacy: a relay can only see "some ephemeral pubkey sent some gift wrap to some encryption pubkey", not who is talking to whom.
 
@@ -60,13 +60,13 @@ Every send also produces **self gift wraps** via `createDualGiftWraps` (`nip17-g
 
 - **Encryption Key** (`Kind 10044`): Long-lived keypair used as the NIP-44 endpoint for DMs. The public key is published in an `n` tag; the private key is stored per-account in `LocalStorage` (`ENCRYPTION_KEY_PRIVKEY_MAP`) and can be re-shared with new devices via Key Transfer.
 - **Client Key** (`Kind 4454`): Per-device ephemeral keypair, one per browser/device. Its only purpose is to bootstrap Key Transfer so an old device can encrypt the Encryption privkey for a new device without the user typing a secret. Stored in `CLIENT_KEY_PRIVKEY_MAP`.
-- **Account / Identity Key**: The Nostr identity pubkey. **Never** used for DM encryption/decryption — that is exclusively the Encryption Key's job. It signs the announcement events (`10044`, `4454`, `10050`), the `4455` key transfer envelope, **and every message seal (kind 13)** so the recipient can authenticate the sender from the seal alone. (Identity-signing each seal means one signer call per send — acceptable because the privacy win of the dual-key system is that the signer never has to *decrypt*, which would otherwise happen constantly in the background.)
+- **Account / Identity Key**: The Nostr identity pubkey. **Never** used for DM encryption/decryption — that is exclusively the Encryption Key's job. It signs the announcement events (`10044`, `4454`, `10050`), the `4455` key transfer envelope, **and every message seal (kind 13)** so the recipient can authenticate the sender from the seal alone. (Identity-signing each seal means one signer call per send — acceptable because the privacy win of the dual-key system is that the signer never has to _decrypt_, which would otherwise happen constantly in the background.)
 
 ### Relay strategy
 
 - DM relays come from the user's `Kind 10050` list; they are distinct from the regular read/write relays.
-- When sending, gift wraps go to **both** the recipient's DM relays *and* the sender's own DM relays (so the sender's other devices can sync).
-- Default DM relays (for users who haven't configured any) are defined in `src/constants.ts` — currently `nip17.com`, `relay.damus.io`, `nos.lol`, `relay.primal.net`.
+- When sending, gift wraps go to **both** the recipient's DM relays _and_ the sender's own DM relays (so the sender's other devices can sync).
+- Default DM relays (for users who haven't configured any) are defined in `src/constants.ts` — currently `nip17.com`, `offchain.pub`, `nos.lol`, `relay.primal.net`.
 
 ### Storage
 
@@ -77,40 +77,40 @@ Every send also produces **self gift wraps** via `createDualGiftWraps` (`nip17-g
 
 ### Services
 
-| File                                         | Purpose                                                                                                           |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `src/services/dm.service.ts`                 | Singleton DM core: init/sync, send/receive, conversation CRUD, relay subscription, sending-status state machine   |
-| `src/services/encryption-key.service.ts`     | Encryption keypair lifecycle, client key, `Kind 10044` / `4454` / `4455` publishing, Key Transfer import/export   |
-| `src/services/nip17-gift-wrap.service.ts`    | Rumor → seal → gift wrap construction and manual unwrap; self-copy helper; timestamp randomizer                  |
-| `src/services/crypto-file.service.ts`        | AES-256-GCM file encrypt/decrypt, SHA-256 hashing, hex helpers (Web Crypto only)                                 |
-| `src/services/indexed-db.service.ts`         | `dmMessages` / `dmConversations` / key-announcement stores and the v20 migration                                  |
-| `src/services/local-storage.service.ts`      | Typed accessors for DM-related keys (encryption privkey, client privkey, sync cursors, last-read, etc.)          |
+| File                                      | Purpose                                                                                                         |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `src/services/dm.service.ts`              | Singleton DM core: init/sync, send/receive, conversation CRUD, relay subscription, sending-status state machine |
+| `src/services/encryption-key.service.ts`  | Encryption keypair lifecycle, client key, `Kind 10044` / `4454` / `4455` publishing, Key Transfer import/export |
+| `src/services/nip17-gift-wrap.service.ts` | Rumor → seal → gift wrap construction and manual unwrap; self-copy helper; timestamp randomizer                 |
+| `src/services/crypto-file.service.ts`     | AES-256-GCM file encrypt/decrypt, SHA-256 hashing, hex helpers (Web Crypto only)                                |
+| `src/services/indexed-db.service.ts`      | `dmMessages` / `dmConversations` / key-announcement stores and the v20 migration                                |
+| `src/services/local-storage.service.ts`   | Typed accessors for DM-related keys (encryption privkey, client privkey, sync cursors, last-read, etc.)         |
 
 ### Components
 
-| File                                              | Purpose                                                              |
-| ------------------------------------------------- | -------------------------------------------------------------------- |
-| `src/components/DmList/index.tsx`                 | Conversation list, Messages / Requests tabs, mute + trust filtering  |
-| `src/components/DmMessageList/index.tsx`          | Message thread, reactions, replies, file rendering                   |
-| `src/components/DmInput/index.tsx`                | Rich-text input, file upload, mentions, emoji autocomplete          |
-| `src/components/DmRelayConfig/index.tsx`          | DM relay editor                                                      |
-| `src/components/NewDeviceKeySync/index.tsx`       | New-device flow: publishes `4454`, subscribes to `4455`             |
-| `src/components/KeySyncRequestDialog/index.tsx`   | Old-device flow: prompts to approve an incoming sync request         |
-| `src/components/ResetEncryptionKeyButton/index.tsx` | Encryption key reset confirmation                                  |
+| File                                                | Purpose                                                             |
+| --------------------------------------------------- | ------------------------------------------------------------------- |
+| `src/components/DmList/index.tsx`                   | Conversation list, Messages / Requests tabs, mute + trust filtering |
+| `src/components/DmMessageList/index.tsx`            | Message thread, reactions, replies, file rendering                  |
+| `src/components/DmInput/index.tsx`                  | Rich-text input, file upload, mentions, emoji autocomplete          |
+| `src/components/DmRelayConfig/index.tsx`            | DM relay editor                                                     |
+| `src/components/NewDeviceKeySync/index.tsx`         | New-device flow: publishes `4454`, subscribes to `4455`             |
+| `src/components/KeySyncRequestDialog/index.tsx`     | Old-device flow: prompts to approve an incoming sync request        |
+| `src/components/ResetEncryptionKeyButton/index.tsx` | Encryption key reset confirmation                                   |
 
 ### Pages
 
-| File                                                    | Purpose                                               |
-| ------------------------------------------------------- | ----------------------------------------------------- |
-| `src/pages/primary/DmPage/index.tsx`                    | Left-column DM home with setup wizard + conversation list |
-| `src/pages/secondary/DmConversationPage/index.tsx`      | Right-column conversation thread                      |
+| File                                               | Purpose                                                   |
+| -------------------------------------------------- | --------------------------------------------------------- |
+| `src/pages/primary/DmPage/index.tsx`               | Left-column DM home with setup wizard + conversation list |
+| `src/pages/secondary/DmConversationPage/index.tsx` | Right-column conversation thread                          |
 
 ### Hooks
 
-| File                              | Purpose                                                                       |
-| --------------------------------- | ----------------------------------------------------------------------------- |
-| `src/hooks/useDmSupport.ts`       | Checks whether a target pubkey has DM relays + published encryption key        |
-| `src/hooks/useDmUnread.ts`        | Cross-conversation unread count, honoring mute list and trust-score filtering |
+| File                        | Purpose                                                                       |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `src/hooks/useDmSupport.ts` | Checks whether a target pubkey has DM relays + published encryption key       |
+| `src/hooks/useDmUnread.ts`  | Cross-conversation unread count, honoring mute list and trust-score filtering |
 
 ### Routing
 
@@ -224,37 +224,40 @@ This design is the reason dm messages are keyed by a symmetric **participants ke
 
 ```ts
 type TDmMessage = {
-  id: string               // rumor id (NIP-01 event hash of the unsigned rumor)
-  participantsKey: string  // sorted([pubkeyA, pubkeyB]).join(':') — symmetric, account-agnostic
-  senderPubkey: string     // rumor.pubkey (real sender, NOT observer)
-  content: string          // text for kind 14 / reactions, URL for kind 15
-  createdAt: number        // rumor.created_at
-  originalEvent: Event     // the gift wrap (kind 1059) actually published/received
-  decryptedRumor: Event    // kind 14 / 15 / 7 rumor after unwrap
+  id: string // rumor id (NIP-01 event hash of the unsigned rumor)
+  participantsKey: string // sorted([pubkeyA, pubkeyB]).join(':') — symmetric, account-agnostic
+  senderPubkey: string // rumor.pubkey (real sender, NOT observer)
+  content: string // text for kind 14 / reactions, URL for kind 15
+  createdAt: number // rumor.created_at
+  originalEvent: Event // the gift wrap (kind 1059) actually published/received
+  decryptedRumor: Event // kind 14 / 15 / 7 rumor after unwrap
   replyTo?: {
     id: string
-    content: string        // resolved lazily by resolveReplyTo()
-    senderPubkey: string
-    tags?: string[][]      // present for file replies (to recover mime / thumb)
   }
 }
 ```
 
 **Why `participantsKey`, not `conversationKey`?** Messages are deduplicated by rumor `id`, which is symmetric — the same message has the same hash from both endpoints. If we keyed the index by `accountPubkey:otherPubkey`, two accounts on the same device DMing each other would overwrite each other's rows and lose messages after an account switch. Sorting both pubkeys makes the key observer-independent.
 
+Reply previews in both message bubbles and the composer query the original message by ID and
+refresh on DM data changes, including live messages, history sync, and imports. A missing original
+shows a placeholder until it arrives. Lookups are restricted to the same `participantsKey`. Legacy
+`replyTo` content/sender/tags snapshots are ignored and stripped on the next write; no migration is
+needed. Preview subscriptions are cleaned up on unmount and discard outdated asynchronous results.
+
 ### `TDmConversation`
 
 ```ts
 type TDmConversation = {
-  key: string              // `${accountPubkey}:${otherPubkey}` — account-scoped
-  pubkey: string           // other party's main pubkey
+  key: string // `${accountPubkey}:${otherPubkey}` — account-scoped
+  pubkey: string // other party's main pubkey
   lastMessageAt: number
   lastMessageRumor?: Event // latest non-reaction rumor (drives preview text)
   unreadCount: number
-  hasReplied: boolean      // drives Messages vs Requests classification
+  hasReplied: boolean // drives Messages vs Requests classification
   encryptionPubkey?: string // learned from received gift wrap seals
-  deleted?: boolean        // soft-delete flag; hidden from list when true
-  deletedAt?: number       // unix seconds; messages older than this are permanently hidden for this account
+  deleted?: boolean // soft-delete flag; hidden from list when true
+  deletedAt?: number // unix seconds; messages older than this are permanently hidden for this account
 }
 ```
 
@@ -264,8 +267,8 @@ Conversations are **per-account** even though messages are shared: each of the u
 
 ```ts
 type TEncryptionKeypair = {
-  privkey: Uint8Array      // raw 32 bytes, persisted as hex in LocalStorage
-  pubkey: string           // lowercase hex, 64 chars
+  privkey: Uint8Array // raw 32 bytes, persisted as hex in LocalStorage
+  pubkey: string // lowercase hex, 64 chars
 }
 ```
 
@@ -273,12 +276,12 @@ type TEncryptionKeypair = {
 
 `src/services/indexed-db.service.ts` is the authoritative reference. DM-relevant stores:
 
-| Store                              | Key path   | Indexes                                                      |
-| ---------------------------------- | ---------- | ------------------------------------------------------------ |
-| `dmMessages`                       | `id`       | `participantsCreatedAtIndex` = `[participantsKey, createdAt]` |
-| `dmConversations`                  | `key`      | `lastMessageAtIndex` = `lastMessageAt`                       |
-| `dmRelaysEvents`                   | `key`      | —                                                            |
-| `encryptionKeyAnnouncementEvents`  | `key`      | —                                                            |
+| Store                             | Key path | Indexes                                                       |
+| --------------------------------- | -------- | ------------------------------------------------------------- |
+| `dmMessages`                      | `id`     | `participantsCreatedAtIndex` = `[participantsKey, createdAt]` |
+| `dmConversations`                 | `key`    | `lastMessageAtIndex` = `lastMessageAt`                        |
+| `dmRelaysEvents`                  | `key`    | —                                                             |
+| `encryptionKeyAnnouncementEvents` | `key`    | —                                                             |
 
 ### Migration history
 
@@ -287,14 +290,14 @@ type TEncryptionKeypair = {
 
 ## LocalStorage keys (`src/constants.ts`, `StorageKey`)
 
-| Key                        | Type                          | Purpose                                                                                                   |
-| -------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `ENCRYPTION_KEY_PRIVKEY_MAP` | `Record<accountPubkey, hex>` | Long-lived DM encryption privkey per account                                                              |
-| `CLIENT_KEY_PRIVKEY_MAP`     | `Record<accountPubkey, hex>` | Per-device ephemeral keypair used as the Key Transfer bootstrap channel                                   |
-| `LAST_READ_DM_TIME_MAP`      | `Record<accountPubkey:otherPubkey, unixSeconds>` | Drives `unreadCount` reset after `markConversationAsRead`                   |
-| `DM_LAST_SYNCED_AT_MAP`      | `Record<accountPubkey, unixSeconds>` | Forward-sync cursor (`since` floor) — next init fetches `since = v - 2 days`                  |
-| `DM_BACKWARD_CURSOR_MAP`     | `Record<accountPubkey, unixSeconds>` | Backward-sync cursor (`until` ceiling); `0` sentinel means history is complete              |
-| `PROCESSED_SYNC_REQUEST_IDS` | `string[]` (cap'd)            | Remembered `Kind 4454` ids so the Key-Transfer approval dialog doesn't re-fire after refresh            |
+| Key                          | Type                                             | Purpose                                                                                      |
+| ---------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `ENCRYPTION_KEY_PRIVKEY_MAP` | `Record<accountPubkey, hex>`                     | Long-lived DM encryption privkey per account                                                 |
+| `CLIENT_KEY_PRIVKEY_MAP`     | `Record<accountPubkey, hex>`                     | Per-device ephemeral keypair used as the Key Transfer bootstrap channel                      |
+| `LAST_READ_DM_TIME_MAP`      | `Record<accountPubkey:otherPubkey, unixSeconds>` | Drives `unreadCount` reset after `markConversationAsRead`                                    |
+| `DM_LAST_SYNCED_AT_MAP`      | `Record<accountPubkey, unixSeconds>`             | Forward-sync cursor (`since` floor) — next init fetches `since = v - 2 days`                 |
+| `DM_BACKWARD_CURSOR_MAP`     | `Record<accountPubkey, unixSeconds>`             | Backward-sync cursor (`until` ceiling); `0` sentinel means history is complete               |
+| `PROCESSED_SYNC_REQUEST_IDS` | `string[]` (cap'd)                               | Remembered `Kind 4454` ids so the Key-Transfer approval dialog doesn't re-fire after refresh |
 
 All DM LocalStorage reads/writes go through `src/services/local-storage.service.ts`. The older `DM_DELETED_CONVERSATIONS_MAP` key was removed in v20 — do not reintroduce it.
 
@@ -330,7 +333,7 @@ getParticipantsKey(a, b): string         // sorted 'min:max' — symmetric, for 
 
 // Sync / multi-device
 importMessages(accountPubkey, rumors): Promise<number>  // bulk-import decrypted rumors (used by import tool)
-resolveReplyTo(message): Promise<TDmMessage>            // lazily fills message.replyTo content/sender
+watchReplyTo(id, participantsKey, listener): () => void // reads the original message and refreshes on data changes
 markSyncRequestProcessed(eventId): void
 
 // Active-conversation tracking (affects unread counting)

@@ -77,6 +77,13 @@ function PomegranateExportContent({
     setErrorMsg('')
     setLoading(true)
     try {
+      const electronNsec = await pomegranateService.recoverNsecInElectron(central, pubkey)
+      if (electronNsec) {
+        setNsec(electronNsec)
+        setPhase('done')
+        return
+      }
+
       const result = await pomegranateService.startRecovery(central, pubkey)
       setAccount(result.account)
       setPhase('recovering')

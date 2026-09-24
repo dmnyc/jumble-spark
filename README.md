@@ -36,6 +36,13 @@ npm install
 npm run dev
 ```
 
+For a web-only build on a system that cannot download the Electron binary, skip that download while keeping platform-specific build dependencies such as Rollup:
+
+```bash
+ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install
+npm run build
+```
+
 ## Run Docker
 
 ```bash

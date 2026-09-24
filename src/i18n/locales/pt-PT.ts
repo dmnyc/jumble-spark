@@ -1148,6 +1148,53 @@ export default {
     'Indirect notifications shown': 'Notificações indiretas visíveis',
     Resend: 'Reenviar',
     'Original poster': 'Autor original',
-    'Show less': ''
+    Anonymous: 'Anónimo',
+    'Anonymous reply hint':
+      'Utiliza uma nova identidade Nostr de utilização única. A sua conta não aparecerá no evento, mas os relays e observadores da rede ainda poderão associar a sua atividade.',
+    'One-time identity': 'Identidade de utilização única',
+    'Try loading more': 'Tentar carregar mais',
+    'Show less': 'Mostrar menos',
+    'Remember this difficulty': 'Memorizar esta dificuldade',
+    'Unlock Jumble': 'Desbloquear Jumble',
+    'No system keychain available': 'Nenhum porta-chaves do sistema disponível',
+    'Password storage explanation':
+      'Este dispositivo não tem um porta-chaves do sistema, por isso o Jumble encripta os seus dados locais (sessões de início de sessão, chaves privadas) com uma palavra-passe. Ser-lhe-á pedida sempre que a aplicação iniciar.',
+    'Create password': 'Criar palavra-passe',
+    'Confirm password': 'Confirmar palavra-passe',
+    Unlock: 'Desbloquear',
+    'Incorrect password': 'Palavra-passe incorreta',
+    'Password must be at least 4 characters': 'A palavra-passe deve ter pelo menos 4 caracteres',
+    'Forgot password?': 'Esqueceu-se da palavra-passe?',
+    'Reset encrypted data': 'Repor dados encriptados',
+    'Reset encrypted data warning':
+      'Se se esqueceu da palavra-passe, pode repor os dados encriptados. Isto elimina permanentemente todas as sessões de início de sessão e chaves privadas guardadas neste dispositivo. Esta ação não pode ser anulada.',
+    'Copy link': 'Copiar ligação',
+    'Link previews': 'Pré-visualizações de ligações',
+    'Show previews for links in notes': 'Mostrar pré-visualizações de ligações nas notas',
+    'Avatar image must be {{size}} MB or smaller':
+      'A imagem do avatar deve ter no máximo {{size}} MB',
+    'Quoted message not loaded yet': 'A mensagem citada ainda não foi carregada',
+    Video: 'Vídeo',
+    Audio: 'Áudio',
+    'Group message from': 'Mensagem do grupo',
+    'Short note': 'Nota curta',
+    'Long-form article': 'Artigo longo',
+    'Share a thought or a moment': 'Partilhe uma ideia ou um momento',
+    'Give your ideas more room': 'Dê mais espaço às suas ideias',
+    Publish: 'Publicar',
+    'For a smoother, more reliable DM experience, try PsstPsst, a dedicated Nostr messenger.':
+      'Para uma experiência de mensagens diretas mais fluida e fiável, experimenta o PsstPsst, um mensageiro dedicado ao Nostr.',
+    'Try PsstPsst': 'Experimentar PsstPsst',
+    Public: 'Público',
+    Private: 'Privado',
+    'Public muted words can be seen by anyone.':
+      'As palavras silenciadas públicas podem ser vistas por qualquer pessoa.',
+    'Private muted word': 'Palavra silenciada privada',
+    'Public muted word': 'Palavra silenciada pública',
+    'Remove muted word': 'Remover palavra silenciada',
+    'Failed to update muted word': 'Falha ao atualizar a palavra silenciada',
+    '(Visible to everyone)': '(visível para todos)',
+    'Local muted words have not synced yet.':
+      'As palavras silenciadas locais ainda não foram sincronizadas.'
   }
 }

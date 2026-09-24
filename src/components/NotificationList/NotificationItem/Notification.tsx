@@ -1,6 +1,7 @@
 import ClickableCard from '@/components/ClickableCard'
 import ContentPreview from '@/components/ContentPreview'
 import { FormattedTimestamp } from '@/components/FormattedTimestamp'
+import ProfileOptions from '@/components/ProfileOptions'
 import StuffStats from '@/components/StuffStats'
 import TrustScoreBadge from '@/components/TrustScoreBadge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -15,7 +16,7 @@ import { useNostr } from '@/providers/NostrProvider'
 import { useNotification } from '@/providers/NotificationProvider'
 import { useUserPreferences } from '@/providers/UserPreferencesProvider'
 import { NostrEvent } from 'nostr-tools'
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export default function Notification({
@@ -28,7 +29,8 @@ export default function Notification({
   targetEvent,
   targetPath,
   isNew = false,
-  showStats = false
+  showStats = false,
+  onVisibilityChange
 }: {
   icon: React.ReactNode
   notificationId: string
@@ -40,6 +42,7 @@ export default function Notification({
   targetPath?: string
   isNew?: boolean
   showStats?: boolean
+  onVisibilityChange?: (isVisible: boolean) => void
 }) {
   const { t } = useTranslation()
   const { push } = useSecondaryPage()
@@ -51,6 +54,18 @@ export default function Notification({
     () => isNew && !isNotificationRead(notificationId),
     [isNew, isNotificationRead, notificationId]
   )
+  const onVisibilityChangeRef = useRef(onVisibilityChange)
+
+  useLayoutEffect(() => {
+    onVisibilityChangeRef.current = onVisibilityChange
+  }, [onVisibilityChange])
+
+  // A notification may be suppressed after its data has resolved. Report its
+  // actual presence so its parent can avoid rendering an empty date group.
+  useLayoutEffect(() => {
+    onVisibilityChangeRef.current?.(true)
+    return () => onVisibilityChangeRef.current?.(false)
+  }, [notificationId])
 
   const handleClick = () => {
     markNotificationAsRead(notificationId)
@@ -127,16 +142,22 @@ export default function Notification({
             <TrustScoreBadge pubkey={sender} />
             <div className="shrink-0 text-sm text-muted-foreground">{description}</div>
           </div>
-          {unread && (
-            <button
-              className="m-0.5 size-3 shrink-0 rounded-full bg-primary transition-all hover:ring-4 hover:ring-primary/20"
-              title={t('Mark as read')}
-              onClick={(e) => {
-                e.stopPropagation()
-                markNotificationAsRead(notificationId)
-              }}
+          <div className="flex shrink-0 items-center">
+            {unread && (
+              <button
+                className="m-0.5 size-3 shrink-0 rounded-full bg-primary transition-all hover:ring-4 hover:ring-primary/20"
+                title={t('Mark as read')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  markNotificationAsRead(notificationId)
+                }}
+              />
+            )}
+            <ProfileOptions
+              pubkey={sender}
+              triggerStyle="note-options"
             />
-          )}
+          </div>
         </div>
         {middle}
         {targetEvent && (

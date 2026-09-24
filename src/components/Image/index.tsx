@@ -14,6 +14,7 @@ export default function Image({
   classNames = {},
   hideIfError = false,
   errorPlaceholder = <ImageOff />,
+  onImageLoad,
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
   classNames?: {
@@ -25,6 +26,7 @@ export default function Image({
   alt?: string
   hideIfError?: boolean
   errorPlaceholder?: React.ReactNode
+  onImageLoad?: (url: string) => void
 }) {
   const { url: imageUrl, error: hasError, handleError, markSuccess } = useBlossomUrl(url, pubkey)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -43,6 +45,7 @@ export default function Image({
     setIsLoaded(true)
     setTimeout(() => setDisplaySkeleton(false), 600)
     markSuccess()
+    if (imageUrl) onImageLoad?.(imageUrl)
   }
 
   return (

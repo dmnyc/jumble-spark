@@ -1,3 +1,4 @@
+import { useImageSave } from '@/hooks/useImageSave'
 import { randomString } from '@/lib/random'
 import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
@@ -6,7 +7,9 @@ import modalManager from '@/services/modal-manager.service'
 import { TImetaInfo } from '@/types'
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import Lightbox from 'yet-another-react-lightbox'
+import Download from 'yet-another-react-lightbox/plugins/download'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import Image from '../Image'
 import ImageWithLightbox from '../ImageWithLightbox'
@@ -25,9 +28,11 @@ export default function ImageGallery({
   mustLoad?: boolean
 }) {
   const id = useMemo(() => `image-gallery-${randomString()}`, [])
+  const { t } = useTranslation()
   const { autoLoadMedia } = useContentPolicy()
   const [index, setIndex] = useState(-1)
   const [slides, setSlides] = useState<{ src: string }[]>(images.map(({ url }) => ({ src: url })))
+  const saveLightboxImage = useImageSave(slides[index]?.src, index >= 0)
   useEffect(() => {
     if (index >= 0) {
       modalManager.register(id, () => {
@@ -153,7 +158,12 @@ export default function ImageGallery({
             <Lightbox
               index={index}
               slides={slides}
-              plugins={[Zoom]}
+              plugins={[Download, Zoom]}
+              labels={{ Download: t('Save') }}
+              download={{
+                download: ({ saveAs }) => saveLightboxImage(saveAs)
+              }}
+              on={{ view: ({ index }) => setIndex(index) }}
               open={index >= 0}
               close={() => setIndex(-1)}
               controller={{

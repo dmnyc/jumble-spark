@@ -1,4 +1,9 @@
-import { getEventKey } from '@/lib/event'
+import { BoundedMap } from '@/lib/bounded-map'
+import {
+  getEventFeedTimestamp,
+  getEventKey,
+  sortRevisionOrderedFeedEventsDesc
+} from '@/lib/event'
 import { TFeedSubRequest } from '@/types'
 import dayjs from 'dayjs'
 import { Event } from 'nostr-tools'
@@ -13,9 +18,9 @@ export type TUserAggregation = {
 class UserAggregationService {
   static instance: UserAggregationService
 
-  private aggregationStore: Map<string, Map<string, Event[]>> = new Map()
+  private aggregationStore = new BoundedMap<string, Map<string, Event[]>>({ maxSize: 20 })
   private listenersMap: Map<string, Set<() => void>> = new Map()
-  private lastViewedMap: Map<string, number> = new Map()
+  private lastViewedMap = new BoundedMap<string, number>({ maxSize: 10_000 })
 
   constructor() {
     if (UserAggregationService.instance) {
@@ -81,12 +86,13 @@ class UserAggregationService {
       if (events.length === 0) {
         return
       }
+      const sortedEvents = sortRevisionOrderedFeedEventsDesc(events)
 
       aggregations.push({
         pubkey,
-        events: events,
-        count: events.length,
-        lastEventTime: events[0].created_at
+        events: sortedEvents,
+        count: sortedEvents.length,
+        lastEventTime: getEventFeedTimestamp(sortedEvents[0])
       })
     })
 

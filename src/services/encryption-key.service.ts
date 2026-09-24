@@ -255,6 +255,10 @@ class EncryptionKeyService {
     return tag?.[1] ?? null
   }
 
+  getTransferRecipientClientPubkeyFromEvent(event: Event): string | null {
+    return event.tags.find(tagNameEquals('p'))?.[1] ?? null
+  }
+
   /**
    * Derive a human-comparable verification code from a client pubkey.
    * The client pubkey is uniformly random, so its leading hex digits are

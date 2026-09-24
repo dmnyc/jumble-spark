@@ -15,7 +15,9 @@ export default function UpdateSettings() {
 
   if (!isElectron()) return null
 
-  const hasNewVersion = state.status === 'available' || state.status === 'downloaded'
+  const hasNewVersion = ['available', 'downloading', 'download-error', 'downloaded'].includes(
+    state.status
+  )
 
   return (
     <>
@@ -36,7 +38,7 @@ export default function UpdateSettings() {
           <div className="flex items-center gap-2">
             {t('Check for updates')}
             {hasNewVersion && (
-              <span className="rounded-full bg-primary px-1.5 py-0.5 text-xs font-medium leading-none text-primary-foreground">
+              <span className="bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 text-xs leading-none font-medium">
                 {t('NEW')}
               </span>
             )}
@@ -71,11 +73,16 @@ function UpdateStatusLine() {
       )
     case 'downloaded':
       return <>{t('Update ready: v{{version}}', { version: state.newVersion ?? '' })}</>
-    case 'error':
+    case 'download-error':
       return (
         <span className="text-destructive">
-          {state.error ?? t('Failed to check for updates')}
+          {t('Try again later or check your connection')}
+          {state.error ? <span className="block text-xs opacity-80">{state.error}</span> : null}
         </span>
+      )
+    case 'error':
+      return (
+        <span className="text-destructive">{state.error ?? t('Failed to check for updates')}</span>
       )
     default:
       return <>{version}</>
@@ -127,6 +134,15 @@ function UpdateActionButton() {
     return (
       <Button size="sm" onClick={download}>
         {t('Download')}
+      </Button>
+    )
+  }
+
+  if (state.status === 'download-error') {
+    return (
+      <Button size="sm" variant="destructive" onClick={download}>
+        <RotateCw />
+        {t('Retry')}
       </Button>
     )
   }

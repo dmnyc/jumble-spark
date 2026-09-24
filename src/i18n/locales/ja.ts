@@ -1139,6 +1139,51 @@ export default {
     'Indirect notifications shown': '間接通知を表示中',
     Resend: '再送信',
     'Original poster': '元の投稿者',
-    'Show less': ''
+    Anonymous: '匿名',
+    'Anonymous reply hint':
+      '新しい使い捨ての Nostr ID を使用します。イベントにあなたのアカウントは表示されませんが、リレーやネットワーク監視者が活動を関連付けられる可能性があります。',
+    'One-time identity': '使い捨て ID',
+    'Try loading more': 'さらに読み込む',
+    'Show less': '折りたたむ',
+    'Remember this difficulty': 'この難易度を記憶する',
+    'Unlock Jumble': 'Jumble のロックを解除',
+    'No system keychain available': '利用可能なシステムキーリングがありません',
+    'Password storage explanation':
+      'このデバイスにはシステムキーリングがないため、Jumble は代わりにパスワードでローカルデータ（ログインセッション、秘密鍵）を暗号化します。アプリを起動するたびにパスワードの入力が求められます。',
+    'Create password': 'パスワードを作成',
+    'Confirm password': 'パスワード（確認）',
+    Unlock: 'ロック解除',
+    'Incorrect password': 'パスワードが正しくありません',
+    'Password must be at least 4 characters': 'パスワードは4文字以上である必要があります',
+    'Forgot password?': 'パスワードを忘れた場合',
+    'Reset encrypted data': '暗号化データをリセット',
+    'Reset encrypted data warning':
+      'パスワードを忘れた場合は、暗号化データをリセットできます。このデバイスに保存されているすべてのログインセッションと秘密鍵が完全に削除され、元に戻すことはできません。',
+    'Copy link': 'リンクをコピー',
+    'Link previews': 'リンクプレビュー',
+    'Show previews for links in notes': 'ノート内のリンクのプレビューを表示する',
+    'Avatar image must be {{size}} MB or smaller': 'アバター画像は {{size}} MB 以下にしてください',
+    'Quoted message not loaded yet': '引用されたメッセージはまだ読み込まれていません',
+    Video: '動画',
+    Audio: '音声',
+    'Group message from': 'グループからのメッセージ',
+    'Short note': '短文',
+    'Long-form article': '長文記事',
+    'Share a thought or a moment': '思いついたことや今の気持ちを共有',
+    'Give your ideas more room': '考えをじっくり文章に',
+    Publish: '公開',
+    'For a smoother, more reliable DM experience, try PsstPsst, a dedicated Nostr messenger.':
+      'より快適で安定したDM体験には、Nostr専用メッセンジャーのPsstPsstをお試しください。',
+    'Try PsstPsst': 'PsstPsstを試す',
+    Public: '公開',
+    Private: '非公開',
+    'Public muted words can be seen by anyone.':
+      '公開したミュートワードは誰でも見ることができます。',
+    'Private muted word': '非公開のミュートワード',
+    'Public muted word': '公開のミュートワード',
+    'Remove muted word': 'ミュートワードを削除',
+    'Failed to update muted word': 'ミュートワードを更新できませんでした',
+    '(Visible to everyone)': '（誰でも見ることができます）',
+    'Local muted words have not synced yet.': 'この端末のミュートワードはまだ同期されていません。'
   }
 }

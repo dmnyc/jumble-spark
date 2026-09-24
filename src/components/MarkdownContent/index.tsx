@@ -1,9 +1,11 @@
 import { SecondaryPageLink } from '@/PageManager'
 import { X_URL_REGEX, YOUTUBE_URL_REGEX } from '@/constants'
 import { toNote, toProfile } from '@/lib/link'
+import { transformMarkdownUrl } from '@/lib/markdown'
 import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
+import { isImage } from '@/lib/url'
 import { Event } from 'nostr-tools'
-import { useMemo } from 'react'
+import { Children, useMemo } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { EmbeddedHashtag, EmbeddedLNInvoice } from '../Embedded'
@@ -12,6 +14,7 @@ import ExternalLink from '../ExternalLink'
 import ImageWithLightbox from '../ImageWithLightbox'
 import NostrNode from '../NoteContent/LongFormArticle/NostrNode'
 import { remarkNostr } from '../NoteContent/LongFormArticle/remarkNostr'
+import { taskListMarkdownComponents } from '../NoteContent/LongFormArticle/task-list'
 import { Components as BaseComponents } from '../NoteContent/LongFormArticle/types'
 import XEmbeddedPost from '../XEmbeddedPost'
 import YoutubeEmbeddedPlayer from '../YoutubeEmbeddedPlayer'
@@ -37,6 +40,13 @@ function ensureNostrEmbedsAreStandalone(content: string): string {
   return content.replace(STANDALONE_NOSTR_NOTE_LINE_REGEX, '\n$&\n')
 }
 
+// Only embed auto-linked image URLs. An explicitly labeled Markdown link such
+// as [view image](image.png) should remain a link and preserve the author's intent.
+function isBareImageLink(href: string, children: React.ReactNode): boolean {
+  const childNodes = Children.toArray(children)
+  return childNodes.every((child) => typeof child === 'string') && childNodes.join('') === href
+}
+
 export default function MarkdownContent({ content, event }: { content: string; event?: Event }) {
   const emojiInfos = useMemo(() => getEmojiInfosFromEmojiTags(event?.tags), [event?.tags])
   const processedContent = useMemo(() => ensureNostrEmbedsAreStandalone(content), [content])
@@ -45,6 +55,7 @@ export default function MarkdownContent({ content, event }: { content: string; e
     () =>
       ({
         nostr: ({ rawText, bech32Id }) => <NostrNode rawText={rawText} bech32Id={bech32Id} />,
+        ...taskListMarkdownComponents,
         hashtag: ({ value }) => <EmbeddedHashtag hashtag={value} />,
         emoji: ({ value }) => {
           const shortcode = value.slice(1, -1)
@@ -75,7 +86,16 @@ export default function MarkdownContent({ content, event }: { content: string; e
           if (X_URL_REGEX.test(href)) {
             return <XEmbeddedPost url={href} className="mt-2" />
           }
-          return <ExternalLink url={href} justOpenLink />
+          if (isImage(href) && isBareImageLink(href, children)) {
+            return (
+              <ImageWithLightbox
+                image={{ url: href, pubkey: event?.pubkey }}
+                className="max-h-[80vh] object-contain sm:max-h-[50vh]"
+                classNames={{ wrapper: 'w-fit max-w-full mt-2' }}
+              />
+            )
+          }
+          return <ExternalLink url={href}>{children}</ExternalLink>
         },
         h1: ({ children }) => <p className="font-bold">{children}</p>,
         h2: ({ children }) => <p className="font-bold">{children}</p>,
@@ -111,7 +131,6 @@ export default function MarkdownContent({ content, event }: { content: string; e
             {children}
           </ol>
         ),
-        li: ({ children }) => <li>{children}</li>,
         table: ({ children }) => (
           <div className="overflow-x-auto">
             <table className="border-collapse text-sm">{children}</table>
@@ -134,12 +153,7 @@ export default function MarkdownContent({ content, event }: { content: string; e
     <div className="space-y-3 whitespace-normal">
       <Markdown
         remarkPlugins={[remarkGfm, remarkNostr, remarkInlineContent]}
-        urlTransform={(url) => {
-          if (url.startsWith('nostr:')) {
-            return url.slice(6)
-          }
-          return url
-        }}
+        urlTransform={transformMarkdownUrl}
         components={components}
       >
         {processedContent}

@@ -1,6 +1,6 @@
 import client from '@/services/client.service'
 import storage from '@/services/local-storage.service'
-import { TEmoji, TFeedTabConfig, TNotificationStyle } from '@/types'
+import { TEmoji, TFeedTabConfig, TNotificationStyle, TNotificationTabConfig } from '@/types'
 import { createContext, useContext, useEffect, useState } from 'react'
 import { useScreenSize } from './ScreenSizeProvider'
 
@@ -10,6 +10,9 @@ type TUserPreferencesContext = {
 
   muteMedia: boolean
   updateMuteMedia: (mute: boolean) => void
+
+  showLinkPreviews: boolean
+  updateShowLinkPreviews: (show: boolean) => void
 
   sidebarCollapse: boolean
   updateSidebarCollapse: (collapse: boolean) => void
@@ -31,6 +34,9 @@ type TUserPreferencesContext = {
 
   feedTabs: TFeedTabConfig[]
   updateFeedTabs: (tabs: TFeedTabConfig[]) => void
+
+  notificationTabs: TNotificationTabConfig[]
+  updateNotificationTabs: (tabs: TNotificationTabConfig[]) => void
 }
 
 const UserPreferencesContext = createContext<TUserPreferencesContext | undefined>(undefined)
@@ -49,6 +55,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     storage.getNotificationListStyle()
   )
   const [muteMedia, setMuteMedia] = useState(true)
+  const [showLinkPreviews, setShowLinkPreviews] = useState(storage.getShowLinkPreviews())
   const [sidebarCollapse, setSidebarCollapse] = useState(storage.getSidebarCollapse())
   const [showWalletInSidebar, setShowWalletInSidebar] = useState(storage.getShowWalletInSidebar())
   const [enableSingleColumnLayout, setEnableSingleColumnLayout] = useState(
@@ -61,6 +68,9 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     storage.getAllowInsecureConnection()
   )
   const [feedTabs, setFeedTabs] = useState<TFeedTabConfig[]>(storage.getFeedTabs())
+  const [notificationTabs, setNotificationTabs] = useState<TNotificationTabConfig[]>(
+    storage.getNotificationTabs()
+  )
 
   useEffect(() => {
     if (!isSmallScreen && enableSingleColumnLayout) {
@@ -83,6 +93,11 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
   const updateShowWalletInSidebar = (show: boolean) => {
     setShowWalletInSidebar(show)
     storage.setShowWalletInSidebar(show)
+  }
+
+  const updateShowLinkPreviews = (show: boolean) => {
+    setShowLinkPreviews(show)
+    storage.setShowLinkPreviews(show)
   }
 
   const updateEnableSingleColumnLayout = (enable: boolean) => {
@@ -111,6 +126,11 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     storage.setFeedTabs(tabs)
   }
 
+  const updateNotificationTabs = (tabs: TNotificationTabConfig[]) => {
+    setNotificationTabs(tabs)
+    storage.setNotificationTabs(tabs)
+  }
+
   return (
     <UserPreferencesContext.Provider
       value={{
@@ -118,6 +138,8 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
         updateNotificationListStyle,
         muteMedia,
         updateMuteMedia: setMuteMedia,
+        showLinkPreviews,
+        updateShowLinkPreviews,
         sidebarCollapse,
         updateSidebarCollapse,
         showWalletInSidebar,
@@ -131,7 +153,9 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
         allowInsecureConnection,
         updateAllowInsecureConnection,
         feedTabs,
-        updateFeedTabs
+        updateFeedTabs,
+        notificationTabs,
+        updateNotificationTabs
       }}
     >
       {children}

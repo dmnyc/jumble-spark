@@ -361,6 +361,14 @@ function useVerticalDragToClose({
     }
 
     const onTouchStart = (e: TouchEvent) => {
+      if (e.target instanceof Element && e.target.closest('[data-drawer-swipe-lock]')) {
+        // Interactive gestures such as sortable drag handles own this touch.
+        // Do not arm the drawer's swipe-to-close gesture for the same event.
+        armed = false
+        dragging = false
+        scrollableAtStart = null
+        return
+      }
       if (e.touches.length !== 1) {
         // Multi-touch: cancel any in-flight drag so pinch etc. work cleanly.
         armed = false

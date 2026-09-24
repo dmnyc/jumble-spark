@@ -4,6 +4,8 @@ import {
   DEFAULT_BLOSSOM_CACHE_SERVER_URL,
   DEFAULT_FAVICON_URL_TEMPLATE,
   DEFAULT_FEED_TABS,
+  DEFAULT_NOTIFICATION_FILTERS,
+  DEFAULT_NOTIFICATION_TABS,
   ExtendedKind,
   MEDIA_AUTO_LOAD_POLICY,
   NOTIFICATION_LIST_STYLE,
@@ -27,6 +29,7 @@ import {
   TMediaAutoLoadPolicy,
   TMediaUploadServiceConfig,
   TNotificationStyle,
+  TNotificationTabConfig,
   TNsfwDisplayPolicy,
   TProfilePictureAutoLoadPolicy,
   TRelaySet,
@@ -46,6 +49,7 @@ class LocalStorageService {
   private currentAccount: TAccount | null = null
   private feedTabs: TFeedTabConfig[] = DEFAULT_FEED_TABS
   private lastReadNotificationTimeMap: Record<string, number> = {}
+  private notificationTabs: TNotificationTabConfig[] = DEFAULT_NOTIFICATION_TABS
   private defaultZapSats: number = 21
   private defaultZapComment: string = 'Zap!'
   private quickZap: boolean = false
@@ -56,11 +60,13 @@ class LocalStorageService {
   private mediaUploadServiceConfigMap: Record<string, TMediaUploadServiceConfig> = {}
   private dismissedTooManyRelaysAlert: boolean = false
   private dismissedDesktopAppTip: boolean = false
+  private dismissedPsstPsstPromotion: boolean = false
   private showKinds: number[] = []
   private showKindsMap: Record<string, number[]> = {}
   private hideContentMentioningMutedUsers: boolean = false
   private notificationListStyle: TNotificationStyle = NOTIFICATION_LIST_STYLE.DETAILED
   private mediaAutoLoadPolicy: TMediaAutoLoadPolicy = MEDIA_AUTO_LOAD_POLICY.ALWAYS
+  private showLinkPreviews: boolean = true
   private profilePictureAutoLoadPolicy: TProfilePictureAutoLoadPolicy =
     PROFILE_PICTURE_AUTO_LOAD_POLICY.ALWAYS
   private shownCreateWalletGuideToastPubkeys: Set<string> = new Set()
@@ -76,6 +82,7 @@ class LocalStorageService {
   private quickReaction: boolean = false
   private quickReactionEmoji: string | TEmoji = '+'
   private addClientTag: boolean = false
+  private defaultMinPow: number | null = null
   private nsfwDisplayPolicy: TNsfwDisplayPolicy = NSFW_DISPLAY_POLICY.HIDE_CONTENT
   private defaultRelayUrls: string[] = BIG_RELAY_URLS
   private searchRelayUrls: string[] = SEARCHABLE_RELAY_URLS
@@ -95,6 +102,7 @@ class LocalStorageService {
   private bunkerClientSecretByPubkey: Record<string, string> = {}
   // True when secrets persist via main-process safeStorage (Electron) instead of localStorage.
   private secretsViaIpc = false
+  private secretsWriteBlocked = false
   private secretsHydrated = false
   private secretsWriteChain: Promise<void> = Promise.resolve()
   private lastReadDmTimeMap: Record<string, Record<string, number>> = {}
@@ -149,6 +157,64 @@ class LocalStorageService {
     const lastReadNotificationTimeMapStr =
       window.localStorage.getItem(StorageKey.LAST_READ_NOTIFICATION_TIME_MAP) ?? '{}'
     this.lastReadNotificationTimeMap = JSON.parse(lastReadNotificationTimeMapStr)
+
+    const notificationTabsVersion = parseInt(
+      window.localStorage.getItem(StorageKey.NOTIFICATION_TABS_VERSION) ?? '0'
+    )
+    const notificationTabsStr = window.localStorage.getItem(StorageKey.NOTIFICATION_TABS)
+    if (notificationTabsStr) {
+      try {
+        const parsed = JSON.parse(notificationTabsStr)
+        if (Array.isArray(parsed)) {
+          const valid = parsed.flatMap((tab): TNotificationTabConfig[] => {
+            if (
+              !tab ||
+              typeof tab !== 'object' ||
+              typeof tab.id !== 'string' ||
+              tab.id.length === 0 ||
+              typeof tab.label !== 'string' ||
+              tab.label.length === 0 ||
+              !Array.isArray(tab.filters)
+            ) {
+              return []
+            }
+            const defaultTab = DEFAULT_NOTIFICATION_TABS.find((item) => item.id === tab.id)
+            return [
+              {
+                id: tab.id,
+                label: defaultTab?.label ?? tab.label,
+                filters: DEFAULT_NOTIFICATION_FILTERS.filter(
+                  (filter) =>
+                    tab.filters.includes(filter) ||
+                    (notificationTabsVersion < 1 &&
+                      defaultTab?.builtin === 'all' &&
+                      filter === 'highlights') ||
+                    (notificationTabsVersion < 2 &&
+                      (defaultTab?.builtin === 'all' || defaultTab?.builtin === 'reactions') &&
+                      filter === 'pollResponses') ||
+                    (notificationTabsVersion < 3 &&
+                      defaultTab?.builtin === 'mentions' &&
+                      filter === 'highlights')
+                ),
+                hidden: tab.hidden === true,
+                builtin: defaultTab?.builtin
+              }
+            ]
+          })
+          if (
+            valid.length > 0 &&
+            new Set(valid.map((tab) => tab.id)).size === valid.length &&
+            valid.some((tab) => tab.builtin === 'all') &&
+            valid.some((tab) => !tab.hidden)
+          ) {
+            this.notificationTabs = valid
+          }
+        }
+      } catch {
+        // ignore, fall back to defaults
+      }
+    }
+    window.localStorage.setItem(StorageKey.NOTIFICATION_TABS_VERSION, '3')
 
     const relaySetsStr = window.localStorage.getItem(StorageKey.RELAY_SETS)
     if (!relaySetsStr) {
@@ -225,6 +291,9 @@ class LocalStorageService {
     this.dismissedDesktopAppTip =
       window.localStorage.getItem(StorageKey.DISMISSED_DESKTOP_APP_TIP) === 'true'
 
+    this.dismissedPsstPsstPromotion =
+      window.localStorage.getItem(StorageKey.DISMISSED_PSSTPSST_PROMOTION) === 'true'
+
     const showKindsStr = window.localStorage.getItem(StorageKey.SHOW_KINDS)
     if (!showKindsStr) {
       this.showKinds = ALLOWED_FILTER_KINDS
@@ -280,6 +349,8 @@ class LocalStorageService {
     ) {
       this.mediaAutoLoadPolicy = mediaAutoLoadPolicy as TMediaAutoLoadPolicy
     }
+
+    this.showLinkPreviews = window.localStorage.getItem(StorageKey.SHOW_LINK_PREVIEWS) !== 'false'
 
     const profilePictureAutoLoadPolicy = window.localStorage.getItem(
       StorageKey.PROFILE_PICTURE_AUTO_LOAD_POLICY
@@ -339,6 +410,13 @@ class LocalStorageService {
 
     this.quickReaction = window.localStorage.getItem(StorageKey.QUICK_REACTION) === 'true'
     this.addClientTag = window.localStorage.getItem(StorageKey.ADD_CLIENT_TAG) === 'true'
+    const defaultMinPowStr = window.localStorage.getItem(StorageKey.DEFAULT_MIN_POW)
+    if (defaultMinPowStr !== null) {
+      const defaultMinPow = Number(defaultMinPowStr)
+      if (Number.isInteger(defaultMinPow) && defaultMinPow >= 0 && defaultMinPow <= 28) {
+        this.defaultMinPow = defaultMinPow
+      }
+    }
     const quickReactionEmojiStr =
       window.localStorage.getItem(StorageKey.QUICK_REACTION_EMOJI) ?? '+'
     if (quickReactionEmojiStr.startsWith('{')) {
@@ -656,6 +734,9 @@ class LocalStorageService {
 
     const bridge = getElectronBridge()
     if (!isElectron() || !bridge) return
+    // Electron must never fall back to writing secrets into localStorage,
+    // even when safeStorage is temporarily unavailable.
+    this.secretsViaIpc = true
 
     let available = false
     try {
@@ -664,29 +745,22 @@ class LocalStorageService {
       available = false
     }
 
-    // Discard anything peeled out of localStorage; main-process file is the
-    // sole source of truth in Electron mode.
-    this.nsecByPubkey = {}
-    this.ncryptsecByPubkey = {}
-    this.bunkerClientSecretByPubkey = {}
-    this.encryptionKeyPrivkeyMap = {}
-    this.retiredEncryptionKeyMap = {}
-
     if (available) {
-      this.secretsViaIpc = true
       try {
         const bundle = await bridge.secrets.load()
         const hadPersistedClientKey = 'clientKeyPrivkey' in bundle
-        Object.assign(this.nsecByPubkey, bundle.nsec ?? {})
-        Object.assign(this.ncryptsecByPubkey, bundle.ncryptsec ?? {})
-        Object.assign(this.bunkerClientSecretByPubkey, bundle.bunkerClientSecretKey ?? {})
-        Object.assign(this.encryptionKeyPrivkeyMap, bundle.encryptionKeyPrivkey ?? {})
-        Object.assign(this.retiredEncryptionKeyMap, bundle.retiredEncryptionKeyPrivkey ?? {})
+        this.nsecByPubkey = { ...(bundle.nsec ?? {}) }
+        this.ncryptsecByPubkey = { ...(bundle.ncryptsec ?? {}) }
+        this.bunkerClientSecretByPubkey = { ...(bundle.bunkerClientSecretKey ?? {}) }
+        this.encryptionKeyPrivkeyMap = { ...(bundle.encryptionKeyPrivkey ?? {}) }
+        this.retiredEncryptionKeyMap = { ...(bundle.retiredEncryptionKeyPrivkey ?? {}) }
         if (hadPersistedClientKey) this.queueSecretsSave()
       } catch (err) {
+        this.secretsWriteBlocked = true
         console.error('[storage] failed to load encrypted secrets:', err)
       }
     } else {
+      this.secretsWriteBlocked = true
       console.warn(
         '[storage] safeStorage not available — secrets stay in-memory and will be lost on quit'
       )
@@ -796,6 +870,7 @@ class LocalStorageService {
   }
 
   private queueSecretsSave() {
+    if (this.secretsWriteBlocked) return
     const bridge = getElectronBridge()
     if (!bridge) return
     const snapshot = {
@@ -930,6 +1005,15 @@ class LocalStorageService {
     )
   }
 
+  getNotificationTabs() {
+    return this.notificationTabs
+  }
+
+  setNotificationTabs(tabs: TNotificationTabConfig[]) {
+    this.notificationTabs = tabs
+    window.localStorage.setItem(StorageKey.NOTIFICATION_TABS, JSON.stringify(tabs))
+  }
+
   getFeedInfo(pubkey: string) {
     return this.accountFeedInfoMap[pubkey]
   }
@@ -1010,6 +1094,15 @@ class LocalStorageService {
     window.localStorage.setItem(StorageKey.DISMISSED_DESKTOP_APP_TIP, dismissed.toString())
   }
 
+  getDismissedPsstPsstPromotion() {
+    return this.dismissedPsstPsstPromotion
+  }
+
+  setDismissedPsstPsstPromotion(dismissed: boolean) {
+    this.dismissedPsstPsstPromotion = dismissed
+    window.localStorage.setItem(StorageKey.DISMISSED_PSSTPSST_PROMOTION, dismissed.toString())
+  }
+
   getShowKinds() {
     return this.showKinds
   }
@@ -1067,6 +1160,15 @@ class LocalStorageService {
 
   getProfilePictureAutoLoadPolicy() {
     return this.profilePictureAutoLoadPolicy
+  }
+
+  getShowLinkPreviews() {
+    return this.showLinkPreviews
+  }
+
+  setShowLinkPreviews(show: boolean) {
+    this.showLinkPreviews = show
+    window.localStorage.setItem(StorageKey.SHOW_LINK_PREVIEWS, show.toString())
   }
 
   setProfilePictureAutoLoadPolicy(policy: TProfilePictureAutoLoadPolicy) {
@@ -1188,6 +1290,19 @@ class LocalStorageService {
     window.localStorage.setItem(StorageKey.ADD_CLIENT_TAG, addClientTag.toString())
   }
 
+  getDefaultMinPow() {
+    return this.defaultMinPow
+  }
+
+  setDefaultMinPow(minPow: number | null) {
+    this.defaultMinPow = minPow
+    if (minPow === null) {
+      window.localStorage.removeItem(StorageKey.DEFAULT_MIN_POW)
+    } else {
+      window.localStorage.setItem(StorageKey.DEFAULT_MIN_POW, minPow.toString())
+    }
+  }
+
   getQuickReactionEmoji() {
     return this.quickReactionEmoji
   }
@@ -1268,12 +1383,51 @@ class LocalStorageService {
   }
 
   getMutedWords() {
+    const stored = window.localStorage.getItem(StorageKey.MUTED_WORDS)
+    if (!stored) {
+      this.mutedWords = []
+      return this.mutedWords
+    }
+    try {
+      const words = JSON.parse(stored)
+      if (Array.isArray(words) && words.every((word) => typeof word === 'string')) {
+        this.mutedWords = words
+      }
+    } catch {
+      // Keep the last valid value until local storage is repaired.
+    }
     return this.mutedWords
   }
 
-  setMutedWords(words: string[]) {
-    this.mutedWords = words
-    window.localStorage.setItem(StorageKey.MUTED_WORDS, JSON.stringify(this.mutedWords))
+  hasMigratedMutedWords(pubkey: string) {
+    try {
+      const pubkeys = JSON.parse(
+        window.localStorage.getItem(StorageKey.MUTED_WORDS_MIGRATED_PUBKEYS) ?? '[]'
+      )
+      return Array.isArray(pubkeys) && pubkeys.includes(pubkey)
+    } catch {
+      return false
+    }
+  }
+
+  markMutedWordsMigrated(pubkey: string) {
+    const pubkeys = this.getMutedWordsMigratedPubkeys()
+    if (pubkeys.includes(pubkey)) return
+    window.localStorage.setItem(
+      StorageKey.MUTED_WORDS_MIGRATED_PUBKEYS,
+      JSON.stringify([...pubkeys, pubkey])
+    )
+  }
+
+  private getMutedWordsMigratedPubkeys(): string[] {
+    try {
+      const pubkeys = JSON.parse(
+        window.localStorage.getItem(StorageKey.MUTED_WORDS_MIGRATED_PUBKEYS) ?? '[]'
+      )
+      return Array.isArray(pubkeys) ? pubkeys.filter((key) => typeof key === 'string') : []
+    } catch {
+      return []
+    }
   }
 
   getHideIndirectNotifications() {

@@ -407,6 +407,18 @@ export function getVideoMetadataFromEvent(event: Event) {
   return { title, tags: Array.from(tags) }
 }
 
+export function getFavoriteRelayUrlsFromEvent(event: Event): string[] {
+  const urls = new Set<string>()
+  event.tags.forEach(([tagName, tagValue]) => {
+    if (tagName !== 'relay' && tagName !== 'r') return
+    if (!tagValue || !isWebsocketUrl(tagValue)) return
+
+    const normalizedUrl = normalizeUrl(tagValue)
+    if (normalizedUrl) urls.add(normalizedUrl)
+  })
+  return Array.from(urls)
+}
+
 export function getStarsFromRelayReviewEvent(event: Event): number {
   const ratingTag = event.tags.find((t) => t[0] === 'rating')
   if (ratingTag) {

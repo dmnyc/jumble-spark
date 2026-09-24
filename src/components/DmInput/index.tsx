@@ -1,12 +1,13 @@
-import ContentPreviewContent from '@/components/ContentPreview/Content'
+import DmReplyPreview from '@/components/DmReplyPreview'
 import Emoji from '@/components/Emoji'
 import FollowingBadge from '@/components/FollowingBadge'
 import ExpressionPickerDialog from '@/components/ExpressionPickerDialog'
 import Nip05 from '@/components/Nip05'
 import { SimpleUserAvatar } from '@/components/UserAvatar'
 import { SimpleUsername } from '@/components/Username'
+import { JUMBLE_BLOSSOM_SERVER } from '@/constants'
+import { getMediaMeta } from '@/lib/media-meta'
 import { userIdToPubkey } from '@/lib/pubkey'
-import { getEmojiInfosFromEmojiTags } from '@/lib/tag'
 import { showUploadErrorToast } from '@/lib/upload-error-toast'
 import { cn } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
@@ -19,8 +20,6 @@ import { TGif } from '@/services/klipy.service'
 import mediaUpload from '@/services/media-upload.service'
 import { TEmoji, TProfile } from '@/types'
 import { nip19 } from 'nostr-tools'
-import { base64 } from '@scure/base'
-import { rgbaToThumbHash } from 'thumbhash'
 import {
   closestCenter,
   DndContext,
@@ -58,61 +57,6 @@ type MediaItem = {
   dim?: string
   size?: number
   thumbHash?: string
-}
-
-const THUMBHASH_MAX_SIZE = 100
-
-function getMediaMeta(file: File): Promise<{ dim?: string; thumbHash?: string }> {
-  return new Promise((resolve) => {
-    if (file.type.startsWith('image/')) {
-      const img = new window.Image()
-      img.onload = () => {
-        const dim = `${img.naturalWidth}x${img.naturalHeight}`
-
-        // Generate thumbhash
-        const { naturalWidth: w, naturalHeight: h } = img
-        const scale = Math.min(THUMBHASH_MAX_SIZE / w, THUMBHASH_MAX_SIZE / h, 1)
-        const tw = Math.round(w * scale)
-        const th = Math.round(h * scale)
-        const canvas = document.createElement('canvas')
-        canvas.width = tw
-        canvas.height = th
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(img, 0, 0, tw, th)
-        const pixels = ctx.getImageData(0, 0, tw, th)
-        let thumbHash: string | undefined
-        try {
-          const hash = rgbaToThumbHash(tw, th, pixels.data)
-          thumbHash = base64.encode(hash)
-        } catch {
-          /***/
-        }
-
-        URL.revokeObjectURL(img.src)
-        resolve({ dim, thumbHash })
-      }
-      img.onerror = () => {
-        URL.revokeObjectURL(img.src)
-        resolve({})
-      }
-      img.src = URL.createObjectURL(file)
-    } else if (file.type.startsWith('video/')) {
-      const video = document.createElement('video')
-      video.preload = 'metadata'
-      video.onloadedmetadata = () => {
-        const dim = `${video.videoWidth}x${video.videoHeight}`
-        URL.revokeObjectURL(video.src)
-        resolve({ dim })
-      }
-      video.onerror = () => {
-        URL.revokeObjectURL(video.src)
-        resolve({})
-      }
-      video.src = URL.createObjectURL(file)
-    } else {
-      resolve({})
-    }
-  })
 }
 
 function SortableMediaItem({
@@ -210,7 +154,7 @@ export default function DmInput({
 }: {
   recipientPubkey: string
   disabled?: boolean
-  replyTo?: { id: string; content: string; senderPubkey: string; tags?: string[][] } | null
+  replyTo?: { id: string } | null
   onCancelReply?: () => void
   onReplyClick?: () => void
   onSent?: () => void
@@ -231,6 +175,7 @@ export default function DmInput({
   const [emojiIndex, setEmojiIndex] = useState(0)
   const [isFocused, setIsFocused] = useState(false)
   const emojisRef = useRef<Map<string, TEmoji>>(new Map())
+  const sendButtonRef = useRef<HTMLButtonElement>(null)
 
   const isUploading = mediaItems.some((item) => item.status === 'uploading')
   const doneItems = mediaItems.filter((item) => item.status === 'done')
@@ -626,7 +571,8 @@ export default function DmInput({
               prev.map((item) => (item.id === id ? { ...item, progress: p } : item))
             )
           },
-          signal: abortController.signal
+          signal: abortController.signal,
+          fallbackBlossomServer: JUMBLE_BLOSSOM_SERVER
         })
 
         setMediaItems((prev) =>
@@ -867,7 +813,26 @@ export default function DmInput({
           </DndContext>
         </div>
       )}
-      <div className="flex items-end gap-2">
+      <div
+        className="flex items-end gap-2"
+        onPointerDown={(e) => {
+          if (e.pointerType === 'mouse' || !canSend) return
+
+          const sendButtonRect = sendButtonRef.current?.getBoundingClientRect()
+          if (!sendButtonRect) return
+
+          const horizontalHitSlop = 16
+          if (
+            e.clientX < sendButtonRect.left - horizontalHitSlop ||
+            e.clientX > sendButtonRect.right + horizontalHitSlop
+          ) {
+            return
+          }
+
+          e.preventDefault()
+          handleSend()
+        }}
+      >
         <div>
           <button
             onMouseDown={(e) => {
@@ -912,15 +877,10 @@ export default function DmInput({
                 onClick={onReplyClick}
                 className="before:bg-primary relative min-w-0 flex-1 cursor-pointer ps-2 text-start before:absolute before:inset-y-0.5 before:start-0 before:w-0.5 before:rounded-full"
               >
-                <SimpleUsername
-                  userId={replyTo.senderPubkey}
-                  className="text-primary text-xs font-medium"
-                  withoutSkeleton
-                />
-                <ContentPreviewContent
-                  content={replyTo.content || '...'}
-                  className="text-muted-foreground block truncate text-xs"
-                  emojiInfos={getEmojiInfosFromEmojiTags(replyTo.tags)}
+                <DmReplyPreview
+                  id={replyTo.id}
+                  participantsKey={dmService.getParticipantsKey(pubkey ?? '', recipientPubkey)}
+                  composing
                 />
               </button>
               <button
@@ -951,6 +911,7 @@ export default function DmInput({
           />
         </div>
         <button
+          ref={sendButtonRef}
           onMouseDown={(e) => {
             e.preventDefault()
             handleSend()

@@ -3,7 +3,7 @@ import { Drawer, DrawerContent } from '@/components/ui/drawer'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { ReactNode } from 'react'
 
-/** Renders its content in a centered Dialog on desktop and a bottom Drawer on mobile. */
+/** Renders a centered Dialog on wide screens and a bottom Drawer on small screens. */
 export default function ResponsiveDialog({
   open,
   onOpenChange,

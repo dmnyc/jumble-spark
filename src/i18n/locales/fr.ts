@@ -1156,6 +1156,53 @@ export default {
     'Indirect notifications shown': 'Notifications indirectes affichées',
     Resend: 'Renvoyer',
     'Original poster': 'Auteur original',
-    'Show less': ''
+    Anonymous: 'Anonyme',
+    'Anonymous reply hint':
+      'Utilise une nouvelle identité Nostr à usage unique. Votre compte n’apparaîtra pas dans l’événement, mais les relais et les observateurs du réseau pourront peut-être encore corréler votre activité.',
+    'One-time identity': 'Identité à usage unique',
+    'Try loading more': 'Essayer d’en charger plus',
+    'Show less': 'Afficher moins',
+    'Remember this difficulty': 'Mémoriser cette difficulté',
+    'Unlock Jumble': 'Déverrouiller Jumble',
+    'No system keychain available': 'Aucun trousseau système disponible',
+    'Password storage explanation':
+      "Cet appareil n'a pas de trousseau système, Jumble chiffre donc vos données locales (sessions de connexion, clés privées) avec un mot de passe. Il vous sera demandé à chaque démarrage de l'application.",
+    'Create password': 'Créer un mot de passe',
+    'Confirm password': 'Confirmer le mot de passe',
+    Unlock: 'Déverrouiller',
+    'Incorrect password': 'Mot de passe incorrect',
+    'Password must be at least 4 characters': 'Le mot de passe doit contenir au moins 4 caractères',
+    'Forgot password?': 'Mot de passe oublié ?',
+    'Reset encrypted data': 'Réinitialiser les données chiffrées',
+    'Reset encrypted data warning':
+      'Si vous avez oublié le mot de passe, vous pouvez réinitialiser les données chiffrées. Cela supprime définitivement toutes les sessions de connexion et clés privées enregistrées sur cet appareil. Cette action est irréversible.',
+    'Copy link': 'Copier le lien',
+    'Link previews': 'Aperçus des liens',
+    'Show previews for links in notes': 'Afficher les aperçus des liens dans les notes',
+    'Avatar image must be {{size}} MB or smaller':
+      'L’image de l’avatar ne doit pas dépasser {{size}} Mo',
+    'Quoted message not loaded yet': 'Le message cité n’est pas encore chargé',
+    Video: 'Vidéo',
+    Audio: 'Audio',
+    'Group message from': 'Message du groupe',
+    'Short note': 'Note courte',
+    'Long-form article': 'Article long',
+    'Share a thought or a moment': 'Partagez une pensée ou un instant',
+    'Give your ideas more room': 'Donnez plus de place à vos idées',
+    Publish: 'Publier',
+    'For a smoother, more reliable DM experience, try PsstPsst, a dedicated Nostr messenger.':
+      'Pour une expérience de messages privés plus fluide et fiable, essayez PsstPsst, une messagerie dédiée à Nostr.',
+    'Try PsstPsst': 'Essayer PsstPsst',
+    Public: 'Public',
+    Private: 'Privé',
+    'Public muted words can be seen by anyone.':
+      'Tout le monde peut voir les mots masqués publics.',
+    'Private muted word': 'Mot masqué privé',
+    'Public muted word': 'Mot masqué public',
+    'Remove muted word': 'Supprimer le mot masqué',
+    'Failed to update muted word': 'Échec de la mise à jour du mot masqué',
+    '(Visible to everyone)': '(visible par tous)',
+    'Local muted words have not synced yet.':
+      'Les mots masqués locaux ne sont pas encore synchronisés.'
   }
 }

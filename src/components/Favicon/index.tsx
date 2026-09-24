@@ -1,7 +1,7 @@
-import { faviconUrl } from '@/lib/faviconUrl'
+import { faviconUrlCandidates } from '@/lib/faviconUrl'
 import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 export function Favicon({
   domain,
@@ -13,20 +13,28 @@ export function Favicon({
   fallback?: React.ReactNode
 }) {
   const { faviconUrlTemplate } = useContentPolicy()
+  const candidates = useMemo(
+    () => faviconUrlCandidates(faviconUrlTemplate, `https://${domain}`),
+    [faviconUrlTemplate, domain]
+  )
+  const [candidateIndex, setCandidateIndex] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(false)
-  if (error) return fallback
-
-  const url = faviconUrl(faviconUrlTemplate, `https://${domain}`)
+  const [prevCandidates, setPrevCandidates] = useState(candidates)
+  if (prevCandidates !== candidates) {
+    setPrevCandidates(candidates)
+    setCandidateIndex(0)
+    setLoading(true)
+  }
+  if (candidateIndex >= candidates.length) return fallback
 
   return (
     <div className={cn('relative', className)}>
       {loading && <div className={cn('absolute inset-0', className)}>{fallback}</div>}
       <img
-        src={url}
+        src={candidates[candidateIndex]}
         alt={domain}
         className={cn('absolute inset-0', loading && 'opacity-0', className)}
-        onError={() => setError(true)}
+        onError={() => setCandidateIndex((index) => index + 1)}
         onLoad={() => setLoading(false)}
       />
     </div>
