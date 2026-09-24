@@ -1213,6 +1213,20 @@ export default {
     'Remove muted word': 'Remove muted word',
     'Failed to update muted word': 'Failed to update muted word',
     '(Visible to everyone)': '(Visible to everyone)',
-    'Local muted words have not synced yet.': 'Local muted words have not synced yet.'
+    'Local muted words have not synced yet.': 'Local muted words have not synced yet.',
+    '≈ {{min}}–{{max}} items': '≈ {{min}}–{{max}} items',
+    '{{count}} private': '{{count}} private',
+    'encrypted, estimated': 'encrypted, estimated',
+    'Estimated from the size of the encrypted private items, which could not be decrypted.':
+      'Estimated from the size of the encrypted private items, which could not be decrypted.',
+    'Too large to decrypt through a remote signer': 'Too large to decrypt through a remote signer',
+    'Could not decrypt the private items': 'Could not decrypt the private items',
+    'Decrypting private items…': 'Decrypting private items…',
+    'You are signed in with a remote signer. Lists over 64 KB, like a mute list with many private items or a big follow list, cannot be decrypted or restored through NIP-46. Use a browser extension signer (NIP-07) or a local key for those.':
+      'You are signed in with a remote signer. Lists over 64 KB, like a mute list with many private items or a big follow list, cannot be decrypted or restored through NIP-46. Use a browser extension signer (NIP-07) or a local key for those.',
+    'Private items in one of these versions could not be decrypted, so the changes above cover public items only. By size, the selected version has {{chosen}} items and your current one has {{current}}.':
+      'Private items in one of these versions could not be decrypted, so the changes above cover public items only. By size, the selected version has {{chosen}} items and your current one has {{current}}.',
+    'This version is too large to sign with a remote signer: NIP-46 requests are limited to 64 KB. Large lists, like a mute list with many private items or a big follow list, can only be restored with a browser extension signer (NIP-07) or a local key.':
+      'This version is too large to sign with a remote signer: NIP-46 requests are limited to 64 KB. Large lists, like a mute list with many private items or a big follow list, can only be restored with a browser extension signer (NIP-07) or a local key.'
   }
 }

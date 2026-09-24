@@ -20,6 +20,7 @@ import ProfilePage from '@/pages/secondary/ProfilePage'
 import RelayPage from '@/pages/secondary/RelayPage'
 import RelayReviewsPage from '@/pages/secondary/RelayReviewsPage'
 import RelaySettingsPage from '@/pages/secondary/RelaySettingsPage'
+import LazarusSettingsPage from '@/pages/secondary/LazarusSettingsPage'
 import RizfulPage from '@/pages/secondary/RizfulPage'
 import SearchPage from '@/pages/secondary/SearchPage'
 import SettingsPage from '@/pages/secondary/SettingsPage'
@@ -52,6 +53,7 @@ const SECONDARY_ROUTE_CONFIGS: {
   { path: '/external-content', element: <ExternalContentPage /> },
   { path: '/settings', element: <SettingsPage /> },
   { path: '/settings/relays', element: <RelaySettingsPage /> },
+  { path: '/settings/data-recovery', element: <LazarusSettingsPage /> },
   { path: '/settings/wallet', element: <WalletPage /> },
   { path: '/settings/posts', element: <PostSettingsPage /> },
   { path: '/settings/general', element: <GeneralSettingsPage /> },
