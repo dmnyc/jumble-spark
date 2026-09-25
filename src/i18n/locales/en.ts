@@ -1256,6 +1256,8 @@ export default {
       'This account is view-only, so you can scan its history but not restore a version.',
     'Your list changed since this review, so the changes above now compare against the newest version. Check them and restore again.':
       'Your list changed since this review, so the changes above now compare against the newest version. Check them and restore again.',
-    'No profile fields would change.': 'No profile fields would change.'
+    'No profile fields would change.': 'No profile fields would change.',
+    'If another client clobbered your follows, mutes, profile, or bookmarks, scan relay history to find and restore an older version':
+      'If another client clobbered your follows, mutes, profile, or bookmarks, scan relay history to find and restore an older version'
   }
 }
