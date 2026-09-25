@@ -29,6 +29,8 @@ import {
   applyLazarusPrivateTags,
   buildLazarusRecoveryDraft,
   computeLazarusDelta,
+  computeLazarusProfileChanges,
+  fetchLatestLazarusVersion,
   fitsLazarusRemoteRestore,
   getContentEncryption,
   getLazarusItemRange,
@@ -44,10 +46,11 @@ import {
   type LazarusDelta,
   type LazarusItemCount,
   type LazarusKindProfile,
+  type LazarusProfileChange,
   type LazarusScanResult,
   type LazarusSortOrder
 } from '@/services/lazarus'
-import type { Event } from 'nostr-tools'
+import { kinds, type Event } from 'nostr-tools'
 
 const KIND_PROFILES = getLazarusKindProfiles()
 
@@ -168,7 +171,18 @@ function CandidateRow({
 
 const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
   const { t } = useTranslation()
-  const { pubkey, account, signEvent, nip04Decrypt, nip44Decrypt } = useNostr()
+  const {
+    pubkey,
+    account,
+    signEvent,
+    nip04Decrypt,
+    nip44Decrypt,
+    updateFollowListEvent,
+    updateMuteListEvent,
+    updateBookmarkListEvent,
+    updateProfileEvent,
+    updateRelayListEvent
+  } = useNostr()
   const [kind, setKind] = useState<number>(3)
   const [phase, setPhase] = useState<Phase>('idle')
   const [scan, setScan] = useState<LazarusScanResult | undefined>()
@@ -176,8 +190,14 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
     | {
         profile: LazarusKindProfile
         candidate: LazarusCandidate
+        /** The version the review compares against */
+        current: Event | undefined
         delta: LazarusDelta
+        /** Field changes, for profiles, whose data isn't in tags */
+        profileChanges?: LazarusProfileChange[]
         tooLargeForRemoteSigner: boolean
+        /** The list changed after the review opened, so it was compared again */
+        changedSinceReview?: boolean
       }
     | undefined
   >()
@@ -203,6 +223,8 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
   // Restore-size checks by event id, so each large list is serialized once
   const restoreFitsRef = useRef(new Map<string, boolean>())
   const usesRemoteSigner = account?.signerType === 'bunker'
+  // View-only accounts have no key to sign with: they can scan but not restore
+  const canRestore = !!account && account.signerType !== 'npub'
 
   const profile = useMemo(
     () => KIND_PROFILES.find((p) => p.kind === kind) ?? KIND_PROFILES[0],
@@ -337,6 +359,23 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
     if (pending.length > 0) decryptVersions(profile, pending, scanIdRef.current)
   }, [scan, listItems, profile, expandedGroups, usesRemoteSigner, isUndecrypted, decryptVersions])
 
+  // A scan belongs to the account it ran for, so switching accounts starts over
+  useEffect(() => {
+    scanIdRef.current += 1
+    privateTagsRef.current = new Map()
+    privateNotesRef.current = {}
+    queuedRef.current = new Set()
+    setScan(undefined)
+    setPending(undefined)
+    setPhase('idle')
+    setPrivateTags(new Map())
+    setPrivateItemsNotes({})
+    setDecryptingIds(new Set())
+    setExpandedGroups(new Set())
+    setShowEmpty(false)
+    setLoadingOlder(false)
+  }, [pubkey])
+
   const isTooLargeToRestore = useCallback(
     (event: Event) => {
       if (!usesRemoteSigner || !pubkey) return false
@@ -393,7 +432,7 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
 
   const pickCandidate = useCallback(
     async (candidate: LazarusCandidate) => {
-      if (!scan || preparingReview) return
+      if (!scan || preparingReview || !canRestore) return
       const scanId = scanIdRef.current
       // Decrypt what the review needs and isn't decrypted yet, so the changes
       // cover private items too
@@ -402,8 +441,11 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
       )
       if (profile.privateItemTypes && needed.length > 0) {
         setPreparingReview(candidate.event.id)
-        await decryptVersions(profile, needed, scanId)
-        setPreparingReview(undefined)
+        try {
+          await decryptVersions(profile, needed, scanId)
+        } finally {
+          setPreparingReview(undefined)
+        }
         if (scanIdRef.current !== scanId) return
       }
       const tags = privateTagsRef.current
@@ -411,11 +453,28 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
         applyLazarusPrivateTags(profile, scan, tags).candidates.find(
           (c) => c.event.id === candidate.event.id
         ) ?? candidate
-      const delta = computeLazarusDelta(chosen.event, scan.current?.event, tags)
-      const tooLargeForRemoteSigner = isTooLargeToRestore(chosen.event)
-      setPending({ profile, candidate: chosen, delta, tooLargeForRemoteSigner })
+      const current = scan.current?.event
+      setPending({
+        profile,
+        candidate: chosen,
+        current,
+        delta: computeLazarusDelta(chosen.event, current, tags),
+        profileChanges:
+          profile.kind === kinds.Metadata
+            ? computeLazarusProfileChanges(chosen.event, current)
+            : undefined,
+        tooLargeForRemoteSigner: isTooLargeToRestore(chosen.event)
+      })
     },
-    [profile, scan, preparingReview, isUndecrypted, decryptVersions, isTooLargeToRestore]
+    [
+      profile,
+      scan,
+      preparingReview,
+      canRestore,
+      isUndecrypted,
+      decryptVersions,
+      isTooLargeToRestore
+    ]
   )
 
   const toggleGroup = useCallback((key: string) => {
@@ -427,16 +486,111 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
     })
   }, [])
 
+  /** Update the app's own copy of the list, so its next edit builds on the restored version. */
+  const applyRestoreLocally = useCallback(
+    async (signed: Event, chosen: Event) => {
+      // Same content as the chosen version, so its decrypted private items carry over
+      const decrypted = await indexedDb.getDecryptedContent(chosen.id)
+      if (decrypted) await indexedDb.putDecryptedContent(signed.id, decrypted)
+      switch (signed.kind) {
+        case kinds.Contacts:
+          return updateFollowListEvent(signed)
+        case kinds.Mutelist: {
+          const privateTags = decrypted
+            ? parsePrivateTags(decrypted)
+            : getContentEncryption(signed.content)
+              ? undefined
+              : []
+          if (privateTags) return updateMuteListEvent(signed, privateTags)
+          await indexedDb.putReplaceableEvent(signed)
+          return
+        }
+        case kinds.BookmarkList:
+          return updateBookmarkListEvent(signed)
+        case kinds.Metadata:
+          return updateProfileEvent(signed)
+        case kinds.RelayList:
+          return updateRelayListEvent(signed)
+        default:
+          await indexedDb.putReplaceableEvent(signed)
+      }
+    },
+    [
+      updateFollowListEvent,
+      updateMuteListEvent,
+      updateBookmarkListEvent,
+      updateProfileEvent,
+      updateRelayListEvent
+    ]
+  )
+
+  /** Compare the review again, against a version that appeared after it opened. */
+  const reviewAgainst = useCallback(
+    async (current: Event) => {
+      if (!pending) return
+      const reviewProfile = pending.profile
+      const latest: LazarusCandidate = {
+        event: current,
+        foundOn: [],
+        itemCount: reviewProfile.itemCount(current),
+        isCurrent: true,
+        isRecommended: false
+      }
+      if (reviewProfile.privateItemTypes && isUndecrypted(latest)) {
+        await decryptVersions(reviewProfile, [latest], scanIdRef.current)
+      }
+      const chosen = pending.candidate.event
+      setPending({
+        ...pending,
+        current,
+        delta: computeLazarusDelta(chosen, current, privateTagsRef.current),
+        profileChanges:
+          reviewProfile.kind === kinds.Metadata
+            ? computeLazarusProfileChanges(chosen, current)
+            : undefined,
+        changedSinceReview: true
+      })
+    },
+    [pending, isUndecrypted, decryptVersions]
+  )
+
   const confirmRecovery = useCallback(async () => {
     if (!pending || !pubkey) return
+    const chosen = pending.candidate.event
+    // Only the account the list belongs to can restore it
+    if (chosen.pubkey !== pubkey) {
+      toast.error(t('This version belongs to another account. Switch back to it to restore.'))
+      setPending(undefined)
+      return
+    }
     setRecovering(true)
     try {
-      const draft = buildLazarusRecoveryDraft(pending.candidate.event)
+      // The list may have changed since the review opened (another column,
+      // device or client), and restoring over it would drop those edits
+      const [onRelays, stored] = await Promise.all([
+        fetchLatestLazarusVersion(chosen.kind, pubkey),
+        indexedDb.getReplaceableEvent(pubkey, chosen.kind)
+      ])
+      let latest = pending.current
+      for (const event of [onRelays, stored]) {
+        if (event && (!latest || event.created_at > latest.created_at)) latest = event
+      }
+      if (latest && latest.id !== pending.current?.id) {
+        await reviewAgainst(latest)
+        return
+      }
+      const draft = buildLazarusRecoveryDraft(chosen, { current: latest })
       const signed = await signEvent(draft)
-      await client.publishEvent(
-        await getLazarusPublishRelays(pubkey, scan?.respondingRelays ?? []),
-        signed
-      )
+      if (signed.pubkey !== chosen.pubkey) {
+        toast.error(t('This version belongs to another account. Switch back to it to restore.'))
+        return
+      }
+      const { write, extra } = await getLazarusPublishRelays(pubkey, scan?.respondingRelays ?? [])
+      await client.publishEvent(write, signed)
+      // The other relays that answered hold older copies of the list; replace
+      // them where they accept it, without holding up the result
+      if (extra.length > 0) client.publishEvent(extra, signed).catch(() => {})
+      await applyRestoreLocally(signed, chosen)
       toast.success(t('Recovery published. It may take a moment to propagate.'))
       setPending(undefined)
       await runScan()
@@ -445,7 +599,7 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
     } finally {
       setRecovering(false)
     }
-  }, [pending, pubkey, scan, signEvent, runScan, t])
+  }, [pending, pubkey, scan, signEvent, runScan, reviewAgainst, applyRestoreLocally, t])
 
   const renderCandidate = (candidate: LazarusCandidate) => (
     <CandidateRow
@@ -456,7 +610,7 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
       privateItemsNote={privateItemsNotes[candidate.event.id]}
       tooLargeToRestore={isTooLargeToRestore(candidate.event)}
       preparing={preparingReview === candidate.event.id}
-      restorable={!isPastEmptyVersion(candidate, profile)}
+      restorable={canRestore && !isPastEmptyVersion(candidate, profile)}
       onPick={pickCandidate}
     />
   )
@@ -525,6 +679,16 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
               <span>
                 {t(
                   'You are signed in with a remote signer. Lists over 64 KB, like a mute list with many private items or a big follow list, cannot be decrypted or restored through NIP-46. Use a browser extension signer (NIP-07) or a local key for those.'
+                )}
+              </span>
+            </div>
+          )}
+          {!canRestore && (
+            <div className="text-muted-foreground mx-4 mb-3 flex items-start gap-2 rounded-md border p-2 text-xs">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {t(
+                  'This account is view-only, so you can scan its history but not restore a version.'
                 )}
               </span>
             </div>
@@ -653,11 +817,41 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
             </DialogHeader>
             {pending && (
               <div className="space-y-2 text-sm">
-                <div>
-                  {t('{{count}} items would be added', { count: pending.delta.addedCount })}
-                  {' · '}
-                  {t('{{count}} items would be removed', { count: pending.delta.removedCount })}
-                </div>
+                {pending.changedSinceReview && (
+                  <div className="flex items-start gap-2 rounded-md border p-2 text-xs">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      {t(
+                        'Your list changed since this review, so the changes above now compare against the newest version. Check them and restore again.'
+                      )}
+                    </span>
+                  </div>
+                )}
+                {pending.profileChanges ? (
+                  pending.profileChanges.length === 0 ? (
+                    <div>{t('No profile fields would change.')}</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {pending.profileChanges.map((change) => (
+                        <div key={change.field} className="text-xs">
+                          <div className="font-medium">{change.field}</div>
+                          <div className="break-words">{change.to ?? '—'}</div>
+                          {change.from !== undefined && (
+                            <div className="text-muted-foreground break-words line-through">
+                              {change.from}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <div>
+                    {t('{{count}} items would be added', { count: pending.delta.addedCount })}
+                    {' · '}
+                    {t('{{count}} items would be removed', { count: pending.delta.removedCount })}
+                  </div>
+                )}
                 {pending.delta.shrinks && (
                   <div className="flex items-start gap-2 rounded-md border p-2 text-xs">
                     <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
@@ -676,7 +870,9 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
                         'Private items in one of these versions could not be decrypted, so the changes above cover public items only. By size, the selected version has {{chosen}} items and your current one has {{current}}.',
                         {
                           chosen: formatItemRange(pending.candidate.itemCount),
-                          current: scan?.current ? formatItemRange(scan.current.itemCount) : '0'
+                          current: pending.current
+                            ? formatItemRange(pending.profile.itemCount(pending.current))
+                            : '0'
                         }
                       )}
                     </span>

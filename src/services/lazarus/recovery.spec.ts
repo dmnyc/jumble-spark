@@ -8,7 +8,7 @@ import { generateSecretKey, getPublicKey, nip44, type Event } from 'nostr-tools'
 vi.mock('@/services/client.service', () => ({
   default: {
     fetchRelayList: vi.fn(),
-    fetchEvents: vi.fn().mockResolvedValue([])
+    subscribe: vi.fn()
   }
 }))
 vi.mock('@/lib/relay', () => ({
@@ -22,6 +22,8 @@ import {
   applyLazarusPrivateTags,
   buildLazarusRecoveryDraft,
   computeLazarusDelta,
+  computeLazarusProfileChanges,
+  fetchLatestLazarusVersion,
   fitsLazarusRemoteRestore,
   getLazarusItemRange,
   getLazarusPublishRelays,
@@ -360,17 +362,65 @@ describe('computeLazarusDelta', () => {
     const delta = computeLazarusDelta(chosen, current)
     expect(delta.shrinks).toBe(true)
   })
+
+  it('treats a follow whose relay hint or petname changed as the same item', () => {
+    const current = {
+      ...makeEvent({ kind: 3 }),
+      tags: [
+        ['p', 'a'],
+        ['p', 'b', 'wss://old']
+      ]
+    } as Event
+    const chosen = {
+      ...makeEvent({ kind: 3 }),
+      tags: [
+        ['p', 'a', 'wss://new', 'alice'],
+        ['p', 'b']
+      ]
+    } as Event
+    const delta = computeLazarusDelta(chosen, current)
+    expect(delta.addedCount).toBe(0)
+    expect(delta.removedCount).toBe(0)
+  })
+
+  it('counts a changed read/write marker on relay lists', () => {
+    const current = { ...makeEvent({ kind: 10002 }), tags: [['r', 'wss://a', 'read']] } as Event
+    const chosen = { ...makeEvent({ kind: 10002 }), tags: [['r', 'wss://a', 'write']] } as Event
+    const delta = computeLazarusDelta(chosen, current)
+    expect(delta.addedCount).toBe(1)
+    expect(delta.removedCount).toBe(1)
+  })
+})
+
+describe('computeLazarusProfileChanges', () => {
+  it('lists only the profile fields that change', () => {
+    const profileEvent = (content: object) =>
+      ({ ...makeEvent({ kind: 0 }), content: JSON.stringify(content) }) as Event
+    const current = profileEvent({ name: 'clobbered', about: 'same' })
+    const chosen = profileEvent({ name: 'Daniel', about: 'same', picture: 'https://pic' })
+    expect(computeLazarusProfileChanges(chosen, current)).toEqual([
+      { field: 'name', from: 'clobbered', to: 'Daniel' },
+      { field: 'picture', from: undefined, to: 'https://pic' }
+    ])
+  })
 })
 
 describe('buildLazarusRecoveryDraft', () => {
   it('copies the candidate verbatim with a fresh timestamp', () => {
     const chosen = followListEvent(4, 999, '{"wss://relay": {"read": true}}')
-    const draft = buildLazarusRecoveryDraft(chosen, 1234567890)
+    const draft = buildLazarusRecoveryDraft(chosen, { now: 1234567890 })
     expect(draft.kind).toBe(3)
     expect(draft.created_at).toBe(1234567890)
     expect(draft.content).toBe(chosen.content)
     expect(draft.tags).toEqual(chosen.tags)
     expect(draft.tags).not.toBe(chosen.tags)
+  })
+
+  it('dates the draft after the version it replaces, even one from the future', () => {
+    const chosen = followListEvent(4, 999)
+    const current = followListEvent(1, 1234568490) // ten minutes ahead of now
+    const draft = buildLazarusRecoveryDraft(chosen, { current, now: 1234567890 })
+    expect(draft.created_at).toBe(1234568491)
   })
 })
 
@@ -539,34 +589,29 @@ describe('getLazarusScanRelays', () => {
 })
 
 describe('getLazarusPublishRelays', () => {
-  it('publishes to every write relay plus the relays that answered the scan', async () => {
+  it('judges success on the write relays and sends the rest as extras', async () => {
     vi.mocked(client.fetchRelayList).mockResolvedValueOnce({
       write: ['wss://w1/', 'wss://w2/', 'wss://w3/', 'wss://w4/', 'wss://w5/', 'wss://w6/'],
       read: ['wss://r1/'],
       originalRelays: []
     })
     const relays = await getLazarusPublishRelays('pubkey', ['wss://hist.nostr.land', 'wss://w1/'])
-    expect(relays).toEqual([
-      'wss://w1/',
-      'wss://w2/',
-      'wss://w3/',
-      'wss://w4/',
-      'wss://w5/',
-      'wss://w6/',
-      'wss://hist.nostr.land/'
-    ])
+    expect(relays).toEqual({
+      write: ['wss://w1/', 'wss://w2/', 'wss://w3/', 'wss://w4/', 'wss://w5/', 'wss://w6/'],
+      extra: ['wss://hist.nostr.land/']
+    })
   })
 
   it('falls back to the default relays without a relay list', async () => {
     vi.mocked(client.fetchRelayList).mockRejectedValueOnce(new Error('offline'))
-    expect(await getLazarusPublishRelays('pubkey', ['wss://a/'])).toEqual([
-      'wss://default/',
-      'wss://a/'
-    ])
+    expect(await getLazarusPublishRelays('pubkey', ['wss://a/'])).toEqual({
+      write: ['wss://default/'],
+      extra: ['wss://a/']
+    })
   })
 })
 
-describe('loading older versions', () => {
+describe('relay queries', () => {
   const HISTORY_RELAY = 'wss://hist.nostr.land/'
   // 70 versions on one relay: more than one page. Explicit ids, since
   // makeEvent's padded ids repeat past a few dozen events.
@@ -576,24 +621,34 @@ describe('loading older versions', () => {
   }))
   const profile = getLazarusKindProfile(3)!
 
+  // Relays answer through client.subscribe; this one serves a fixed history
+  const serve = (relay: string, events: Event[], honorUntil = true) =>
+    vi.mocked(client.subscribe).mockImplementation((urls, filter, handlers) => {
+      const { until, limit = 50 } = filter as { until?: number; limit?: number }
+      queueMicrotask(() => {
+        if (urls[0] === relay) {
+          events
+            .filter((event) => !honorUntil || until === undefined || event.created_at <= until)
+            .sort((a, b) => b.created_at - a.created_at)
+            .slice(0, limit)
+            .forEach((event) => handlers.onevent?.(event))
+        }
+        handlers.oneose?.(true)
+      })
+      return { close: () => {} }
+    })
+
   beforeEach(() => {
     vi.mocked(client.fetchRelayList).mockResolvedValue({ write: [], read: [], originalRelays: [] })
   })
 
   afterEach(() => {
     vi.mocked(client.fetchRelayList).mockReset()
-    vi.mocked(client.fetchEvents).mockResolvedValue([])
+    vi.mocked(client.subscribe).mockReset()
   })
 
   it('pages back from relays that filled a page', async () => {
-    vi.mocked(client.fetchEvents).mockImplementation(async (urls, filter) => {
-      if (urls[0] !== HISTORY_RELAY) return []
-      const { until, limit = 50 } = filter as { until?: number; limit?: number }
-      return history
-        .filter((event) => until === undefined || event.created_at <= until)
-        .sort((a, b) => b.created_at - a.created_at)
-        .slice(0, limit)
-    })
+    serve(HISTORY_RELAY, history)
     const scan = await scanLazarusKind(3, 'test-pubkey')
     expect(scan.candidates).toHaveLength(50)
     expect(scan.olderCursors).toEqual({ [HISTORY_RELAY]: 1020 })
@@ -609,14 +664,44 @@ describe('loading older versions', () => {
   })
 
   it('stops paging a relay that ignores until', async () => {
-    const newest = [...history].sort((a, b) => b.created_at - a.created_at).slice(0, 50)
-    vi.mocked(client.fetchEvents).mockImplementation(async (urls) =>
-      urls[0] === HISTORY_RELAY ? newest : []
-    )
+    serve(HISTORY_RELAY, history, false)
     const scan = await scanLazarusKind(3, 'test-pubkey')
     const older = await loadOlderLazarusVersions(profile, scan, 'test-pubkey')
     expect(older.candidates).toHaveLength(50)
     expect(older.olderCursors).toEqual({})
+  })
+
+  it('closes relay subscriptions that time out', async () => {
+    vi.useFakeTimers()
+    try {
+      const close = vi.fn()
+      vi.mocked(client.subscribe).mockImplementation(() => ({ close }))
+      const pending = scanLazarusKind(3, 'test-pubkey')
+      await vi.advanceTimersByTimeAsync(6000)
+      const scan = await pending
+      expect(scan.respondingRelays).toEqual([])
+      expect(close).toHaveBeenCalledTimes(scan.queriedRelays.length)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('finds the newest version on the write relays before a restore', async () => {
+    vi.mocked(client.fetchRelayList).mockResolvedValue({
+      write: ['wss://w1/', 'wss://w2/'],
+      read: [],
+      originalRelays: []
+    })
+    const older = followListEvent(5, 1000)
+    const newer = followListEvent(6, 2000)
+    vi.mocked(client.subscribe).mockImplementation((urls, _filter, handlers) => {
+      queueMicrotask(() => {
+        handlers.onevent?.(urls[0] === 'wss://w1/' ? older : newer)
+        handlers.oneose?.(true)
+      })
+      return { close: () => {} }
+    })
+    expect((await fetchLatestLazarusVersion(3, 'test-pubkey'))?.id).toBe(newer.id)
   })
 })
 
