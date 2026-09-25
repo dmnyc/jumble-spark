@@ -1,8 +1,15 @@
-import { forwardRef, useCallback, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import dayjs from 'dayjs'
-import { ArchiveRestore, Loader2, ScanSearch, TriangleAlert } from 'lucide-react'
+import {
+  ArchiveRestore,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  ScanSearch,
+  TriangleAlert
+} from 'lucide-react'
 import { SettingsPageContainer, SettingsGroup, SettingsRow } from '@/components/ui/settings'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,16 +29,23 @@ import {
   applyLazarusPrivateTags,
   buildLazarusRecoveryDraft,
   computeLazarusDelta,
+  fitsLazarusRemoteRestore,
   getContentEncryption,
   getLazarusItemRange,
   getLazarusKindProfiles,
+  getLazarusPublishRelays,
+  groupLazarusCandidates,
+  isPastEmptyVersion,
+  loadOlderLazarusVersions,
   parsePrivateTags,
   scanLazarusKind,
+  sortLazarusCandidates,
   type LazarusCandidate,
   type LazarusDelta,
   type LazarusItemCount,
   type LazarusKindProfile,
-  type LazarusScanResult
+  type LazarusScanResult,
+  type LazarusSortOrder
 } from '@/services/lazarus'
 import type { Event } from 'nostr-tools'
 
@@ -46,6 +60,10 @@ function formatTimestamp(seconds: number): string {
   return dayjs.unix(seconds).format('YYYY-MM-DD HH:mm')
 }
 
+function formatDate(seconds: number): string {
+  return dayjs.unix(seconds).format('YYYY-MM-DD')
+}
+
 function formatItemRange(itemCount: LazarusItemCount): string {
   const { min, max } = getLazarusItemRange(itemCount)
   return min === max ? `${min}` : `≈ ${min}–${max}`
@@ -56,12 +74,18 @@ function CandidateRow({
   candidate,
   decrypting,
   privateItemsNote,
+  tooLargeToRestore,
+  preparing,
+  restorable,
   onPick
 }: {
   profile: LazarusKindProfile
   candidate: LazarusCandidate
   decrypting: boolean
   privateItemsNote?: PrivateItemsNote
+  tooLargeToRestore: boolean
+  preparing: boolean
+  restorable: boolean
   onPick: (candidate: LazarusCandidate) => void
 }) {
   const { t } = useTranslation()
@@ -115,10 +139,16 @@ function CandidateRow({
           {candidate.foundOn.length > 0 &&
             ` · ${t('found on {{count}} relays', { count: candidate.foundOn.length })}`}
         </div>
-        {privateItemsNote === 'too-large' && (
-          <div className="text-xs text-muted-foreground">
-            {t('Too large to decrypt through a remote signer')}
+        {privateItemsNote === 'too-large' ? (
+          <div className="text-muted-foreground text-xs">
+            {t('Too large for a remote signer to decrypt or restore')}
           </div>
+        ) : (
+          tooLargeToRestore && (
+            <div className="text-muted-foreground text-xs">
+              {t('Too large to restore with a remote signer')}
+            </div>
+          )
         )}
         {privateItemsNote === 'failed' && (
           <div className="text-xs text-muted-foreground">
@@ -126,8 +156,9 @@ function CandidateRow({
           </div>
         )}
       </div>
-      {!candidate.isCurrent && (
-        <Button variant="outline" size="sm" onClick={() => onPick(candidate)}>
+      {!candidate.isCurrent && restorable && (
+        <Button variant="outline" size="sm" onClick={() => onPick(candidate)} disabled={preparing}>
+          {preparing && <Loader2 className="h-4 w-4 animate-spin" />}
           {t('Review')}
         </Button>
       )}
@@ -153,14 +184,51 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
   const [recovering, setRecovering] = useState(false)
   const [privateTags, setPrivateTags] = useState<Map<string, string[][]>>(new Map())
   const [privateItemsNotes, setPrivateItemsNotes] = useState<Record<string, PrivateItemsNote>>({})
-  const [decrypting, setDecrypting] = useState(false)
+  const [decryptingIds, setDecryptingIds] = useState<Set<string>>(new Set())
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [sortBy, setSortBy] = useState<LazarusSortOrder>('date')
+  const [preparingReview, setPreparingReview] = useState<string>()
+  const [showEmpty, setShowEmpty] = useState(false)
   // Bumped whenever a new scan starts, so a slow decryption can't land on a newer scan
   const scanIdRef = useRef(0)
+  // The latest decrypted private items and notes, so decryptions that finish
+  // out of order merge, and versions already tried aren't asked for again
+  const privateTagsRef = useRef<Map<string, string[][]>>(new Map())
+  const privateNotesRef = useRef<Record<string, PrivateItemsNote>>({})
+  // Decryptions run one job after another, so a signer that prompts never
+  // gets two requests at once, and a queued version isn't queued twice
+  const decryptQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const queuedRef = useRef(new Set<string>())
+  // Restore-size checks by event id, so each large list is serialized once
+  const restoreFitsRef = useRef(new Map<string, boolean>())
   const usesRemoteSigner = account?.signerType === 'bunker'
 
   const profile = useMemo(
     () => KIND_PROFILES.find((p) => p.kind === kind) ?? KIND_PROFILES[0],
     [kind]
+  )
+  // Size order only means something for list kinds, and lists every version
+  // on its own row; newest first folds runs of small edits into groups
+  const sortable = profile.ranking === 'count'
+  // Past empty versions are clobber evidence, not something to restore, so
+  // they stay hidden until asked for
+  const bySize = useMemo(
+    () =>
+      scan && sortable && sortBy === 'size'
+        ? sortLazarusCandidates(scan.candidates, 'size').filter(
+            (candidate) => showEmpty || !isPastEmptyVersion(candidate, profile)
+          )
+        : undefined,
+    [scan, sortable, sortBy, showEmpty, profile]
+  )
+  const listItems = useMemo(
+    () => (scan ? groupLazarusCandidates(scan, profile, { hidePastEmpty: !showEmpty }) : []),
+    [scan, profile, showEmpty]
+  )
+  const pastEmptyCount = useMemo(
+    () => (scan ? scan.candidates.filter((c) => isPastEmptyVersion(c, profile)).length : 0),
+    [scan, profile]
   )
 
   /**
@@ -189,30 +257,97 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
     [account, usesRemoteSigner, nip04Decrypt, nip44Decrypt]
   )
 
-  const countPrivateItems = useCallback(
-    async (scanProfile: LazarusKindProfile, result: LazarusScanResult, scanId: number) => {
-      const encrypted = result.candidates.filter((c) => getContentEncryption(c.event.content))
-      if (!scanProfile.privateItemTypes || encrypted.length === 0) return
-      setDecrypting(true)
-      const decrypted = new Map<string, string[][]>()
-      const notes: Record<string, PrivateItemsNote> = {}
-      // One at a time, so a signer that prompts shows one request at a time
-      for (const { event } of encrypted) {
-        try {
-          const tags = await readPrivateTags(event)
-          if (typeof tags === 'string') notes[event.id] = tags
-          else decrypted.set(event.id, tags)
-        } catch {
-          notes[event.id] = 'failed'
-        }
-        if (scanIdRef.current !== scanId) return
-      }
-      setPrivateTags(decrypted)
-      setPrivateItemsNotes(notes)
-      setScan(applyLazarusPrivateTags(scanProfile, result, decrypted))
-      setDecrypting(false)
+  /** Merge decrypted private items into the latest set and re-rank the scan with them. */
+  const mergePrivateItems = useCallback(
+    (
+      scanProfile: LazarusKindProfile,
+      decrypted: Map<string, string[][]>,
+      notes: Record<string, PrivateItemsNote>
+    ) => {
+      const merged = new Map([...privateTagsRef.current, ...decrypted])
+      privateTagsRef.current = merged
+      privateNotesRef.current = { ...privateNotesRef.current, ...notes }
+      setPrivateTags(merged)
+      setPrivateItemsNotes(privateNotesRef.current)
+      setScan((current) => current && applyLazarusPrivateTags(scanProfile, current, merged))
     },
-    [readPrivateTags]
+    []
+  )
+
+  const isUndecrypted = useCallback(
+    (candidate: LazarusCandidate) =>
+      !!getContentEncryption(candidate.event.content) &&
+      !privateTagsRef.current.has(candidate.event.id) &&
+      !privateNotesRef.current[candidate.event.id],
+    []
+  )
+
+  /**
+   * Decrypt versions' private items, one version at a time and one job after
+   * another. Versions decrypted or tried in the meantime are skipped.
+   */
+  const decryptVersions = useCallback(
+    (scanProfile: LazarusKindProfile, candidates: LazarusCandidate[], scanId: number) => {
+      const ids = candidates.map((c) => c.event.id)
+      ids.forEach((id) => queuedRef.current.add(id))
+      setDecryptingIds((prev) => new Set([...prev, ...ids]))
+      const job = decryptQueueRef.current.then(async () => {
+        const decrypted = new Map<string, string[][]>()
+        const notes: Record<string, PrivateItemsNote> = {}
+        for (const candidate of candidates) {
+          if (scanIdRef.current !== scanId) return
+          if (!isUndecrypted(candidate)) continue
+          const { event } = candidate
+          try {
+            const tags = await readPrivateTags(event)
+            if (typeof tags === 'string') notes[event.id] = tags
+            else decrypted.set(event.id, tags)
+          } catch {
+            notes[event.id] = 'failed'
+          }
+        }
+        if (scanIdRef.current === scanId) mergePrivateItems(scanProfile, decrypted, notes)
+      })
+      decryptQueueRef.current = job.catch(() => {})
+      return job.finally(() => {
+        ids.forEach((id) => queuedRef.current.delete(id))
+        setDecryptingIds((prev) => {
+          const next = new Set(prev)
+          ids.forEach((id) => next.delete(id))
+          return next
+        })
+      })
+    },
+    [isUndecrypted, readPrivateTags, mergePrivateItems]
+  )
+
+  // Decrypt what the list shows: versions on their own rows, plus expanded
+  // groups unless each decryption is a remote signer request. Everything else
+  // is decrypted when a version is reviewed.
+  useEffect(() => {
+    if (!profile.privateItemTypes) return
+    const shown = listItems.flatMap((item) => {
+      if (item.type === 'version') return [item.candidate]
+      if (usesRemoteSigner || !expandedGroups.has(item.candidates[0].event.id)) return []
+      return item.candidates
+    })
+    // The recommendation is pinned above the list, even when its group is folded
+    if (scan?.recommended) shown.push(scan.recommended)
+    const pending = shown.filter((c) => isUndecrypted(c) && !queuedRef.current.has(c.event.id))
+    if (pending.length > 0) decryptVersions(profile, pending, scanIdRef.current)
+  }, [scan, listItems, profile, expandedGroups, usesRemoteSigner, isUndecrypted, decryptVersions])
+
+  const isTooLargeToRestore = useCallback(
+    (event: Event) => {
+      if (!usesRemoteSigner || !pubkey) return false
+      let fits = restoreFitsRef.current.get(event.id)
+      if (fits === undefined) {
+        fits = fitsLazarusRemoteRestore(event, pubkey)
+        restoreFitsRef.current.set(event.id, fits)
+      }
+      return !fits
+    },
+    [usesRemoteSigner, pubkey]
   )
 
   const runScan = useCallback(async () => {
@@ -220,31 +355,77 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
     const scanId = ++scanIdRef.current
     setPhase('scanning')
     setScan(undefined)
+    privateTagsRef.current = new Map()
+    privateNotesRef.current = {}
+    queuedRef.current = new Set()
     setPrivateTags(new Map())
     setPrivateItemsNotes({})
-    setDecrypting(false)
+    setDecryptingIds(new Set())
+    setExpandedGroups(new Set())
+    setShowEmpty(false)
+    setShowEmpty(false)
+    setLoadingOlder(false)
     try {
       const result = await scanLazarusKind(kind, pubkey)
       if (scanIdRef.current !== scanId) return
       setScan(result)
       setPhase('done')
-      countPrivateItems(profile, result, scanId)
     } catch {
       if (scanIdRef.current === scanId) setPhase('error')
     }
-  }, [kind, pubkey, profile, countPrivateItems])
+  }, [kind, pubkey])
+
+  const loadOlder = useCallback(async () => {
+    if (!pubkey || !scan) return
+    const scanId = scanIdRef.current
+    setLoadingOlder(true)
+    try {
+      const result = await loadOlderLazarusVersions(profile, scan, pubkey, privateTagsRef.current)
+      if (scanIdRef.current !== scanId) return
+      // Count what finished decrypting while this page loaded
+      setScan(applyLazarusPrivateTags(profile, result, privateTagsRef.current))
+    } catch {
+      if (scanIdRef.current === scanId) toast.error(t('Could not load older versions.'))
+    } finally {
+      if (scanIdRef.current === scanId) setLoadingOlder(false)
+    }
+  }, [pubkey, scan, profile, t])
 
   const pickCandidate = useCallback(
-    (candidate: LazarusCandidate) => {
-      if (!scan) return
-      const delta = computeLazarusDelta(candidate.event, scan.current?.event, privateTags)
-      const draft = buildLazarusRecoveryDraft(candidate.event)
-      const tooLargeForRemoteSigner =
-        usesRemoteSigner && !fitsNip46Request('sign_event', [JSON.stringify({ ...draft, pubkey })])
-      setPending({ profile, candidate, delta, tooLargeForRemoteSigner })
+    async (candidate: LazarusCandidate) => {
+      if (!scan || preparingReview) return
+      const scanId = scanIdRef.current
+      // Decrypt what the review needs and isn't decrypted yet, so the changes
+      // cover private items too
+      const needed = [candidate, scan.current].filter(
+        (c): c is LazarusCandidate => !!c && isUndecrypted(c)
+      )
+      if (profile.privateItemTypes && needed.length > 0) {
+        setPreparingReview(candidate.event.id)
+        await decryptVersions(profile, needed, scanId)
+        setPreparingReview(undefined)
+        if (scanIdRef.current !== scanId) return
+      }
+      const tags = privateTagsRef.current
+      const chosen =
+        applyLazarusPrivateTags(profile, scan, tags).candidates.find(
+          (c) => c.event.id === candidate.event.id
+        ) ?? candidate
+      const delta = computeLazarusDelta(chosen.event, scan.current?.event, tags)
+      const tooLargeForRemoteSigner = isTooLargeToRestore(chosen.event)
+      setPending({ profile, candidate: chosen, delta, tooLargeForRemoteSigner })
     },
-    [profile, scan, privateTags, usesRemoteSigner, pubkey]
+    [profile, scan, preparingReview, isUndecrypted, decryptVersions, isTooLargeToRestore]
   )
+
+  const toggleGroup = useCallback((key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
 
   const confirmRecovery = useCallback(async () => {
     if (!pending || !pubkey) return
@@ -253,7 +434,7 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
       const draft = buildLazarusRecoveryDraft(pending.candidate.event)
       const signed = await signEvent(draft)
       await client.publishEvent(
-        await client.determineRelaysByFilter({ kinds: [draft.kind], authors: [pubkey] }),
+        await getLazarusPublishRelays(pubkey, scan?.respondingRelays ?? []),
         signed
       )
       toast.success(t('Recovery published. It may take a moment to propagate.'))
@@ -264,7 +445,57 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
     } finally {
       setRecovering(false)
     }
-  }, [pending, pubkey, signEvent, runScan, t])
+  }, [pending, pubkey, scan, signEvent, runScan, t])
+
+  const renderCandidate = (candidate: LazarusCandidate) => (
+    <CandidateRow
+      key={candidate.event.id}
+      profile={profile}
+      candidate={candidate}
+      decrypting={decryptingIds.has(candidate.event.id) && !privateTags.has(candidate.event.id)}
+      privateItemsNote={privateItemsNotes[candidate.event.id]}
+      tooLargeToRestore={isTooLargeToRestore(candidate.event)}
+      preparing={preparingReview === candidate.event.id}
+      restorable={!isPastEmptyVersion(candidate, profile)}
+      onPick={pickCandidate}
+    />
+  )
+
+  const renderGroup = (candidates: LazarusCandidate[], clobbered: boolean) => {
+    const key = candidates[0].event.id
+    const expanded = expandedGroups.has(key)
+    const ranges = candidates.map((c) => getLazarusItemRange(c.itemCount))
+    const min = Math.min(...ranges.map((range) => range.min))
+    const max = Math.max(...ranges.map((range) => range.max))
+    const estimated = candidates.some((c) => !!c.itemCount.privateEstimate)
+    const newest = formatDate(candidates[0].event.created_at)
+    const oldest = formatDate(candidates[candidates.length - 1].event.created_at)
+    let size = t('{{min}}–{{max}} items', { min, max })
+    if (min === max) size = t('{{count}} items', { count: min })
+    else if (estimated) size = t('≈ {{min}}–{{max}} items', { min, max })
+    return (
+      <div key={`group-${key}`}>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          className="text-muted-foreground hover:text-foreground flex w-full items-center justify-between gap-2 py-1.5 text-start text-xs"
+          onClick={() => toggleGroup(key)}
+        >
+          <span className="min-w-0 truncate">
+            {t('{{count}} versions', { count: candidates.length })} · {size} ·{' '}
+            {clobbered && <span className="text-warning">{t('sudden drops')} · </span>}
+            {oldest === newest ? newest : `${oldest} – ${newest}`}
+          </span>
+          {expanded ? (
+            <ChevronUp className="h-4 w-4 shrink-0" />
+          ) : (
+            <ChevronDown className="h-4 w-4 shrink-0" />
+          )}
+        </button>
+        {expanded && <div className="border-s ps-3">{candidates.map(renderCandidate)}</div>}
+      </div>
+    )
+  }
 
   if (!pubkey) {
     return (
@@ -300,19 +531,21 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
           )}
           <div className="flex items-center gap-2 px-4 pb-3">
             <select
-              className="h-9 flex-1 rounded-md border bg-transparent px-3 text-sm"
+              className="h-9 min-w-0 flex-1 rounded-md border bg-transparent px-3 text-sm"
               value={kind}
               onChange={(e) => {
                 scanIdRef.current += 1
                 setKind(Number(e.target.value))
                 setScan(undefined)
                 setPhase('idle')
-                setDecrypting(false)
+                setDecryptingIds(new Set())
+                setExpandedGroups(new Set())
+                setLoadingOlder(false)
               }}
             >
               {KIND_PROFILES.map((p) => (
                 <option key={p.kind} value={p.kind}>
-                  {`k${p.kind} · ${p.name}`}
+                  {`kind ${p.kind} · ${p.name}`}
                 </option>
               ))}
             </select>
@@ -349,25 +582,59 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
                       </span>
                     </div>
                   )}
-                  {decrypting && (
+                  {decryptingIds.size > 0 && (
                     <div className="py-1 text-xs text-muted-foreground">
                       {t('Decrypting private items…')}
                     </div>
                   )}
-                  {scan.candidates.map((candidate) => (
-                    <CandidateRow
-                      key={candidate.event.id}
-                      profile={profile}
-                      candidate={candidate}
-                      decrypting={
-                        decrypting &&
-                        !privateTags.has(candidate.event.id) &&
-                        !!getContentEncryption(candidate.event.content)
-                      }
-                      privateItemsNote={privateItemsNotes[candidate.event.id]}
-                      onPick={pickCandidate}
-                    />
-                  ))}
+                  {scan.recommended && (
+                    <div className="mb-2 rounded-md border px-2">
+                      {renderCandidate(scan.recommended)}
+                    </div>
+                  )}
+                  {sortable && scan.candidates.length > 1 && (
+                    <div className="text-muted-foreground mb-1 flex items-center justify-end gap-2 text-xs">
+                      <span>{t('Sort by')}</span>
+                      <select
+                        className="h-7 rounded-md border bg-transparent px-2 text-xs"
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as LazarusSortOrder)}
+                      >
+                        <option value="date">{t('Date')}</option>
+                        <option value="size">{t('Size')}</option>
+                      </select>
+                    </div>
+                  )}
+                  {bySize
+                    ? bySize.map(renderCandidate)
+                    : listItems.map((item) =>
+                        item.type === 'version'
+                          ? renderCandidate(item.candidate)
+                          : renderGroup(item.candidates, item.clobbered)
+                      )}
+                  {pastEmptyCount > 0 && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground py-1.5 text-start text-xs"
+                      onClick={() => setShowEmpty((shown) => !shown)}
+                    >
+                      {showEmpty
+                        ? t('Hide empty versions')
+                        : t('Show {{count}} empty versions', { count: pastEmptyCount })}
+                    </button>
+                  )}
+                  {Object.keys(scan.olderCursors ?? {}).length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 w-full"
+                      onClick={loadOlder}
+                      disabled={loadingOlder}
+                    >
+                      {loadingOlder && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {t('Load older versions')}
+                    </Button>
+                  )}
                 </>
               )}
             </div>
@@ -379,10 +646,9 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
             <DialogHeader>
               <DialogTitle>{t('Review recovery')}</DialogTitle>
               <DialogDescription>
-                {t(
-                  'Restoring replaces your current {{kind}} list with the selected version.',
-                  { kind: pending?.profile.name ?? '' }
-                )}
+                {t('Restoring replaces your current {{kind}} with the selected version.', {
+                  kind: pending?.profile.name ?? ''
+                })}
               </DialogDescription>
             </DialogHeader>
             {pending && (

@@ -9,8 +9,8 @@ import { estimatePrivateItems, getContentEncryption } from './private-items'
  * (scan / rank / delta / recover) never hardcodes kind semantics, so new
  * kinds are added here and nowhere else.
  *
- * Spec draft lives beside the Nostr Valley talk materials:
- * notes/lazarus-spec-draft.md (0.2.0-draft at the time of writing).
+ * Spec: https://github.com/dmnyc/lazarus/blob/main/SPEC.md
+ * (0.4.0-draft at the time of writing).
  */
 
 export type LazarusRanking = 'count' | 'recency' | 'intent'
