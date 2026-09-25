@@ -1,4 +1,4 @@
-import type { Event } from 'nostr-tools'
+import { kinds, type Event, type Filter } from 'nostr-tools'
 import client from '@/services/client.service'
 import { fitsNip46Request } from '@/lib/nip46'
 import { getDefaultRelayUrls } from '@/lib/relay'
@@ -130,48 +130,67 @@ export interface LazarusRelaySource {
   }>
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+/**
+ * One relay's answer to a filter. The subscription is closed as soon as the
+ * relay finishes or times out, so a slow relay doesn't stay subscribed after
+ * the scan moves on; a timeout counts as no answer.
+ */
+function fetchFromRelay(
+  url: string,
+  filter: Filter,
+  timeoutMs: number = SCAN_TIMEOUT_MS
+): Promise<Event[]> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('relay timeout')), ms)
-    promise.then(
-      (value) => {
-        clearTimeout(timer)
-        resolve(value)
+    const events: Event[] = []
+    let done = false
+    const finish = (error?: Error) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      sub.close()
+      if (error) reject(error)
+      else resolve(events)
+    }
+    const timer = setTimeout(() => finish(new Error('relay timeout')), timeoutMs)
+    const sub = client.subscribe([url], filter, {
+      onevent: (event) => {
+        events.push(event)
       },
-      (error) => {
-        clearTimeout(timer)
-        reject(error)
-      }
-    )
+      oneose: (eosed) => {
+        if (eosed) finish()
+      },
+      onAllClose: () => finish()
+    })
   })
+}
+
+function uniqueRelayUrls(urls: string[]): string[] {
+  return Array.from(new Set(urls.map((url) => normalizeUrl(url)).filter(Boolean)))
+}
+
+async function getWriteRelays(pubkey: string): Promise<string[]> {
+  try {
+    return uniqueRelayUrls((await client.fetchRelayList(pubkey)).write)
+  } catch {
+    return uniqueRelayUrls(getDefaultRelayUrls())
+  }
 }
 
 /**
  * A user's own relays usually keep only the latest version of a replaceable
  * event, so a scan limited to them misses most of the history. These relays
- * have been seen holding older versions: hist.nostr.land and relay.ditto.pub
- * keep full history, and the rest are large relays that often still have
- * versions the user's own relays already replaced.
+ * have been seen holding older versions: relay.ditto.pub keeps every version,
+ * hist.nostr.land keeps recent history, and the rest are large relays that
+ * often still have versions the user's own relays already replaced. Only
+ * relays that actually showed history are listed, since each is a socket.
  */
 export const LAZARUS_ARCHIVAL_RELAYS = [
-  'wss://hist.nostr.land',
   'wss://relay.ditto.pub',
+  'wss://hist.nostr.land',
   'wss://nos.lol',
   'wss://nostr.mom',
   'wss://purplepag.es',
-  'wss://nostr.bitcoiner.social',
-  'wss://relay.primal.net',
-  'wss://relay.snort.social',
-  'wss://relay.nostr.net',
-  'wss://nostr21.com',
-  'wss://theforest.nostr1.com',
-  'wss://nostr-pub.wellorder.net',
-  'wss://relay.noswhere.com',
-  'wss://relay.nostrplebs.com',
-  'wss://nostrelites.org',
-  'wss://nostr.land',
-  'wss://eden.nostr.land',
-  'wss://nostr.wine'
+  'wss://nostr.bitcoiner.social'
 ]
 
 /**
@@ -187,27 +206,47 @@ export async function getLazarusScanRelays(pubkey: string): Promise<string[]> {
   } catch {
     // Without the user's relay list, still scan the default and archival sets
   }
-  const urls = [...userRelays, ...getDefaultRelayUrls(), ...LAZARUS_ARCHIVAL_RELAYS]
-  return Array.from(new Set(urls.map((url) => normalizeUrl(url)).filter(Boolean)))
+  return uniqueRelayUrls([...userRelays, ...getDefaultRelayUrls(), ...LAZARUS_ARCHIVAL_RELAYS])
 }
 
 /**
- * Relays to publish a recovery to: all of the user's write relays plus every
- * relay that answered the scan, so the restored version replaces the old one
- * wherever the scan found the user's history.
+ * Relays to publish a recovery to. Success is judged on the user's write
+ * relays. The other relays that answered the scan hold older copies of the
+ * list, so the restored version goes there too, as a best effort, to replace
+ * the clobbered copy they would otherwise keep serving.
  */
 export async function getLazarusPublishRelays(
   pubkey: string,
   respondingRelays: string[]
-): Promise<string[]> {
-  let writeRelays: string[]
-  try {
-    writeRelays = (await client.fetchRelayList(pubkey)).write
-  } catch {
-    writeRelays = getDefaultRelayUrls()
+): Promise<{ write: string[]; extra: string[] }> {
+  const write = await getWriteRelays(pubkey)
+  const extra = uniqueRelayUrls(respondingRelays).filter((url) => !write.includes(url))
+  return { write, extra }
+}
+
+/**
+ * The newest version on the user's write relays right now, to catch edits
+ * made after a scan (from another column, device or client) before a restore
+ * overwrites them.
+ */
+export async function fetchLatestLazarusVersion(
+  kind: number,
+  pubkey: string
+): Promise<Event | undefined> {
+  const write = await getWriteRelays(pubkey)
+  const results = await Promise.allSettled(
+    write.map((url) => fetchFromRelay(url, { kinds: [kind], authors: [pubkey], limit: 1 }, 4000))
+  )
+  let newest: Event | undefined
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue
+    for (const event of result.value) {
+      if (event.pubkey === pubkey && (!newest || event.created_at > newest.created_at)) {
+        newest = event
+      }
+    }
   }
-  const urls = [...writeRelays, ...respondingRelays]
-  return Array.from(new Set(urls.map((url) => normalizeUrl(url)).filter(Boolean)))
+  return newest
 }
 
 /**
@@ -223,7 +262,7 @@ export const defaultLazarusRelaySource: LazarusRelaySource = {
       urls.map((url) => {
         const filter = { kinds: [kind], authors: [pubkey], limit: SCAN_LIMIT }
         const page = cursors ? { ...filter, until: cursors[url] } : filter
-        return withTimeout(client.fetchEvents([url], page), SCAN_TIMEOUT_MS)
+        return fetchFromRelay(url, page)
       })
     )
 
@@ -580,8 +619,14 @@ export interface LazarusDelta {
   privateUnknown: boolean
 }
 
-function tagIdentity(tag: string[]): string {
-  return JSON.stringify(tag)
+/**
+ * What makes two tags the same item: their type and value. A relay hint or
+ * petname a client rewrote doesn't change who is followed or muted. On relay
+ * lists the read/write marker counts too, since it changes what the relay is
+ * for.
+ */
+function tagIdentity(tag: string[], kind: number): string {
+  return JSON.stringify(tag.slice(0, kind === kinds.RelayList ? 3 : 2))
 }
 
 export function computeLazarusDelta(
@@ -599,12 +644,15 @@ export function computeLazarusDelta(
       unknown: !decrypted && !!getContentEncryption(event.content)
     }
   }
-  const chosenItems = itemsOf(chosen)
-  const currentItems = itemsOf(current)
-  const currentTags = new Set(currentItems.tags.map(tagIdentity))
-  const chosenTags = new Set(chosenItems.tags.map(tagIdentity))
-  const added = chosenItems.tags.filter((tag) => !currentTags.has(tagIdentity(tag)))
-  const removed = currentItems.tags.filter((tag) => !chosenTags.has(tagIdentity(tag)))
+  const identity = (tag: string[]) => tagIdentity(tag, chosen.kind)
+  const unique = (tags: string[][]) =>
+    Array.from(new Map(tags.map((t) => [identity(t), t])).values())
+  const chosenTags = unique(itemsOf(chosen).tags)
+  const currentTags = unique(itemsOf(current).tags)
+  const chosenIds = new Set(chosenTags.map(identity))
+  const currentIds = new Set(currentTags.map(identity))
+  const added = chosenTags.filter((tag) => !currentIds.has(identity(tag)))
+  const removed = currentTags.filter((tag) => !chosenIds.has(identity(tag)))
   return {
     added,
     removed,
@@ -612,8 +660,49 @@ export function computeLazarusDelta(
     removedCount: removed.length,
     grows: added.length > 0 && added.length >= removed.length,
     shrinks: removed.length > added.length,
-    privateUnknown: chosenItems.unknown || currentItems.unknown
+    privateUnknown: itemsOf(chosen).unknown || itemsOf(current).unknown
   }
+}
+
+/** Profile fields a restore can change, in the order they're shown. */
+const PROFILE_FIELDS = [
+  'name',
+  'display_name',
+  'about',
+  'picture',
+  'banner',
+  'nip05',
+  'lud16',
+  'lud06',
+  'website'
+]
+
+export interface LazarusProfileChange {
+  field: string
+  from?: string
+  to?: string
+}
+
+/** The profile (kind 0) fields a restore would change: its data lives in content, not tags. */
+export function computeLazarusProfileChanges(
+  chosen: Event,
+  current: Event | undefined
+): LazarusProfileChange[] {
+  const fieldsOf = (event: Event | undefined): Record<string, unknown> => {
+    try {
+      const parsed = JSON.parse(event?.content || '{}')
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value : undefined)
+  const to = fieldsOf(chosen)
+  const from = fieldsOf(current)
+  return PROFILE_FIELDS.flatMap((field) => {
+    const change = { field, from: text(from[field]), to: text(to[field]) }
+    return change.from === change.to ? [] : [change]
+  })
 }
 
 export interface LazarusRecoveryDraft {
@@ -626,18 +715,20 @@ export interface LazarusRecoveryDraft {
 /**
  * Build the recovery event. The chosen candidate's item set is copied
  * verbatim, including encrypted private content (it stays encrypted to the
- * user's own key). The caller signs and publishes this exactly once, on an
+ * user's own key). It's dated after the version it replaces even when a
+ * clobbering client's clock ran ahead, or relays and caches would keep the
+ * clobbered one. The caller signs and publishes this exactly once, on an
  * explicit user click.
  */
 export function buildLazarusRecoveryDraft(
   chosen: Event,
-  nowSeconds: number = Math.floor(Date.now() / 1000)
+  { current, now = Math.floor(Date.now() / 1000) }: { current?: Event; now?: number } = {}
 ): LazarusRecoveryDraft {
   return {
     kind: chosen.kind,
     content: chosen.content,
     tags: chosen.tags.map((tag) => [...tag]),
-    created_at: nowSeconds
+    created_at: Math.max(now, (current?.created_at ?? 0) + 1)
   }
 }
 

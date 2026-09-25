@@ -1249,6 +1249,13 @@ export default {
     'Show {{count}} empty versions_one': 'Show {{count}} empty version',
     'Show {{count}} empty versions_other': 'Show {{count}} empty versions',
     'Hide empty versions': 'Hide empty versions',
-    'sudden drops': 'sudden drops'
+    'sudden drops': 'sudden drops',
+    'This version belongs to another account. Switch back to it to restore.':
+      'This version belongs to another account. Switch back to it to restore.',
+    'This account is view-only, so you can scan its history but not restore a version.':
+      'This account is view-only, so you can scan its history but not restore a version.',
+    'Your list changed since this review, so the changes above now compare against the newest version. Check them and restore again.':
+      'Your list changed since this review, so the changes above now compare against the newest version. Check them and restore again.',
+    'No profile fields would change.': 'No profile fields would change.'
   }
 }

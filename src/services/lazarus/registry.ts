@@ -10,7 +10,7 @@ import { estimatePrivateItems, getContentEncryption } from './private-items'
  * kinds are added here and nowhere else.
  *
  * Spec: https://github.com/dmnyc/lazarus/blob/main/SPEC.md
- * (0.4.0-draft at the time of writing).
+ * (0.5.0-draft at the time of writing).
  */
 
 export type LazarusRanking = 'count' | 'recency' | 'intent'
