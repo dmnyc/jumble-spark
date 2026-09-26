@@ -8,12 +8,12 @@ import PubkeyCopy from '@/components/PubkeyCopy'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDmSupport, useFetchFollowings, useFetchProfile } from '@/hooks'
-import { toDmConversation, toMuteList, toProfileEditor } from '@/lib/link'
+import { toDataRecoverySettings, toDmConversation, toMuteList, toProfileEditor } from '@/lib/link'
 import { SecondaryPageLink, useSecondaryPage } from '@/PageManager'
 import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
-import { Bitcoin, Check, Copy, Link, MessageSquare, Zap } from 'lucide-react'
+import { Bitcoin, Check, Copy, Link, MessageSquare, RotateCcw, Zap } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import NotFound from '../NotFound'
@@ -182,7 +182,7 @@ export default function Profile({ id }: { id?: string }) {
                 </a>
               </div>
             )}
-            <div className="mt-2 flex items-center justify-between text-sm">
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
               <div className="flex items-center gap-4">
                 <Followings pubkey={pubkey} />
                 <Relays pubkey={pubkey} />
@@ -193,7 +193,24 @@ export default function Profile({ id }: { id?: string }) {
                   </SecondaryPageLink>
                 )}
               </div>
-              {!isSelf && <FollowedBy pubkey={pubkey} />}
+              {isSelf ? (
+                <SecondaryPageLink
+                  to={toDataRecoverySettings()}
+                  className="text-muted-foreground flex w-fit items-center gap-1 text-xs hover:underline"
+                >
+                  <span
+                    className="flex items-center gap-1"
+                    title={t(
+                      'If another client clobbered your follows, mutes, profile, or bookmarks, scan relay history to find and restore an older version'
+                    )}
+                  >
+                    <RotateCcw className="size-3.5" />
+                    {t('Restore')}
+                  </span>
+                </SecondaryPageLink>
+              ) : (
+                <FollowedBy pubkey={pubkey} />
+              )}
             </div>
           </div>
         </div>
