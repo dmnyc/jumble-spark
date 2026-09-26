@@ -1240,6 +1240,22 @@ export default {
     '{{count}} items would be removed_other': '{{count}} items would be removed',
     'Load older versions': 'Load older versions',
     'Could not load older versions.': 'Could not load older versions.',
+    'Could not reach your write relays to confirm the current version. Nothing was published.':
+      'Could not reach your write relays to confirm the current version. Nothing was published.',
+    '{{answered}} of {{queried}} relays answered': '{{answered}} of {{queried}} relays answered',
+    Answered: 'Answered',
+    'Timed out': 'Timed out',
+    'No relay finished answering, so these versions may be incomplete. Scan again to retry.':
+      'No relay finished answering, so these versions may be incomplete. Scan again to retry.',
+    'Could not fetch your relay list, so the newest version found may not be current and nothing is recommended. Scan again to retry.':
+      'Could not fetch your relay list, so the newest version found may not be current and nothing is recommended. Scan again to retry.',
+    'None of your write relays answered, so the newest version found may not be current and nothing is recommended. Scan again to retry.':
+      'None of your write relays answered, so the newest version found may not be current and nothing is recommended. Scan again to retry.',
+    'No relay list found for this account, so the default relays stand in as its write relays.':
+      'No relay list found for this account, so the default relays stand in as its write relays.',
+    'No versions found. The relays that answered may have no history of this list.':
+      'No versions found. The relays that answered may have no history of this list.',
+    'No recoverable improvement found.': 'No recoverable improvement found.',
     'Sort by': 'Sort by',
     Date: 'Date',
     Size: 'Size',
