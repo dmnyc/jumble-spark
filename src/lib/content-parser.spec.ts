@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { nip19 } from 'nostr-tools'
 import {
+  EmbeddedBareDomainParser,
+  EmbeddedEmojiParser,
   EmbeddedEventParser,
+  EmbeddedHashtagParser,
+  EmbeddedLNInvoiceParser,
   EmbeddedLegacyEventParser,
   EmbeddedLegacyMentionParser,
   EmbeddedMentionParser,
   EmbeddedUrlParser,
+  EmbeddedWebsocketUrlParser,
   parseContent
 } from './content-parser'
 
@@ -99,5 +104,61 @@ describe('invalid bech32 is not treated as a reference', () => {
 
   it('ignores a truncated ref', () => {
     expect(types(`gm ${npub.slice(0, 30)}`)).not.toContain('mention')
+  })
+})
+
+describe('bare domains', () => {
+  // The note renderer's order: the bare-domain parser runs last
+  const NOTE_PARSERS = [
+    EmbeddedEventParser,
+    EmbeddedMentionParser,
+    EmbeddedUrlParser,
+    EmbeddedLNInvoiceParser,
+    EmbeddedWebsocketUrlParser,
+    EmbeddedLegacyEventParser,
+    EmbeddedLegacyMentionParser,
+    EmbeddedHashtagParser,
+    EmbeddedEmojiParser,
+    EmbeddedBareDomainParser
+  ]
+  const parseNote = (content: string) => parseContent(content, NOTE_PARSERS)
+  const bareUrls = (content: string) =>
+    parseNote(content)
+      .filter((n) => n.type === 'bare-url')
+      .map((n) => n.data)
+
+  it('links a bare domain on any TLD, keeping the path', () => {
+    expect(bareUrls('see jumble.social/notes for more')).toEqual(['jumble.social/notes'])
+    expect(bareUrls('go to www.habla.news now')).toEqual(['www.habla.news'])
+  })
+
+  it('leaves explicit URLs to the URL parser', () => {
+    const nodes = parseNote('see https://jumble.social/notes')
+    expect(nodes.map((n) => n.type)).toEqual(['text', 'url'])
+    expect(bareUrls('relay wss://relay.damus.io')).toEqual([])
+  })
+
+  it('needs a real TLD', () => {
+    expect(bareUrls('bake at 350.degreesf')).toEqual([])
+    expect(bareUrls('add 1.5 cups flour')).toEqual([])
+    expect(bareUrls('see example.notatld')).toEqual([])
+  })
+
+  it('leaves trailing punctuation out of the link', () => {
+    expect(bareUrls('see jumble.social, please')).toEqual(['jumble.social'])
+  })
+
+  it('links a bare domain next to a nostr reference without overlap', () => {
+    const nodes = parseNote(`${npub} and jumble.social/notes`)
+    expect(nodes.map((n) => n.type)).toEqual(['mention', 'text', 'bare-url'])
+  })
+
+  it('links a scheme-less blossom URL whole, without carving out the npub', () => {
+    const url = `${npub}.blossom.band/img.png`
+    expect(parseNote(url)).toEqual([{ type: 'bare-url', data: url }])
+  })
+
+  it('does not link emails', () => {
+    expect(bareUrls('write to hello@jumble.social')).toEqual([])
   })
 })
