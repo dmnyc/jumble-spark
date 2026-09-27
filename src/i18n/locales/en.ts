@@ -1246,6 +1246,80 @@ export default {
     'Clone URLs': 'Clone URLs',
     'Branches and tags': 'Branches and tags',
     Target: 'Target',
-    Maintainers: 'Maintainers'
+    Maintainers: 'Maintainers',
+    '≈ {{min}}–{{max}} items': '≈ {{min}}–{{max}} items',
+    '{{count}} private': '{{count}} private',
+    'encrypted, estimated': 'encrypted, estimated',
+    'Estimated from the size of the encrypted private items, which could not be decrypted.':
+      'Estimated from the size of the encrypted private items, which could not be decrypted.',
+    'Too large for a remote signer to decrypt or restore':
+      'Too large for a remote signer to decrypt or restore',
+    'Too large to restore with a remote signer': 'Too large to restore with a remote signer',
+    'Could not decrypt the private items': 'Could not decrypt the private items',
+    'Decrypting private items…': 'Decrypting private items…',
+    'You are signed in with a remote signer. Lists over 64 KB, like a mute list with many private items or a big follow list, cannot be decrypted or restored through NIP-46. Use a browser extension signer (NIP-07) or a local key for those.':
+      'You are signed in with a remote signer. Lists over 64 KB, like a mute list with many private items or a big follow list, cannot be decrypted or restored through NIP-46. Use a browser extension signer (NIP-07) or a local key for those.',
+    'Private items in the selected version could not be decrypted, so the changes above leave them out. By size, it has {{size}} items.':
+      'Private items in the selected version could not be decrypted, so the changes above leave them out. By size, it has {{size}} items.',
+    'Private items in your current version could not be decrypted, so the changes above leave them out. The restore replaces them, so it may remove items no count shows. By size, your current version has {{size}} items.':
+      'Private items in your current version could not be decrypted, so the changes above leave them out. The restore replaces them, so it may remove items no count shows. By size, your current version has {{size}} items.',
+    'This restores your NIP-4e encryption keys. Clients will encrypt direct messages to them again.':
+      'This restores your NIP-4e encryption keys. Clients will encrypt direct messages to them again.',
+    'This announces that you no longer use NIP-4e; clients stop encrypting direct messages to your keys.':
+      'This announces that you no longer use NIP-4e; clients stop encrypting direct messages to your keys.',
+    'The current empty state announces that you do not use NIP-4e.':
+      'The current empty state announces that you do not use NIP-4e.',
+    'Your current version lists keys that clients encrypt direct messages to.':
+      'Your current version lists keys that clients encrypt direct messages to.',
+    'I intend this change': 'I intend this change',
+    'I understand this can remove items I have now':
+      'I understand this can remove items I have now',
+    'This version is too large to sign with a remote signer: NIP-46 requests are limited to 64 KB. Large lists, like a mute list with many private items or a big follow list, can only be restored with a browser extension signer (NIP-07) or a local key.':
+      'This version is too large to sign with a remote signer: NIP-46 requests are limited to 64 KB. Large lists, like a mute list with many private items or a big follow list, can only be restored with a browser extension signer (NIP-07) or a local key.',
+    '{{count}} items_one': '{{count}} item',
+    '{{count}} items_other': '{{count}} items',
+    'found on {{count}} relays_one': 'found on {{count}} relay',
+    'found on {{count}} relays_other': 'found on {{count}} relays',
+    '{{count}} items would be added_one': '{{count}} item would be added',
+    '{{count}} items would be added_other': '{{count}} items would be added',
+    '{{count}} items would be removed_one': '{{count}} item would be removed',
+    '{{count}} items would be removed_other': '{{count}} items would be removed',
+    'Load older versions': 'Load older versions',
+    'Could not load older versions.': 'Could not load older versions.',
+    'Could not reach your write relays to confirm the current version. Nothing was published.':
+      'Could not reach your write relays to confirm the current version. Nothing was published.',
+    '{{answered}} of {{queried}} relays answered': '{{answered}} of {{queried}} relays answered',
+    Answered: 'Answered',
+    'Timed out': 'Timed out',
+    'No relay finished answering, so these versions may be incomplete. Scan again to retry.':
+      'No relay finished answering, so these versions may be incomplete. Scan again to retry.',
+    'Could not fetch your relay list, so the newest version found may not be current and nothing is recommended. Scan again to retry.':
+      'Could not fetch your relay list, so the newest version found may not be current and nothing is recommended. Scan again to retry.',
+    'None of your write relays answered, so the newest version found may not be current and nothing is recommended. Scan again to retry.':
+      'None of your write relays answered, so the newest version found may not be current and nothing is recommended. Scan again to retry.',
+    'No relay list found for this account, so the default relays stand in as its write relays.':
+      'No relay list found for this account, so the default relays stand in as its write relays.',
+    'No versions found. The relays that answered may have no history of this list.':
+      'No versions found. The relays that answered may have no history of this list.',
+    'No recoverable improvement found.': 'No recoverable improvement found.',
+    'Sort by': 'Sort by',
+    Date: 'Date',
+    Size: 'Size',
+    '{{count}} versions_one': '{{count}} version',
+    '{{count}} versions_other': '{{count}} versions',
+    '{{min}}–{{max}} items': '{{min}}–{{max}} items',
+    'Show {{count}} empty versions_one': 'Show {{count}} empty version',
+    'Show {{count}} empty versions_other': 'Show {{count}} empty versions',
+    'Hide empty versions': 'Hide empty versions',
+    'sudden drops': 'sudden drops',
+    'This version belongs to another account. Switch back to it to restore.':
+      'This version belongs to another account. Switch back to it to restore.',
+    'This account is view-only, so you can scan its history but not restore a version.':
+      'This account is view-only, so you can scan its history but not restore a version.',
+    'Your list changed since this review, so the changes above now compare against the newest version. Check them and restore again.':
+      'Your list changed since this review, so the changes above now compare against the newest version. Check them and restore again.',
+    'No profile fields would change.': 'No profile fields would change.',
+    'If another client clobbered your follows, mutes, profile, or bookmarks, scan relay history to find and restore an older version':
+      'If another client clobbered your follows, mutes, profile, or bookmarks, scan relay history to find and restore an older version'
   }
 }

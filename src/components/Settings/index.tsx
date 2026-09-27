@@ -5,6 +5,7 @@ import { SettingsGroup, SettingsPageContainer, SettingsRow } from '@/components/
 import {
   toAccountSettings,
   toAppearanceSettings,
+  toDataRecoverySettings,
   toEmojiPackSettings,
   toGeneralSettings,
   toNotificationSettings,
@@ -22,6 +23,7 @@ import storage from '@/services/local-storage.service'
 import {
   Bell,
   Cog,
+  ArchiveRestore,
   ImageUp,
   Info,
   KeyRound,
@@ -73,6 +75,15 @@ export default function Settings() {
             title={t('Translation')}
             chevron
             onClick={() => push(toTranslation())}
+          />
+        )}
+        {!!pubkey && (
+          <SettingsRow
+            icon={<ArchiveRestore />}
+            title={t('Data recovery')}
+            description={t('Restore follow lists, mutes, and profiles from relay history')}
+            chevron
+            onClick={() => push(toDataRecoverySettings())}
           />
         )}
         {!!pubkey && (
