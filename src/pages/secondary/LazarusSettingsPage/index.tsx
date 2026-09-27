@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { SettingsPageContainer, SettingsGroup, SettingsRow } from '@/components/ui/settings'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 import SecondaryPageLayout from '@/layouts/SecondaryPageLayout'
 import { fitsNip46Request } from '@/lib/nip46'
 import { useNostr } from '@/providers/NostrProvider'
@@ -124,13 +126,13 @@ function CandidateRow({
               : t('≈ {{min}}–{{max}} items', { min: range.min, max: range.max })}
           </span>
           {!!privateCount && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-muted-foreground text-xs">
               {t('{{count}} private', { count: privateCount })}
             </span>
           )}
           {privateEstimate && (
             <span
-              className="text-xs text-warning"
+              className="text-warning text-xs"
               title={t(
                 'Estimated from the size of the encrypted private items, which could not be decrypted.'
               )}
@@ -140,16 +142,16 @@ function CandidateRow({
           )}
           {partial && !privateEstimate && (
             <span
-              className="text-xs text-warning"
+              className="text-warning text-xs"
               title={t('Some private items could not be decrypted, so this count may be higher.')}
             >
               {t('partial count')}
             </span>
           )}
-          {decrypting && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-          {badge && <span className="text-xs text-muted-foreground">({badge})</span>}
+          {decrypting && <Loader2 className="text-muted-foreground h-3 w-3 animate-spin" />}
+          {badge && <span className="text-muted-foreground text-xs">({badge})</span>}
         </div>
-        <div className="truncate text-xs text-muted-foreground">
+        <div className="text-muted-foreground truncate text-xs">
           {formatTimestamp(candidate.event.created_at)}
           {candidate.foundOn.length > 0 &&
             ` · ${t('found on {{count}} relays', { count: candidate.foundOn.length })}`}
@@ -166,7 +168,7 @@ function CandidateRow({
           )
         )}
         {privateItemsNote === 'failed' && (
-          <div className="text-xs text-muted-foreground">
+          <div className="text-muted-foreground text-xs">
             {t('Could not decrypt the private items')}
           </div>
         )}
@@ -214,6 +216,10 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
     | undefined
   >()
   const [recovering, setRecovering] = useState(false)
+  // Separate confirmations for a restore that removes items, and for one
+  // whose empty state has a meaning of its own (kind 10044)
+  const [shrinkConfirmed, setShrinkConfirmed] = useState(false)
+  const [intentConfirmed, setIntentConfirmed] = useState(false)
   const [privateTags, setPrivateTags] = useState<Map<string, string[][]>>(new Map())
   const [privateItemsNotes, setPrivateItemsNotes] = useState<Record<string, PrivateItemsNote>>({})
   const [decryptingIds, setDecryptingIds] = useState<Set<string>>(new Set())
@@ -371,6 +377,13 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
     const pending = shown.filter((c) => isUndecrypted(c) && !queuedRef.current.has(c.event.id))
     if (pending.length > 0) decryptVersions(profile, pending, scanIdRef.current)
   }, [scan, listItems, profile, expandedGroups, usesRemoteSigner, isUndecrypted, decryptVersions])
+
+  // A confirmation belongs to the review it was given in: a new review, or
+  // one compared again against a newer version, asks again
+  useEffect(() => {
+    setShrinkConfirmed(false)
+    setIntentConfirmed(false)
+  }, [pending])
 
   // A scan belongs to the account it ran for, so switching accounts starts over
   useEffect(() => {
@@ -692,7 +705,7 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
             layout="stacked"
           />
           {usesRemoteSigner && (
-            <div className="mx-4 mb-3 flex items-start gap-2 rounded-md border p-2 text-xs text-muted-foreground">
+            <div className="text-muted-foreground mx-4 mb-3 flex items-start gap-2 rounded-md border p-2 text-xs">
               <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
                 {t(
@@ -741,7 +754,9 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
             </Button>
           </div>
           {phase === 'error' && (
-            <SettingsRow title={t('The scan failed. Check your relay connections and try again.')} />
+            <SettingsRow
+              title={t('The scan failed. Check your relay connections and try again.')}
+            />
           )}
           {phase === 'done' && scan && (
             <div className="px-4 pb-4">
@@ -809,7 +824,7 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
                 </ScanNotice>
               )}
               {scan.candidates.length === 0 ? (
-                <div className="py-2 text-sm text-muted-foreground">
+                <div className="text-muted-foreground py-2 text-sm">
                   {t(
                     'No versions found. The relays that answered may have no history of this list.'
                   )}
@@ -827,7 +842,7 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
                     </div>
                   )}
                   {decryptingIds.size > 0 && (
-                    <div className="py-1 text-xs text-muted-foreground">
+                    <div className="text-muted-foreground py-1 text-xs">
                       {t('Decrypting private items…')}
                     </div>
                   )}
@@ -954,25 +969,52 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
                     </span>
                   </div>
                 )}
-                {pending.delta.privateUnknown && (
+                {pending.delta.privateUnknownChosen && (
                   <div className="flex items-start gap-2 rounded-md border p-2 text-xs">
                     <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>
                       {t(
-                        'Private items in one of these versions could not be decrypted, so the changes above cover public items only. By size, the selected version has {{chosen}} items and your current one has {{current}}.',
-                        {
-                          chosen: formatItemRange(pending.candidate.itemCount),
-                          current: pending.current
-                            ? formatItemRange(pending.profile.itemCount(pending.current))
-                            : '0'
-                        }
+                        'Private items in the selected version could not be decrypted, so the changes above leave them out. By size, it has {{size}} items.',
+                        { size: formatItemRange(pending.candidate.itemCount) }
                       )}
                     </span>
                   </div>
                 )}
+                {pending.delta.privateUnknownCurrent && pending.current && (
+                  <div className="flex items-start gap-2 rounded-md border p-2 text-xs">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      {t(
+                        'Private items in your current version could not be decrypted, so the changes above leave them out. The restore replaces them, so it may remove items no count shows. By size, your current version has {{size}} items.',
+                        { size: formatItemRange(pending.profile.itemCount(pending.current)) }
+                      )}
+                    </span>
+                  </div>
+                )}
+                {pending.profile.meaningfulEmpty && (
+                  <div className="space-y-1 rounded-md border p-2 text-xs">
+                    <div>
+                      {getLazarusItemRange(pending.candidate.itemCount).max === 0
+                        ? t(
+                            'This announces that you no longer use NIP-4e; clients stop encrypting direct messages to your keys.'
+                          )
+                        : t(
+                            'This restores your NIP-4e encryption keys. Clients will encrypt direct messages to them again.'
+                          )}
+                    </div>
+                    <div className="text-muted-foreground">
+                      {!pending.current ||
+                      getLazarusItemRange(pending.profile.itemCount(pending.current)).max === 0
+                        ? t('The current empty state announces that you do not use NIP-4e.')
+                        : t(
+                            'Your current version lists keys that clients encrypt direct messages to.'
+                          )}
+                    </div>
+                  </div>
+                )}
                 {pending.tooLargeForRemoteSigner && (
-                  <div className="flex items-start gap-2 rounded-md border border-destructive p-2 text-xs">
-                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                  <div className="border-destructive flex items-start gap-2 rounded-md border p-2 text-xs">
+                    <TriangleAlert className="text-destructive mt-0.5 h-4 w-4 shrink-0" />
                     <span>
                       {t(
                         'This version is too large to sign with a remote signer: NIP-46 requests are limited to 64 KB. Large lists, like a mute list with many private items or a big follow list, can only be restored with a browser extension signer (NIP-07) or a local key.'
@@ -980,22 +1022,43 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
                     </span>
                   </div>
                 )}
-                {pending.profile.requiredWarnings.includes('remute') && pending.delta.removedCount > 0 && (
-                  <div className="text-xs text-muted-foreground">
-                    {t(
-                      'Accounts present now but missing from the restored version would be unmuted.'
-                    )}
-                  </div>
-                )}
+                {pending.profile.requiredWarnings.includes('remute') &&
+                  pending.delta.removedCount > 0 && (
+                    <div className="text-muted-foreground text-xs">
+                      {t(
+                        'Accounts present now but missing from the restored version would be unmuted.'
+                      )}
+                    </div>
+                  )}
                 {pending.profile.requiredWarnings.includes('stale-relays') && (
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-muted-foreground text-xs">
                     {t('Old relay lists can point at relays that no longer exist.')}
                   </div>
                 )}
                 {pending.profile.requiredWarnings.includes('affects-others') && (
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-muted-foreground text-xs">
                     {t('This list affects how other accounts interact with you.')}
                   </div>
+                )}
+                {pending.profile.meaningfulEmpty && (
+                  <Label className="flex cursor-pointer items-center gap-2">
+                    <Checkbox
+                      checked={intentConfirmed}
+                      onCheckedChange={(checked) => setIntentConfirmed(!!checked)}
+                    />
+                    <span className="text-xs">{t('I intend this change')}</span>
+                  </Label>
+                )}
+                {pending.delta.needsShrinkConfirmation && (
+                  <Label className="flex cursor-pointer items-center gap-2">
+                    <Checkbox
+                      checked={shrinkConfirmed}
+                      onCheckedChange={(checked) => setShrinkConfirmed(!!checked)}
+                    />
+                    <span className="text-xs">
+                      {t('I understand this can remove items I have now')}
+                    </span>
+                  </Label>
                 )}
               </div>
             )}
@@ -1005,7 +1068,12 @@ const LazarusSettingsPage = forwardRef(({ index }: { index?: number }, ref) => {
               </Button>
               <Button
                 onClick={confirmRecovery}
-                disabled={recovering || pending?.tooLargeForRemoteSigner}
+                disabled={
+                  recovering ||
+                  pending?.tooLargeForRemoteSigner ||
+                  (pending?.delta.needsShrinkConfirmation && !shrinkConfirmed) ||
+                  (pending?.profile.meaningfulEmpty && !intentConfirmed)
+                }
               >
                 {recovering ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

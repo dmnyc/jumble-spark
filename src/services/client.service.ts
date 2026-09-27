@@ -517,13 +517,16 @@ class ClientService extends EventTarget {
       oneose,
       onclose,
       startLogin,
-      onAllClose
+      onAllClose,
+      skipAuth
     }: {
       onevent?: (evt: NEvent) => void
       oneose?: (eosed: boolean) => void
       onclose?: (url: string, reason: string) => void
       startLogin?: () => void
       onAllClose?: (reasons: string[]) => void
+      /** Never authenticate (NIP-42), even to a relay that requires it */
+      skipAuth?: boolean
     }
   ) {
     const relays = Array.from(new Set(urls))
@@ -548,7 +551,7 @@ class ClientService extends EventTarget {
       onAllClose,
       startLogin,
       getAuthenticator: () => {
-        if (!that.signer) return undefined
+        if (skipAuth || !that.signer) return undefined
         return async (relay) => {
           await relay.auth(async (authEvt: EventTemplate) => {
             const evt = await that.signer!.signEvent(authEvt)

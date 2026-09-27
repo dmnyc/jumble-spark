@@ -1226,8 +1226,21 @@ export default {
     'Decrypting private items…': 'Decrypting private items…',
     'You are signed in with a remote signer. Lists over 64 KB, like a mute list with many private items or a big follow list, cannot be decrypted or restored through NIP-46. Use a browser extension signer (NIP-07) or a local key for those.':
       'You are signed in with a remote signer. Lists over 64 KB, like a mute list with many private items or a big follow list, cannot be decrypted or restored through NIP-46. Use a browser extension signer (NIP-07) or a local key for those.',
-    'Private items in one of these versions could not be decrypted, so the changes above cover public items only. By size, the selected version has {{chosen}} items and your current one has {{current}}.':
-      'Private items in one of these versions could not be decrypted, so the changes above cover public items only. By size, the selected version has {{chosen}} items and your current one has {{current}}.',
+    'Private items in the selected version could not be decrypted, so the changes above leave them out. By size, it has {{size}} items.':
+      'Private items in the selected version could not be decrypted, so the changes above leave them out. By size, it has {{size}} items.',
+    'Private items in your current version could not be decrypted, so the changes above leave them out. The restore replaces them, so it may remove items no count shows. By size, your current version has {{size}} items.':
+      'Private items in your current version could not be decrypted, so the changes above leave them out. The restore replaces them, so it may remove items no count shows. By size, your current version has {{size}} items.',
+    'This restores your NIP-4e encryption keys. Clients will encrypt direct messages to them again.':
+      'This restores your NIP-4e encryption keys. Clients will encrypt direct messages to them again.',
+    'This announces that you no longer use NIP-4e; clients stop encrypting direct messages to your keys.':
+      'This announces that you no longer use NIP-4e; clients stop encrypting direct messages to your keys.',
+    'The current empty state announces that you do not use NIP-4e.':
+      'The current empty state announces that you do not use NIP-4e.',
+    'Your current version lists keys that clients encrypt direct messages to.':
+      'Your current version lists keys that clients encrypt direct messages to.',
+    'I intend this change': 'I intend this change',
+    'I understand this can remove items I have now':
+      'I understand this can remove items I have now',
     'This version is too large to sign with a remote signer: NIP-46 requests are limited to 64 KB. Large lists, like a mute list with many private items or a big follow list, can only be restored with a browser extension signer (NIP-07) or a local key.':
       'This version is too large to sign with a remote signer: NIP-46 requests are limited to 64 KB. Large lists, like a mute list with many private items or a big follow list, can only be restored with a browser extension signer (NIP-07) or a local key.',
     '{{count}} items_one': '{{count}} item',
