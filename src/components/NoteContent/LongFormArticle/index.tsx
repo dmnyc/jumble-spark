@@ -91,6 +91,7 @@ export default function LongFormArticle({
             classNames={{
               wrapper: 'w-fit max-w-full'
             }}
+            upscaleSmall
           />
         )
       }) as Components,

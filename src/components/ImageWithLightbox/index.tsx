@@ -7,17 +7,19 @@ import { TImetaInfo } from '@/types'
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import Lightbox from 'yet-another-react-lightbox'
 import Download from 'yet-another-react-lightbox/plugins/download'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import Image from '../Image'
+import { isSmallImage, smallImageDisplayClasses } from '../Image/minDisplay'
+import Lightbox from '../Lightbox'
 
 export default function ImageWithLightbox({
   image,
   className,
   classNames = {},
   errorPlaceholder,
-  ignoreAutoLoadPolicy = false
+  ignoreAutoLoadPolicy = false,
+  upscaleSmall = false
 }: {
   image: TImetaInfo
   className?: string
@@ -27,6 +29,7 @@ export default function ImageWithLightbox({
   }
   errorPlaceholder?: string
   ignoreAutoLoadPolicy?: boolean
+  upscaleSmall?: boolean
 }) {
   const id = useMemo(() => `image-with-lightbox-${randomString()}`, [])
   const { t } = useTranslation()
@@ -34,9 +37,13 @@ export default function ImageWithLightbox({
   const [display, setDisplay] = useState(ignoreAutoLoadPolicy ? true : autoLoadMedia)
   const [index, setIndex] = useState(-1)
   const [lightboxUrl, setLightboxUrl] = useState(image.url)
+  const [naturalWidth, setNaturalWidth] = useState<number | null>(null)
   const saveLightboxImage = useImageSave(lightboxUrl, index >= 0)
 
   useEffect(() => setLightboxUrl(image.url), [image.url])
+
+  // prefer the imeta dimensions; fall back to the loaded image's natural width
+  const small = upscaleSmall && isSmallImage(image.dim?.width ?? naturalWidth)
 
   useEffect(() => {
     if (index >= 0) {
@@ -72,15 +79,18 @@ export default function ImageWithLightbox({
     <div>
       <Image
         key={0}
-        className={className}
+        className={small ? smallImageDisplayClasses.img : className}
         classNames={{
-          wrapper: cn('border cursor-zoom-in', classNames.wrapper),
+          wrapper: cn('border cursor-zoom-in', classNames.wrapper, small && smallImageDisplayClasses.wrapper),
           errorPlaceholder: 'aspect-square h-[30vh]',
           skeleton: classNames.skeleton
         }}
         image={image}
         onClick={(e) => handlePhotoClick(e)}
-        onImageLoad={setLightboxUrl}
+        onImageLoad={(url, img) => {
+          setLightboxUrl(url)
+          setNaturalWidth(img.naturalWidth)
+        }}
         errorPlaceholder={errorPlaceholder}
       />
       {index >= 0 &&
