@@ -26,7 +26,7 @@ export default function Image({
   alt?: string
   hideIfError?: boolean
   errorPlaceholder?: React.ReactNode
-  onImageLoad?: (url: string) => void
+  onImageLoad?: (url: string, img: HTMLImageElement) => void
 }) {
   const { url: imageUrl, error: hasError, handleError, markSuccess } = useBlossomUrl(url, pubkey)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -41,11 +41,11 @@ export default function Image({
 
   const isLoading = !isLoaded && !hasError
 
-  const handleLoad = () => {
+  const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     setIsLoaded(true)
     setTimeout(() => setDisplaySkeleton(false), 600)
     markSuccess()
-    if (imageUrl) onImageLoad?.(imageUrl)
+    if (imageUrl) onImageLoad?.(imageUrl, e.currentTarget)
   }
 
   return (

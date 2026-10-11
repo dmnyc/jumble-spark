@@ -92,6 +92,7 @@ export default function MarkdownContent({ content, event }: { content: string; e
                 image={{ url: href, pubkey: event?.pubkey }}
                 className="max-h-[80vh] object-contain sm:max-h-[50vh]"
                 classNames={{ wrapper: 'w-fit max-w-full mt-2' }}
+                upscaleSmall
               />
             )
           }
@@ -109,6 +110,7 @@ export default function MarkdownContent({ content, event }: { content: string; e
             image={{ url: src || '', pubkey: event?.pubkey }}
             className="max-h-[80vh] object-contain sm:max-h-[50vh]"
             classNames={{ wrapper: 'w-fit max-w-full mt-2' }}
+            upscaleSmall
           />
         ),
         pre: ({ children }) => (

@@ -8,11 +8,12 @@ import { TImetaInfo } from '@/types'
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import Lightbox from 'yet-another-react-lightbox'
 import Download from 'yet-another-react-lightbox/plugins/download'
 import Zoom from 'yet-another-react-lightbox/plugins/zoom'
 import Image from '../Image'
+import { isSmallImage, smallImageDisplayClasses } from '../Image/minDisplay'
 import ImageWithLightbox from '../ImageWithLightbox'
+import Lightbox from '../Lightbox'
 
 export default function ImageGallery({
   className,
@@ -32,7 +33,11 @@ export default function ImageGallery({
   const { autoLoadMedia } = useContentPolicy()
   const [index, setIndex] = useState(-1)
   const [slides, setSlides] = useState<{ src: string }[]>(images.map(({ url }) => ({ src: url })))
+  const [naturalWidths, setNaturalWidths] = useState<Record<string, number>>({})
   const saveLightboxImage = useImageSave(slides[index]?.src, index >= 0)
+  const handleImageLoad = (url: string, img: HTMLImageElement) => {
+    setNaturalWidths((prev) => (prev[url] ? prev : { ...prev, [url]: img.naturalWidth }))
+  }
   useEffect(() => {
     if (index >= 0) {
       modalManager.register(id, () => {
@@ -103,22 +108,27 @@ export default function ImageGallery({
         classNames={{
           wrapper: cn('w-fit max-w-full border', className)
         }}
+        upscaleSmall
       />
     ))
   }
 
   let imageContent: ReactNode | null = null
   if (displayImages.length === 1) {
+    const image = displayImages[0]
+    // prefer the imeta dimensions; fall back to the loaded image's natural width
+    const small = isSmallImage(image.dim?.width ?? naturalWidths[image.url])
     imageContent = (
       <Image
         key={0}
-        className="max-h-[80vh] object-contain sm:max-h-[50vh]"
+        className={small ? smallImageDisplayClasses.img : 'max-h-[80vh] object-contain sm:max-h-[50vh]'}
         classNames={{
           errorPlaceholder: 'aspect-square h-[30vh]',
-          wrapper: 'cursor-zoom-in border'
+          wrapper: cn('cursor-zoom-in border', small && smallImageDisplayClasses.wrapper)
         }}
-        image={displayImages[0]}
+        image={image}
         onClick={(e) => handlePhotoClick(e, 0)}
+        onImageLoad={handleImageLoad}
       />
     )
   } else if (displayImages.length === 2 || displayImages.length === 4) {
@@ -149,8 +159,17 @@ export default function ImageGallery({
     )
   }
 
+  const singleImage = displayImages.length === 1
+  const singleImageSmall =
+    singleImage && isSmallImage(displayImages[0].dim?.width ?? naturalWidths[displayImages[0].url])
+
   return (
-    <div className={cn(displayImages.length === 1 ? 'w-fit max-w-full' : 'w-full', className)}>
+    <div
+      className={cn(
+        singleImage ? (singleImageSmall ? smallImageDisplayClasses.wrapper : 'w-fit max-w-full') : 'w-full',
+        className
+      )}
+    >
       {imageContent}
       {index >= 0 &&
         createPortal(
