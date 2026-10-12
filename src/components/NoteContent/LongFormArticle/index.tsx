@@ -1,5 +1,6 @@
 import { SecondaryPageLink, useSecondaryPage } from '@/PageManager'
 import ExternalLink from '@/components/ExternalLink'
+import { HandlerBadge } from '@/components/HandlerBadge'
 import { FormattedTimestamp } from '@/components/FormattedTimestamp'
 import ImageWithLightbox from '@/components/ImageWithLightbox'
 import HighlightButton from '@/components/HighlightButton'
@@ -105,10 +106,13 @@ export default function LongFormArticle({
         className={`overflow-wrap-anywhere prose prose-zinc dark:prose-invert prose-img:my-0 max-w-none wrap-break-word ${className || ''}`}
       >
         <h1 className="wrap-break-word">{metadata.title}</h1>
-        <div className="text-muted-foreground -mt-4 mb-6 text-sm">
-          {t('{{count}} min read', { count: readingMinutes })}
-          <span className="mx-1.5">·</span>
-          {t('Last edited')}: <FormattedTimestamp timestamp={event.created_at} />
+        <div className="text-muted-foreground -mt-4 mb-6 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+          <span>{t('{{count}} min read', { count: readingMinutes })}</span>
+          <span>·</span>
+          <span>
+            {t('Last edited')}: <FormattedTimestamp timestamp={event.created_at} />
+          </span>
+          <HandlerBadge event={event} className="inline-flex translate-y-0.5" />
         </div>
         {metadata.summary && (
           <blockquote>

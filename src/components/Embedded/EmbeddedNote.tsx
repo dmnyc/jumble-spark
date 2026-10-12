@@ -6,6 +6,7 @@ import { Event } from 'nostr-tools'
 import { forwardRef, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ClientSelect from '../ClientSelect'
+import { HandlerBadge } from '../HandlerBadge'
 import MainNoteCard from '../NoteCard/MainNoteCard'
 
 export function EmbeddedNote({ noteId, className }: { noteId: string; className?: string }) {
@@ -69,13 +70,18 @@ function EmbeddedRenderedNote({
   reposters?: string[]
 }) {
   return (
-    <MainNoteCard
-      className={cn('w-full', className)}
-      event={event}
-      embedded
-      originalNoteId={originalNoteId}
-      reposters={reposters}
-    />
+    <div className={cn('relative w-full', className)}>
+      <MainNoteCard
+        className="w-full"
+        event={event}
+        embedded
+        originalNoteId={originalNoteId}
+        reposters={reposters}
+      />
+      <div className="absolute bottom-2 left-3">
+        <HandlerBadge event={event} />
+      </div>
+    </div>
   )
 }
 
