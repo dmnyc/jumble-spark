@@ -56,7 +56,7 @@ class ClientService extends EventTarget {
 
   signer?: ISigner
   pubkey?: string
-  private pool: IRelayPool
+  pool: IRelayPool
   private externalSeenOn = new BoundedMap<string, Set<string>>({
     maxSize: SEEN_ON_CACHE_MAX_SIZE
   })
