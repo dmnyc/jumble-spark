@@ -141,6 +141,16 @@ export const BIG_RELAY_URLS = [
   'wss://relay.ditto.pub/'
 ]
 
+// Most clients publish poll responses to their users' own relays, so a poll's
+// relay tags often hold only a fraction of its votes. Results are also read
+// from the relays where most responses land.
+export const POLL_RESPONSE_RELAY_URLS = [
+  'wss://relay.primal.net/',
+  'wss://relay.damus.io/',
+  'wss://relay.snort.social/',
+  'wss://nos.lol/'
+]
+
 export const SEARCHABLE_RELAY_URLS = ['wss://search.nos.today/', 'wss://search.nostrarchives.com/']
 
 export const TRENDING_NOTES_RELAY_URLS = ['wss://trending.relays.land/']
