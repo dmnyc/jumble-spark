@@ -1274,6 +1274,23 @@ export default {
       'Your list changed since this review, so the changes above now compare against the newest version. Check them and restore again.',
     'No profile fields would change.': 'No profile fields would change.',
     'If another client clobbered your follows, mutes, profile, or bookmarks, scan relay history to find and restore an older version':
-      'If another client clobbered your follows, mutes, profile, or bookmarks, scan relay history to find and restore an older version'
+      'If another client clobbered your follows, mutes, profile, or bookmarks, scan relay history to find and restore an older version',
+    'Private items in the selected version could not be decrypted, so the changes above leave them out. By size, it has {{size}} items.':
+      'Private items in the selected version could not be decrypted, so the changes above leave them out. By size, it has {{size}} items.',
+    'Private items in your current version could not be decrypted, so the changes above leave them out. The restore replaces them, so it may remove items no count shows. By size, your current version has {{size}} items.':
+      'Private items in your current version could not be decrypted, so the changes above leave them out. The restore replaces them, so it may remove items no count shows. By size, your current version has {{size}} items.',
+    'This restores your NIP-4e encryption keys. Clients will encrypt direct messages to them again.':
+      'This restores your NIP-4e encryption keys. Clients will encrypt direct messages to them again.',
+    'This announces that you no longer use NIP-4e; clients stop encrypting direct messages to your keys.':
+      'This announces that you no longer use NIP-4e; clients stop encrypting direct messages to your keys.',
+    'The current empty state announces that you do not use NIP-4e.':
+      'The current empty state announces that you do not use NIP-4e.',
+    'Your current version lists keys that clients encrypt direct messages to.':
+      'Your current version lists keys that clients encrypt direct messages to.',
+    'I intend this change': 'I intend this change',
+    'I understand this can remove items I have now':
+      'I understand this can remove items I have now',
+    'Follows the': 'Follows the',
+    'recovery spec (0.6.2-draft).': 'recovery spec (0.6.2-draft).'
   }
 }
