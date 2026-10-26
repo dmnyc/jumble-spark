@@ -5,6 +5,7 @@ import { useFetchPollResults } from '@/hooks/useFetchPollResults'
 import { createPollResponseDraftEvent } from '@/lib/draft-event'
 import { formatError } from '@/lib/error'
 import { getPollMetadataFromEvent } from '@/lib/event-metadata'
+import { getPollResponseRelayUrls } from '@/lib/poll'
 import { cn, isPartiallyInViewport } from '@/lib/utils'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
@@ -19,7 +20,7 @@ import { toast } from 'sonner'
 export default function Poll({ event, className }: { event: Event; className?: string }) {
   const { t } = useTranslation()
   const translatedEvent = useTranslatedEvent(event.id)
-  const { pubkey, publish, startLogin } = useNostr()
+  const { pubkey, relayList, publish, startLogin } = useNostr()
   const [isVoting, setIsVoting] = useState(false)
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([])
   const pollResults = useFetchPollResults(event.id)
@@ -73,7 +74,8 @@ export default function Poll({ event, className }: { event: Event; className?: s
   const fetchResults = async () => {
     setIsLoadingResults(true)
     try {
-      const relays = await ensurePollRelays(event.pubkey, poll)
+      const pollRelays = await ensurePollRelays(event.pubkey, poll)
+      const relays = getPollResponseRelayUrls(pollRelays, relayList?.write)
       return await pollResultsService.fetchResults(
         event.id,
         relays,
