@@ -133,7 +133,7 @@ function formatConversionSide(side: ConversionSide): string {
   if (isBitcoinAsset(side.asset)) return `${Number(side.amount).toLocaleString()} sats`
   return formatTokenAmount({
     ticker: side.asset.ticker,
-    amount: side.amount,
+    amount: side.amount.toString(),
     decimals: side.asset.decimals
   })
 }

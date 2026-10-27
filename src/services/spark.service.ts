@@ -602,7 +602,7 @@ class SparkService {
       const response = await this.sdk.claimDeposit({
         txid,
         vout,
-        maxFee: { type: 'fixed', amount: maxFeeSats }
+        maxFee: { onchain: { type: 'fixed', amount: maxFeeSats } }
       })
       console.log('[SparkService] Deposit claim outcome:', response.outcome.type)
       return response.outcome
