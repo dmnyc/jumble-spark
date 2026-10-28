@@ -294,8 +294,7 @@ describe('getDepositStatus', () => {
         type: 'maxDepositClaimFeeExceeded',
         tx: 'tx',
         vout: 0,
-        requiredFeeSats: 812,
-        requiredFeeRateSatPerVbyte: 8
+        requiredFeeSats: 812
       }
     })
     expect(getDepositStatus(d)).toEqual({ type: 'needsClaim', requiredFeeSats: 812 })
