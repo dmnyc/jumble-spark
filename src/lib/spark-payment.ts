@@ -57,6 +57,14 @@ export function formatTokenAmount(asset: TSparkPaymentAsset): string {
 }
 
 /**
+ * JSON.stringify for SDK objects. The WASM API returns u64/u128 fields as
+ * bigint, which plain JSON.stringify rejects with a TypeError.
+ */
+export function stringifySdkObject(value: unknown, space?: number): string {
+  return JSON.stringify(value, (_key, v) => (typeof v === 'bigint' ? v.toString() : v), space)
+}
+
+/**
  * Find the USDB entry in GetInfoResponse.tokenBalances. The SDK types it as a
  * Map, but tolerate the array/object shapes a WASM round-trip can produce.
  */
