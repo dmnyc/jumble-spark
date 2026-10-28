@@ -21,7 +21,12 @@ import initBreezSDK, {
   Seed,
   SendPaymentResponse
 } from '@breeztech/breez-sdk-spark/web'
-import { getStableTokenBalance, USDB_LABEL, USDB_TOKEN_IDENTIFIER } from '@/lib/spark-payment'
+import {
+  getStableTokenBalance,
+  stringifySdkObject,
+  USDB_LABEL,
+  USDB_TOKEN_IDENTIFIER
+} from '@/lib/spark-payment'
 
 export type TDrainPreparation = {
   prepareResponse: PrepareSendPaymentResponse
@@ -369,7 +374,7 @@ class SparkService {
       // Parse the input to determine what type it is
       console.log('[SparkService] Parsing payment input:', paymentRequest)
       const parsedInput = await this.sdk.parse(paymentRequest)
-      console.log('[SparkService] Parsed input:', JSON.stringify(parsedInput, null, 2))
+      console.log('[SparkService] Parsed input:', stringifySdkObject(parsedInput, 2))
       console.log('[SparkService] Parsed input type:', parsedInput.type)
 
       // Handle Lightning addresses via LNURL-Pay

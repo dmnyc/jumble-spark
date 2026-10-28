@@ -12,6 +12,7 @@ import {
   getOnchainFeeSats,
   getStableTokenBalance,
   normalizeBitcoinAddress,
+  stringifySdkObject,
   USDB_TOKEN_IDENTIFIER
 } from './spark-payment'
 
@@ -26,6 +27,21 @@ const btcToUsdb = {
     }
   ]
 }
+
+describe('stringifySdkObject', () => {
+  it('serializes bigint fields instead of throwing', () => {
+    expect(() => JSON.stringify({ amount: 21n })).toThrow(TypeError)
+    expect(JSON.parse(stringifySdkObject({ amount: 21n, nested: { fees: 2n }, ok: 'x' }))).toEqual({
+      amount: '21',
+      nested: { fees: '2' },
+      ok: 'x'
+    })
+  })
+
+  it('keeps the indentation argument', () => {
+    expect(stringifySdkObject({ a: 1n }, 2)).toBe('{\n  "a": "1"\n}')
+  })
+})
 
 describe('formatStableBalance', () => {
   it('formats a zero balance', () => {

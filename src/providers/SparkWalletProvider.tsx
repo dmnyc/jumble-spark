@@ -1,6 +1,7 @@
 import {
   EMPTY_STABLE_BALANCE,
   getStableTokenBalance,
+  stringifySdkObject,
   TStableBalance,
   USDB_LABEL
 } from '@/lib/spark-payment'
@@ -292,7 +293,7 @@ export function SparkWalletProvider({ children }: { children: React.ReactNode })
 
             if (isReceived && publish) {
               console.log('[SparkWalletProvider] Incoming payment received, checking for zap...')
-              console.log('[SparkWalletProvider] Payment object:', JSON.stringify(payment, null, 2))
+              console.log('[SparkWalletProvider] Payment object:', stringifySdkObject(payment, 2))
 
               // Check if this is a zap payment (has zap request in description)
               if (sparkZapReceipt.isZapPayment(payment)) {
