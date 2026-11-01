@@ -1,3 +1,5 @@
+import { isBlossomUri, parseBlossomUri } from './blossom-uri'
+
 export function isWebsocketUrl(url: string): boolean {
   try {
     const protocol = new URL(url).protocol
@@ -132,7 +134,12 @@ export function isLocalNetworkUrl(urlString: string): boolean {
     const hostname = url.hostname
 
     // Check if it's localhost or an mDNS .local hostname (e.g. umbrel.local)
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname.endsWith('.local')) {
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname.endsWith('.local')
+    ) {
       return true
     }
 
@@ -167,11 +174,41 @@ export function isLocalNetworkUrl(urlString: string): boolean {
   }
 }
 
+const BLOSSOM_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'svg'])
+const BLOSSOM_MEDIA_EXTENSIONS = new Set([
+  'mp4',
+  'webm',
+  'ogg',
+  'mov',
+  'mp3',
+  'wav',
+  'flac',
+  'aac',
+  'm4a',
+  'opus',
+  'wma',
+  '3gp'
+])
+
+// BUD-10 `blossom:` URIs carry their extension in the reference part (before
+// the query, which holds dotted server hints), so the ends-with and pathname
+// tests would both misfire on them — classification goes through the parser.
+function hasBlossomExtension(url: string, extensions: Set<string>): boolean {
+  const ext = parseBlossomUri(url)?.ext
+  return ext !== null && extensions.has(ext ?? '')
+}
+
 export function isImage(url: string) {
+  if (isBlossomUri(url)) {
+    return hasBlossomExtension(url, BLOSSOM_IMAGE_EXTENSIONS)
+  }
   return checkFileExtension(url, ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.svg'])
 }
 
 export function isMedia(url: string) {
+  if (isBlossomUri(url)) {
+    return hasBlossomExtension(url, BLOSSOM_MEDIA_EXTENSIONS)
+  }
   return checkFileExtension(url, [
     '.mp4',
     '.webm',

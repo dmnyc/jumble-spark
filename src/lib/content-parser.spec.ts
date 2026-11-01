@@ -162,3 +162,49 @@ describe('bare domains', () => {
     expect(bareUrls('write to hello@jumble.social')).toEqual([])
   })
 })
+
+describe('BUD-10 blossom references', () => {
+  // The note renderer's full parser order, including the bare-domain pass.
+  const NOTE_PARSERS = [
+    EmbeddedEventParser,
+    EmbeddedMentionParser,
+    EmbeddedUrlParser,
+    EmbeddedLNInvoiceParser,
+    EmbeddedWebsocketUrlParser,
+    EmbeddedLegacyEventParser,
+    EmbeddedLegacyMentionParser,
+    EmbeddedHashtagParser,
+    EmbeddedEmojiParser,
+    EmbeddedBareDomainParser
+  ]
+  const parseNote = (content: string) => parseContent(content, NOTE_PARSERS)
+
+  const FIELD_URI =
+    'blossom:d819b922fbbf3a47e606dab12a6c316b9a0445ff4aa69d749d638ce83884cf1c.jpg' +
+    '?xs=blossom.laantungir.net&xs=cdn.satellite.earth&xs=blossom.primal.net' +
+    '&as=1ec454734dcbf6fe54901ce25c0c7c6bca5edd89443416761fadc321d38df139&sz=117475'
+
+  it('renders a blossom image reference as one image node, query included', () => {
+    const content = `photo incoming\n${FIELD_URI}`
+    expect(parseNote(content)).toEqual([
+      { type: 'text', data: 'photo incoming' },
+      { type: 'images', data: [FIELD_URI] }
+    ])
+  })
+
+  it('renders a blossom video reference as a media node', () => {
+    const uri = `blossom:${'a'.repeat(64)}.mp4?xs=cdn.example.com`
+    expect(parseNote(uri)).toEqual([{ type: 'media', data: uri }])
+  })
+
+  it('renders an ext-less blossom reference as a plain url node', () => {
+    const uri = `blossom:${'a'.repeat(64)}`
+    expect(parseNote(uri)).toEqual([{ type: 'url', data: uri }])
+  })
+
+  it('never linkifies the dotted server hints inside the URI', () => {
+    const nodes = parseNote(`nice chair\n${FIELD_URI} enjoy`)
+    expect(nodes.filter((n) => n.type === 'bare-url')).toEqual([])
+    expect(nodes).toContainEqual({ type: 'images', data: [FIELD_URI] })
+  })
+})

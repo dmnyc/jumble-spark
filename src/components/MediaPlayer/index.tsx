@@ -1,3 +1,4 @@
+import { isBlossomUri } from '@/lib/blossom-uri'
 import { cn } from '@/lib/utils'
 import { useContentPolicy } from '@/providers/ContentPolicyProvider'
 import blossomService from '@/services/blossom.service'
@@ -86,7 +87,10 @@ export default function MediaPlayer({
         return
       }
 
-      let probeUrl = pubkey ? await blossomService.getValidUrl(src, pubkey) : src
+      // A BUD-10 `blossom:` URI resolves against its own server hints, so it
+      // needs the service even without a pubkey.
+      let probeUrl =
+        pubkey || isBlossomUri(src) ? await blossomService.getValidUrl(src, pubkey) : src
       if (cancelled) return
 
       while (!cancelled) {
