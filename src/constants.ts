@@ -227,8 +227,10 @@ export const DEFAULT_FEED_TABS: TFeedTabConfig[] = [
   }
 ]
 
+// BUD-10 `blossom:` references are claimed whole (query hints included), so
+// the bare-domain pass can't linkify the dotted server hosts inside them.
 export const URL_REGEX =
-  /https?:\/\/[\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*()$,;'|[\]^]+[^\s.,;:'"(\]}!?，。；："'！？】）]/giu
+  /(?:https?:\/\/|blossom:)[\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*()$,;'|[\]^]+[^\s.,;:'"(\]}!?，。；："'！？】）]/giu
 export const WS_URL_REGEX =
   /wss?:\/\/[\w\p{L}\p{N}\p{M}&.\-/?=#@%+_:!~*()$,;'|[\]^]+[^\s.,;:'"(\]}!?，。；："'！？】）]/giu
 export const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/

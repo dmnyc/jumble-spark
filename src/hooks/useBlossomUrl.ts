@@ -1,3 +1,4 @@
+import { isBlossomUri } from '@/lib/blossom-uri'
 import { isInsecureUrl } from '@/lib/url'
 import { useUserPreferences } from '@/providers/UserPreferencesProvider'
 import blossomService from '@/services/blossom.service'
@@ -8,6 +9,9 @@ const FALLBACK_TIMEOUT_MS = 5000
 function computeInitial(src: string, pubkey: string | undefined, allowInsecureConnection: boolean) {
   if (!allowInsecureConnection && isInsecureUrl(src)) {
     return { url: undefined, error: true }
+  }
+  if (isBlossomUri(src)) {
+    return { url: blossomService.peekValidUrl(src), error: false }
   }
   if (!pubkey) {
     return { url: src, error: false }
@@ -27,7 +31,9 @@ export function useBlossomUrl(src: string, pubkey?: string) {
       return
     }
 
-    if (!pubkey) {
+    // A BUD-10 `blossom:` URI resolves against its own server hints, so it
+    // needs the service even without a pubkey.
+    if (!pubkey && !isBlossomUri(src)) {
       setState({ url: src, error: false })
       return
     }
