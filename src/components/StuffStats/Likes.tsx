@@ -8,6 +8,7 @@ import {
 import { formatError } from '@/lib/error'
 import { getDefaultRelayUrls } from '@/lib/relay'
 import { cn } from '@/lib/utils'
+import { useMuteList } from '@/providers/MuteListProvider'
 import { useNostr } from '@/providers/NostrProvider'
 import client from '@/services/client.service'
 import stuffStatsService from '@/services/stuff-stats.service'
@@ -28,6 +29,7 @@ export default function Likes({
   contentClassName?: string
 }) {
   const { pubkey, checkLogin, publish } = useNostr()
+  const { mutePubkeySet } = useMuteList()
   const { event, externalContent, stuffKey } = useStuff(stuff)
   const noteStats = useStuffStatsById(stuffKey)
   const [liking, setLiking] = useState<string | null>(null)
@@ -36,7 +38,7 @@ export default function Likes({
   const [isCompleted, setIsCompleted] = useState<string | null>(null)
 
   const likes = useMemo(() => {
-    const _likes = noteStats?.likes
+    const _likes = noteStats?.likes?.filter((item) => !mutePubkeySet.has(item.pubkey))
     if (!_likes) return []
 
     const stats = new Map<string, { key: string; emoji: TEmoji | string; pubkeys: Set<string> }>()
@@ -48,7 +50,7 @@ export default function Likes({
       stats.get(key)?.pubkeys.add(item.pubkey)
     })
     return Array.from(stats.values()).sort((a, b) => b.pubkeys.size - a.pubkeys.size)
-  }, [noteStats, event])
+  }, [noteStats, event, mutePubkeySet])
 
   if (!likes.length) return null
 
