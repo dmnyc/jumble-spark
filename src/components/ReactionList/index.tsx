@@ -3,6 +3,7 @@ import { SPECIAL_TRUST_SCORE_FILTER_ID } from '@/constants'
 import { useStuff } from '@/hooks/useStuff'
 import { useStuffStatsById } from '@/hooks/useStuffStatsById'
 import { toNote } from '@/lib/link'
+import { useMuteList } from '@/providers/MuteListProvider'
 import { useScreenSize } from '@/providers/ScreenSizeProvider'
 import { useUserTrust } from '@/providers/UserTrustProvider'
 import { TEmoji } from '@/types'
@@ -23,6 +24,7 @@ export default function ReactionList({ stuff }: { stuff: Event | string }) {
   const { push } = useSecondaryPage()
   const { isSmallScreen } = useScreenSize()
   const { getMinTrustScore, meetsMinTrustScore } = useUserTrust()
+  const { mutePubkeySet } = useMuteList()
   const { stuffKey } = useStuff(stuff)
   const noteStats = useStuffStatsById(stuffKey)
   const [filteredLikes, setFilteredLikes] = useState<
@@ -37,7 +39,7 @@ export default function ReactionList({ stuff }: { stuff: Event | string }) {
 
   useEffect(() => {
     const filterLikes = async () => {
-      const likes = noteStats?.likes ?? []
+      const likes = (noteStats?.likes ?? []).filter((like) => !mutePubkeySet.has(like.pubkey))
       const filtered: {
         id: string
         eventId: string
@@ -61,7 +63,7 @@ export default function ReactionList({ stuff }: { stuff: Event | string }) {
       setFilteredLikes(filtered)
     }
     filterLikes()
-  }, [noteStats, stuffKey, getMinTrustScore, meetsMinTrustScore])
+  }, [noteStats, stuffKey, mutePubkeySet, getMinTrustScore, meetsMinTrustScore])
 
   const [showCount, setShowCount] = useState(SHOW_COUNT)
   const bottomRef = useRef<HTMLDivElement | null>(null)
